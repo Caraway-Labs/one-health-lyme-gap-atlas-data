@@ -14,6 +14,41 @@ from .bundle import EXPECTED_SHA256, load_bundle
 
 SQL_DIR = Path(__file__).resolve().parents[2] / "sql"
 
+COUNTY_STAGE_TABLE_SQL = """CREATE OR REPLACE TEMPORARY TABLE LANDING.COUNTY_ATLAS_LOAD_TMP (
+    RELEASE_ID VARCHAR, FIPS VARCHAR(5), COUNTY VARCHAR, STATE VARCHAR(2), STATE_NAME VARCHAR,
+    POPULATION NUMBER, IN_CONTIGUOUS_TICK_SCOPE BOOLEAN, HUMAN_STATUS VARCHAR,
+    CASE_COUNT_FLOOR_2023 NUMBER, INCIDENCE_FLOOR_2023 FLOAT,
+    STATE_UNALLOCATED_RECORDS_2023 NUMBER, TICK_STATUS VARCHAR, SCAPULARIS_STATUS VARCHAR,
+    PACIFICUS_STATUS VARCHAR, BURGDORFERI_STATUS VARCHAR, SVI_PERCENTILE FLOAT,
+    UNINSURED_PERCENTILE FLOAT, UNINSURED_PERCENT FLOAT, RUCC_2023 NUMBER,
+    EVIDENCE_COMPLETENESS NUMBER, DEFAULT_SCORE_TEXT VARCHAR, GEOMETRY_JSON_TEXT VARCHAR
+)"""
+
+COUNTY_STAGE_INSERT_SQL = (
+    "INSERT INTO LANDING.COUNTY_ATLAS_LOAD_TMP "
+    "(RELEASE_ID,FIPS,COUNTY,STATE,STATE_NAME,POPULATION,IN_CONTIGUOUS_TICK_SCOPE,"
+    "HUMAN_STATUS,CASE_COUNT_FLOOR_2023,INCIDENCE_FLOOR_2023,"
+    "STATE_UNALLOCATED_RECORDS_2023,TICK_STATUS,SCAPULARIS_STATUS,PACIFICUS_STATUS,"
+    "BURGDORFERI_STATUS,SVI_PERCENTILE,UNINSURED_PERCENTILE,UNINSURED_PERCENT,"
+    "RUCC_2023,EVIDENCE_COMPLETENESS,DEFAULT_SCORE_TEXT,GEOMETRY_JSON_TEXT) VALUES "
+    "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+    "%s,%s)"
+)
+
+COUNTY_FINALIZE_SQL = """INSERT INTO LANDING.COUNTY_ATLAS
+    (RELEASE_ID,FIPS,COUNTY,STATE,STATE_NAME,POPULATION,IN_CONTIGUOUS_TICK_SCOPE,
+     HUMAN_STATUS,CASE_COUNT_FLOOR_2023,INCIDENCE_FLOOR_2023,
+     STATE_UNALLOCATED_RECORDS_2023,TICK_STATUS,SCAPULARIS_STATUS,PACIFICUS_STATUS,
+     BURGDORFERI_STATUS,SVI_PERCENTILE,UNINSURED_PERCENTILE,UNINSURED_PERCENT,
+     RUCC_2023,EVIDENCE_COMPLETENESS,DEFAULT_SCORE,GEOMETRY_JSON,GEOGRAPHY)
+    SELECT RELEASE_ID,FIPS,COUNTY,STATE,STATE_NAME,POPULATION,IN_CONTIGUOUS_TICK_SCOPE,
+           HUMAN_STATUS,CASE_COUNT_FLOOR_2023,INCIDENCE_FLOOR_2023,
+           STATE_UNALLOCATED_RECORDS_2023,TICK_STATUS,SCAPULARIS_STATUS,PACIFICUS_STATUS,
+           BURGDORFERI_STATUS,SVI_PERCENTILE,UNINSURED_PERCENTILE,UNINSURED_PERCENT,
+           RUCC_2023,EVIDENCE_COMPLETENESS,PARSE_JSON(DEFAULT_SCORE_TEXT),
+           PARSE_JSON(GEOMETRY_JSON_TEXT),TO_GEOGRAPHY(PARSE_JSON(GEOMETRY_JSON_TEXT), TRUE)
+    FROM LANDING.COUNTY_ATLAS_LOAD_TMP"""
+
 
 def _execute_statements(connection: SnowflakeConnection, sql: str) -> None:
     with connection.cursor() as cursor:
@@ -58,7 +93,6 @@ def _county_rows(bundle: dict[str, Any]) -> Iterable[tuple[Any, ...]]:
             p["evidence_completeness"],
             json.dumps(p["default"], separators=(",", ":")),
             geometry,
-            geometry,
         )
 
 
@@ -73,6 +107,9 @@ def load(settings: SnowflakeSettings, release: str, dry_run: bool = False) -> No
         connection.autocommit(False)
         try:
             with connection.cursor() as cursor:
+                # Bulk bind raw JSON text first; Snowflake does not permit PARSE_JSON
+                # expressions in the connector's rewritten multi-row VALUES clause.
+                cursor.execute(COUNTY_STAGE_TABLE_SQL)
                 cursor.execute(
                     "DELETE FROM LANDING.SOURCE_METADATA WHERE RELEASE_ID = %s", (release,)
                 )
@@ -112,16 +149,10 @@ def load(settings: SnowflakeSettings, release: str, dry_run: bool = False) -> No
                     "INSERT INTO LANDING.SOURCE_METADATA VALUES (%s,%s,%s,%s,%s,%s)", source_rows
                 )
                 cursor.executemany(
-                    """INSERT INTO LANDING.COUNTY_ATLAS
-                    (RELEASE_ID,FIPS,COUNTY,STATE,STATE_NAME,POPULATION,IN_CONTIGUOUS_TICK_SCOPE,
-                     HUMAN_STATUS,CASE_COUNT_FLOOR_2023,INCIDENCE_FLOOR_2023,
-                     STATE_UNALLOCATED_RECORDS_2023,TICK_STATUS,SCAPULARIS_STATUS,PACIFICUS_STATUS,
-                     BURGDORFERI_STATUS,SVI_PERCENTILE,UNINSURED_PERCENTILE,UNINSURED_PERCENT,
-                     RUCC_2023,EVIDENCE_COMPLETENESS,DEFAULT_SCORE,GEOMETRY_JSON,GEOGRAPHY)
-                    SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                           PARSE_JSON(%s),PARSE_JSON(%s),TO_GEOGRAPHY(PARSE_JSON(%s))""",
+                    COUNTY_STAGE_INSERT_SQL,
                     list(_county_rows(bundle)),
                 )
+                cursor.execute(COUNTY_FINALIZE_SQL)
                 cursor.execute("UPDATE LANDING.DATASET_RELEASE SET IS_CURRENT = FALSE")
                 cursor.execute(
                     "UPDATE LANDING.DATASET_RELEASE SET IS_CURRENT = TRUE WHERE RELEASE_ID = %s",
