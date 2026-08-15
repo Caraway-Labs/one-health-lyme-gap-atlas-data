@@ -27,7 +27,7 @@ def provision(settings: SnowflakeSettings, dry_run: bool = False) -> None:
     if dry_run:
         print(sql)
         return
-    with connect(settings) as connection:
+    with connect(settings, include_database=False) as connection:
         _execute_statements(connection, sql)
 
 
