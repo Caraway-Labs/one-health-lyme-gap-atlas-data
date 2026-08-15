@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "one-health-lyme-gap-atlas-data"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "one-health-lyme-gap-atlas-shared @ git+https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-shared-python.git@v0.1.0",
+  "typer>=0.15,<1",
+]
+
+[project.scripts]
+atlas-data = "lyme_gap_atlas_data.cli:app"
+
+[project.optional-dependencies]
+dev = ["mypy>=1.14,<2", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lyme_gap_atlas_data"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["lyme_gap_atlas_data"]

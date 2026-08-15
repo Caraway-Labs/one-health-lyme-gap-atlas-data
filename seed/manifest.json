@@ -1,0 +1,10 @@
+{
+  "release_id": "alpha-2026-08-06",
+  "schema_version": "0.2.0",
+  "generated_at": "2026-08-06T05:37:16Z",
+  "file": "atlas-v0.2.0.json.gz",
+  "uncompressed_sha256": "dd7408c7ce0f8c55623c3319cec813c0e28f3b0c81929197b1958f2a4a47be7c",
+  "county_count": 3144,
+  "methodology_version": "alpha-0.2.0"
+}
+
