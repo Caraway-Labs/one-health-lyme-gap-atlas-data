@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 dist/
 build/
+dbt/.user.yml
+dbt/logs/
+dbt/target/
