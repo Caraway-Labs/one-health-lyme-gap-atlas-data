@@ -1,0 +1,34 @@
+USE DATABASE ONE_HEALTH_LYME_GAP_ATLAS_DEV;
+CREATE TABLE IF NOT EXISTS RAW.CDC_LYME_X5J9_WYBP (
+  payload VARIANT NOT NULL,
+  data_source_version_id VARCHAR NOT NULL,
+  ingestion_run_id VARCHAR NOT NULL,
+  artifact_id VARCHAR NOT NULL,
+  source_url VARCHAR NOT NULL,
+  redacted_source_query VARCHAR,
+  source_record_id VARCHAR,
+  source_row_hash VARCHAR(64) NOT NULL,
+  publisher_updated_at TIMESTAMP_LTZ,
+  retrieved_at TIMESTAMP_LTZ NOT NULL,
+  snowflake_loaded_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
+);
+CREATE OR REPLACE VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE AS
+SELECT a.resource_key, a.overall_score, a.recommendation, a.assessment_status,
+       MAX(d.decided_at) AS latest_decision_at
+FROM GOVERNANCE.DATASET_QUALITY_ASSESSMENTS a
+LEFT JOIN GOVERNANCE.MANUAL_REVIEW_DECISIONS d USING (resource_key)
+GROUP BY a.resource_key, a.overall_score, a.recommendation, a.assessment_status;
+CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION(
+  RESOURCE_KEY VARCHAR, DECISION VARCHAR, RATIONALE VARCHAR, CONDITIONS VARIANT, REVIEWER_USERNAME VARCHAR
+)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+  INSERT INTO GOVERNANCE.MANUAL_REVIEW_DECISIONS
+    (manual_review_decision_id, resource_key, decision, rationale, conditions, reviewer_username, decided_at)
+  VALUES (UUID_STRING(), :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS, :REVIEWER_USERNAME, CURRENT_TIMESTAMP());
+  RETURN 'RECORDED';
+END;
+$$;

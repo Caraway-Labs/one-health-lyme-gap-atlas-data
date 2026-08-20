@@ -1,0 +1,23 @@
+name: Deploy DEV governed pipeline
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    environment: dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra dev --extra pipeline
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+      - run: uv run pytest -q
+      - run: uv run dbt parse --project-dir dbt
+      - run: docker build -t one-health-lyme-gap-atlas-data .
+      - name: Capability preflight
+        run: snow sql -c "$SNOWFLAKE_CONNECTION" -q "SELECT CURRENT_ACCOUNT()" --format JSON
+        env:
+          SNOWFLAKE_CONNECTION: ${{ secrets.SNOWFLAKE_CONNECTION }}

@@ -43,4 +43,3 @@ def validate_bundle(bundle: dict[str, Any]) -> None:
             raise ValueError(f"Missing-human county {properties['fips']} contains a case value")
         if not 0 <= properties["default"]["score"] <= 100:
             raise ValueError(f"County {properties['fips']} has an invalid score")
-

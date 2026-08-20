@@ -7,7 +7,9 @@ name = "one-health-lyme-gap-atlas-data"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-  "one-health-lyme-gap-atlas-shared @ git+https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-shared-python.git@v0.1.2",
+  "boto3>=1.35,<2",
+  "one-health-lyme-gap-atlas-shared @ git+https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-shared-python.git@v0.1.4",
+  "PyYAML>=6.0,<7",
   "typer>=0.15,<1",
 ]
 
@@ -16,6 +18,7 @@ atlas-data = "lyme_gap_atlas_data.cli:app"
 
 [project.optional-dependencies]
 dev = ["mypy>=1.14,<2", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+pipeline = ["dbt-snowflake>=1.9,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lyme_gap_atlas_data"]

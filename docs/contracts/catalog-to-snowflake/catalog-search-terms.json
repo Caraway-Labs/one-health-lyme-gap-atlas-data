@@ -1,0 +1,70 @@
+{
+  "$schema_version": "1.0",
+  "purpose": "Version-controlled search input for catalog discovery. Every enabled term is searched independently in every enabled discovery catalog; catalog-specific terms are added to the shared term groups.",
+  "ownership": "Data steward",
+  "change_control": "Changes require pull-request review and create a new discovery configuration version.",
+  "initially_enabled_term_group_ids": [
+    "lyme_surveillance",
+    "tick_vector_surveillance",
+    "climate_weather_seasonality",
+    "habitat_land_cover_ecology",
+    "wildlife_reservoir_ecology",
+    "geography_demographics_sdoh"
+  ],
+  "catalogs": [
+    {
+      "catalog_id": "DATA_GOV",
+      "display_name": "Data.gov Catalog API v4",
+      "enabled": true,
+      "search_endpoint": "https://api.gsa.gov/technology/datagov/v4/search",
+      "request_method": "GET",
+      "authentication": { "mode": "API_KEY", "env_var": "DATA_GOV_API_KEY", "header_name": "X-Api-Key" },
+      "pagination": { "strategy": "CURSOR", "request_parameter": "after", "response_field": "after", "page_size_parameter": "per_page", "page_size": 100 },
+      "search_parameter": "q",
+      "search_term_group_ids": ["lyme_surveillance", "tick_vector_surveillance", "climate_weather_seasonality", "habitat_land_cover_ecology", "wildlife_reservoir_ecology", "geography_demographics_sdoh", "healthcare_utilization", "claims_care_pathways", "symptoms_invisible_illness", "disability_work_function", "mental_behavioral_health", "related_conditions", "diagnostics_medications_treatment", "public_health_capacity_access", "outdoor_exposure_recreation"],
+      "catalog_specific_terms": ["Lyme surveillance", "Lyme economic burden", "Lyme climate", "NNDSS Lyme", "county AND Lyme", "surveillance AND tick"]
+    },
+    {
+      "catalog_id": "HEALTHDATA_GOV",
+      "display_name": "HealthData.gov (HHS Socrata catalog)",
+      "enabled": true,
+      "search_endpoint": "https://api.us.socrata.com/api/catalog/v1",
+      "request_method": "GET",
+      "authentication": { "mode": "APP_TOKEN_OPTIONAL", "env_var": "SOCRATA_APP_TOKEN", "header_name": "X-App-Token" },
+      "fixed_query_parameters": { "search_context": "healthdata.gov" },
+      "pagination": { "strategy": "OFFSET_LIMIT", "request_parameters": { "limit": 100, "offset": "{{offset}}" }, "stop_condition": "returned_results_less_than_limit" },
+      "search_parameter": "q",
+      "search_term_group_ids": ["lyme_surveillance", "tick_vector_surveillance", "climate_weather_seasonality", "habitat_land_cover_ecology", "wildlife_reservoir_ecology", "geography_demographics_sdoh", "healthcare_utilization", "claims_care_pathways", "symptoms_invisible_illness", "disability_work_function", "mental_behavioral_health", "related_conditions", "diagnostics_medications_treatment", "public_health_capacity_access", "outdoor_exposure_recreation"],
+      "catalog_specific_terms": ["Lyme disease public use", "Lyme disease geography", "Lyme line-listed", "CDC PLACES county", "tick-borne disease", "infectious disease surveillance"]
+    },
+    {
+      "catalog_id": "SOCRATA_ODN",
+      "display_name": "Socrata Open Data Network / Discovery API",
+      "enabled": true,
+      "search_endpoint": "https://api.us.socrata.com/api/catalog/v1",
+      "request_method": "GET",
+      "authentication": { "mode": "APP_TOKEN_OPTIONAL", "env_var": "SOCRATA_APP_TOKEN", "header_name": "X-App-Token" },
+      "pagination": { "strategy": "OFFSET_LIMIT", "request_parameters": { "limit": 100, "offset": "{{offset}}" }, "stop_condition": "returned_results_less_than_limit" },
+      "search_parameter": "q",
+      "search_term_group_ids": ["lyme_surveillance", "tick_vector_surveillance", "climate_weather_seasonality", "habitat_land_cover_ecology", "wildlife_reservoir_ecology", "geography_demographics_sdoh", "healthcare_utilization", "claims_care_pathways", "symptoms_invisible_illness", "disability_work_function", "mental_behavioral_health", "related_conditions", "diagnostics_medications_treatment", "public_health_capacity_access", "outdoor_exposure_recreation"],
+      "catalog_specific_terms": ["Lyme", "deer tick", "blacklegged tick", "tick surveillance", "nymphal density", "Borrelia", "Borrelia burgdorferi", "tick risk", "Ixodes"]
+    }
+  ],
+  "term_groups": [
+    {"id":"lyme_surveillance","enabled_initially":true,"terms":["Lyme disease","Lyme borreliosis","Borrelia burgdorferi","Borrelia mayonii","tickborne disease","tick-borne disease","Lyme surveillance","notifiable disease","case surveillance","reportable disease","confirmed case","probable case","NNDSS","ArboNET","case definition","seroprevalence","Lyme laboratory testing","Lyme diagnosis","Lyme treatment"]},
+    {"id":"tick_vector_surveillance","enabled_initially":true,"terms":["tick surveillance","vector surveillance","Ixodes scapularis","Ixodes pacificus","blacklegged tick","deer tick","tick distribution","tick abundance","tick density","tick collection","tick testing","tick pathogen","vector-borne disease","vector ecology","arthropod surveillance","entomological surveillance","Borrelia prevalence","Anaplasma","Babesia","Powassan","Ehrlichia"]},
+    {"id":"climate_weather_seasonality","enabled_initially":true,"terms":["climate","climate change","temperature","minimum temperature","maximum temperature","precipitation","humidity","soil moisture","drought","snow cover","growing degree days","seasonality","seasonal climate","weather station","meteorological observations","NOAA climate data","NCEI","PRISM climate","daily weather","climate normals"]},
+    {"id":"habitat_land_cover_ecology","enabled_initially":true,"terms":["tick habitat","suitable habitat","land cover","land use","forest cover","deciduous forest","mixed forest","woodland","vegetation","NDVI","remote sensing","ecological land units","wetlands","edge habitat","fragmentation","urbanization","rural land","public lands","parks","trail system"]},
+    {"id":"wildlife_reservoir_ecology","enabled_initially":true,"terms":["white-tailed deer","deer population","rodent surveillance","small mammal","Peromyscus","white-footed mouse","reservoir host","wildlife disease","wildlife surveillance","host abundance","animal movement","species distribution","biodiversity","invasive species","migratory birds","avian surveillance"]},
+    {"id":"geography_demographics_sdoh","enabled_initially":true,"terms":["county health","county population","census tract","ZIP Code","ZCTA","rural health","frontier health","health disparities","social determinants of health","SDOH","Area Deprivation Index","social vulnerability index","SVI","CDC PLACES","healthcare access","insurance coverage","poverty","broadband access","transportation access","primary care shortage","Health Professional Shortage Area","HPSA"]},
+    {"id":"healthcare_utilization","enabled_initially":false,"terms":["emergency department","ED visit","emergency room","hospital discharge","hospitalization","ambulatory care","outpatient visit","urgent care","healthcare utilization","syndromic surveillance","NSSP","National Syndromic Surveillance Program","HCUP","SUDORS","encounter data","admission diagnosis","discharge diagnosis","chief complaint"]},
+    {"id":"claims_care_pathways","enabled_initially":false,"terms":["medical claims","Medicare claims","Medicaid claims","CMS claims","utilization","healthcare cost","payment","reimbursement","diagnosis code","ICD-10","ICD-9","procedure code","CPT","HCPCS","provider specialty","care pathway","prescription drug event","Part D","Medicare beneficiary","Medicaid enrollment","A69.2","G93.3","R53.82","R52","G90.9"]},
+    {"id":"symptoms_invisible_illness","enabled_initially":false,"terms":["fatigue","chronic fatigue","post-exertional malaise","malaise","chronic pain","pain interference","widespread pain","sleep disturbance","insomnia","brain fog","cognitive impairment","memory impairment","concentration","dizziness","headache","migraine","joint pain","arthralgia","neuropathy","paresthesia","quality of life","patient reported outcome","PROMIS","functional status"]},
+    {"id":"disability_work_function","enabled_initially":false,"terms":["disability","functional limitation","activity limitation","activities of daily living","ADL","instrumental activities of daily living","IADL","work limitation","work disability","employment disability","workforce participation","absenteeism","presenteeism","sick leave","Social Security Disability","SSDI","SSI","vocational rehabilitation","mobility limitation","cognitive disability"]},
+    {"id":"mental_behavioral_health","enabled_initially":false,"terms":["mental health","behavioral health","depression","anxiety","psychological distress","serious psychological distress","suicide","substance use","sleep health","trauma","stress","social isolation","loneliness","mental health services","behavioral health access","SAMHSA","NSDUH","BRFSS","NHIS"]},
+    {"id":"related_conditions","enabled_initially":false,"terms":["Long COVID","PASC","post-acute sequelae","post-infectious syndrome","post-treatment Lyme disease syndrome","PTLDS","myalgic encephalomyelitis","ME/CFS","chronic fatigue syndrome","POTS","postural orthostatic tachycardia syndrome","dysautonomia","fibromyalgia","chronic pain","autoimmune disease","rheumatoid arthritis","multiple sclerosis","post-viral illness"]},
+    {"id":"diagnostics_medications_treatment","enabled_initially":false,"terms":["diagnostic testing","laboratory testing","serology","ELISA","enzyme immunoassay","EIA","Western blot","immunoblot","PCR","antibiotic","doxycycline","amoxicillin","cefuroxime","infectious disease treatment","clinical guideline","treatment guideline","prescription drug","adverse event","FAERS","Drug Safety","FDA Sentinel"]},
+    {"id":"public_health_capacity_access","enabled_initially":false,"terms":["public health workforce","public health laboratory","laboratory capacity","disease reporting","epidemiology workforce","health department","healthcare provider","primary care","infectious disease specialist","rheumatology","neurology","healthcare shortage","provider directory","provider availability","telehealth","rural hospital","healthcare access","health insurance"]},
+    {"id":"outdoor_exposure_recreation","enabled_initially":false,"terms":["outdoor recreation","recreation visitation","park visitation","national park","public lands","hiking","camping","trail use","hunting","occupational exposure","outdoor worker","agricultural worker","forestry worker","landscape worker","tick bite","personal protective behavior","health communication","tick prevention"]}
+  ]
+}

@@ -1,0 +1,14 @@
+lyme_gap_atlas_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', 'placeholder') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', 'placeholder') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'OH_LYME_DEV_PIPELINE_RUNTIME') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'OH_LYME_DEV_INGEST_XS_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'ONE_HEALTH_LYME_GAP_ATLAS_DEV') }}"
+      schema: STAGING
+      authenticator: jwt
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', 'placeholder') }}"
+      threads: 1

@@ -1,6 +1,7 @@
 """Operator CLI for the MVP Snowflake release."""
 
 import json
+from pathlib import Path
 
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
@@ -10,8 +11,14 @@ from .database import load as load_release
 from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
+from .discovery import initial_requests, load_search_configuration
+from .orchestration import run_discovery
+from .preflight import run_preflight
+from .settings import PipelineSettings
 
 app = typer.Typer(no_args_is_help=True)
+pipeline_app = typer.Typer(no_args_is_help=True)
+app.add_typer(pipeline_app, name="pipeline")
 
 
 def _settings() -> SnowflakeSettings:
@@ -54,3 +61,33 @@ def status(dry_run: bool = typer.Option(False, "--dry-run")) -> None:
         typer.echo("Would read dataset release status from Snowflake")
         return
     typer.echo(json.dumps(database_status(_settings()), default=str, indent=2))
+
+
+@pipeline_app.command("config-check")
+def config_check(path: str = typer.Option("catalog-search-terms.json", "--path")) -> None:
+    """Validate discovery input and print only its checksum and request count."""
+    config, checksum = load_search_configuration(Path(path))
+    typer.echo(json.dumps({"checksum": checksum, "request_count": len(initial_requests(config))}))
+
+
+@pipeline_app.command("settings-check")
+def settings_check() -> None:
+    """Validate isolated DEV settings without printing secret values."""
+    settings = PipelineSettings()
+    typer.echo(
+        json.dumps({"environment": settings.topx_env, "database": settings.snowflake_database})
+    )
+
+
+@pipeline_app.command("preflight")
+def preflight() -> None:
+    """Verify DEV configuration and bounded external connectivity safely."""
+    typer.echo(json.dumps(run_preflight()))
+
+
+@pipeline_app.command("discover")
+def discover(
+    max_requests: int | None = typer.Option(None, "--max-requests", min=1),
+) -> None:
+    """Persist catalog metadata only; it never ingests a source resource."""
+    typer.echo(json.dumps(run_discovery(maximum_requests=max_requests)))

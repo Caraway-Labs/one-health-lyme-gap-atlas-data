@@ -1,0 +1,10 @@
+name: lyme_gap_atlas_pipeline
+version: "1.0.0"
+config-version: 2
+profile: lyme_gap_atlas_pipeline
+model-paths: [models]
+test-paths: [tests]
+models:
+  lyme_gap_atlas_pipeline:
+    staging: {+schema: STAGING}
+    conformed: {+schema: CONFORMED}

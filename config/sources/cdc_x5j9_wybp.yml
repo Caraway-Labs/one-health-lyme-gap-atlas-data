@@ -1,0 +1,18 @@
+resource_key: cdc_lyme_x5j9_wybp
+profile_version: 1
+platform_type: SOCRATA_SODA2
+endpoint_template: https://data.cdc.gov/resource/x5j9-wybp.json
+metadata_endpoint_template: https://data.cdc.gov/api/views/x5j9-wybp
+deterministic_order_clause: ":id ASC"
+incremental_strategy: FULL_REFRESH
+expected_refresh_cadence: annual
+geography_semantics: COUNTY_OF_RESIDENCE
+temporal_semantics: surveillance_year
+restrictions:
+  - Preserve the 2022-current surveillance era separately.
+  - Do not join non-geographic line-listed CDC resources to county facts.
+quality_rules:
+  - rule_id: cdc_x5j9_required_geography
+    severity: BLOCKING
+  - rule_id: cdc_x5j9_value_state_preservation
+    severity: BLOCKING

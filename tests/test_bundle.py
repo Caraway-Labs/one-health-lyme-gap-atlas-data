@@ -13,4 +13,3 @@ def test_bundle_preserves_missing_human_semantics() -> None:
     missing = [f for f in features if f["properties"]["human_status"] == "no_county_linked_record"]
     assert missing
     assert all(f["properties"]["case_count_floor_2023"] is None for f in missing)
-

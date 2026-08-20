@@ -1,0 +1,7 @@
+definition_version: 2
+entities:
+  source_approval_console:
+    type: streamlit
+    identifier: SOURCE_APPROVAL_CONSOLE
+    main_file: streamlit_app.py
+    title: Source approval console

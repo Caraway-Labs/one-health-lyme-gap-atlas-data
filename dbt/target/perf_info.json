@@ -1,0 +1,51 @@
+{
+    "path_count": 159,
+    "parsed_path_count": 159,
+    "static_analysis_path_count": 2,
+    "static_analysis_parsed_path_count": 2,
+    "is_partial_parse_enabled": true,
+    "is_static_analysis_enabled": true,
+    "read_files_elapsed": 0.21821230003843084,
+    "load_macros_elapsed": 0.9794992000097409,
+    "parse_project_elapsed": 0.4073318999726325,
+    "patch_sources_elapsed": 0.024753900012001395,
+    "process_manifest_elapsed": 0.03738789999624714,
+    "load_all_elapsed": 1.7811699000303634,
+    "projects": [
+        {
+            "project_name": "lyme_gap_atlas_pipeline",
+            "elapsed": 0.4041447000345215,
+            "parsers": [
+                {
+                    "parser": "model",
+                    "elapsed": 0.2934990999638103,
+                    "parsed_path_count": 2
+                },
+                {
+                    "parser": "test",
+                    "elapsed": 0.10905840003397316,
+                    "parsed_path_count": 1
+                }
+            ],
+            "parsed_path_count": 3
+        },
+        {
+            "project_name": "dbt_snowflake",
+            "elapsed": 0.0015227000112645328,
+            "parsers": [],
+            "parsed_path_count": 0
+        },
+        {
+            "project_name": "dbt",
+            "elapsed": 0.0015448000049218535,
+            "parsers": [
+                {
+                    "parser": "doc",
+                    "elapsed": 0.00024019996635615826,
+                    "parsed_path_count": 1
+                }
+            ],
+            "parsed_path_count": 1
+        }
+    ]
+}

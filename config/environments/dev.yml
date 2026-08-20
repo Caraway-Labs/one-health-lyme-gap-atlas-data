@@ -1,0 +1,5 @@
+environment: dev
+database: ONE_HEALTH_LYME_GAP_ATLAS_DEV
+spaces_bucket: one-health-lyme-gap-atlas-data-dev
+spaces_prefix: dev
+catalog_cron: "0 8 * * 1"
