@@ -3,6 +3,9 @@ region: sfo
 jobs:
   - name: catalog-ingestion
     kind: SCHEDULED
+    schedule:
+      cron: "0 8 * * 1"
+      time_zone: America/Denver
     github:
       repo: Caraway-Labs/one-health-lyme-gap-atlas-data
       branch: main
@@ -10,7 +13,6 @@ jobs:
     dockerfile_path: Dockerfile
     source_dir: /
     run_command: uv run atlas-data pipeline discover
-    cron: "0 8 * * 1"
     envs:
       - key: TOPX_ENV
         value: dev
