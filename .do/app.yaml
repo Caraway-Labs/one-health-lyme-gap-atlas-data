@@ -1,4 +1,4 @@
-name: one-health-lyme-gap-atlas-data-dev
+name: oh-lyme-data-dev
 region: sfo
 jobs:
   - name: catalog-ingestion
