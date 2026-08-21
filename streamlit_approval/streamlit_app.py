@@ -108,8 +108,8 @@ if submitted:
         if not confirm:
             raise ValueError("Confirm the immutable decision before submission")
         response = _rows(
-            """SELECT GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION(
-                   ?, ?, ?, PARSE_JSON(?), ?, ?, ?) AS RESULT""",
+            """CALL GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION(
+                   ?, ?, ?, PARSE_JSON(?), ?, ?, ?)""",
             [
                 resource_key,
                 decision,
@@ -120,7 +120,7 @@ if submitted:
                 str(uuid.uuid4()),
             ],
         )
-        st.success(f"Decision recorded: {response[0]['RESULT']}")
+        st.success(f"Decision recorded: {next(iter(response[0].values()))}")
     except ValueError as exc:
         st.error(str(exc))
     except Exception:
