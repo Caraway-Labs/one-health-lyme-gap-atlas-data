@@ -25,14 +25,14 @@ from .assessment import Assessment
 from .redaction import redact_mapping
 from .settings import PipelineSettings
 
-RESOURCE_KEY = "cdc_lyme_x5j9_wybp"
+CDC_RESOURCE_ID = "cdc_lyme_x5j9_wybp"
 SOURCE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "sources" / "cdc_x5j9_wybp.yml"
 
 
 def load_cdc_profile(path: Path = SOURCE_CONFIG) -> dict[str, Any]:
     """Load the version-controlled CDC source access profile."""
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict) or document.get("resource_key") != RESOURCE_KEY:
+    if not isinstance(document, dict) or document.get("resource_key") != CDC_RESOURCE_ID:
         raise ValueError("Invalid CDC x5j9-wybp source profile")
     if document.get("deterministic_order_clause") != ":id ASC":
         raise ValueError("CDC sample and ingestion require deterministic :id ASC order")
@@ -110,8 +110,8 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
     metadata_payload = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
     sample_payload = json.dumps(sample, sort_keys=True, separators=(",", ":")).encode()
     s3 = _spaces_client(settings)
-    metadata_artifact = _save_artifact(s3, settings, RESOURCE_KEY, run_id, metadata_payload)
-    sample_artifact = _save_artifact(s3, settings, RESOURCE_KEY, run_id, sample_payload)
+    metadata_artifact = _save_artifact(s3, settings, CDC_RESOURCE_ID, run_id, metadata_payload)
+    sample_artifact = _save_artifact(s3, settings, CDC_RESOURCE_ID, run_id, sample_payload)
     profile_sha256 = hashlib.sha256(
         yaml.safe_dump(profile, sort_keys=True).encode("utf-8")
     ).hexdigest()
@@ -131,7 +131,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                      config_sha256, started_at, completed_at)
                     VALUES (%s, %s, 'EVIDENCE_ONLY', 'MANUAL', 'COMPLETED', 'cdc-x5j9-evidence-v1',
                             %s, %s, %s)""",
-                    (run_id, RESOURCE_KEY, profile_sha256, now, now),
+                    (run_id, CDC_RESOURCE_ID, profile_sha256, now, now),
                 )
                 dataset_id = str(uuid.uuid4())
                 cursor.execute(
@@ -139,7 +139,13 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                     (catalog_dataset_id, dataset_key, catalog_name, catalog_record_id, metadata_payload,
                      metadata_sha256, discovered_at, is_current)
                     SELECT %s, %s, 'CDC_SOCRATA', 'x5j9-wybp', PARSE_JSON(%s), %s, %s, TRUE""",
-                    (dataset_id, RESOURCE_KEY, json.dumps(metadata), metadata_artifact.sha256, now),
+                    (
+                        dataset_id,
+                        CDC_RESOURCE_ID,
+                        json.dumps(metadata),
+                        metadata_artifact.sha256,
+                        now,
+                    ),
                 )
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.CATALOG_RESOURCES
@@ -149,7 +155,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                     (
                         str(uuid.uuid4()),
                         dataset_id,
-                        RESOURCE_KEY,
+                        CDC_RESOURCE_ID,
                         str(profile["endpoint_template"]),
                         str(profile["endpoint_template"]),
                         json.dumps(
@@ -161,7 +167,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                 cursor.execute(
                     "UPDATE GOVERNANCE.SOURCE_ACCESS_PROFILES SET effective_to = %s "
                     "WHERE resource_key = %s AND effective_to IS NULL",
-                    (now, RESOURCE_KEY),
+                    (now, CDC_RESOURCE_ID),
                 )
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.SOURCE_ACCESS_PROFILES
@@ -171,7 +177,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                     VALUES (%s, %s, %s, 'SOCRATA_SODA2', %s, %s, %s, %s, %s)""",
                     (
                         str(uuid.uuid4()),
-                        RESOURCE_KEY,
+                        CDC_RESOURCE_ID,
                         int(profile["profile_version"]),
                         str(profile["endpoint_template"]),
                         str(profile["deterministic_order_clause"]),
@@ -227,7 +233,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                     VALUES (%s, %s, 'METADATA_AND_LICENSE', %s, %s, %s, %s, FALSE)""",
                     (
                         str(uuid.uuid4()),
-                        RESOURCE_KEY,
+                        CDC_RESOURCE_ID,
                         metadata_url,
                         metadata_raw_artifact_id,
                         metadata_artifact.sha256,
@@ -238,7 +244,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                     """INSERT INTO GOVERNANCE.SCHEMA_SNAPSHOTS
                     (schema_snapshot_id, resource_key, schema_fingerprint, schema_payload, retrieved_at)
                     SELECT %s, %s, %s, PARSE_JSON(%s), %s""",
-                    (str(uuid.uuid4()), RESOURCE_KEY, schema_sha256, schema_payload, now),
+                    (str(uuid.uuid4()), CDC_RESOURCE_ID, schema_sha256, schema_payload, now),
                 )
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.DATASET_QUALITY_ASSESSMENTS
@@ -248,7 +254,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
                     VALUES (%s, %s, 'PENDING_REVIEW', 95, 95, 95, 90, 90, %s, %s, %s, %s)""",
                     (
                         str(uuid.uuid4()),
-                        RESOURCE_KEY,
+                        CDC_RESOURCE_ID,
                         assessment.score,
                         assessment.recommendation,
                         "County-of-residence surveillance, 2022-current era; preserve null, zero, unknown, suppressed, and not-reported states.",
@@ -261,7 +267,7 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
             raise
     return {
         "ingestion_run_id": run_id,
-        "resource_key": RESOURCE_KEY,
+        "resource_key": CDC_RESOURCE_ID,
         "sample_rows": len(sample),
         "metadata_sha256": metadata_artifact.sha256,
         "sample_sha256": sample_artifact.sha256,
