@@ -1,0 +1,6 @@
+name: source_approval_console
+channels:
+  - snowflake
+dependencies:
+  - streamlit
+  - snowflake-snowpark-python

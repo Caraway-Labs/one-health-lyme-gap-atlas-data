@@ -66,8 +66,11 @@ Still required before any production promotion can succeed:
 1. Provision separate PROD Snowflake, Spaces, service identity, and a
    non-routable App Platform job, then configure the production-only secrets
    and `PROD_APP_ID` GitHub environment variable.
-2. Complete the Snowflake Streamlit approval deployment and the CDC sample,
-   approval, full-ingestion, and dbt acceptance path.
+2. Complete the CDC steward decision, approved full-ingestion, and dbt
+   acceptance path. The DEV `SOURCE_APPROVAL_CONSOLE` is deployed under
+   `OH_LYME_DEV_STREAMLIT_OWNER` with the dedicated approval warehouse; the
+   `x5j9-wybp` evidence-only candidate is intentionally pending a human
+   decision.
 3. Exercise a DEV rollback by redeploying a previously approved digest.
 
 The `Promote governed pipeline to PROD` workflow is present and protected by

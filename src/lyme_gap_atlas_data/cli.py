@@ -7,6 +7,7 @@ import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
+from .cdc import collect_cdc_evidence
 from .database import load as load_release
 from .database import provision as provision_database
 from .database import status as database_status
@@ -16,6 +17,7 @@ from .migrations import apply_migrations, migration_plan
 from .orchestration import run_discovery
 from .preflight import run_preflight
 from .settings import PipelineSettings
+from .streamlit_deploy import deploy_approval_console
 
 app = typer.Typer(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
@@ -112,3 +114,20 @@ def apply_migrations_command(
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
     typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+
+
+@pipeline_app.command("deploy-approval-console")
+def deploy_approval_console_command(
+    database: str = typer.Option(..., "--database"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Deploy the internal owner-rights Streamlit app from reviewed source files."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to deploy the approval console")
+    typer.echo(json.dumps({"streamlit": deploy_approval_console(_settings(), database)}))
+
+
+@pipeline_app.command("cdc-sample")
+def cdc_sample(sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100)) -> None:
+    """Collect CDC x5j9-wybp metadata and an ordered sample; never full-ingest data."""
+    typer.echo(json.dumps(collect_cdc_evidence(sample_limit), default=str))

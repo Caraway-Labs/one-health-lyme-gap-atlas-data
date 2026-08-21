@@ -31,6 +31,13 @@ stores each catalog response as a private, content-addressed artifact with
 append-only Snowflake request/run lineage. It discovers metadata only; full
 source ingestion remains blocked pending a steward decision.
 
+For the first reference source, run `uv run atlas-data pipeline cdc-sample` to
+capture only CDC/Socrata `x5j9-wybp` metadata and an explicitly ordered sample.
+It creates a `PENDING_REVIEW` candidate in the internal Snowflake
+`GOVERNANCE.SOURCE_APPROVAL_CONSOLE`; it never acquires the full dataset. The
+steward's immutable decision in that console is the prerequisite for a later
+full-ingestion command and dbt run.
+
 After the quality workflow verifies a `main` commit, it builds an immutable
 image and deploys that digest to DEV. Production promotion is a separate,
 protected, manual GitHub workflow: it requires the configured production

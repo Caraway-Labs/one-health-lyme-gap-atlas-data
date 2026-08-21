@@ -2,8 +2,10 @@ from pathlib import Path
 
 import pytest
 
+from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
+from lyme_gap_atlas_data.cdc import load_cdc_profile
 from lyme_gap_atlas_data.discovery import initial_requests, load_search_configuration
 from lyme_gap_atlas_data.migrations import load_migrations, migration_plan, render_migration
 from lyme_gap_atlas_data.orchestration import _resource_key
@@ -24,6 +26,23 @@ def test_assessment_policy_thresholds() -> None:
     assert Assessment(70, 70, 70, 70, 70).recommendation == "APPROVED"
     assert Assessment(50, 50, 50, 50, 50).recommendation == "CONDITIONAL"
     assert Assessment(49, 49, 49, 49, 49).recommendation == "REJECTED"
+
+
+def test_review_decision_requires_rationale_and_conditions() -> None:
+    with pytest.raises(ValueError, match="rationale"):
+        validate_decision("APPROVED", "short", [])
+    with pytest.raises(ValueError, match="condition"):
+        validate_decision("DEFERRED", "A complete explanation", [])
+    validate_decision("APPROVED_WITH_CONDITIONS", "A complete explanation", ["Check terms"])
+    assert approval_prerequisites_met(
+        {
+            "document_snapshot_count": 1,
+            "schema_snapshot_count": 1,
+            "profile_version": 1,
+            "assessment_status": "PENDING_REVIEW",
+            "has_material_schema_change": False,
+        }
+    )
 
 
 def test_redaction_removes_secrets() -> None:
@@ -70,12 +89,21 @@ def test_catalog_resource_key_is_deterministic_without_exposing_term() -> None:
     assert request.term not in _resource_key(request)
 
 
+def test_cdc_profile_requires_deterministic_ordering() -> None:
+    profile = load_cdc_profile()
+    assert profile["resource_key"] == "cdc_lyme_x5j9_wybp"
+    assert profile["deterministic_order_clause"] == ":id ASC"
+
+
 def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     migrations = load_migrations()
-    assert [item.version for item in migrations] == ["V001", "V002"]
+    assert [item.version for item in migrations] == ["V001", "V002", "V003", "V004"]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     )
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
-    assert len(migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")) == 2
+    prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert len(prod_plan) == 4
+    rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod

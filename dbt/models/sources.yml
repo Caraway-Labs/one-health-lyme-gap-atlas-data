@@ -5,3 +5,8 @@ sources:
     schema: RAW
     tables:
       - name: cdc_lyme_x5j9_wybp
+        columns:
+          - name: data_source_version_id
+            tests: [not_null]
+          - name: source_row_hash
+            tests: [not_null]

@@ -43,9 +43,13 @@ def load_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
 
 def render_migration(migration: Migration, database: str) -> str:
     """Render one validated database identifier; no arbitrary SQL is accepted."""
-    if not DATABASE_PATTERN.fullmatch(database):
+    match = DATABASE_PATTERN.fullmatch(database)
+    if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
-    rendered = migration.source.replace("{{ DATABASE }}", database)
+    environment = match.group(1)
+    rendered = migration.source.replace("{{ DATABASE }}", database).replace(
+        "{{ ENV }}", environment
+    )
     if "ONE_HEALTH_LYME_GAP_ATLAS;" in rendered:
         raise ValueError("The Alpha POC database is not a migration target")
     return rendered
