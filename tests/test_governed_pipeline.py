@@ -97,13 +97,13 @@ def test_cdc_profile_requires_deterministic_ordering() -> None:
 
 def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     migrations = load_migrations()
-    assert [item.version for item in migrations] == ["V001", "V002", "V003", "V004"]
+    assert [item.version for item in migrations] == ["V001", "V002", "V003", "V004", "V005"]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     )
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 4
+    assert len(prod_plan) == 5
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod

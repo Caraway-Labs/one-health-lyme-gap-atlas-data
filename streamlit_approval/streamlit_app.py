@@ -10,6 +10,7 @@ always supplied by st.user.user_name to the controlled procedure.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 import streamlit as st
@@ -43,6 +44,17 @@ def _approval_prerequisites_met(detail: dict[str, object]) -> bool:
         and detail.get("assessment_status") == "PENDING_REVIEW"
         and not bool(detail.get("has_material_schema_change", False))
     )
+
+
+def _safe_snowflake_error(error: Exception) -> str:
+    """Show the Snowflake error requested by reviewers without exposing secrets."""
+    message = str(error)
+    message = re.sub(
+        r"(?i)((?:token|secret|password|private[_ -]?key|authorization)\s*[=:]\s*)\S+",
+        r"\1[REDACTED]",
+        message,
+    )
+    return message[:4_000]
 
 
 st.set_page_config(page_title="Source approval console", layout="wide")
@@ -123,7 +135,8 @@ if submitted:
         st.success(f"Decision recorded: {next(iter(response[0].values()))}")
     except ValueError as exc:
         st.error(str(exc))
-    except Exception:
+    except Exception as exc:
         st.error(
             "Snowflake rejected the decision. Review the evidence prerequisites and try again."
         )
+        st.code(_safe_snowflake_error(exc), language="text")
