@@ -1,4 +1,4 @@
-name: Deploy DEV governed pipeline
+name: Verify DEV governed pipeline
 on:
   workflow_dispatch:
 permissions:
@@ -15,7 +15,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy src
       - run: uv run pytest -q
-      - run: uv run dbt parse --project-dir dbt
+      - run: uv run dbt parse --project-dir dbt --profiles-dir dbt
       - run: docker build -t one-health-lyme-gap-atlas-data .
       - name: Capability preflight
         run: snow sql -c "$SNOWFLAKE_CONNECTION" -q "SELECT CURRENT_ACCOUNT()" --format JSON

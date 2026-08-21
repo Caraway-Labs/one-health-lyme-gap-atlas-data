@@ -18,10 +18,13 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with: { enable-cache: true }
-      - run: uv sync --extra dev --locked
+      - run: uv sync --extra dev --extra pipeline --locked
       - run: uv run ruff check .
+      - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run pytest -q
+      - run: uv run dbt parse --project-dir dbt --profiles-dir dbt
+      - run: docker build --tag one-health-lyme-gap-atlas-data:ci .
       - run: uv run atlas-data provision --dry-run
       - run: uv run atlas-data load --release alpha-2026-08-06 --dry-run
       - name: Scan Git history for secrets

@@ -1,0 +1,41 @@
+name: Promote governed pipeline to PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: DEV-tested DOCR image digest to promote
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Approve and promote immutable image
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Verify digest is currently deployed and approved in DEV
+        run: |
+          test -n "$IMAGE_DIGEST"
+          dev_digest="$(doctl apps spec get "$DEV_APP_ID" --format json | jq -r '.jobs[0].image.digest')"
+          test "$dev_digest" = "$IMAGE_DIGEST"
+      - name: Verify PROD target has been explicitly provisioned
+        run: |
+          test -n "$PROD_APP_ID"
+          doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
+      - name: Apply PROD migration plan and deploy the same digest
+        run: |
+          echo "PROD deployment wiring is intentionally blocked until separate PROD Snowflake and Spaces credentials exist."
+          exit 1

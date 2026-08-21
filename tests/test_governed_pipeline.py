@@ -5,6 +5,7 @@ import pytest
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.discovery import initial_requests, load_search_configuration
+from lyme_gap_atlas_data.migrations import load_migrations, migration_plan, render_migration
 from lyme_gap_atlas_data.orchestration import _resource_key
 from lyme_gap_atlas_data.preflight import _required_settings
 from lyme_gap_atlas_data.redaction import redact_mapping
@@ -67,3 +68,14 @@ def test_catalog_resource_key_is_deterministic_without_exposing_term() -> None:
     request = initial_requests(load_search_configuration(Path("catalog-search-terms.json"))[0])[0]
     assert _resource_key(request) == _resource_key(request)
     assert request.term not in _resource_key(request)
+
+
+def test_migrations_are_environment_neutral_and_reject_poc() -> None:
+    migrations = load_migrations()
+    assert [item.version for item in migrations] == ["V001", "V002"]
+    assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
+        migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+    )
+    with pytest.raises(ValueError, match="only"):
+        render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
+    assert len(migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")) == 2

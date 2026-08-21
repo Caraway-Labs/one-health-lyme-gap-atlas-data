@@ -12,6 +12,7 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
+from .migrations import apply_migrations, migration_plan
 from .orchestration import run_discovery
 from .preflight import run_preflight
 from .settings import PipelineSettings
@@ -91,3 +92,23 @@ def discover(
 ) -> None:
     """Persist catalog metadata only; it never ingests a source resource."""
     typer.echo(json.dumps(run_discovery(maximum_requests=max_requests)))
+
+
+@pipeline_app.command("migration-plan")
+def migration_plan_command(
+    database: str = typer.Option(..., "--database"),
+) -> None:
+    """Show checksummed migration order for the DEV or PROD governed database."""
+    typer.echo(json.dumps(migration_plan(database)))
+
+
+@pipeline_app.command("apply-migrations")
+def apply_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Apply checksum-validated migrations only after an explicit confirmation."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to apply migrations")
+    typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))

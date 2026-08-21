@@ -31,6 +31,10 @@ stores each catalog response as a private, content-addressed artifact with
 append-only Snowflake request/run lineage. It discovers metadata only; full
 source ingestion remains blocked pending a steward decision.
 
-Production mutations are intentionally local/manual for this MVP. GitHub CI
-validates code, DDL, checksum, and the 3,144-county contract but never receives
-Snowflake credentials or runs DDL/DML.
+After the quality workflow verifies a `main` commit, it builds an immutable
+image and deploys that digest to DEV. Production promotion is a separate,
+protected, manual GitHub workflow: it requires the configured production
+reviewer and reuses the exact digest already running in DEV. It cannot create
+production infrastructure or substitute the Alpha POC database. See the
+[deployment runbook](docs/operations/deployment-promotion.md) for the required
+production provisioning and promotion sequence.

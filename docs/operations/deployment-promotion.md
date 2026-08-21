@@ -39,20 +39,39 @@ artifacts or rewrite migration/ingestion lineage as part of rollback.
 
 ## Current implementation status
 
-The DEV job presently builds from the mutable `main` branch and is updated
-manually through App Platform. It is a temporary bootstrap configuration, not
-the approved promotion mechanism. The work items below must be complete before
-creating any PROD resources:
+DEV is on the approved immutable-image path: a green `main` quality run builds
+and deploys a private DOCR image digest to the non-routable DEV job. The
+checksum-validated migration runner has registered the current two migrations
+in the DEV ledger. CI validates migration source, dbt parsing, and the
+container, but it deliberately does not receive Snowflake credentials or apply
+Snowflake DDL/DML.
 
-1. Keep the required GitHub quality check green and prevent administrator
-   bypass for ordinary promotion. The scoped `.gitleaks.toml` exception covers
-   only the historical commit that introduced two reviewed non-secret literals;
-   it does not exempt either source file from future scanning.
-2. Create the private OCI registry and GitHub `dev` and `production`
-   environments.
-3. Make migration execution environment-aware; current migration SQL contains
-   the DEV database name and cannot be reused for PROD unchanged.
-4. Replace GitHub-source App Platform specs with OCI-image-by-digest specs.
-5. Implement and exercise the DEV deployment and rollback workflows.
-6. Complete the Snowflake Streamlit approval deployment and the CDC sample,
+Completed controls:
+
+1. Required quality checks include lint, formatting, typing, tests, dbt parse,
+   container build, and full-history secret scanning. The scoped
+   `.gitleaks.toml` exception covers only two reviewed historical non-secret
+   literals.
+2. A private OCI registry and GitHub `dev` / protected `production`
+   environments exist.
+3. `pipeline migration-plan` and explicit
+   `pipeline apply-migrations --confirm` render one source-controlled migration
+   set only for the DEV or PROD governed database and record checksums in that
+   target's ledger.
+4. DEV App Platform now uses an image digest, not a mutable GitHub source
+   reference.
+
+Still required before any production promotion can succeed:
+
+1. Provision separate PROD Snowflake, Spaces, service identity, and a
+   non-routable App Platform job, then configure the production-only secrets
+   and `PROD_APP_ID` GitHub environment variable.
+2. Complete the Snowflake Streamlit approval deployment and the CDC sample,
    approval, full-ingestion, and dbt acceptance path.
+3. Exercise a DEV rollback by redeploying a previously approved digest.
+
+The `Promote governed pipeline to PROD` workflow is present and protected by
+the GitHub `production` environment. It verifies that a requested digest is the
+one currently deployed in DEV. It deliberately stops until distinct PROD
+Snowflake/Spaces credentials and the PROD job exist; it never creates them as a
+side effect of a promotion request.
