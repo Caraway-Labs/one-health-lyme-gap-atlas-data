@@ -97,13 +97,35 @@ def test_cdc_profile_requires_deterministic_ordering() -> None:
 
 def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     migrations = load_migrations()
-    assert [item.version for item in migrations] == ["V001", "V002", "V003", "V004", "V005"]
+    assert [item.version for item in migrations] == [
+        "V001",
+        "V002",
+        "V003",
+        "V004",
+        "V005",
+        "V006",
+        "V007",
+        "V008",
+        "V009",
+        "V010",
+        "V011",
+        "V012",
+    ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     )
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 5
+    assert len(prod_plan) == 12
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
+    safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
+    assert "GRANT SELECT, INSERT ON TABLE GOVERNANCE.SCHEMA_MIGRATIONS" in migrations[5].source
+    assert "GRANT CREATE PROCEDURE ON SCHEMA GOVERNANCE" in migrations[6].source
+    assert safe_variant_insert in migrations[7].source
+    assert "GRANT SELECT ON TABLE GOVERNANCE.DATA_SOURCE_VERSIONS" in migrations[8].source
+    assert "BEGIN TRANSACTION" in migrations[9].source
+    assert "WHEN OTHER THEN" in migrations[9].source
+    assert "RETIRED" in migrations[10].source
+    assert "WHERE r.is_active = TRUE" in migrations[11].source

@@ -93,6 +93,19 @@ that are mandatory for the later protected PROD promotion.
    `USAGE` on the procedure and `SELECT` on views are insufficient. The app
    itself must continue to read governed views only and write exclusively via
    `SP_RECORD_SOURCE_REVIEW_DECISION`.
+   Use `INSERT ... SELECT` for procedure writes that include a bound `VARIANT`
+   payload such as decision conditions; this Snowflake account rejects that
+   payload in the corresponding `INSERT ... VALUES` form.
+   The owner role also needs direct `SELECT` and `INSERT` access to the
+   migration ledger so it can apply a later owner-owned procedure migration.
+   It needs `CREATE PROCEDURE` on `GOVERNANCE` as well; this lets it replace
+   the approval procedure it already owns, without broad account privileges.
+   Validate both direct `SELECT` and `INSERT` grants for every procedure target
+   table; an `INSERT ... SELECT` branch can require both at execution time.
+   Keep the source-version creation and immutable decision insert in one
+   explicit transaction. If an older deployment produced an orphaned version,
+   retire it with a source-controlled reconciliation migration; never delete
+   or silently reuse it.
 4. **Verify before steward review.** Confirm the app owner, query warehouse,
    source-stage files, app usage grants, migration ledger, and a no-write
    authorization-negative call. Then run a fixture candidate through one valid
