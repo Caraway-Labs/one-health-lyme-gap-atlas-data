@@ -1,0 +1,13 @@
+title = "One Health Lyme Gap Atlas data pipeline secret-scanning exceptions"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Literal non-secret configuration keys and CDC resource identifier"
+commits = ["f065b11d55a6c03af272451666521c68a779be87"]
+regexTarget = "match"
+regexes = [
+  '''DATA_GOV_API_KEY''',
+  '''^resource_key:\s+cdc_lyme_x5j9_wybp$''',
+]

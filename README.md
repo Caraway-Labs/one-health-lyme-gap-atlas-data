@@ -10,6 +10,8 @@ The repository contains two deliberately separate capabilities:
 
 The governed pipeline contract is in `docs/contracts/catalog-to-snowflake/`.
 See workspace ADR 0005 before provisioning it.
+Deployment and DEV-to-PROD promotion are governed by workspace ADR 0006 and
+the [deployment runbook](docs/operations/deployment-promotion.md).
 
 ```powershell
 uv sync --extra dev
