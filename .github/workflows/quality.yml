@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Secret scanning must inspect history, not just the triggering commit.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with: { enable-cache: true }
       - run: uv sync --extra dev --locked
