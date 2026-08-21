@@ -73,7 +73,11 @@ def run_preflight() -> dict[str, Any]:
             headers["X-Api-Key"] = settings.data_gov_api_key.get_secret_value()
         elif settings.socrata_app_token is not None:
             headers["X-App-Token"] = settings.socrata_app_token.get_secret_value()
-        fetch_json(type(request)(request.catalog_id, request.term, request.url, headers))
+        fetch_json(
+            type(request)(
+                request.catalog_id, request.term, request.url, headers, request.pagination
+            )
+        )
         seen_catalogs.add(request.catalog_id)
     results["catalogs"] = {"checksum": checksum, "capabilities": sorted(seen_catalogs)}
 

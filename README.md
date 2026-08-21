@@ -27,9 +27,11 @@ dedicated pipeline service account's isolated DEV context. It does not crawl a
 catalog, ingest data, or expose credentials.
 
 The scheduled `pipeline discover` job runs the versioned catalog terms and
-stores each catalog response as a private, content-addressed artifact with
-append-only Snowflake request/run lineage. It discovers metadata only; full
-source ingestion remains blocked pending a steward decision.
+catalog-specific refinements against Data.gov, HealthData.gov, and Socrata/ODN.
+It follows each catalog's configured cursor or offset pagination and stores
+each response as a private, content-addressed artifact with append-only
+Snowflake request/run lineage. It discovers metadata only; full source
+ingestion remains blocked pending a steward decision.
 
 For the first reference source, run `uv run atlas-data pipeline cdc-sample` to
 capture only CDC/Socrata `x5j9-wybp` metadata and an explicitly ordered sample.

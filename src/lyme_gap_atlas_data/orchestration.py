@@ -14,7 +14,13 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .artifacts import create_artifact
-from .discovery import DiscoveryRequest, fetch_json, initial_requests, load_search_configuration
+from .discovery import (
+    DiscoveryRequest,
+    fetch_json,
+    initial_requests,
+    load_search_configuration,
+    next_page_request,
+)
 from .redaction import redact_mapping
 from .settings import PipelineSettings
 
@@ -27,7 +33,9 @@ def _catalog_request(request: DiscoveryRequest, settings: PipelineSettings) -> D
         headers["X-Api-Key"] = settings.data_gov_api_key.get_secret_value()
     elif settings.socrata_app_token is not None:
         headers["X-App-Token"] = settings.socrata_app_token.get_secret_value()
-    return DiscoveryRequest(request.catalog_id, request.term, request.url, headers)
+    return DiscoveryRequest(
+        request.catalog_id, request.term, request.url, headers, request.pagination
+    )
 
 
 def _spaces_client(settings: PipelineSettings) -> Any:
@@ -75,64 +83,78 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                     VALUES (%s, %s, 'DISCOVERY', 'SCHEDULED', 'RUNNING', %s, %s)""",
                     (run_id, "catalog_discovery", config_sha256, started_at),
                 )
-                for sequence, original_request in enumerate(requests, start=1):
-                    request = _catalog_request(original_request, settings)
-                    request_id = str(uuid.uuid4())
-                    response = fetch_json(request)
-                    payload = json.dumps(response, sort_keys=True, separators=(",", ":")).encode()
-                    artifact = create_artifact(
-                        payload=payload,
-                        environment=settings.topx_env,
-                        resource_key=_resource_key(request),
-                        run_id=run_id,
-                    )
-                    s3.put_object(
-                        Bucket=settings.spaces_bucket,
-                        Key=f"{settings.spaces_prefix}/{artifact.object_key}",
-                        Body=payload,
-                        ContentType="application/json",
-                    )
-                    response_sha256 = artifact.sha256
-                    cursor.execute(
-                        """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
+                sequence = 0
+                for original_request in requests:
+                    request: DiscoveryRequest | None = _catalog_request(original_request, settings)
+                    offset = 0
+                    while request is not None:
+                        sequence += 1
+                        request_id = str(uuid.uuid4())
+                        response = fetch_json(request)
+                        payload = json.dumps(
+                            response, sort_keys=True, separators=(",", ":")
+                        ).encode()
+                        artifact = create_artifact(
+                            payload=payload,
+                            environment=settings.topx_env,
+                            resource_key=_resource_key(request),
+                            run_id=run_id,
+                        )
+                        s3.put_object(
+                            Bucket=settings.spaces_bucket,
+                            Key=f"{settings.spaces_prefix}/{artifact.object_key}",
+                            Body=payload,
+                            ContentType="application/json",
+                        )
+                        response_sha256 = artifact.sha256
+                        cursor.execute(
+                            """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
                         (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
                          endpoint, redacted_request, status_code, response_sha256, created_at)
                         SELECT %s, %s, %s, 'CATALOG_DISCOVERY', %s, PARSE_JSON(%s), 200, %s, %s""",
-                        (
-                            request_id,
-                            run_id,
-                            sequence,
-                            request.url.split("?", maxsplit=1)[0],
-                            json.dumps(
-                                redact_mapping(
-                                    {
-                                        "catalog_id": request.catalog_id,
-                                        "term": request.term,
-                                        **request.headers,
-                                    }
-                                )
+                            (
+                                request_id,
+                                run_id,
+                                sequence,
+                                request.url.split("?", maxsplit=1)[0],
+                                json.dumps(
+                                    redact_mapping(
+                                        {
+                                            "catalog_id": request.catalog_id,
+                                            "term": request.term,
+                                            **request.headers,
+                                        }
+                                    )
+                                ),
+                                response_sha256,
+                                datetime.now(UTC),
                             ),
-                            response_sha256,
-                            datetime.now(UTC),
-                        ),
-                    )
-                    cursor.execute(
-                        """INSERT INTO GOVERNANCE.RAW_ARTIFACTS
+                        )
+                        cursor.execute(
+                            """INSERT INTO GOVERNANCE.RAW_ARTIFACTS
                         (artifact_id, ingestion_run_id, ingestion_request_id, artifact_uri,
                          artifact_type,
                          media_type, byte_count, sha256, created_at)
                         VALUES (%s, %s, %s, %s, 'CATALOG_METADATA', 'application/json',
                                 %s, %s, %s)""",
-                        (
-                            str(uuid.uuid4()),
-                            run_id,
-                            request_id,
-                            f"s3://{settings.spaces_bucket}/{settings.spaces_prefix}/{artifact.object_key}",
-                            artifact.byte_count,
-                            artifact.sha256,
-                            datetime.now(UTC),
-                        ),
-                    )
+                            (
+                                str(uuid.uuid4()),
+                                run_id,
+                                request_id,
+                                f"s3://{settings.spaces_bucket}/{settings.spaces_prefix}/{artifact.object_key}",
+                                artifact.byte_count,
+                                artifact.sha256,
+                                datetime.now(UTC),
+                            ),
+                        )
+                        next_request = next_page_request(request, response, offset)
+                        if next_request is not None:
+                            offset += int(
+                                next_request.pagination.get("request_parameters", {}).get(
+                                    "limit", 0
+                                )
+                            )
+                        request = next_request
                 cursor.execute(
                     """UPDATE GOVERNANCE.INGESTION_RUNS
                     SET status = 'COMPLETED', completed_at = %s WHERE ingestion_run_id = %s""",

@@ -34,7 +34,7 @@ The three discovery catalogs are not interchangeable data stores. They produce c
 
 Use the Data.gov v4 API for new implementation. It replaced the legacy CKAN API, requires an API key for automated use, and uses cursor—not offset—pagination. A `DEMO_KEY` is permitted for local exploration only and is prohibited in committed configuration and scheduled environments.
 
-`catalog-search-terms.json` is the authoritative, complete term list. Every catalog applies all 15 named term groups plus its catalog-specific terms. The initial scheduled run enables only the six Lyme/tick/vector/context groups; the other nine groups are intentionally present but disabled.
+`catalog-search-terms.json` is the authoritative, complete term list. Every catalog applies every enabled term group plus its catalog-specific terms. The current staged DEV discovery run enables the six Lyme/tick/vector/context groups plus healthcare utilization, public-health capacity/access, and diagnostics/medications/treatment. The remaining six groups stay disabled until the steward reviews candidate volume, relevance, rate-limit behavior, and licensing/access patterns.
 
 ## Search-input file contract
 

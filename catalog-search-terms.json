@@ -9,7 +9,10 @@
     "climate_weather_seasonality",
     "habitat_land_cover_ecology",
     "wildlife_reservoir_ecology",
-    "geography_demographics_sdoh"
+    "geography_demographics_sdoh",
+    "healthcare_utilization",
+    "public_health_capacity_access",
+    "diagnostics_medications_treatment"
   ],
   "catalogs": [
     {

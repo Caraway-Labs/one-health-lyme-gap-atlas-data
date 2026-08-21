@@ -6,7 +6,11 @@ from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_de
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.cdc import load_cdc_profile
-from lyme_gap_atlas_data.discovery import initial_requests, load_search_configuration
+from lyme_gap_atlas_data.discovery import (
+    initial_requests,
+    load_search_configuration,
+    next_page_request,
+)
 from lyme_gap_atlas_data.migrations import load_migrations, migration_plan, render_migration
 from lyme_gap_atlas_data.orchestration import _resource_key
 from lyme_gap_atlas_data.preflight import _required_settings
@@ -60,6 +64,30 @@ def test_discovery_configuration_is_valid() -> None:
         "HEALTHDATA_GOV",
         "SOCRATA_ODN",
     }
+    assert len(initial_requests(config)) == 537
+    assert any(request.term == "Lyme economic burden" for request in initial_requests(config))
+
+
+def test_discovery_pagination_uses_catalog_strategy() -> None:
+    config = load_search_configuration(Path("catalog-search-terms.json"))[0]
+    socrata = next(
+        request for request in initial_requests(config) if request.catalog_id == "HEALTHDATA_GOV"
+    )
+    assert "limit=100" in socrata.url
+    assert "offset=0" in socrata.url
+    second_page = next_page_request(socrata, {"results": [{}] * 100}, 0)
+    assert second_page is not None
+    assert "limit=100" in second_page.url
+    assert "offset=100" in second_page.url
+
+    data_gov = next(
+        request for request in initial_requests(config) if request.catalog_id == "DATA_GOV"
+    )
+    assert "per_page=100" in data_gov.url
+    cursor_page = next_page_request(data_gov, {"after": "next-cursor"}, 0)
+    assert cursor_page is not None
+    assert "after=next-cursor" in cursor_page.url
+    assert "per_page=100" in cursor_page.url
 
 
 def test_settings_rejects_poc_database() -> None:

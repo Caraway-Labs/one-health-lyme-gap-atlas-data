@@ -15,6 +15,7 @@ class DiscoveryRequest:
     term: str
     url: str
     headers: dict[str, str]
+    pagination: dict[str, Any]
 
 
 def load_search_configuration(path: Path) -> tuple[dict[str, Any], str]:
@@ -43,8 +44,18 @@ def initial_requests(config: dict[str, Any]) -> list[DiscoveryRequest]:
             if group_id in enabled
             for term in groups[group_id]["terms"]
         }
+        # These phrases intentionally remain catalog-scoped: they are useful
+        # refinements for one catalog, but should not silently affect another.
+        terms.update({term.casefold(): term for term in catalog.get("catalog_specific_terms", [])})
         for term in terms.values():
             params = dict(catalog.get("fixed_query_parameters", {}))
+            pagination = dict(catalog.get("pagination", {}))
+            if pagination.get("strategy") == "CURSOR":
+                params[str(pagination["page_size_parameter"])] = pagination["page_size"]
+            elif pagination.get("strategy") == "OFFSET_LIMIT":
+                request_parameters = pagination["request_parameters"]
+                params["limit"] = request_parameters["limit"]
+                params["offset"] = 0
             params[catalog["search_parameter"]] = term
             requests.append(
                 DiscoveryRequest(
@@ -52,9 +63,49 @@ def initial_requests(config: dict[str, Any]) -> list[DiscoveryRequest]:
                     term,
                     f"{catalog['search_endpoint']}?{urlencode(params)}",
                     {},
+                    pagination,
                 )
             )
     return requests
+
+
+def next_page_request(
+    request: DiscoveryRequest, payload: dict[str, Any], offset: int
+) -> DiscoveryRequest | None:
+    """Return the next deterministic catalog page, or ``None`` at completion."""
+    pagination = request.pagination
+    strategy = pagination.get("strategy")
+    separator = "&" if "?" in request.url else "?"
+    if strategy == "CURSOR":
+        cursor = payload.get(str(pagination.get("response_field", "after")))
+        if not cursor:
+            return None
+        parameter = str(pagination["request_parameter"])
+        cursor_parameters = {
+            parameter: cursor,
+            str(pagination["page_size_parameter"]): pagination["page_size"],
+        }
+        return DiscoveryRequest(
+            request.catalog_id,
+            request.term,
+            f"{request.url}{separator}{urlencode(cursor_parameters)}",
+            request.headers,
+            pagination,
+        )
+    if strategy == "OFFSET_LIMIT":
+        results = payload.get("results", [])
+        parameters = pagination["request_parameters"]
+        limit = int(parameters["limit"])
+        if not isinstance(results, list) or len(results) < limit:
+            return None
+        return DiscoveryRequest(
+            request.catalog_id,
+            request.term,
+            f"{request.url}{separator}{urlencode({'limit': limit, 'offset': offset + limit})}",
+            request.headers,
+            pagination,
+        )
+    raise ValueError(f"Unsupported pagination strategy for {request.catalog_id}: {strategy}")
 
 
 def fetch_json(request: DiscoveryRequest, timeout_seconds: int = 20) -> dict[str, Any]:
