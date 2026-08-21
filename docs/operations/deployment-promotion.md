@@ -106,6 +106,9 @@ that are mandatory for the later protected PROD promotion.
    explicit transaction. If an older deployment produced an orphaned version,
    retire it with a source-controlled reconciliation migration; never delete
    or silently reuse it.
+   When a migration uses `CREATE OR REPLACE VIEW`, re-grant every required
+   direct view privilege afterwards: Snowflake drops existing grants on the
+   replaced view.
 4. **Verify before steward review.** Confirm the app owner, query warehouse,
    source-stage files, app usage grants, migration ledger, and a no-write
    authorization-negative call. Then run a fixture candidate through one valid
