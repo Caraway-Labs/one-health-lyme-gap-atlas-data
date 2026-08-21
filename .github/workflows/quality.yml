@@ -29,3 +29,47 @@ jobs:
           docker run --rm -v "$PWD:/repo"
           ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
           git /repo --config /repo/.gitleaks.toml --redact --no-banner
+
+  deploy_dev:
+    name: Build and deploy immutable DEV image
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Build and publish immutable image
+        id: image
+        run: |
+          doctl registry login --expiry-seconds 1200
+          tag="sha-${GITHUB_SHA}"
+          docker build --platform linux/amd64 --tag "${IMAGE}:${tag}" .
+          docker push "${IMAGE}:${tag}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${tag}" --format '{{.Digest}}')"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - name: Deploy the tested digest to DEV
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          doctl apps spec get "$APP_ID" --format json > /tmp/dev-app.json
+          jq --arg digest "$IMAGE_DIGEST" '
+            del(.jobs[0].github, .jobs[0].dockerfile_path, .jobs[0].source_dir)
+            | .jobs[0].image = {
+                registry_type: "DOCR",
+                registry: "",
+                repository: "pipeline",
+                digest: $digest
+              }
+          ' /tmp/dev-app.json > /tmp/dev-app-image.json
+          doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json
