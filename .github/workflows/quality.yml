@@ -56,7 +56,9 @@ jobs:
           tag="sha-${GITHUB_SHA}"
           docker build --platform linux/amd64 --tag "${IMAGE}:${tag}" .
           docker push "${IMAGE}:${tag}"
-          digest="$(docker buildx imagetools inspect "${IMAGE}:${tag}" --format '{{.Digest}}')"
+          digest="$(doctl registry repository list-manifests pipeline --output json \
+            | jq -r --arg tag "$tag" '.[] | select(.tags | index($tag)) | .digest')"
+          test -n "$digest"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
       - name: Deploy the tested digest to DEV
         env:
