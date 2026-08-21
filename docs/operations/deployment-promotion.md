@@ -73,6 +73,39 @@ Still required before any production promotion can succeed:
    decision.
 3. Exercise a DEV rollback by redeploying a previously approved digest.
 
+## Streamlit approval-console promotion checklist
+
+Apply this checklist independently in each environment. It records DEV lessons
+that are mandatory for the later protected PROD promotion.
+
+1. **Create under the owner role.** Create `SOURCE_APPROVAL_CONSOLE` while
+   using `OH_LYME_<ENV>_STREAMLIT_OWNER`. In this Snowflake account, ownership
+   cannot be transferred to a Streamlit after it is created, so creating it as
+   `ACCOUNTADMIN` and attempting a later ownership grant fails.
+2. **Use a dedicated deployment identity.** A PAT session is role-restricted
+   and cannot use `USE ROLE` to switch to the Streamlit owner. Provision a
+   separate `<ENV>` deploy service user with encrypted key-pair authentication,
+   default role `OH_LYME_<ENV>_STREAMLIT_OWNER`, and only the owner role's
+   warehouse/schema/stage privileges. Do not reuse the DEV identity or key in
+   PROD.
+3. **Grant procedure dependencies explicitly.** Owner-rights stored procedures
+   need direct `SELECT`/`INSERT` privileges on every governance table they use;
+   `USAGE` on the procedure and `SELECT` on views are insufficient. The app
+   itself must continue to read governed views only and write exclusively via
+   `SP_RECORD_SOURCE_REVIEW_DECISION`.
+4. **Verify before steward review.** Confirm the app owner, query warehouse,
+   source-stage files, app usage grants, migration ledger, and a no-write
+   authorization-negative call. Then run a fixture candidate through one valid
+   decision before asking a steward to decide on a real source.
+5. **Show actionable, safe errors.** Keep the friendly rejection banner and
+   display the exact Snowflake error beneath it after redacting token, secret,
+   password, authorization, and private-key values. Do not expose raw payloads
+   or connection configuration.
+6. **Promote source and grants together.** Include Streamlit code, its source
+   stage upload, owner-role grants, procedure/table privileges, and deployment
+   identity configuration in the protected promotion evidence. A successful
+   worker-image deployment alone does not deploy or validate the approval app.
+
 The `Promote governed pipeline to PROD` workflow is present and protected by
 the GitHub `production` environment. It verifies that a requested digest is the
 one currently deployed in DEV. It deliberately stops until distinct PROD
