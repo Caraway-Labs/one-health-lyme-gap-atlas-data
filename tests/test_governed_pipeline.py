@@ -111,6 +111,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V011",
         "V012",
         "V013",
+        "V014",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -118,7 +119,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 13
+    assert len(prod_plan) == 14
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -131,3 +132,12 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "RETIRED" in migrations[10].source
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
+    assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
+    assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[13].source
+
+
+def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
+    source = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
+    assert 'st.session_state["recorded_decision"]' in source
+    assert "st.rerun()" in source
+    assert "Review queue is clear" in source

@@ -61,6 +61,15 @@ st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("Source approval console")
 st.caption("Internal governed review only. This app cannot start discovery or ingestion.")
 
+recorded_decision = st.session_state.pop("recorded_decision", None)
+if recorded_decision:
+    decision = recorded_decision["decision"]
+    source_version = recorded_decision.get("source_version_id")
+    message = f"Recorded {decision} for {recorded_decision['resource_key']}."
+    if source_version:
+        message += " A governed source version is now eligible for the next ingestion step."
+    st.success(message)
+
 steward = bool(
     _rows(
         "SELECT COUNT(*) AS COUNT FROM GOVERNANCE.V_ACTIVE_APPROVAL_STEWARDS WHERE username = ?",
@@ -75,9 +84,13 @@ queue = _rows(
        LIMIT 200"""
 )
 if not queue:
-    st.info("No source candidates are awaiting review.")
+    st.success("Review queue is clear")
+    st.caption(
+        "There are no pending source candidates. New discovery evidence will appear here when it is ready for steward review."
+    )
     st.stop()
 
+st.subheader(f"Pending review: {len(queue)} candidate{'s' if len(queue) != 1 else ''}")
 st.dataframe(queue, use_container_width=True, hide_index=True)
 resource_key = st.selectbox("Candidate", [str(row["RESOURCE_KEY"]) for row in queue])
 detail = _rows(
@@ -132,7 +145,13 @@ if submitted:
                 str(uuid.uuid4()),
             ],
         )
-        st.success(f"Decision recorded: {next(iter(response[0].values()))}")
+        payload = json.loads(str(next(iter(response[0].values()))))
+        st.session_state["recorded_decision"] = {
+            "resource_key": resource_key,
+            "decision": decision,
+            "source_version_id": payload.get("source_version_id"),
+        }
+        st.rerun()
     except ValueError as exc:
         st.error(str(exc))
     except Exception as exc:

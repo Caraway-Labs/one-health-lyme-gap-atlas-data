@@ -98,6 +98,8 @@ The Streamlit object must be owned by the dedicated owner role. Viewer roles mus
 
 **SA-4.1 — Decision history.** Users shall see chronological prior decisions, reviewer identity, status, rationale, conditions, source-version linkage, and supersession relationship.
 
+**SA-4.2 — Post-decision workflow.** After a governed decision succeeds, the app shall refresh the pending-review queue, show a readable confirmation, and select the next pending candidate. When none remain, it shall clearly state that the review queue is clear and explain that future discovery evidence will appear when ready.
+
 **SA-4.2 — Pipeline impact.** The detail page shall state whether the source is eligible for full ingestion, currently active, blocked, retired, or awaiting action. It shall show the latest ingestion and quality status without allowing the app to start a run.
 
 **SA-4.3 — Export.** Authorized users may download a CSV/JSON summary of filtered candidate/decision metadata. Exports must exclude raw payloads, artifact contents, secret references, and sensitive data.
