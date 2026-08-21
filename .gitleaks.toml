@@ -11,3 +11,11 @@ regexes = [
   '''DATA_GOV_API_KEY''',
   '''^resource_key:\s+cdc_lyme_x5j9_wybp$''',
 ]
+
+[[allowlists]]
+description = "Reviewed non-secret CDC resource identifier in its introducing commit"
+commits = ["c1be4b6984c90289638a0637fd23becc3d225044"]
+regexTarget = "match"
+regexes = [
+  '''^RESOURCE_KEY = "cdc_lyme_x5j9_wybp"$''',
+]
