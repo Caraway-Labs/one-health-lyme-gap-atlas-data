@@ -131,8 +131,9 @@ try:
         "View", ("Queue", "Candidate detail", "Decision form", "Decision history")
     )
     queue = _queue()
-except Exception:
+except Exception as exc:
     st.error("Governance data is currently unavailable. No decision was recorded.")
+    st.code(_safe_snowflake_error(exc), language="text")
     st.stop()
 
 if page == "Queue":

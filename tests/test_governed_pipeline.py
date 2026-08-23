@@ -197,5 +197,6 @@ def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
     assert "Candidate detail" in source
     assert "Decision history" in source
     assert "available_decisions" in source
+    assert 'st.code(_safe_snowflake_error(exc), language="text")' in source
     assert "INSERT INTO GOVERNANCE" not in source
     assert "UPDATE GOVERNANCE" not in source
