@@ -19,3 +19,13 @@ regexTarget = "match"
 regexes = [
   '''^RESOURCE_KEY = "cdc_lyme_x5j9_wybp"$''',
 ]
+
+[[allowlists]]
+description = "Public CDC resource identifier used by the governed approval migration"
+paths = [
+  '''^migrations/V016__dev_cdc_source_approval_console_hardening\.sql$''',
+]
+regexTarget = "match"
+regexes = [
+  '''.*cdc_lyme_x5j9_wybp.*''',
+]
