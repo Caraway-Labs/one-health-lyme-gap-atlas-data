@@ -187,7 +187,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "supersedes_decision_id" in hardening
     assert "eligible_for_full_ingestion" in hardening
     assert "FROM resource r" in hardening
-    assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" in migrations[16].source
+    catalog_repair = migrations[16].source
+    assert "CREATE TABLE IF NOT EXISTS GOVERNANCE.CATALOG_DATASETS" in catalog_repair
+    assert "RECONSTRUCTED_FROM_PRESERVED_RESOURCE_PAYLOAD" in catalog_repair
+    assert "metadata_sha256" in catalog_repair
+    assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" in catalog_repair
 
 
 def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
