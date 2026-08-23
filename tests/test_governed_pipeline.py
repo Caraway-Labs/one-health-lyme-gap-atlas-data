@@ -156,6 +156,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V015",
         "V016",
         "V017",
+        "V018",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -163,7 +164,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 17
+    assert len(prod_plan) == 18
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -192,6 +193,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "RECONSTRUCTED_FROM_PRESERVED_RESOURCE_PAYLOAD" in catalog_repair
     assert "metadata_sha256" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" in catalog_repair
+    assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS" in migrations[17].source
 
 
 def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
