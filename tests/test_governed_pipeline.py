@@ -45,6 +45,19 @@ def test_review_decision_requires_rationale_and_conditions() -> None:
             "profile_version": 1,
             "assessment_status": "PENDING_REVIEW",
             "has_material_schema_change": False,
+            "has_material_document_change": False,
+            "has_blocking_issue": False,
+        }
+    )
+    assert not approval_prerequisites_met(
+        {
+            "document_snapshot_count": 1,
+            "schema_snapshot_count": 1,
+            "profile_version": 1,
+            "assessment_status": "PENDING_REVIEW",
+            "has_material_schema_change": False,
+            "has_material_document_change": True,
+            "has_blocking_issue": True,
         }
     )
 
@@ -140,6 +153,8 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V012",
         "V013",
         "V014",
+        "V015",
+        "V016",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -147,7 +162,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 14
+    assert len(prod_plan) == 16
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -162,6 +177,15 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[13].source
+    assert "RAW.INGESTION_TRANSIENT_STAGE" in migrations[14].source
+    hardening = migrations[15].source
+    assert "cdc_lyme_x5j9_wybp" in hardening
+    assert "steward_count < 1" in hardening
+    assert "metadata_payload IS NOT NULL" in hardening
+    assert "has_material_document_change" in hardening
+    assert "supersedes_decision_id" in hardening
+    assert "eligible_for_full_ingestion" in hardening
+    assert "FROM resource r" in hardening
 
 
 def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
@@ -169,3 +193,9 @@ def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
     assert 'st.session_state["recorded_decision"]' in source
     assert "st.rerun()" in source
     assert "Review queue is clear" in source
+    assert "Queue" in source
+    assert "Candidate detail" in source
+    assert "Decision history" in source
+    assert "available_decisions" in source
+    assert "INSERT INTO GOVERNANCE" not in source
+    assert "UPDATE GOVERNANCE" not in source

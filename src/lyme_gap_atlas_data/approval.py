@@ -34,4 +34,6 @@ def approval_prerequisites_met(detail: dict[str, object]) -> bool:
         and detail.get("profile_version") is not None
         and detail.get("assessment_status") == "PENDING_REVIEW"
         and not bool(detail.get("has_material_schema_change", False))
+        and not bool(detail.get("has_material_document_change", False))
+        and not bool(detail.get("has_blocking_issue", False))
     )

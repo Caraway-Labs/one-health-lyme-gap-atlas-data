@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -274,3 +276,172 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
         "schema_sha256": schema_sha256,
         "status": "PENDING_STEWARD_REVIEW",
     }
+
+
+def ingest_approved_cdc(page_size: int = 5_000) -> dict[str, Any]:
+    """Fully acquire the approved CDC source through immutable artifacts and COPY.
+
+    This command is intentionally explicit: Streamlit approval enables it, but
+    never invokes it.  The caller must run it in the isolated governed runtime.
+    """
+    profile = load_cdc_profile()
+    if page_size < 1 or page_size > 10_000:
+        raise ValueError("page_size must be between 1 and 10,000")
+    settings = PipelineSettings()
+    token = settings.socrata_app_token.get_secret_value() if settings.socrata_app_token else None
+    run_id, now = str(uuid.uuid4()), datetime.now(UTC)
+    s3 = _spaces_client(settings)
+    rows_loaded = 0
+    with connect(SnowflakeSettings()) as connection:
+        connection.autocommit(False)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT data_source_version_id FROM GOVERNANCE.DATA_SOURCE_VERSIONS
+                    WHERE resource_key = %s AND status IN ('APPROVED', 'CONDITIONAL')
+                      AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1""",
+                    (CDC_RESOURCE_ID,),
+                )
+                source_version = cursor.fetchone()
+                if source_version is None:
+                    raise ValueError(
+                        "CDC full ingestion requires an active steward-approved source version"
+                    )
+                source_version_id = str(source_version[0])
+                cursor.execute(
+                    """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                    (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version, started_at)
+                    VALUES (%s, %s, 'FULL_REFRESH', 'MANUAL', 'RUNNING', 'cdc-x5j9-full-v1', %s)""",
+                    (run_id, CDC_RESOURCE_ID, now),
+                )
+                with TemporaryDirectory(prefix="oh-lyme-cdc-") as directory:
+                    offset, sequence = 0, 0
+                    while True:
+                        url = (
+                            str(profile["endpoint_template"])
+                            + "?"
+                            + urlencode(
+                                {
+                                    "$limit": page_size,
+                                    "$offset": offset,
+                                    "$order": profile["deterministic_order_clause"],
+                                }
+                            )
+                        )
+                        page = _fetch_json(url, token)
+                        if not isinstance(page, list):
+                            raise ValueError("CDC full-ingestion page was malformed")
+                        if not page:
+                            break
+                        sequence += 1
+                        payload = "\n".join(
+                            json.dumps(row, separators=(",", ":")) for row in page
+                        ).encode()
+                        artifact = _save_artifact(s3, settings, CDC_RESOURCE_ID, run_id, payload)
+                        request_id, artifact_id = str(uuid.uuid4()), str(uuid.uuid4())
+                        cursor.execute(
+                            """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
+                            (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose, endpoint,
+                             redacted_request, status_code, response_sha256, retrieved_row_count, created_at)
+                            SELECT %s, %s, %s, 'FULL_DATA_PAGE', %s, PARSE_JSON(%s), 200, %s, %s, %s""",
+                            (
+                                request_id,
+                                run_id,
+                                sequence,
+                                str(profile["endpoint_template"]),
+                                json.dumps(
+                                    redact_mapping(
+                                        {
+                                            "offset": offset,
+                                            "limit": page_size,
+                                            "order": profile["deterministic_order_clause"],
+                                        }
+                                    )
+                                ),
+                                artifact.sha256,
+                                len(page),
+                                now,
+                            ),
+                        )
+                        cursor.execute(
+                            """INSERT INTO GOVERNANCE.RAW_ARTIFACTS
+                            (artifact_id, ingestion_run_id, ingestion_request_id, artifact_uri, artifact_type,
+                             media_type, byte_count, sha256, created_at)
+                            VALUES (%s, %s, %s, %s, 'FULL_DATA_PAGE', 'application/x-ndjson', %s, %s, %s)""",
+                            (
+                                artifact_id,
+                                run_id,
+                                request_id,
+                                f"s3://{settings.spaces_bucket}/{settings.spaces_prefix}/{artifact.object_key}",
+                                artifact.byte_count,
+                                artifact.sha256,
+                                now,
+                            ),
+                        )
+                        local_path = Path(directory) / f"{sequence}.jsonl"
+                        local_path.write_bytes(payload)
+                        stage_path = f"{run_id}/{artifact_id}.jsonl"
+                        cursor.execute(
+                            f"PUT {local_path.as_uri()} @RAW.INGESTION_TRANSIENT_STAGE/{stage_path} AUTO_COMPRESS=FALSE"
+                        )
+                        cursor.execute(
+                            f"""COPY INTO RAW.CDC_LYME_X5J9_WYBP
+                            (payload, data_source_version_id, ingestion_run_id, artifact_id, source_url,
+                             redacted_source_query, source_record_id, source_row_hash, retrieved_at)
+                            FROM (SELECT $1, %s, %s, %s, %s, %s, $1::VARIANT:':id'::VARCHAR,
+                                         SHA2(TO_JSON($1), 256), %s
+                                  FROM @RAW.INGESTION_TRANSIENT_STAGE/{stage_path})
+                            FILE_FORMAT=(TYPE=JSON) ON_ERROR='ABORT_STATEMENT'""",
+                            (
+                                source_version_id,
+                                run_id,
+                                artifact_id,
+                                str(profile["endpoint_template"]),
+                                json.dumps({"offset": offset, "limit": page_size}),
+                                now,
+                            ),
+                        )
+                        rows_loaded += len(page)
+                        if len(page) < page_size:
+                            break
+                        offset += page_size
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS SET status = 'COMPLETED', completed_at = %s
+                    WHERE ingestion_run_id = %s""",
+                    (datetime.now(UTC), run_id),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return {
+        "ingestion_run_id": run_id,
+        "resource_key": CDC_RESOURCE_ID,
+        "source_version_id": source_version_id,
+        "rows_loaded": rows_loaded,
+        "status": "COMPLETED",
+    }
+
+
+def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
+    """Build only the CDC dbt path after a successful governed RAW load."""
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "dbt",
+            "build",
+            "--project-dir",
+            "dbt",
+            "--profiles-dir",
+            "dbt",
+            "--select",
+            "stg_cdc_lyme_x5j9_wybp+",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("CDC dbt build failed; inspect the governed dbt logs")
+    return {"source_version_id": source_version_id, "status": "COMPLETED"}

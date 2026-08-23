@@ -7,7 +7,7 @@ import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from .cdc import collect_cdc_evidence
+from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
 from .database import load as load_release
 from .database import provision as provision_database
 from .database import status as database_status
@@ -131,3 +131,20 @@ def deploy_approval_console_command(
 def cdc_sample(sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100)) -> None:
     """Collect CDC x5j9-wybp metadata and an ordered sample; never full-ingest data."""
     typer.echo(json.dumps(collect_cdc_evidence(sample_limit), default=str))
+
+
+@pipeline_app.command("ingest-approved-cdc")
+def ingest_approved_cdc_command(
+    page_size: int = typer.Option(5000, "--page-size", min=1, max=10000),
+) -> None:
+    """Load CDC x5j9-wybp only when a steward-approved source version is active."""
+    typer.echo(json.dumps(ingest_approved_cdc(page_size), default=str))
+
+
+@pipeline_app.command("promote-approved-cdc")
+def promote_approved_cdc_command(
+    page_size: int = typer.Option(5000, "--page-size", min=1, max=10000),
+) -> None:
+    """Run explicit CDC acquisition followed by its dbt promotion path."""
+    ingestion = ingest_approved_cdc(page_size)
+    typer.echo(json.dumps(build_approved_cdc_models(str(ingestion["source_version_id"]))))

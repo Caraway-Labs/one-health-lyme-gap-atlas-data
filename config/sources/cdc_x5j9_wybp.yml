@@ -5,6 +5,7 @@ endpoint_template: https://data.cdc.gov/resource/x5j9-wybp.json
 metadata_endpoint_template: https://data.cdc.gov/api/views/x5j9-wybp
 deterministic_order_clause: ":id ASC"
 incremental_strategy: FULL_REFRESH
+page_size: 5000
 expected_refresh_cadence: annual
 geography_semantics: COUNTY_OF_RESIDENCE
 temporal_semantics: surveillance_year
