@@ -14,6 +14,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .artifacts import create_artifact
+from .cdc import build_approved_cdc_models, ingest_approved_cdc
 from .discovery import (
     DiscoveryRequest,
     fetch_json,
@@ -170,3 +171,18 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
         "request_count": len(requests),
         "config_sha256": config_sha256,
     }
+
+
+def run_production_schedule() -> dict[str, Any]:
+    """Run the production-only CDC refresh path after steward approval.
+
+    The App Platform schedule is the caller.  Approval remains enforced inside
+    ``ingest_approved_cdc`` by the active source-version lookup; this command
+    never creates an approval or substitutes a DEV source version.
+    """
+    settings = PipelineSettings()
+    if settings.topx_env != "prod":
+        raise ValueError("The approved-source schedule may run only in production")
+    ingestion = ingest_approved_cdc(trigger_type="SCHEDULED")
+    promotion = build_approved_cdc_models(str(ingestion["source_version_id"]))
+    return {"ingestion": ingestion, "promotion": promotion, "status": "COMPLETED"}

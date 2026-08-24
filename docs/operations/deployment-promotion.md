@@ -73,6 +73,12 @@ Still required before any production promotion can succeed:
    decision.
 3. Exercise a DEV rollback by redeploying a previously approved digest.
 
+The checked-in `.do/app.prod.yaml` is the production job specification. It
+runs the approved CDC source on its declared annual cadence and invokes dbt
+only after a full RAW load succeeds. It requires an active steward-approved
+PROD source version and `ENABLE_PRODUCTION_EXECUTION=true`; it cannot consume
+a DEV approval, create an approval, or run against the Alpha POC database.
+
 ## Streamlit approval-console promotion checklist
 
 Apply this checklist independently in each environment. It records DEV lessons

@@ -278,12 +278,14 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
     }
 
 
-def ingest_approved_cdc(page_size: int = 5_000) -> dict[str, Any]:
+def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL") -> dict[str, Any]:
     """Fully acquire the approved CDC source through immutable artifacts and COPY.
 
     This command is intentionally explicit: Streamlit approval enables it, but
     never invokes it.  The caller must run it in the isolated governed runtime.
     """
+    if trigger_type not in {"MANUAL", "SCHEDULED", "BACKFILL", "RETRY"}:
+        raise ValueError("Unsupported ingestion trigger type")
     profile = load_cdc_profile()
     if page_size < 1 or page_size > 10_000:
         raise ValueError("page_size must be between 1 and 10,000")
@@ -311,8 +313,8 @@ def ingest_approved_cdc(page_size: int = 5_000) -> dict[str, Any]:
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.INGESTION_RUNS
                     (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version, started_at)
-                    VALUES (%s, %s, 'FULL_REFRESH', 'MANUAL', 'RUNNING', 'cdc-x5j9-full-v1', %s)""",
-                    (run_id, CDC_RESOURCE_ID, now),
+                    VALUES (%s, %s, 'FULL_REFRESH', %s, 'RUNNING', 'cdc-x5j9-full-v1', %s)""",
+                    (run_id, CDC_RESOURCE_ID, trigger_type, now),
                 )
                 with TemporaryDirectory(prefix="oh-lyme-cdc-") as directory:
                     offset, sequence = 0, 0
@@ -388,7 +390,7 @@ def ingest_approved_cdc(page_size: int = 5_000) -> dict[str, Any]:
                             f"""COPY INTO RAW.CDC_LYME_X5J9_WYBP
                             (payload, data_source_version_id, ingestion_run_id, artifact_id, source_url,
                              redacted_source_query, source_record_id, source_row_hash, retrieved_at)
-                            FROM (SELECT $1, %s, %s, %s, %s, %s, $1::VARIANT:':id'::VARCHAR,
+                            FROM (SELECT $1, %s, %s, %s, %s, %s, $1:":id"::VARCHAR,
                                          SHA2(TO_JSON($1), 256), %s
                                   FROM @RAW.INGESTION_TRANSIENT_STAGE/{stage_path})
                             FILE_FORMAT=(TYPE=JSON) ON_ERROR='ABORT_STATEMENT'""",

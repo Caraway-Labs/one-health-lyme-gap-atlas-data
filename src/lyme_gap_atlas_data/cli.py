@@ -14,7 +14,7 @@ from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
 from .migrations import apply_migrations, migration_plan
-from .orchestration import run_discovery
+from .orchestration import run_discovery, run_production_schedule
 from .preflight import run_preflight
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console
@@ -148,3 +148,9 @@ def promote_approved_cdc_command(
     """Run explicit CDC acquisition followed by its dbt promotion path."""
     ingestion = ingest_approved_cdc(page_size)
     typer.echo(json.dumps(build_approved_cdc_models(str(ingestion["source_version_id"]))))
+
+
+@pipeline_app.command("run-production-schedule")
+def run_production_schedule_command() -> None:
+    """Run the production scheduled approved-source ingestion and dbt path."""
+    typer.echo(json.dumps(run_production_schedule(), default=str))

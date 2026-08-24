@@ -11,4 +11,5 @@ lyme_gap_atlas_pipeline:
       schema: STAGING
       authenticator: jwt
       private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', 'placeholder') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', 'placeholder') }}"
       threads: 1

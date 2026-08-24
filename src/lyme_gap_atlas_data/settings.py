@@ -12,6 +12,7 @@ class PipelineSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
 
     topx_env: str = "dev"
+    enable_production_execution: bool = False
     snowflake_database: str = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     snowflake_account: str = ""
     snowflake_user: str = ""
@@ -35,8 +36,10 @@ class PipelineSettings(BaseSettings):
         expected = f"ONE_HEALTH_LYME_GAP_ATLAS_{self.topx_env.upper()}"
         if self.snowflake_database != expected:
             raise ValueError(f"SNOWFLAKE_DATABASE must be {expected} for TOPX_ENV={self.topx_env}")
-        if self.topx_env == "prod":
-            raise ValueError("Production execution is not enabled in this delivery")
+        if self.topx_env not in {"dev", "prod"}:
+            raise ValueError("TOPX_ENV must be dev or prod")
+        if self.topx_env == "prod" and not self.enable_production_execution:
+            raise ValueError("Production execution requires ENABLE_PRODUCTION_EXECUTION=true")
         if self.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS":
             raise ValueError("The Alpha POC database is not a pipeline target")
         return self

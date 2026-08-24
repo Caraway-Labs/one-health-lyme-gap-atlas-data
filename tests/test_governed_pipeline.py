@@ -1,7 +1,10 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import yaml
 
+from lyme_gap_atlas_data import orchestration
 from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
@@ -108,6 +111,61 @@ def test_settings_rejects_poc_database() -> None:
         PipelineSettings(topx_env="dev", snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS")
 
 
+def test_settings_require_an_explicit_production_execution_gate() -> None:
+    with pytest.raises(ValueError, match="ENABLE_PRODUCTION_EXECUTION"):
+        PipelineSettings(topx_env="prod", snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert (
+        PipelineSettings(
+            topx_env="prod",
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+            enable_production_execution=True,
+        ).topx_env
+        == "prod"
+    )
+
+
+def test_production_schedule_rejects_dev_before_any_ingestion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="dev"))
+    with pytest.raises(ValueError, match="only in production"):
+        orchestration.run_production_schedule()
+
+
+def test_production_schedule_requires_approved_ingestion_before_dbt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    monkeypatch.setattr(
+        orchestration,
+        "ingest_approved_cdc",
+        lambda **kwargs: {"source_version_id": "version-1", "status": "COMPLETED"},
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "build_approved_cdc_models",
+        lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
+    )
+    result = orchestration.run_production_schedule()
+    assert result["ingestion"]["source_version_id"] == "version-1"
+    assert result["promotion"]["status"] == "COMPLETED"
+
+
+def test_production_app_spec_has_separate_gated_jobs() -> None:
+    spec = yaml.safe_load(Path(".do/app.prod.yaml").read_text(encoding="utf-8"))
+    jobs = {job["name"]: job for job in spec["jobs"]}
+    assert jobs["catalog-discovery"]["run_command"] == "uv run atlas-data pipeline discover"
+    assert (
+        jobs["approved-source-ingestion"]["run_command"]
+        == "uv run atlas-data pipeline run-production-schedule"
+    )
+    for job in jobs.values():
+        assert any(
+            env["key"] == "ENABLE_PRODUCTION_EXECUTION" and env["value"] == "true"
+            for env in job["envs"]
+        )
+
+
 def test_preflight_identifies_missing_required_configuration() -> None:
     settings = PipelineSettings(
         snowflake_account="",
@@ -136,6 +194,24 @@ def test_cdc_profile_requires_deterministic_ordering() -> None:
     assert profile["deterministic_order_clause"] == ":id ASC"
 
 
+def test_cdc_raw_load_quotes_the_socrata_system_identifier() -> None:
+    source = Path("src/lyme_gap_atlas_data/cdc.py").read_text(encoding="utf-8")
+    assert '$1:":id"::VARCHAR' in source
+
+
+def test_dbt_profile_supports_an_encrypted_pipeline_key() -> None:
+    profile = Path("dbt/profiles.yml").read_text(encoding="utf-8")
+    assert "private_key_passphrase" in profile
+
+
+def test_dbt_uses_only_migration_provisioned_governed_schemas() -> None:
+    macros = Path("dbt/macros/governed_schemas.sql").read_text(encoding="utf-8")
+    assert "generate_schema_name" in macros
+    assert "snowflake__create_schema" in macros
+    assert "STAGING" in macros
+    assert "CONFORMED" in macros
+
+
 def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     migrations = load_migrations()
     assert [item.version for item in migrations] == [
@@ -157,6 +233,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V016",
         "V017",
         "V018",
+        "V019",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -164,7 +241,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 18
+    assert len(prod_plan) == 19
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -194,6 +271,9 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "metadata_sha256" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS" in migrations[17].source
+    dbt_grants = migrations[18].source
+    assert "GRANT SELECT ON TABLE RAW.CDC_LYME_X5J9_WYBP" in dbt_grants
+    assert "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA STAGING" in dbt_grants
     owner_rights_dependencies = "\n".join(
         migration.source for migration in (migrations[5], migrations[16], migrations[17])
     )

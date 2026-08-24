@@ -1,0 +1,111 @@
+name: oh-lyme-data-prod
+region: sfo
+jobs:
+  - name: catalog-discovery
+    kind: SCHEDULED
+    schedule:
+      cron: "0 8 * * 1"
+      time_zone: America/Denver
+    image:
+      registry_type: DOCR
+      repository: pipeline
+      digest: ${IMAGE_DIGEST}
+    run_command: uv run atlas-data pipeline discover
+    envs:
+      - key: TOPX_ENV
+        value: prod
+      - key: ENABLE_PRODUCTION_EXECUTION
+        value: "true"
+      - key: SNOWFLAKE_DATABASE
+        value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
+      - key: SNOWFLAKE_ROLE
+        value: OH_LYME_PROD_PIPELINE_RUNTIME
+      - key: SNOWFLAKE_WAREHOUSE
+        value: OH_LYME_PROD_INGEST_XS_WH
+      - key: SNOWFLAKE_AUTH_METHOD
+        value: key_pair
+      - key: SNOWFLAKE_ACCOUNT
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_USER
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_B64
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+        scope: RUN_TIME
+        type: SECRET
+      - key: DATA_GOV_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SOCRATA_APP_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_REGION
+        value: sfo3
+      - key: SPACES_ENDPOINT
+        value: https://sfo3.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: one-health-lyme-gap-atlas-data-prod
+      - key: SPACES_PREFIX
+        value: prod
+      - key: SPACES_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+  - name: approved-source-ingestion
+    kind: SCHEDULED
+    schedule:
+      # CDC x5j9-wybp is declared as an annual full-refresh source.
+      cron: "0 9 15 1 *"
+      time_zone: America/Denver
+    image:
+      registry_type: DOCR
+      repository: pipeline
+      digest: ${IMAGE_DIGEST}
+    run_command: uv run atlas-data pipeline run-production-schedule
+    envs:
+      - key: TOPX_ENV
+        value: prod
+      - key: ENABLE_PRODUCTION_EXECUTION
+        value: "true"
+      - key: SNOWFLAKE_DATABASE
+        value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
+      - key: SNOWFLAKE_ROLE
+        value: OH_LYME_PROD_PIPELINE_RUNTIME
+      - key: SNOWFLAKE_WAREHOUSE
+        value: OH_LYME_PROD_INGEST_XS_WH
+      - key: SNOWFLAKE_AUTH_METHOD
+        value: key_pair
+      - key: SNOWFLAKE_ACCOUNT
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_USER
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_B64
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+        scope: RUN_TIME
+        type: SECRET
+      - key: SOCRATA_APP_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_REGION
+        value: sfo3
+      - key: SPACES_ENDPOINT
+        value: https://sfo3.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: one-health-lyme-gap-atlas-data-prod
+      - key: SPACES_PREFIX
+        value: prod
+      - key: SPACES_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
