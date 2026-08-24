@@ -237,6 +237,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V020",
         "V021",
         "V022",
+        "V023",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -244,7 +245,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 22
+    assert len(prod_plan) == 23
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -286,6 +287,9 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     ledger_reconciliation = migrations[21].source
     assert "Preserve both immutable audit records" in ledger_reconciliation
     assert "COUNT(DISTINCT sha256) = 1" in ledger_reconciliation
+    service_user = migrations[22].source
+    assert "TYPE = SERVICE" in service_user
+    assert "GRANT ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in service_user
     owner_rights_dependencies = "\n".join(
         migration.source for migration in (migrations[5], migrations[16], migrations[17])
     )
