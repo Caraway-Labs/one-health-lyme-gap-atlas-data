@@ -47,3 +47,13 @@ reviewer and reuses the exact digest already running in DEV. It cannot create
 production infrastructure or substitute the Alpha POC database. See the
 [deployment runbook](docs/operations/deployment-promotion.md) for the required
 production provisioning and promotion sequence.
+
+To provision the protected PROD runtime without placing secrets in a file, use
+the interactive helper from a user-controlled terminal after creating the
+private `one-health-lyme-gap-atlas-data-prod` Spaces bucket and a scoped Spaces
+key. It validates the bucket and the Snowflake service identity before creating
+the non-routable App Platform job:
+
+```powershell
+uv run python scripts/provision_prod_runtime.py --image-digest sha256:d287b651b0f4366731917194917aa2dbbfcfcf781a57eafdb169a2453068caee --confirm
+```
