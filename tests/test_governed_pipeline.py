@@ -194,6 +194,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "metadata_sha256" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS" in migrations[17].source
+    owner_rights_dependencies = "\n".join(
+        migration.source for migration in (migrations[5], migrations[16], migrations[17])
+    )
+    for table_name in ("CATALOG_DATASETS", "INGESTION_RUNS"):
+        assert f"GRANT SELECT ON TABLE GOVERNANCE.{table_name}" in owner_rights_dependencies
 
 
 def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:

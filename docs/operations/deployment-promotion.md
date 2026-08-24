@@ -121,6 +121,34 @@ that are mandatory for the later protected PROD promotion.
    stage upload, owner-role grants, procedure/table privileges, and deployment
    identity configuration in the protected promotion evidence. A successful
    worker-image deployment alone does not deploy or validate the approval app.
+7. **Preflight every owner-rights view dependency.** `SELECT` on a view is not
+   enough for an owner-rights Streamlit app: its owner needs direct `SELECT` on
+   every table expanded by that view. For this console, that includes
+   `CATALOG_DATASETS` (queue/detail) and `INGESTION_RUNS` (pipeline status), in
+   addition to the procedure dependencies above. Maintain the grant migration
+   with the view change, and execute a read-only `SELECT` against **each** of
+   queue, detail, pipeline status, and history using the owner role before
+   steward access is granted.
+8. **Preflight creator privileges before view replacement.** The Streamlit
+   owner needs `CREATE VIEW` on `GOVERNANCE` before a migration that creates or
+   replaces its owner-owned views. Run the privilege check before deployment;
+   do not discover the omission halfway through a migration. `SECURITY_ADMIN`
+   may manage grants yet still lack `CREATE TABLE`; baseline-table repair is an
+   AccountAdmin-controlled recovery operation, not a normal promotion step.
+9. **Treat missing baseline tables as a stop condition in PROD.** A role's
+   object listing can hide tables it is not authorized to inspect. Verify the
+   V001 governance-table baseline using an authorized administrative preflight
+   before promotion. If a required table is actually absent in PROD, stop and
+   open a controlled recovery incident; do not fabricate source evidence or
+   proceed with a steward decision. The DEV V017 recovery is limited to the
+   CDC parent relation and deliberately preserves incomplete evidence rather
+   than inventing a metadata digest.
+10. **Use short-lived, single-role repair credentials only when necessary.**
+    PAT sessions cannot switch roles and cannot create or revoke PATs for the
+    same human user. Create a separate, role-restricted, time-limited token
+    from a browser-authenticated session only for a documented repair; revoke
+    it and remove its local token file/connection entry immediately afterward.
+    Keep the normal deployment identity restricted to the Streamlit owner role.
 
 The `Promote governed pipeline to PROD` workflow is present and protected by
 the GitHub `production` environment. It verifies that a requested digest is the
