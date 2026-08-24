@@ -166,6 +166,15 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
         )
 
 
+def test_production_promotion_only_updates_an_existing_secret_preserving_app() -> None:
+    workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"' in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait' in workflow
+    assert ".image.digest = $image_digest" in workflow
+    assert "provider-encrypted secret values" in workflow
+    assert "exit 1" not in workflow
+
+
 def test_preflight_identifies_missing_required_configuration() -> None:
     settings = PipelineSettings(
         snowflake_account="",

@@ -35,7 +35,26 @@ jobs:
         run: |
           test -n "$PROD_APP_ID"
           doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
-      - name: Apply PROD migration plan and deploy the same digest
+      - name: Promote the existing PROD jobs without exposing their secrets
         run: |
-          echo "PROD deployment wiring is intentionally blocked until separate PROD Snowflake and Spaces credentials exist."
-          exit 1
+          prod_spec="$(mktemp)"
+          next_spec="$(mktemp)"
+          trap 'rm -f "$prod_spec" "$next_spec"' EXIT
+
+          # Keep the rendered production specification out of workflow output:
+          # it contains provider-encrypted secret values. Only its job image
+          # digests may change during a governed promotion.
+          doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
+          test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
+          test "$(jq '[.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion")] | length' "$prod_spec")" = "2"
+          test "$(jq '[.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion") | select(.image.registry_type == "DOCR" and .image.repository == "pipeline")] | length' "$prod_spec")" = "2"
+
+          jq --arg image_digest "$IMAGE_DIGEST" '
+            .jobs |= map(
+              if .name == "catalog-discovery" or .name == "approved-source-ingestion"
+              then .image.digest = $image_digest
+              else .
+              end
+            )
+          ' "$prod_spec" > "$next_spec"
+          doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait

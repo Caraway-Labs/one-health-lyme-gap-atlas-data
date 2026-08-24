@@ -61,17 +61,25 @@ Completed controls:
 4. DEV App Platform now uses an image digest, not a mutable GitHub source
    reference.
 
-Still required before any production promotion can succeed:
+Completed production-runtime controls:
 
-1. Provision separate PROD Snowflake, Spaces, service identity, and a
-   non-routable App Platform job, then configure the production-only secrets
-   and `PROD_APP_ID` GitHub environment variable.
-2. Complete the CDC steward decision, approved full-ingestion, and dbt
+1. Separate PROD Snowflake, Spaces, service identity, and non-routable App
+   Platform job are provisioned. Its production-only secrets remain stored in
+   App Platform, and `PROD_APP_ID` is configured as a GitHub production
+   environment variable.
+2. The production workflow fetches the existing App Platform specification
+   without emitting it, confirms the intended scheduled jobs, and updates only
+   their immutable image digest. This preserves provider-encrypted secrets and
+   all other production job settings.
+
+Still required before a full-production ingestion can run:
+
+1. Complete the CDC steward decision, approved full-ingestion, and dbt
    acceptance path. The DEV `SOURCE_APPROVAL_CONSOLE` is deployed under
    `OH_LYME_DEV_STREAMLIT_OWNER` with the dedicated approval warehouse; the
    `x5j9-wybp` evidence-only candidate is intentionally pending a human
    decision.
-3. Exercise a DEV rollback by redeploying a previously approved digest.
+2. Exercise a DEV rollback by redeploying a previously approved digest.
 
 The checked-in `.do/app.prod.yaml` is the production job specification. It
 runs the approved CDC source on its declared annual cadence and invokes dbt
