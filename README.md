@@ -55,5 +55,6 @@ key. It validates the bucket and the Snowflake service identity before creating
 the non-routable App Platform job:
 
 ```powershell
-uv run python scripts/provision_prod_runtime.py --image-digest sha256:d287b651b0f4366731917194917aa2dbbfcfcf781a57eafdb169a2453068caee --confirm
+$prodDigest = ((doctl apps spec get b33dbae7-e243-4e27-b3ca-1018f5897f87 --format json | ConvertFrom-Json).jobs[0].image.digest)
+uv run python scripts/provision_prod_runtime.py --image-digest $prodDigest --confirm
 ```
