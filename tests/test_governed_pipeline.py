@@ -234,6 +234,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V017",
         "V018",
         "V019",
+        "V020",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -241,7 +242,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 19
+    assert len(prod_plan) == 20
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -274,6 +275,9 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     dbt_grants = migrations[18].source
     assert "GRANT SELECT ON TABLE RAW.CDC_LYME_X5J9_WYBP" in dbt_grants
     assert "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA STAGING" in dbt_grants
+    reconciliation = migrations[19].source
+    assert "Preserve the append-only migration ledger" in reconciliation
+    assert "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA CONFORMED" in reconciliation
     owner_rights_dependencies = "\n".join(
         migration.source for migration in (migrations[5], migrations[16], migrations[17])
     )
