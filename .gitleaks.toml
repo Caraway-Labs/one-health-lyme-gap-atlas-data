@@ -29,3 +29,13 @@ regexTarget = "match"
 regexes = [
   '''.*cdc_lyme_x5j9_wybp.*''',
 ]
+
+[[allowlists]]
+description = "Literal encrypted runtime-secret key names in the production app template"
+paths = [
+  '''^\.do/app\.prod\.yaml$''',
+]
+regexTarget = "match"
+regexes = [
+  '''SNOWFLAKE_PRIVATE_KEY_B64''',
+]
