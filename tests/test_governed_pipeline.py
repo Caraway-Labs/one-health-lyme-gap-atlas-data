@@ -85,14 +85,14 @@ def test_discovery_configuration_is_valid() -> None:
         "DATA_GOV",
         "HEALTHDATA_GOV",
         "SOCRATA_ODN",
+    }
+    assert len(initial_requests(config)) == 535
+    assert any(request.term == "Lyme economic burden" for request in initial_requests(config))
     assert all(
         request.pagination.get("maximum_offset") == 9900
         for request in initial_requests(config)
         if request.catalog_id in {"HEALTHDATA_GOV", "SOCRATA_ODN"}
     )
-    }
-    assert len(initial_requests(config)) == 535
-    assert any(request.term == "Lyme economic burden" for request in initial_requests(config))
 
 
 def test_discovery_requests_have_a_deterministic_term_order() -> None:
@@ -246,6 +246,8 @@ def test_discovery_pagination_uses_catalog_strategy() -> None:
     second_page = next_page_request(socrata, {"results": [{}] * 100}, 0)
     assert second_page is not None
     assert "limit=100" in second_page.url
+    assert "offset=100" in second_page.url
+
     capped_socrata = DiscoveryRequest(
         catalog_id="HEALTHDATA_GOV",
         term="catalog window",
@@ -258,7 +260,6 @@ def test_discovery_pagination_uses_catalog_strategy() -> None:
         },
     )
     assert next_page_request(capped_socrata, {"results": [{}] * 100}, 9900) is None
-    assert "offset=100" in second_page.url
 
     data_gov = next(
         request for request in initial_requests(config) if request.catalog_id == "DATA_GOV"
