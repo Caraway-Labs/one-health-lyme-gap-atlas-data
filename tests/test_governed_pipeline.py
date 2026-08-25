@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 import yaml
@@ -10,6 +11,7 @@ from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.cdc import load_cdc_profile
 from lyme_gap_atlas_data.discovery import (
+    _retryable_catalog_error,
     initial_requests,
     load_search_configuration,
     next_page_request,
@@ -82,6 +84,34 @@ def test_discovery_configuration_is_valid() -> None:
     }
     assert len(initial_requests(config)) == 537
     assert any(request.term == "Lyme economic burden" for request in initial_requests(config))
+
+
+def test_discovery_requests_have_a_deterministic_term_order() -> None:
+    config = load_search_configuration(Path("catalog-search-terms.json"))[0]
+    first = initial_requests(config)
+    second = initial_requests(config)
+    assert [request.term for request in first] == [request.term for request in second]
+
+
+def test_failed_catalog_request_retains_only_redacted_evidence() -> None:
+    request = orchestration.DiscoveryRequest(
+        catalog_id="DATA_GOV",
+        term="Lyme disease",
+        url="https://example.test/search?q=Lyme+disease",
+        headers={"X-Api-Key": "secret"},
+        pagination={},
+    )
+    error = HTTPError(request.url, 400, "Bad Request", None, None)
+    assert orchestration._failure_status_code(error) == 400
+    assert "secret" not in orchestration._redacted_request_details(request)
+    assert "[REDACTED]" in orchestration._redacted_request_details(request)
+
+
+def test_catalog_retries_are_limited_to_transient_errors() -> None:
+    assert _retryable_catalog_error(HTTPError("https://example.test", 403, "", None, None))
+    assert _retryable_catalog_error(HTTPError("https://example.test", 429, "", None, None))
+    assert _retryable_catalog_error(HTTPError("https://example.test", 503, "", None, None))
+    assert not _retryable_catalog_error(HTTPError("https://example.test", 400, "", None, None))
 
 
 def test_discovery_pagination_uses_catalog_strategy() -> None:

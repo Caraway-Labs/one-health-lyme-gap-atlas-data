@@ -6,7 +6,9 @@ import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
+from time import monotonic, sleep
 from typing import Any
+from urllib.error import HTTPError
 
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
@@ -57,6 +59,24 @@ def _resource_key(request: DiscoveryRequest) -> str:
     return f"catalog:{request.catalog_id.lower()}:{term_digest}"
 
 
+def _redacted_request_details(request: DiscoveryRequest) -> str:
+    """Return reproducible request evidence without credentials."""
+    return json.dumps(
+        redact_mapping(
+            {
+                "catalog_id": request.catalog_id,
+                "term": request.term,
+                **request.headers,
+            }
+        )
+    )
+
+
+def _failure_status_code(error: Exception) -> int | None:
+    """Extract an HTTP status without retaining response content."""
+    return error.code if isinstance(error, HTTPError) else None
+
+
 def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
     """Discover catalog metadata, saving every response as an immutable artifact.
 
@@ -75,22 +95,30 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
     s3 = _spaces_client(settings)
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """INSERT INTO GOVERNANCE.INGESTION_RUNS
-                    (ingestion_run_id, resource_key, run_mode, trigger_type, status,
-                     config_sha256, started_at)
-                    VALUES (%s, %s, 'DISCOVERY', 'SCHEDULED', 'RUNNING', %s, %s)""",
-                    (run_id, "catalog_discovery", config_sha256, started_at),
-                )
-                sequence = 0
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                (ingestion_run_id, resource_key, run_mode, trigger_type, status,
+                 config_sha256, started_at)
+                VALUES (%s, %s, 'DISCOVERY', 'SCHEDULED', 'RUNNING', %s, %s)""",
+                (run_id, "catalog_discovery", config_sha256, started_at),
+            )
+            connection.commit()
+            sequence = 0
+            request: DiscoveryRequest | None = None
+            last_data_gov_request_started_at: float | None = None
+            try:
                 for original_request in requests:
-                    request: DiscoveryRequest | None = _catalog_request(original_request, settings)
+                    request = _catalog_request(original_request, settings)
                     offset = 0
                     while request is not None:
                         sequence += 1
                         request_id = str(uuid.uuid4())
+                        if request.catalog_id == "DATA_GOV":
+                            if last_data_gov_request_started_at is not None:
+                                elapsed = monotonic() - last_data_gov_request_started_at
+                                sleep(max(0.0, 1.0 - elapsed))
+                            last_data_gov_request_started_at = monotonic()
                         response = fetch_json(request)
                         payload = json.dumps(
                             response, sort_keys=True, separators=(",", ":")
@@ -118,15 +146,7 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                                 run_id,
                                 sequence,
                                 request.url.split("?", maxsplit=1)[0],
-                                json.dumps(
-                                    redact_mapping(
-                                        {
-                                            "catalog_id": request.catalog_id,
-                                            "term": request.term,
-                                            **request.headers,
-                                        }
-                                    )
-                                ),
+                                _redacted_request_details(request),
                                 response_sha256,
                                 datetime.now(UTC),
                             ),
@@ -148,6 +168,7 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                                 datetime.now(UTC),
                             ),
                         )
+                        connection.commit()
                         next_request = next_page_request(request, response, offset)
                         if next_request is not None:
                             offset += int(
@@ -161,10 +182,39 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                     SET status = 'COMPLETED', completed_at = %s WHERE ingestion_run_id = %s""",
                     (datetime.now(UTC), run_id),
                 )
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
+                connection.commit()
+            except Exception as error:
+                connection.rollback()
+                if request is not None:
+                    cursor.execute(
+                        """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
+                        (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
+                         endpoint, redacted_request, status_code, created_at)
+                        SELECT %s, %s, %s, 'CATALOG_DISCOVERY', %s, PARSE_JSON(%s), %s, %s""",
+                        (
+                            str(uuid.uuid4()),
+                            run_id,
+                            sequence,
+                            request.url.split("?", maxsplit=1)[0],
+                            _redacted_request_details(request),
+                            _failure_status_code(error),
+                            datetime.now(UTC),
+                        ),
+                    )
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status = 'FAILED', completed_at = %s, error_classification = %s,
+                        redacted_error = %s
+                    WHERE ingestion_run_id = %s""",
+                    (
+                        datetime.now(UTC),
+                        type(error).__name__,
+                        "Catalog discovery request failed; inspect the redacted request ledger.",
+                        run_id,
+                    ),
+                )
+                connection.commit()
+                raise
     return {
         "ingestion_run_id": run_id,
         "status": "COMPLETED",

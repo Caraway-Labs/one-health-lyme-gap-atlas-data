@@ -4,7 +4,9 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from time import sleep
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -47,7 +49,7 @@ def initial_requests(config: dict[str, Any]) -> list[DiscoveryRequest]:
         # These phrases intentionally remain catalog-scoped: they are useful
         # refinements for one catalog, but should not silently affect another.
         terms.update({term.casefold(): term for term in catalog.get("catalog_specific_terms", [])})
-        for term in terms.values():
+        for term in sorted(terms.values(), key=str.casefold):
             params = dict(catalog.get("fixed_query_parameters", {}))
             pagination = dict(catalog.get("pagination", {}))
             if pagination.get("strategy") == "CURSOR":
@@ -108,8 +110,27 @@ def next_page_request(
     raise ValueError(f"Unsupported pagination strategy for {request.catalog_id}: {strategy}")
 
 
-def fetch_json(request: DiscoveryRequest, timeout_seconds: int = 20) -> dict[str, Any]:
-    http_request = Request(request.url, headers=request.headers)
-    with urlopen(http_request, timeout=timeout_seconds) as response:  # nosec B310: configured HTTPS catalogs
-        payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
-        return payload
+def _retryable_catalog_error(error: Exception) -> bool:
+    """Identify transient catalog failures without inspecting response bodies."""
+    if isinstance(error, HTTPError):
+        return error.code in {403, 429, 500, 502, 503, 504}
+    return isinstance(error, URLError)
+
+
+def fetch_json(
+    request: DiscoveryRequest, timeout_seconds: int = 20, maximum_attempts: int = 3
+) -> dict[str, Any]:
+    """Fetch a catalog page with bounded retries for transient provider failures."""
+    if maximum_attempts < 1:
+        raise ValueError("maximum_attempts must be positive")
+    for attempt in range(maximum_attempts):
+        try:
+            http_request = Request(request.url, headers=request.headers)
+            with urlopen(http_request, timeout=timeout_seconds) as response:  # nosec B310
+                payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+                return payload
+        except (HTTPError, URLError) as error:
+            if not _retryable_catalog_error(error) or attempt == maximum_attempts - 1:
+                raise
+            sleep(2**attempt)
+    raise RuntimeError("Catalog request retry loop ended unexpectedly")
