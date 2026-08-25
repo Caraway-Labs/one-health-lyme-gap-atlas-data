@@ -40,6 +40,10 @@ class DiscoveryResume:
     offset: int
 
 
+class DiscoveryTimeBudgetExceeded(Exception):
+    """Raised before the App Platform job timeout can terminate the worker."""
+
+
 def _catalog_request(request: DiscoveryRequest, settings: PipelineSettings) -> DiscoveryRequest:
     headers = dict(request.headers)
     if request.catalog_id == "DATA_GOV":
@@ -232,7 +236,7 @@ def _load_discovery_resume(
     if prior is None:
         return None
     if prior[1] is not None:
-        if prior[2] != "RATE_LIMIT":
+        if prior[2] not in {"RATE_LIMIT", "TIME_BUDGET"}:
             return None
         resume = _decode_resume_state(str(prior[0]), prior[1])
         if _request_index(requests, resume.request) != resume.original_request_index:
@@ -282,6 +286,7 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
 
     run_id = str(uuid.uuid4())
     started_at = datetime.now(UTC)
+    deadline = monotonic() + settings.discovery_max_runtime_seconds
     s3 = _spaces_client(settings)
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
@@ -318,6 +323,8 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                         request = _catalog_request(original_request, settings)
                         offset = 0
                     while request is not None:
+                        if monotonic() >= deadline:
+                            raise DiscoveryTimeBudgetExceeded
                         sequence += 1
                         request_id = str(uuid.uuid4())
                         if request.catalog_id == "DATA_GOV":
@@ -389,6 +396,43 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                     (datetime.now(UTC), run_id),
                 )
                 connection.commit()
+            except DiscoveryTimeBudgetExceeded:
+                connection.rollback()
+                if request is None or original_request_index is None:
+                    raise RuntimeError(
+                        "Discovery time budget ended without a resumable request"
+                    ) from None
+                checkpoint = DiscoveryResume(
+                    prior_run_id=run_id,
+                    original_request_index=original_request_index,
+                    request=DiscoveryRequest(
+                        request.catalog_id, request.term, request.url, {}, request.pagination
+                    ),
+                    offset=offset,
+                )
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status = 'PAUSED', completed_at = %s,
+                        error_classification = 'TIME_BUDGET', redacted_error = %s,
+                        resume_state = PARSE_JSON(%s)
+                    WHERE ingestion_run_id = %s""",
+                    (
+                        datetime.now(UTC),
+                        (
+                            "Discovery paused before the App Platform runtime limit; "
+                            "the next run resumes from this page."
+                        ),
+                        _resume_state(checkpoint),
+                        run_id,
+                    ),
+                )
+                connection.commit()
+                return {
+                    "ingestion_run_id": run_id,
+                    "status": "PAUSED",
+                    "resumed_from_ingestion_run_id": resume.prior_run_id if resume else None,
+                    "config_sha256": config_sha256,
+                }
             except HTTPError as error:
                 connection.rollback()
                 if request is not None:

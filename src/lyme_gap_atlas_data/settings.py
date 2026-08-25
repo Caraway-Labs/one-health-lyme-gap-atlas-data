@@ -30,6 +30,7 @@ class PipelineSettings(BaseSettings):
     spaces_access_key_id: SecretStr | None = None
     spaces_secret_access_key: SecretStr | None = None
     catalog_search_terms_path: Path = Path("catalog-search-terms.json")
+    discovery_max_runtime_seconds: int = 1500
 
     @model_validator(mode="after")
     def validate_environment(self) -> "PipelineSettings":
@@ -42,4 +43,6 @@ class PipelineSettings(BaseSettings):
             raise ValueError("Production execution requires ENABLE_PRODUCTION_EXECUTION=true")
         if self.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS":
             raise ValueError("The Alpha POC database is not a pipeline target")
+        if not 1 <= self.discovery_max_runtime_seconds <= 1740:
+            raise ValueError("DISCOVERY_MAX_RUNTIME_SECONDS must be between 1 and 1740")
         return self
