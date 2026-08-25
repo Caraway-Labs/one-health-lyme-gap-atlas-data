@@ -30,6 +30,11 @@ def load_search_configuration(path: Path) -> tuple[dict[str, Any], str]:
         for group_id in catalog["search_term_group_ids"]:
             if group_id not in groups or not groups[group_id]["terms"]:
                 raise ValueError(f"Invalid term group {group_id} for {catalog['catalog_id']}")
+        maximum_offset = catalog.get("pagination", {}).get("maximum_offset")
+        if maximum_offset is not None and (
+            not isinstance(maximum_offset, int) or maximum_offset < 0
+        ):
+            raise ValueError(f"Invalid maximum offset for {catalog['catalog_id']}")
         excluded_terms = catalog.get("excluded_terms", [])
         if not isinstance(excluded_terms, list) or any(
             not isinstance(term, str) or not term.strip() for term in excluded_terms
@@ -117,6 +122,13 @@ def next_page_request(
         parameters = pagination["request_parameters"]
         limit = int(parameters["limit"])
         if not isinstance(results, list) or len(results) < limit:
+            return None
+        maximum_offset = pagination.get("maximum_offset")
+        if maximum_offset is not None and offset + limit > int(maximum_offset):
+            # The Socrata Catalog Search API rejects offsets at or above its
+            # documented 10,000-result window.  The configured bound makes
+            # that provider limitation explicit rather than issuing a known
+            # invalid request and failing the entire governed run.
             return None
         return DiscoveryRequest(
             request.catalog_id,

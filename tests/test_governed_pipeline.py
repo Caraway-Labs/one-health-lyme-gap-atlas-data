@@ -241,6 +241,18 @@ def test_discovery_pagination_uses_catalog_strategy() -> None:
     second_page = next_page_request(socrata, {"results": [{}] * 100}, 0)
     assert second_page is not None
     assert "limit=100" in second_page.url
+    capped_socrata = DiscoveryRequest(
+        catalog_id="HEALTHDATA_GOV",
+        term="catalog window",
+        url="https://example.test/catalog?limit=100&offset=9900&q=catalog+window",
+        headers={},
+        pagination={
+            "strategy": "OFFSET_LIMIT",
+            "request_parameters": {"limit": 100, "offset": "{{offset}}"},
+            "maximum_offset": 9900,
+        },
+    )
+    assert next_page_request(capped_socrata, {"results": [{}] * 100}, 9900) is None
     assert "offset=100" in second_page.url
 
     data_gov = next(

@@ -53,6 +53,7 @@ The pipeline shall make one catalog search per unique enabled term, with terms d
 
 1. Create an `ingestion_runs` record with `run_mode=METADATA_ONLY`, `trigger_type=SCHEDULED` or `MANUAL`, the code version, and the search-configuration SHA-256.
 2. For each enabled catalog and enabled search term, request all catalog result pages using the configured immutable query parameters and page cursor/offset.
+   The Socrata Catalog Search API exposes at most the first 10,000 matching catalog results for one query; the versioned configuration records that provider result window. The pipeline retains every accessible page through offset 9,900 and does not issue the provider-rejected offset 10,000 request. This is a catalog-search limitation, not a claim that more matching publisher datasets do not exist.
 3. Write one `ingestion_requests` record per request, including the catalog, term, page token, response headers, status, response checksum, and redacted error details.
 4. If a provider returns HTTP 429, retain the partial run and its failed request, record a non-secret checkpoint for the exact next page, and let the next scheduled discovery attempt create a linked continuation run. It must not replay completed pages or overwrite prior evidence.
 5. Store the raw catalog response as an immutable `raw_artifacts` metadata artifact.
