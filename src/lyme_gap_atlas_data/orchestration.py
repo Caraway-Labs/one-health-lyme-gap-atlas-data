@@ -6,7 +6,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import monotonic, sleep
 from typing import Any
 from urllib.error import HTTPError
@@ -165,6 +165,8 @@ def _reconstruct_data_gov_resume(
     settings: PipelineSettings,
     prior_run_id: str,
     requests: list[DiscoveryRequest],
+    *,
+    require_rate_limit: bool = True,
 ) -> DiscoveryResume:
     """Recover one legacy Data.gov checkpoint from its last immutable artifact."""
     cursor.execute(
@@ -185,7 +187,11 @@ def _reconstruct_data_gov_resume(
         (prior_run_id,),
     )
     previous = cursor.fetchone()
-    if failed is None or previous is None or failed[:2] != previous[:2] or failed[0] != "DATA_GOV":
+    if previous is None or previous[0] != "DATA_GOV":
+        raise ValueError("Legacy discovery run cannot be resumed safely")
+    if require_rate_limit and (
+        failed is None or failed[:2] != previous[:2] or failed[0] != "DATA_GOV"
+    ):
         raise ValueError("Legacy rate-limited discovery run cannot be resumed safely")
     base = next(
         request
@@ -216,6 +222,15 @@ def _has_legacy_rate_limit_failure(cursor: Any, prior_run_id: str) -> bool:
     return cursor.fetchone() is not None
 
 
+def _has_stale_running_discovery(prior: Any, runtime_seconds: int) -> bool:
+    """Recognize a run that App Platform could already have terminated."""
+    return (
+        prior[3] == "RUNNING"
+        and isinstance(prior[4], datetime)
+        and prior[4] < datetime.now(UTC) - timedelta(seconds=runtime_seconds + 120)
+    )
+
+
 def _load_discovery_resume(
     cursor: Any,
     s3: Any,
@@ -223,9 +238,9 @@ def _load_discovery_resume(
     config_sha256: str,
     requests: list[DiscoveryRequest],
 ) -> DiscoveryResume | None:
-    """Return a continuation for a checkpointed or legacy rate-limited run."""
+    """Return a continuation for checkpointed, rate-limited, or stale runs."""
     cursor.execute(
-        """SELECT ingestion_run_id, resume_state, error_classification
+        """SELECT ingestion_run_id, resume_state, error_classification, status, started_at
         FROM GOVERNANCE.INGESTION_RUNS
         WHERE resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'
           AND config_sha256 = %s
@@ -242,8 +257,22 @@ def _load_discovery_resume(
         if _request_index(requests, resume.request) != resume.original_request_index:
             raise ValueError("Discovery resume state does not match the active configuration")
         return resume
-    if prior[2] == "RATE_LIMIT" or _has_legacy_rate_limit_failure(cursor, str(prior[0])):
-        return _reconstruct_data_gov_resume(cursor, s3, settings, str(prior[0]), requests)
+    stale_running = _has_stale_running_discovery(
+        prior, settings.discovery_max_runtime_seconds
+    )
+    if (
+        prior[2] == "RATE_LIMIT"
+        or _has_legacy_rate_limit_failure(cursor, str(prior[0]))
+        or stale_running
+    ):
+        return _reconstruct_data_gov_resume(
+            cursor,
+            s3,
+            settings,
+            str(prior[0]),
+            requests,
+            require_rate_limit=not stale_running,
+        )
     return None
 
 
