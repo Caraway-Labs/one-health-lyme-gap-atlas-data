@@ -257,9 +257,7 @@ def _load_discovery_resume(
         if _request_index(requests, resume.request) != resume.original_request_index:
             raise ValueError("Discovery resume state does not match the active configuration")
         return resume
-    stale_running = _has_stale_running_discovery(
-        prior, settings.discovery_max_runtime_seconds
-    )
+    stale_running = _has_stale_running_discovery(prior, settings.discovery_max_runtime_seconds)
     if (
         prior[2] == "RATE_LIMIT"
         or _has_legacy_rate_limit_failure(cursor, str(prior[0]))
