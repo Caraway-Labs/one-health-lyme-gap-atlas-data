@@ -202,7 +202,15 @@ def _reconstruct_data_gov_resume(
         base, _read_artifact_payload(s3, settings, str(previous[2])), 0
     )
     if next_request is None:
-        raise ValueError("Legacy rate-limited discovery run has no next page to resume")
+        next_index = _request_index(requests, base) + 1
+        if next_index >= len(requests):
+            raise ValueError("Legacy discovery run has no remaining request to resume")
+        return DiscoveryResume(
+            prior_run_id=prior_run_id,
+            original_request_index=next_index,
+            request=requests[next_index],
+            offset=0,
+        )
     return DiscoveryResume(
         prior_run_id=prior_run_id,
         original_request_index=_request_index(requests, base),
