@@ -14,6 +14,7 @@ from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.cdc import load_cdc_profile
 from lyme_gap_atlas_data.discovery import (
+    DiscoveryRequest,
     _retryable_catalog_error,
     initial_requests,
     load_search_configuration,
@@ -183,6 +184,51 @@ def test_discovery_runtime_budget_is_bounded_before_platform_timeout() -> None:
     assert PipelineSettings().discovery_max_runtime_seconds == 1500
     with pytest.raises(ValueError, match="DISCOVERY_MAX_RUNTIME_SECONDS"):
         PipelineSettings(discovery_max_runtime_seconds=1741)
+
+
+def test_stale_data_gov_run_resumes_from_last_successful_artifact() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def execute(self, _query: str, _parameters: tuple[str]) -> None:
+            self.calls += 1
+
+        def fetchone(self) -> tuple[str, str, str] | None:
+            if self.calls == 1:
+                return None
+            return ("DATA_GOV", "Lyme disease", "s3://bucket/prod/last-page.json")
+
+    class Body:
+        def read(self) -> bytes:
+            return b'{"after":"next-cursor"}'
+
+    class S3:
+        def get_object(self, **_kwargs: str) -> dict[str, Body]:
+            return {"Body": Body()}
+
+    request = DiscoveryRequest(
+        catalog_id="DATA_GOV",
+        term="Lyme disease",
+        url="https://example.test/search?per_page=100",
+        headers={},
+        pagination={
+            "strategy": "CURSOR",
+            "request_parameter": "after",
+            "page_size_parameter": "per_page",
+            "page_size": 100,
+        },
+    )
+    resume = orchestration._reconstruct_data_gov_resume(
+        Cursor(),
+        S3(),
+        SimpleNamespace(spaces_bucket="bucket"),
+        "prior-run",
+        [request],
+        require_rate_limit=False,
+    )
+    assert resume.prior_run_id == "prior-run"
+    assert "after=next-cursor" in resume.request.url
 
 
 def test_discovery_pagination_uses_catalog_strategy() -> None:

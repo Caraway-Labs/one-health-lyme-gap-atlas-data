@@ -193,10 +193,14 @@ def _reconstruct_data_gov_resume(
         failed is None or failed[:2] != previous[:2] or failed[0] != "DATA_GOV"
     ):
         raise ValueError("Legacy rate-limited discovery run cannot be resumed safely")
+    # A job killed by App Platform has no recorded failed request.  In that
+    # case the last successful immutable artifact is the only safe source of
+    # the catalog/term pair to continue.
+    resume_catalog_id, resume_term = failed[:2] if failed is not None else previous[:2]
     base = next(
         request
         for request in requests
-        if request.catalog_id == failed[0] and request.term == failed[1]
+        if request.catalog_id == resume_catalog_id and request.term == resume_term
     )
     next_request = next_page_request(
         base, _read_artifact_payload(s3, settings, str(previous[2])), 0
