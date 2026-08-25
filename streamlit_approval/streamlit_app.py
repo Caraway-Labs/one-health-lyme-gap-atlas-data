@@ -163,13 +163,7 @@ if page == "Paper review":
     )
     family_filter = st.multiselect(
         "Query family",
-        sorted(
-            {
-                str(family)
-                for row in papers
-                for family in (row.get("QUERY_FAMILIES") or [])
-            }
-        ),
+        sorted({str(family) for row in papers for family in (row.get("QUERY_FAMILIES") or [])}),
     )
     displayed = [
         row
@@ -177,8 +171,7 @@ if page == "Paper review":
         if (not state_filter or row["STATE"] in state_filter)
         and (
             not family_filter
-            or set(str(value) for value in (row.get("QUERY_FAMILIES") or []))
-            & set(family_filter)
+            or set(str(value) for value in (row.get("QUERY_FAMILIES") or [])) & set(family_filter)
         )
     ]
     selected = st.multiselect(
