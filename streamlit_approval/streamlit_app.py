@@ -16,7 +16,7 @@ from typing import Final
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 
-APP_VERSION: Final = "0.2.0"
+APP_VERSION: Final = "1.0.0"
 CDC_RESOURCE_KEY: Final = "cdc_lyme_x5j9_wybp"
 DECISIONS: Final = {"APPROVED", "APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 CONDITIONS_REQUIRED: Final = {"APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
@@ -101,6 +101,16 @@ def _pipeline_status() -> dict[str, object] | None:
     return _lower_keys(rows[0]) if rows else None
 
 
+def _paper_queue() -> list[dict[str, object]]:
+    return _rows(
+        """SELECT pmid, pmcid, title, journal, publication_date, publication_types,
+                  language, abstract, access_status, state, query_families, pubmed_url,
+                  discovered_at, configuration_version
+           FROM GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE
+           ORDER BY publication_date DESC NULLS LAST, discovered_at ASC"""
+    )
+
+
 st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("SOURCE_APPROVAL_CONSOLE")
 st.caption("DEV only | CDC/Socrata x5j9-wybp only | internal governed review")
@@ -128,7 +138,8 @@ try:
         )[0]["COUNT"]
     )
     page = st.sidebar.radio(
-        "View", ("Queue", "Candidate detail", "Decision form", "Decision history")
+        "View",
+        ("Paper review", "Queue", "Candidate detail", "Decision form", "Decision history"),
     )
     queue = _queue()
 except Exception as exc:
@@ -136,7 +147,97 @@ except Exception as exc:
     st.code(_safe_snowflake_error(exc), language="text")
     st.stop()
 
-if page == "Queue":
+if page == "Paper review":
+    st.subheader("Literature paper review")
+    st.caption(
+        "Review metadata, abstract, access evidence, and query matches. "
+        "Approval only admits the paper to the separate PMC Open Access check."
+    )
+    papers = _paper_queue()
+    if not papers:
+        st.success("The paper review queue is clear")
+        st.caption("New PubMed discoveries appear here after normalization and deduplication.")
+        st.stop()
+    state_filter = st.multiselect(
+        "State", sorted({str(row["STATE"]) for row in papers}), default=["awaiting_review"]
+    )
+    family_filter = st.multiselect(
+        "Query family",
+        sorted(
+            {
+                str(family)
+                for row in papers
+                for family in (row.get("QUERY_FAMILIES") or [])
+            }
+        ),
+    )
+    displayed = [
+        row
+        for row in papers
+        if (not state_filter or row["STATE"] in state_filter)
+        and (
+            not family_filter
+            or set(str(value) for value in (row.get("QUERY_FAMILIES") or []))
+            & set(family_filter)
+        )
+    ]
+    selected = st.multiselect(
+        "Select PMIDs for one immutable batch decision",
+        [str(row["PMID"]) for row in displayed],
+        format_func=lambda pmid: next(
+            f"{pmid} — {row['TITLE']}" for row in displayed if str(row["PMID"]) == pmid
+        ),
+    )
+    for row in displayed:
+        with st.expander(f"PMID {row['PMID']}: {row['TITLE']}"):
+            st.link_button("Open PubMed record", str(row["PUBMED_URL"]))
+            st.json(
+                {
+                    "journal": row.get("JOURNAL"),
+                    "publication_date": row.get("PUBLICATION_DATE"),
+                    "publication_types": row.get("PUBLICATION_TYPES"),
+                    "language": row.get("LANGUAGE"),
+                    "access_status": row.get("ACCESS_STATUS"),
+                    "query_families": row.get("QUERY_FAMILIES"),
+                    "configuration_version": row.get("CONFIGURATION_VERSION"),
+                    "abstract": row.get("ABSTRACT"),
+                }
+            )
+    if not steward:
+        st.info("You have read-only access. An active data steward must submit decisions.")
+        st.stop()
+    with st.form("paper-review-batch"):
+        decision = st.selectbox("Batch decision", ["approved", "rejected", "deferred"])
+        rationale = st.text_area("Rationale", max_chars=10_000)
+        confirm = st.checkbox("I confirm this creates immutable decisions for every selected PMID.")
+        submitted = st.form_submit_button("Record paper decisions")
+    if submitted:
+        if not selected:
+            st.error("Select at least one paper.")
+        elif not 10 <= len(rationale.strip()) <= 10_000:
+            st.error("Provide a rationale between 10 and 10,000 characters.")
+        elif not confirm:
+            st.error("Confirm the immutable batch decision before submission.")
+        else:
+            try:
+                response = _rows(
+                    "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(PARSE_JSON(?), ?, ?, ?, ?, ?)",
+                    [
+                        json.dumps(selected),
+                        decision,
+                        rationale,
+                        viewer,
+                        APP_VERSION,
+                        str(uuid.uuid4()),
+                    ],
+                )
+                st.success(f"Recorded {decision} for {len(selected)} papers.")
+                st.json(response)
+            except Exception as exc:
+                st.error("Snowflake rejected the batch. No partial decision was recorded.")
+                st.code(_safe_snowflake_error(exc), language="text")
+
+elif page == "Queue":
     st.subheader("Candidate queue")
     st.caption("Priority: blocking issues, readiness score, then oldest assessment.")
     if not queue:

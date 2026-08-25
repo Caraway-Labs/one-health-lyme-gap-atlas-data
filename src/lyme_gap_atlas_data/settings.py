@@ -31,6 +31,14 @@ class PipelineSettings(BaseSettings):
     spaces_secret_access_key: SecretStr | None = None
     catalog_search_terms_path: Path = Path("catalog-search-terms.json")
     discovery_max_runtime_seconds: int = 1500
+    ncbi_api_key: SecretStr | None = None
+    ncbi_email: str = ""
+    papers_require_human_review: bool = True
+    neo4j_uri: str = ""
+    neo4j_writer_user: str = "graph_writer"
+    neo4j_writer_password: SecretStr | None = None
+    groq_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_environment(self) -> "PipelineSettings":
