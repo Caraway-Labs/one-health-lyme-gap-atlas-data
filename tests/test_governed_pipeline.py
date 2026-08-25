@@ -1,3 +1,5 @@
+import json
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -83,7 +85,7 @@ def test_discovery_configuration_is_valid() -> None:
         "HEALTHDATA_GOV",
         "SOCRATA_ODN",
     }
-    assert len(initial_requests(config)) == 537
+    assert len(initial_requests(config)) == 536
     assert any(request.term == "Lyme economic burden" for request in initial_requests(config))
 
 
@@ -92,6 +94,32 @@ def test_discovery_requests_have_a_deterministic_term_order() -> None:
     first = initial_requests(config)
     second = initial_requests(config)
     assert [request.term for request in first] == [request.term for request in second]
+
+
+def test_catalog_specific_term_exclusion_preserves_other_catalog_coverage() -> None:
+    config = load_search_configuration(Path("catalog-search-terms.json"))[0]
+    requests = initial_requests(config)
+    assert not any(
+        request.catalog_id == "DATA_GOV" and request.term.casefold() == "case definition"
+        for request in requests
+    )
+    assert any(
+        request.catalog_id == "HEALTHDATA_GOV" and request.term.casefold() == "case definition"
+        for request in requests
+    )
+    assert any(
+        request.catalog_id == "SOCRATA_ODN" and request.term.casefold() == "case definition"
+        for request in requests
+    )
+
+
+def test_discovery_configuration_rejects_unknown_catalog_exclusion(tmp_path: Path) -> None:
+    config = deepcopy(load_search_configuration(Path("catalog-search-terms.json"))[0])
+    config["catalogs"][0]["excluded_terms"] = ["not a configured term"]
+    path = tmp_path / "catalog-search-terms-invalid.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown excluded terms"):
+        load_search_configuration(path)
 
 
 def test_failed_catalog_request_retains_only_redacted_evidence() -> None:
@@ -109,7 +137,7 @@ def test_failed_catalog_request_retains_only_redacted_evidence() -> None:
 
 
 def test_catalog_retries_are_limited_to_transient_errors() -> None:
-    assert _retryable_catalog_error(HTTPError("https://example.test", 403, "", None, None))
+    assert not _retryable_catalog_error(HTTPError("https://example.test", 403, "", None, None))
     assert _retryable_catalog_error(HTTPError("https://example.test", 429, "", None, None))
     assert _retryable_catalog_error(HTTPError("https://example.test", 503, "", None, None))
     assert not _retryable_catalog_error(HTTPError("https://example.test", 400, "", None, None))

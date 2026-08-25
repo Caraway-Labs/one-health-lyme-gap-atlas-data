@@ -1,6 +1,6 @@
 {
   "$schema_version": "1.0",
-  "purpose": "Version-controlled search input for catalog discovery. Every enabled term is searched independently in every enabled discovery catalog; catalog-specific terms are added to the shared term groups.",
+  "purpose": "Version-controlled search input for catalog discovery. Every enabled term is searched independently in every enabled discovery catalog unless a catalog-specific provider compatibility exclusion is declared; catalog-specific terms are added to the shared term groups.",
   "ownership": "Data steward",
   "change_control": "Changes require pull-request review and create a new discovery configuration version.",
   "initially_enabled_term_group_ids": [
@@ -25,6 +25,7 @@
       "pagination": { "strategy": "CURSOR", "request_parameter": "after", "response_field": "after", "page_size_parameter": "per_page", "page_size": 100 },
       "search_parameter": "q",
       "search_term_group_ids": ["lyme_surveillance", "tick_vector_surveillance", "climate_weather_seasonality", "habitat_land_cover_ecology", "wildlife_reservoir_ecology", "geography_demographics_sdoh", "healthcare_utilization", "claims_care_pathways", "symptoms_invisible_illness", "disability_work_function", "mental_behavioral_health", "related_conditions", "diagnostics_medications_treatment", "public_health_capacity_access", "outdoor_exposure_recreation"],
+      "excluded_terms": ["case definition"],
       "catalog_specific_terms": ["Lyme surveillance", "Lyme economic burden", "Lyme climate", "NNDSS Lyme", "county AND Lyme", "surveillance AND tick"]
     },
     {

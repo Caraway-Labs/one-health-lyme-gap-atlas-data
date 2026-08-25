@@ -30,6 +30,22 @@ def load_search_configuration(path: Path) -> tuple[dict[str, Any], str]:
         for group_id in catalog["search_term_group_ids"]:
             if group_id not in groups or not groups[group_id]["terms"]:
                 raise ValueError(f"Invalid term group {group_id} for {catalog['catalog_id']}")
+        excluded_terms = catalog.get("excluded_terms", [])
+        if not isinstance(excluded_terms, list) or any(
+            not isinstance(term, str) or not term.strip() for term in excluded_terms
+        ):
+            raise ValueError(f"Invalid excluded terms for {catalog['catalog_id']}")
+        catalog_terms = {
+            term.casefold()
+            for group_id in catalog["search_term_group_ids"]
+            for term in groups[group_id]["terms"]
+        }
+        catalog_terms.update(term.casefold() for term in catalog.get("catalog_specific_terms", []))
+        unknown_exclusions = {
+            term.casefold() for term in excluded_terms if term.casefold() not in catalog_terms
+        }
+        if unknown_exclusions:
+            raise ValueError(f"Unknown excluded terms for {catalog['catalog_id']}")
     return document, hashlib.sha256(raw).hexdigest()
 
 
@@ -49,7 +65,10 @@ def initial_requests(config: dict[str, Any]) -> list[DiscoveryRequest]:
         # These phrases intentionally remain catalog-scoped: they are useful
         # refinements for one catalog, but should not silently affect another.
         terms.update({term.casefold(): term for term in catalog.get("catalog_specific_terms", [])})
-        for term in sorted(terms.values(), key=str.casefold):
+        excluded_terms = {term.casefold() for term in catalog.get("excluded_terms", [])}
+        for term in sorted(
+            (term for key, term in terms.items() if key not in excluded_terms), key=str.casefold
+        ):
             params = dict(catalog.get("fixed_query_parameters", {}))
             pagination = dict(catalog.get("pagination", {}))
             if pagination.get("strategy") == "CURSOR":
@@ -122,7 +141,7 @@ def _replace_query_parameters(url: str, replacements: dict[str, Any]) -> str:
 def _retryable_catalog_error(error: Exception) -> bool:
     """Identify transient catalog failures without inspecting response bodies."""
     if isinstance(error, HTTPError):
-        return error.code in {403, 429, 500, 502, 503, 504}
+        return error.code in {429, 500, 502, 503, 504}
     return isinstance(error, URLError)
 
 
