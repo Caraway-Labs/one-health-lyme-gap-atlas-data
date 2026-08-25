@@ -7,7 +7,7 @@ from pathlib import Path
 from time import sleep
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
@@ -77,7 +77,6 @@ def next_page_request(
     """Return the next deterministic catalog page, or ``None`` at completion."""
     pagination = request.pagination
     strategy = pagination.get("strategy")
-    separator = "&" if "?" in request.url else "?"
     if strategy == "CURSOR":
         cursor = payload.get(str(pagination.get("response_field", "after")))
         if not cursor:
@@ -90,7 +89,7 @@ def next_page_request(
         return DiscoveryRequest(
             request.catalog_id,
             request.term,
-            f"{request.url}{separator}{urlencode(cursor_parameters)}",
+            _replace_query_parameters(request.url, cursor_parameters),
             request.headers,
             pagination,
         )
@@ -103,11 +102,21 @@ def next_page_request(
         return DiscoveryRequest(
             request.catalog_id,
             request.term,
-            f"{request.url}{separator}{urlencode({'limit': limit, 'offset': offset + limit})}",
+            _replace_query_parameters(request.url, {"limit": limit, "offset": offset + limit}),
             request.headers,
             pagination,
         )
     raise ValueError(f"Unsupported pagination strategy for {request.catalog_id}: {strategy}")
+
+
+def _replace_query_parameters(url: str, replacements: dict[str, Any]) -> str:
+    """Replace page controls so later pages never repeat stale cursor values."""
+    parsed = urlsplit(url)
+    parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    parameters.update({key: str(value) for key, value in replacements.items()})
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urlencode(parameters), parsed.fragment)
+    )
 
 
 def _retryable_catalog_error(error: Exception) -> bool:

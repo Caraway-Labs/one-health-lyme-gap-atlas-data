@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import yaml
@@ -134,6 +135,11 @@ def test_discovery_pagination_uses_catalog_strategy() -> None:
     assert cursor_page is not None
     assert "after=next-cursor" in cursor_page.url
     assert "per_page=100" in cursor_page.url
+    third_cursor_page = next_page_request(cursor_page, {"after": "later-cursor"}, 0)
+    assert third_cursor_page is not None
+    cursor_parameters = parse_qs(urlsplit(third_cursor_page.url).query)
+    assert cursor_parameters["after"] == ["later-cursor"]
+    assert cursor_parameters["per_page"] == ["100"]
 
 
 def test_settings_rejects_poc_database() -> None:
