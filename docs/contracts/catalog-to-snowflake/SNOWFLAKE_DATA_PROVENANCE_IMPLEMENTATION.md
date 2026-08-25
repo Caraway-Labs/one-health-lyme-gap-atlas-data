@@ -222,6 +222,8 @@ Use generated UUID strings for ledger identifiers unless an organization-wide ID
 | `error_class` | `VARCHAR(200)` | Error category without secrets, e.g. `HTTP_403`, `SCHEMA_MISMATCH`, or `TIMEOUT`. |
 | `error_message_redacted` | `VARCHAR` | Redacted diagnostic detail. |
 | `run_metrics` | `VARIANT` | Durations, bytes, page count, retries, and connector-specific metrics. |
+| `resumed_from_ingestion_run_id` | `VARCHAR(36)` | Prior rate-limited discovery run when this attempt continues an exact page checkpoint. |
+| `resume_state` | `VARIANT` | Non-secret catalog/page state retained only for a rate-limited discovery continuation. |
 
 ### 7. `ingestion_requests`
 

@@ -144,6 +144,22 @@ def test_catalog_retries_are_limited_to_transient_errors() -> None:
     assert not _retryable_catalog_error(HTTPError("https://example.test", 400, "", None, None))
 
 
+def test_rate_limit_resume_state_excludes_request_headers() -> None:
+    request = orchestration.DiscoveryRequest(
+        catalog_id="DATA_GOV",
+        term="Lyme disease",
+        url="https://example.test/search?q=Lyme+disease&after=cursor",
+        headers={"X-Api-Key": "secret"},
+        pagination={"strategy": "CURSOR"},
+    )
+    state = orchestration._resume_state(orchestration.DiscoveryResume("prior-run", 3, request, 0))
+    assert "secret" not in state
+    decoded = orchestration._decode_resume_state("prior-run", state)
+    assert decoded.request.url == request.url
+    assert decoded.request.headers == {}
+    assert decoded.original_request_index == 3
+
+
 def test_discovery_pagination_uses_catalog_strategy() -> None:
     config = load_search_configuration(Path("catalog-search-terms.json"))[0]
     socrata = next(
@@ -312,6 +328,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V021",
         "V022",
         "V023",
+        "V024",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -319,7 +336,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 23
+    assert len(prod_plan) == 24
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -364,6 +381,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     service_user = migrations[22].source
     assert "TYPE = SERVICE" in service_user
     assert "GRANT ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in service_user
+    rate_limit_resume = migrations[23].source
+    assert "resumed_from_ingestion_run_id" in rate_limit_resume
+    assert "resume_state VARIANT" in rate_limit_resume
+    assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_REQUESTS" in rate_limit_resume
+    assert "GRANT SELECT ON TABLE GOVERNANCE.RAW_ARTIFACTS" in rate_limit_resume
     owner_rights_dependencies = "\n".join(
         migration.source for migration in (migrations[5], migrations[16], migrations[17])
     )

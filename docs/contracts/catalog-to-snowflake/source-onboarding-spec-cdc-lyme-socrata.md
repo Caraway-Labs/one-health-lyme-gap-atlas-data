@@ -54,13 +54,14 @@ The pipeline shall make one catalog search per unique enabled term, with terms d
 1. Create an `ingestion_runs` record with `run_mode=METADATA_ONLY`, `trigger_type=SCHEDULED` or `MANUAL`, the code version, and the search-configuration SHA-256.
 2. For each enabled catalog and enabled search term, request all catalog result pages using the configured immutable query parameters and page cursor/offset.
 3. Write one `ingestion_requests` record per request, including the catalog, term, page token, response headers, status, response checksum, and redacted error details.
-4. Store the raw catalog response as an immutable `raw_artifacts` metadata artifact.
-5. Normalize each returned dataset package into `catalog_datasets`; normalize every linked distribution, API endpoint, documentation link, and landing page into `catalog_resources`.
-6. Deduplicate discovery results by catalog identity and then attempt canonical-resource resolution. Preserve all catalog observations even when multiple discovery records resolve to one publisher resource.
-7. Classify each resource as `DATA`, `API`, `DOCUMENTATION`, `DATA_DICTIONARY`, `LANDING_PAGE`, or `CONTROLLED_ACCESS`.
-8. For a machine-readable candidate, retrieve metadata, governing documentation, and a small source sample. Do not retrieve the full dataset at this stage.
-9. Run deterministic automated assessment. Write the assessment and its evidence references to `dataset_quality_assessments`.
-10. Route every candidate recommended for full ingestion to the Snowflake Streamlit [`SOURCE_APPROVAL_CONSOLE`](streamlit-snowflake-approval-app-requirements.md). Only an `APPROVED` or `APPROVED_WITH_CONDITIONS` decision recorded by its controlled procedure can activate a source access profile and full ingestion.
+4. If a provider returns HTTP 429, retain the partial run and its failed request, record a non-secret checkpoint for the exact next page, and let the next scheduled discovery attempt create a linked continuation run. It must not replay completed pages or overwrite prior evidence.
+5. Store the raw catalog response as an immutable `raw_artifacts` metadata artifact.
+6. Normalize each returned dataset package into `catalog_datasets`; normalize every linked distribution, API endpoint, documentation link, and landing page into `catalog_resources`.
+7. Deduplicate discovery results by catalog identity and then attempt canonical-resource resolution. Preserve all catalog observations even when multiple discovery records resolve to one publisher resource.
+8. Classify each resource as `DATA`, `API`, `DOCUMENTATION`, `DATA_DICTIONARY`, `LANDING_PAGE`, or `CONTROLLED_ACCESS`.
+9. For a machine-readable candidate, retrieve metadata, governing documentation, and a small source sample. Do not retrieve the full dataset at this stage.
+10. Run deterministic automated assessment. Write the assessment and its evidence references to `dataset_quality_assessments`.
+11. Route every candidate recommended for full ingestion to the Snowflake Streamlit [`SOURCE_APPROVAL_CONSOLE`](streamlit-snowflake-approval-app-requirements.md). Only an `APPROVED` or `APPROVED_WITH_CONDITIONS` decision recorded by its controlled procedure can activate a source access profile and full ingestion.
 
 ## Source classification and routing
 

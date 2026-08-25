@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic, sleep
 from typing import Any
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
@@ -26,6 +28,16 @@ from .discovery import (
 )
 from .redaction import redact_mapping
 from .settings import PipelineSettings
+
+
+@dataclass(frozen=True)
+class DiscoveryResume:
+    """A non-secret checkpoint for a rate-limited catalog page."""
+
+    prior_run_id: str
+    original_request_index: int
+    request: DiscoveryRequest
+    offset: int
 
 
 def _catalog_request(request: DiscoveryRequest, settings: PipelineSettings) -> DiscoveryRequest:
@@ -77,6 +89,169 @@ def _failure_status_code(error: Exception) -> int | None:
     return error.code if isinstance(error, HTTPError) else None
 
 
+def _resume_state(resume: DiscoveryResume) -> str:
+    """Serialize only public request state; never carry provider credentials."""
+    return json.dumps(
+        {
+            "original_request_index": resume.original_request_index,
+            "offset": resume.offset,
+            "request": {
+                "catalog_id": resume.request.catalog_id,
+                "term": resume.request.term,
+                "url": resume.request.url,
+                "pagination": resume.request.pagination,
+            },
+        },
+        sort_keys=True,
+    )
+
+
+def _decode_resume_state(prior_run_id: str, value: Any) -> DiscoveryResume:
+    """Validate persisted continuation state before using it for a new run."""
+    payload = json.loads(value) if isinstance(value, str) else value
+    if not isinstance(payload, dict):
+        raise ValueError("Discovery resume state is not an object")
+    request_payload = payload.get("request")
+    if not isinstance(request_payload, dict):
+        raise ValueError("Discovery resume state has no request")
+    catalog_id = request_payload.get("catalog_id")
+    term = request_payload.get("term")
+    url = request_payload.get("url")
+    pagination = request_payload.get("pagination")
+    index = payload.get("original_request_index")
+    offset = payload.get("offset")
+    if (
+        not isinstance(catalog_id, str)
+        or not isinstance(term, str)
+        or not isinstance(url, str)
+        or not isinstance(pagination, dict)
+        or not isinstance(index, int)
+        or not isinstance(offset, int)
+    ):
+        raise ValueError("Discovery resume state is incomplete")
+    return DiscoveryResume(
+        prior_run_id=prior_run_id,
+        original_request_index=index,
+        request=DiscoveryRequest(catalog_id, term, url, {}, pagination),
+        offset=offset,
+    )
+
+
+def _request_index(requests: list[DiscoveryRequest], request: DiscoveryRequest) -> int:
+    for index, candidate in enumerate(requests):
+        if candidate.catalog_id == request.catalog_id and candidate.term == request.term:
+            return index
+    raise ValueError("Discovery resume request is not present in the active configuration")
+
+
+def _read_artifact_payload(
+    s3: Any, settings: PipelineSettings, artifact_uri: str
+) -> dict[str, Any]:
+    parsed = urlsplit(artifact_uri)
+    if parsed.scheme != "s3" or parsed.netloc != settings.spaces_bucket or not parsed.path:
+        raise ValueError("Discovery resume artifact is outside the configured private bucket")
+    body = s3.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))["Body"].read()
+    payload: dict[str, Any] = json.loads(body.decode("utf-8"))
+    return payload
+
+
+def _reconstruct_data_gov_resume(
+    cursor: Any,
+    s3: Any,
+    settings: PipelineSettings,
+    prior_run_id: str,
+    requests: list[DiscoveryRequest],
+) -> DiscoveryResume:
+    """Recover one legacy Data.gov checkpoint from its last immutable artifact."""
+    cursor.execute(
+        """SELECT redacted_request:catalog_id::VARCHAR, redacted_request:term::VARCHAR
+        FROM GOVERNANCE.INGESTION_REQUESTS
+        WHERE ingestion_run_id = %s AND status_code = 429
+        ORDER BY request_sequence DESC LIMIT 1""",
+        (prior_run_id,),
+    )
+    failed = cursor.fetchone()
+    cursor.execute(
+        """SELECT q.redacted_request:catalog_id::VARCHAR, q.redacted_request:term::VARCHAR,
+                  a.artifact_uri
+        FROM GOVERNANCE.INGESTION_REQUESTS q
+        JOIN GOVERNANCE.RAW_ARTIFACTS a ON a.ingestion_request_id = q.ingestion_request_id
+        WHERE q.ingestion_run_id = %s AND q.status_code = 200
+        ORDER BY q.request_sequence DESC LIMIT 1""",
+        (prior_run_id,),
+    )
+    previous = cursor.fetchone()
+    if failed is None or previous is None or failed[:2] != previous[:2] or failed[0] != "DATA_GOV":
+        raise ValueError("Legacy rate-limited discovery run cannot be resumed safely")
+    base = next(
+        request
+        for request in requests
+        if request.catalog_id == failed[0] and request.term == failed[1]
+    )
+    next_request = next_page_request(
+        base, _read_artifact_payload(s3, settings, str(previous[2])), 0
+    )
+    if next_request is None:
+        raise ValueError("Legacy rate-limited discovery run has no next page to resume")
+    return DiscoveryResume(
+        prior_run_id=prior_run_id,
+        original_request_index=_request_index(requests, base),
+        request=next_request,
+        offset=0,
+    )
+
+
+def _load_discovery_resume(
+    cursor: Any,
+    s3: Any,
+    settings: PipelineSettings,
+    config_sha256: str,
+    requests: list[DiscoveryRequest],
+) -> DiscoveryResume | None:
+    """Return a continuation only when the latest matching run paused for quota."""
+    cursor.execute(
+        """SELECT ingestion_run_id, resume_state, error_classification
+        FROM GOVERNANCE.INGESTION_RUNS
+        WHERE resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'
+          AND config_sha256 = %s
+        ORDER BY started_at DESC LIMIT 1""",
+        (config_sha256,),
+    )
+    prior = cursor.fetchone()
+    if prior is None or prior[2] != "RATE_LIMIT":
+        return None
+    if prior[1] is not None:
+        resume = _decode_resume_state(str(prior[0]), prior[1])
+        if _request_index(requests, resume.request) != resume.original_request_index:
+            raise ValueError("Discovery resume state does not match the active configuration")
+        return resume
+    return _reconstruct_data_gov_resume(cursor, s3, settings, str(prior[0]), requests)
+
+
+def _record_failed_request(
+    cursor: Any,
+    run_id: str,
+    sequence: int,
+    request: DiscoveryRequest,
+    error: Exception,
+) -> None:
+    cursor.execute(
+        """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
+        (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
+         endpoint, redacted_request, status_code, created_at)
+        SELECT %s, %s, %s, 'CATALOG_DISCOVERY', %s, PARSE_JSON(%s), %s, %s""",
+        (
+            str(uuid.uuid4()),
+            run_id,
+            sequence,
+            request.url.split("?", maxsplit=1)[0],
+            _redacted_request_details(request),
+            _failure_status_code(error),
+            datetime.now(UTC),
+        ),
+    )
+
+
 def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
     """Discover catalog metadata, saving every response as an immutable artifact.
 
@@ -96,21 +271,37 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
         with connection.cursor() as cursor:
+            resume = _load_discovery_resume(cursor, s3, settings, config_sha256, requests)
             cursor.execute(
                 """INSERT INTO GOVERNANCE.INGESTION_RUNS
                 (ingestion_run_id, resource_key, run_mode, trigger_type, status,
-                 config_sha256, started_at)
-                VALUES (%s, %s, 'DISCOVERY', 'SCHEDULED', 'RUNNING', %s, %s)""",
-                (run_id, "catalog_discovery", config_sha256, started_at),
+                 config_sha256, started_at, resumed_from_ingestion_run_id)
+                VALUES (%s, %s, 'DISCOVERY', 'SCHEDULED', 'RUNNING', %s, %s, %s)""",
+                (
+                    run_id,
+                    "catalog_discovery",
+                    config_sha256,
+                    started_at,
+                    resume.prior_run_id if resume is not None else None,
+                ),
             )
             connection.commit()
             sequence = 0
             request: DiscoveryRequest | None = None
+            original_request_index: int | None = None
+            offset = 0
             last_data_gov_request_started_at: float | None = None
             try:
-                for original_request in requests:
-                    request = _catalog_request(original_request, settings)
-                    offset = 0
+                start_index = resume.original_request_index if resume is not None else 0
+                for original_request_index, original_request in enumerate(
+                    requests[start_index:], start=start_index
+                ):
+                    if resume is not None and original_request_index == start_index:
+                        request = _catalog_request(resume.request, settings)
+                        offset = resume.offset
+                    else:
+                        request = _catalog_request(original_request, settings)
+                        offset = 0
                     while request is not None:
                         sequence += 1
                         request_id = str(uuid.uuid4())
@@ -183,24 +374,66 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
                     (datetime.now(UTC), run_id),
                 )
                 connection.commit()
+            except HTTPError as error:
+                connection.rollback()
+                if request is not None:
+                    _record_failed_request(cursor, run_id, sequence, request, error)
+                if error.code == 429 and request is not None and original_request_index is not None:
+                    checkpoint = DiscoveryResume(
+                        prior_run_id=run_id,
+                        original_request_index=original_request_index,
+                        request=DiscoveryRequest(
+                            request.catalog_id,
+                            request.term,
+                            request.url,
+                            {},
+                            request.pagination,
+                        ),
+                        offset=offset,
+                    )
+                    cursor.execute(
+                        """UPDATE GOVERNANCE.INGESTION_RUNS
+                        SET status = 'PAUSED', completed_at = %s,
+                            error_classification = 'RATE_LIMIT', redacted_error = %s,
+                            resume_state = PARSE_JSON(%s)
+                        WHERE ingestion_run_id = %s""",
+                        (
+                            datetime.now(UTC),
+                            (
+                                "Discovery paused after a provider rate limit; "
+                                "the next run resumes from this page."
+                            ),
+                            _resume_state(checkpoint),
+                            run_id,
+                        ),
+                    )
+                    connection.commit()
+                    return {
+                        "ingestion_run_id": run_id,
+                        "status": "PAUSED",
+                        "resumed_from_ingestion_run_id": (
+                            resume.prior_run_id if resume is not None else None
+                        ),
+                        "config_sha256": config_sha256,
+                    }
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status = 'FAILED', completed_at = %s, error_classification = %s,
+                        redacted_error = %s
+                    WHERE ingestion_run_id = %s""",
+                    (
+                        datetime.now(UTC),
+                        type(error).__name__,
+                        "Catalog discovery request failed; inspect the redacted request ledger.",
+                        run_id,
+                    ),
+                )
+                connection.commit()
+                raise
             except Exception as error:
                 connection.rollback()
                 if request is not None:
-                    cursor.execute(
-                        """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
-                        (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
-                         endpoint, redacted_request, status_code, created_at)
-                        SELECT %s, %s, %s, 'CATALOG_DISCOVERY', %s, PARSE_JSON(%s), %s, %s""",
-                        (
-                            str(uuid.uuid4()),
-                            run_id,
-                            sequence,
-                            request.url.split("?", maxsplit=1)[0],
-                            _redacted_request_details(request),
-                            _failure_status_code(error),
-                            datetime.now(UTC),
-                        ),
-                    )
+                    _record_failed_request(cursor, run_id, sequence, request, error)
                 cursor.execute(
                     """UPDATE GOVERNANCE.INGESTION_RUNS
                     SET status = 'FAILED', completed_at = %s, error_classification = %s,
