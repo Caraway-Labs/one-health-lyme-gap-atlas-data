@@ -201,6 +201,17 @@ def _reconstruct_data_gov_resume(
     )
 
 
+def _has_legacy_rate_limit_failure(cursor: Any, prior_run_id: str) -> bool:
+    """Identify a pre-checkpoint run that stopped on an HTTP 429."""
+    cursor.execute(
+        """SELECT 1 FROM GOVERNANCE.INGESTION_REQUESTS
+        WHERE ingestion_run_id = %s AND status_code = 429
+        LIMIT 1""",
+        (prior_run_id,),
+    )
+    return cursor.fetchone() is not None
+
+
 def _load_discovery_resume(
     cursor: Any,
     s3: Any,
@@ -208,7 +219,7 @@ def _load_discovery_resume(
     config_sha256: str,
     requests: list[DiscoveryRequest],
 ) -> DiscoveryResume | None:
-    """Return a continuation only when the latest matching run paused for quota."""
+    """Return a continuation for a checkpointed or legacy rate-limited run."""
     cursor.execute(
         """SELECT ingestion_run_id, resume_state, error_classification
         FROM GOVERNANCE.INGESTION_RUNS
@@ -218,14 +229,18 @@ def _load_discovery_resume(
         (config_sha256,),
     )
     prior = cursor.fetchone()
-    if prior is None or prior[2] != "RATE_LIMIT":
+    if prior is None:
         return None
     if prior[1] is not None:
+        if prior[2] != "RATE_LIMIT":
+            return None
         resume = _decode_resume_state(str(prior[0]), prior[1])
         if _request_index(requests, resume.request) != resume.original_request_index:
             raise ValueError("Discovery resume state does not match the active configuration")
         return resume
-    return _reconstruct_data_gov_resume(cursor, s3, settings, str(prior[0]), requests)
+    if prior[2] == "RATE_LIMIT" or _has_legacy_rate_limit_failure(cursor, str(prior[0])):
+        return _reconstruct_data_gov_resume(cursor, s3, settings, str(prior[0]), requests)
+    return None
 
 
 def _record_failed_request(

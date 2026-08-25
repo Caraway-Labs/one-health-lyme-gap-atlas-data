@@ -160,6 +160,25 @@ def test_rate_limit_resume_state_excludes_request_headers() -> None:
     assert decoded.original_request_index == 3
 
 
+def test_legacy_rate_limit_check_requires_a_recorded_429() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.query = ""
+            self.parameters: tuple[str] = ()
+
+        def execute(self, query: str, parameters: tuple[str]) -> None:
+            self.query = query
+            self.parameters = parameters
+
+        def fetchone(self) -> tuple[int]:
+            return (1,)
+
+    cursor = Cursor()
+    assert orchestration._has_legacy_rate_limit_failure(cursor, "prior-run")
+    assert "status_code = 429" in cursor.query
+    assert cursor.parameters == ("prior-run",)
+
+
 def test_discovery_pagination_uses_catalog_strategy() -> None:
     config = load_search_configuration(Path("catalog-search-terms.json"))[0]
     socrata = next(
