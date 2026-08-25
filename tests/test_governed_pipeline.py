@@ -85,6 +85,11 @@ def test_discovery_configuration_is_valid() -> None:
         "DATA_GOV",
         "HEALTHDATA_GOV",
         "SOCRATA_ODN",
+    assert all(
+        request.pagination.get("maximum_offset") == 9900
+        for request in initial_requests(config)
+        if request.catalog_id in {"HEALTHDATA_GOV", "SOCRATA_ODN"}
+    )
     }
     assert len(initial_requests(config)) == 535
     assert any(request.term == "Lyme economic burden" for request in initial_requests(config))

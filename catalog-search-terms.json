@@ -36,7 +36,7 @@
       "request_method": "GET",
       "authentication": { "mode": "APP_TOKEN_OPTIONAL", "env_var": "SOCRATA_APP_TOKEN", "header_name": "X-App-Token" },
       "fixed_query_parameters": { "search_context": "healthdata.gov" },
-      "pagination": { "strategy": "OFFSET_LIMIT", "request_parameters": { "limit": 100, "offset": "{{offset}}" }, "stop_condition": "returned_results_less_than_limit" },
+      "pagination": { "strategy": "OFFSET_LIMIT", "request_parameters": { "limit": 100, "offset": "{{offset}}" }, "maximum_offset": 9900, "stop_condition": "returned_results_less_than_limit_or_provider_result_window" },
       "search_parameter": "q",
       "search_term_group_ids": ["lyme_surveillance", "tick_vector_surveillance", "climate_weather_seasonality", "habitat_land_cover_ecology", "wildlife_reservoir_ecology", "geography_demographics_sdoh", "healthcare_utilization", "claims_care_pathways", "symptoms_invisible_illness", "disability_work_function", "mental_behavioral_health", "related_conditions", "diagnostics_medications_treatment", "public_health_capacity_access", "outdoor_exposure_recreation"],
       "catalog_specific_terms": ["Lyme disease public use", "Lyme disease geography", "Lyme line-listed", "CDC PLACES county", "tick-borne disease", "infectious disease surveillance"]
@@ -48,7 +48,7 @@
       "search_endpoint": "https://api.us.socrata.com/api/catalog/v1",
       "request_method": "GET",
       "authentication": { "mode": "APP_TOKEN_OPTIONAL", "env_var": "SOCRATA_APP_TOKEN", "header_name": "X-App-Token" },
-      "pagination": { "strategy": "OFFSET_LIMIT", "request_parameters": { "limit": 100, "offset": "{{offset}}" }, "stop_condition": "returned_results_less_than_limit" },
+      "pagination": { "strategy": "OFFSET_LIMIT", "request_parameters": { "limit": 100, "offset": "{{offset}}" }, "maximum_offset": 9900, "stop_condition": "returned_results_less_than_limit_or_provider_result_window" },
       "search_parameter": "q",
       "search_term_group_ids": ["lyme_surveillance", "tick_vector_surveillance", "climate_weather_seasonality", "habitat_land_cover_ecology", "wildlife_reservoir_ecology", "geography_demographics_sdoh", "healthcare_utilization", "claims_care_pathways", "symptoms_invisible_illness", "disability_work_function", "mental_behavioral_health", "related_conditions", "diagnostics_medications_treatment", "public_health_capacity_access", "outdoor_exposure_recreation"],
       "catalog_specific_terms": ["Lyme", "deer tick", "blacklegged tick", "tick surveillance", "nymphal density", "Borrelia", "Borrelia burgdorferi", "tick risk", "Ixodes"]
