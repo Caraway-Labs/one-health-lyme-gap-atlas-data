@@ -85,7 +85,7 @@ def test_discovery_configuration_is_valid() -> None:
         "HEALTHDATA_GOV",
         "SOCRATA_ODN",
     }
-    assert len(initial_requests(config)) == 536
+    assert len(initial_requests(config)) == 535
     assert any(request.term == "Lyme economic burden" for request in initial_requests(config))
 
 
@@ -99,18 +99,19 @@ def test_discovery_requests_have_a_deterministic_term_order() -> None:
 def test_catalog_specific_term_exclusion_preserves_other_catalog_coverage() -> None:
     config = load_search_configuration(Path("catalog-search-terms.json"))[0]
     requests = initial_requests(config)
-    assert not any(
-        request.catalog_id == "DATA_GOV" and request.term.casefold() == "case definition"
-        for request in requests
-    )
-    assert any(
-        request.catalog_id == "HEALTHDATA_GOV" and request.term.casefold() == "case definition"
-        for request in requests
-    )
-    assert any(
-        request.catalog_id == "SOCRATA_ODN" and request.term.casefold() == "case definition"
-        for request in requests
-    )
+    for term in ("case definition", "case surveillance"):
+        assert not any(
+            request.catalog_id == "DATA_GOV" and request.term.casefold() == term
+            for request in requests
+        )
+        assert any(
+            request.catalog_id == "HEALTHDATA_GOV" and request.term.casefold() == term
+            for request in requests
+        )
+        assert any(
+            request.catalog_id == "SOCRATA_ODN" and request.term.casefold() == term
+            for request in requests
+        )
 
 
 def test_discovery_configuration_rejects_unknown_catalog_exclusion(tmp_path: Path) -> None:
