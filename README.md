@@ -41,8 +41,9 @@ ingestion remains blocked pending a steward decision.
 
 After a discovery configuration reaches one durable `COMPLETED` run, run
 `pipeline register-discovery --config-sha256 <checksum>` as a separate,
-reviewed metadata-only step. Each invocation claims at most five immutable
-artifacts by default, commits each artifact independently, and reports
+reviewed metadata-only step. Each invocation claims one immutable artifact and
+processes at most five datasets by default, committing its dataset checkpoint
+independently, and reports
 `PARTIAL` until a later invocation completes the chain. Re-running it resumes
 from the durable artifact-registration ledger; it does not rerun discovery.
 It reads only the captured private artifacts,
