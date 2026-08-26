@@ -105,18 +105,20 @@ def discover(
 @pipeline_app.command("register-discovery")
 def register_discovery(
     config_sha256: str = typer.Option(..., "--config-sha256"),
-    max_artifacts: int = typer.Option(5, "--max-artifacts", min=1, max=100),
+    max_artifacts: int = typer.Option(1, "--max-artifacts", min=1, max=100),
+    max_datasets: int = typer.Option(5, "--max-datasets", min=1, max=100),
 ) -> None:
-    """Register one bounded completed-discovery batch; never acquire source data."""
-    typer.echo(json.dumps(register_completed_discovery(config_sha256, max_artifacts)))
+    """Register one bounded completed-discovery dataset slice; never acquire source data."""
+    typer.echo(json.dumps(register_completed_discovery(config_sha256, max_artifacts, max_datasets)))
 
 
 @pipeline_app.command("register-latest-discovery")
 def register_latest_discovery(
-    max_artifacts: int = typer.Option(5, "--max-artifacts", min=1, max=100),
+    max_artifacts: int = typer.Option(1, "--max-artifacts", min=1, max=100),
+    max_datasets: int = typer.Option(5, "--max-datasets", min=1, max=100),
 ) -> None:
-    """Register a bounded batch from the newest completed discovery chain only."""
-    typer.echo(json.dumps(register_latest_completed_discovery(max_artifacts)))
+    """Register a bounded dataset slice from the newest completed discovery chain only."""
+    typer.echo(json.dumps(register_latest_completed_discovery(max_artifacts, max_datasets)))
 
 
 @pipeline_app.command("migration-plan")

@@ -455,10 +455,10 @@ def _claim_registration_batch(
     config_sha256: str,
     maximum_artifacts: int,
     registration_run_id: str,
-) -> tuple[list[tuple[str, str, str, str, str, str]], int]:
+) -> tuple[list[tuple[str, str, str, str, str, str, int]], int]:
     """Durably claim a short artifact batch before any Spaces reads occur."""
     artifacts = _completed_artifacts(cursor, config_sha256)
-    claimed: list[tuple[str, str, str, str, str, str]] = []
+    claimed: list[tuple[str, str, str, str, str, str, int]] = []
     for artifact in artifacts:
         artifact_id = artifact[0]
         cursor.execute(
@@ -481,7 +481,14 @@ def _claim_registration_batch(
             (registration_run_id, artifact_id, config_sha256),
         )
         if cursor.rowcount == 1:
-            claimed.append(artifact)
+            cursor.execute(
+                """SELECT next_dataset_offset
+                   FROM GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+                   WHERE artifact_id = %s AND registration_run_id = %s""",
+                (artifact_id, registration_run_id),
+            )
+            (next_dataset_offset,) = cursor.fetchone()
+            claimed.append((*artifact, int(next_dataset_offset or 0)))
         if len(claimed) == maximum_artifacts:
             break
     return claimed, len(artifacts)
@@ -494,6 +501,28 @@ def _complete_registration_artifact(
         """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
            SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP(), lease_expires_at = NULL
            WHERE artifact_id = %s AND registration_run_id = %s""",
+        (artifact_id, registration_run_id),
+    )
+
+
+def _advance_registration_dataset(
+    cursor: Any, artifact_id: str, registration_run_id: str, next_dataset_offset: int
+) -> None:
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           SET next_dataset_offset = %s
+           WHERE artifact_id = %s AND registration_run_id = %s AND status = 'IN_PROGRESS'""",
+        (next_dataset_offset, artifact_id, registration_run_id),
+    )
+
+
+def _release_partial_registration_artifact(
+    cursor: Any, artifact_id: str, registration_run_id: str
+) -> None:
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           SET status = 'PENDING', lease_expires_at = NULL
+           WHERE artifact_id = %s AND registration_run_id = %s AND status = 'IN_PROGRESS'""",
         (artifact_id, registration_run_id),
     )
 
@@ -521,21 +550,24 @@ def _remaining_registration_artifacts(cursor: Any, config_sha256: str, total_art
 
 
 def register_completed_discovery(
-    config_sha256: str, maximum_artifacts: int = 5
+    config_sha256: str, maximum_artifacts: int = 1, maximum_datasets: int = 5
 ) -> dict[str, int | str]:
-    """Register a resumable bounded artifact batch without acquiring source payloads."""
+    """Register a resumable bounded dataset slice without acquiring source payloads."""
     if len(config_sha256) != 64 or any(
         character not in "0123456789abcdef" for character in config_sha256
     ):
         raise ValueError("config_sha256 must be a lowercase SHA-256 digest")
     if not 1 <= maximum_artifacts <= 100:
         raise ValueError("maximum_artifacts must be between 1 and 100")
+    if not 1 <= maximum_datasets <= 100:
+        raise ValueError("maximum_datasets must be between 1 and 100")
     settings = PipelineSettings()
     s3 = _spaces_client(settings)
     registration_run_id = str(uuid4())
     registered_datasets = 0
     registered_resources = 0
     observed_artifacts = 0
+    processed_datasets = 0
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
         with connection.cursor() as cursor:
@@ -543,10 +575,22 @@ def register_completed_discovery(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
             )
             connection.commit()
-            for artifact_id, run_id, request_id, artifact_uri, catalog_id, term in artifacts:
+            for (
+                artifact_id,
+                run_id,
+                request_id,
+                artifact_uri,
+                catalog_id,
+                term,
+                dataset_offset,
+            ) in artifacts:
                 try:
-                    for dataset in normalize_catalog_payload(
+                    datasets = normalize_catalog_payload(
                         catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
+                    )
+                    for next_offset, dataset in enumerate(
+                        datasets[dataset_offset : dataset_offset + maximum_datasets],
+                        start=dataset_offset + 1,
                     ):
                         registered_datasets += 1
                         if not dataset.resources:
@@ -563,9 +607,20 @@ def register_completed_discovery(
                                 observed_at=datetime.now(UTC),
                             )
                             registered_resources += 1
-                    _complete_registration_artifact(cursor, artifact_id, registration_run_id)
-                    connection.commit()
-                    observed_artifacts += 1
+                        _advance_registration_dataset(
+                            cursor, artifact_id, registration_run_id, next_offset
+                        )
+                        connection.commit()
+                        processed_datasets += 1
+                    if dataset_offset + maximum_datasets >= len(datasets):
+                        _complete_registration_artifact(cursor, artifact_id, registration_run_id)
+                        connection.commit()
+                        observed_artifacts += 1
+                    else:
+                        _release_partial_registration_artifact(
+                            cursor, artifact_id, registration_run_id
+                        )
+                        connection.commit()
                 except Exception as error:
                     connection.rollback()
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
@@ -579,6 +634,7 @@ def register_completed_discovery(
         "config_sha256": config_sha256,
         "registration_run_id": registration_run_id,
         "observed_artifacts": observed_artifacts,
+        "processed_datasets": processed_datasets,
         "available_artifacts": available_artifacts,
         "remaining_artifacts": remaining_artifacts,
         "registered_datasets": registered_datasets,
@@ -586,8 +642,10 @@ def register_completed_discovery(
     }
 
 
-def register_latest_completed_discovery(maximum_artifacts: int = 5) -> dict[str, int | str]:
+def register_latest_completed_discovery(
+    maximum_artifacts: int = 1, maximum_datasets: int = 5
+) -> dict[str, int | str]:
     """Materialize the newest completed discovery chain without source acquisition."""
     return register_completed_discovery(
-        latest_completed_discovery_config_sha256(), maximum_artifacts
+        latest_completed_discovery_config_sha256(), maximum_artifacts, maximum_datasets
     )
