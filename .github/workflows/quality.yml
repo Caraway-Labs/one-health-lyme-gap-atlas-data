@@ -4,6 +4,13 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_dev:
+        description: Deploy the reviewed commit to DEV after quality checks
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +43,7 @@ jobs:
   deploy_dev:
     name: Build and deploy immutable DEV image
     needs: checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_dev
     runs-on: ubuntu-latest
     environment: dev
     permissions:
