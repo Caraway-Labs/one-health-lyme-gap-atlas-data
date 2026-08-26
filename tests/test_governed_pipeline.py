@@ -1,5 +1,6 @@
 import json
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -13,7 +14,10 @@ from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_de
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.catalog_registration import (
+    CatalogDataset,
+    CatalogResource,
     _completed_artifacts,
+    _write_dataset_resources,
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
     normalize_catalog_payload,
@@ -444,6 +448,47 @@ def test_catalog_registration_canonical_url_removes_secret_query_parameters() ->
         canonicalize_public_url("HTTPS://Example.gov/data/?token=secret&format=json#ignore")
         == "https://example.gov/data?format=json"
     )
+
+
+def test_catalog_registration_batches_dataset_resources_into_two_merges() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def execute(self, query: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((query, parameters))
+
+    cursor = Cursor()
+    dataset = CatalogDataset(
+        catalog_id="DATA_GOV",
+        catalog_record_id="dataset-1",
+        dataset_key="data_gov:dataset-1",
+        payload={"title": "Example"},
+        resources=(
+            CatalogResource("API", "https://example.gov/api", "https://example.gov/api", None, {}),
+            CatalogResource(
+                "DATA", "https://example.gov/data", "https://example.gov/data", None, {}
+            ),
+        ),
+    )
+
+    assert (
+        _write_dataset_resources(
+            cursor,
+            dataset_id="dataset-id",
+            dataset=dataset,
+            resources=dataset.resources,
+            artifact_id="artifact-id",
+            ingestion_run_id="run-id",
+            ingestion_request_id="request-id",
+            term="lyme",
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+        )
+        == 2
+    )
+    assert len(cursor.calls) == 2
+    assert all("FLATTEN(input => PARSE_JSON(%s))" in query for query, _ in cursor.calls)
+    assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls)
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
