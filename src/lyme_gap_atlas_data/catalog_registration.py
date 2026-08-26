@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from uuid import uuid4
 
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
@@ -449,51 +450,144 @@ def _write_candidate(
     )
 
 
-def register_completed_discovery(config_sha256: str) -> dict[str, int | str]:
-    """Register a completed discovery chain without acquiring any source payload."""
+def _claim_registration_batch(
+    cursor: Any,
+    config_sha256: str,
+    maximum_artifacts: int,
+    registration_run_id: str,
+) -> tuple[list[tuple[str, str, str, str, str, str]], int]:
+    """Durably claim a short artifact batch before any Spaces reads occur."""
+    artifacts = _completed_artifacts(cursor, config_sha256)
+    claimed: list[tuple[str, str, str, str, str, str]] = []
+    for artifact in artifacts:
+        artifact_id = artifact[0]
+        cursor.execute(
+            """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS target
+               USING (SELECT %s AS artifact_id, %s AS config_sha256) source
+               ON target.artifact_id = source.artifact_id
+               WHEN NOT MATCHED THEN INSERT (artifact_id, config_sha256, status, attempt_count)
+                 VALUES (source.artifact_id, source.config_sha256, 'PENDING', 0)""",
+            (artifact_id, config_sha256),
+        )
+        cursor.execute(
+            """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+               SET status = 'IN_PROGRESS', registration_run_id = %s,
+                   attempt_count = attempt_count + 1, started_at = CURRENT_TIMESTAMP(),
+                   lease_expires_at = DATEADD(minute, 25, CURRENT_TIMESTAMP()),
+                   completed_at = NULL, redacted_error = NULL
+               WHERE artifact_id = %s AND config_sha256 = %s
+                 AND (status IN ('PENDING', 'FAILED')
+                      OR (status = 'IN_PROGRESS' AND lease_expires_at <= CURRENT_TIMESTAMP()))""",
+            (registration_run_id, artifact_id, config_sha256),
+        )
+        if cursor.rowcount == 1:
+            claimed.append(artifact)
+        if len(claimed) == maximum_artifacts:
+            break
+    return claimed, len(artifacts)
+
+
+def _complete_registration_artifact(
+    cursor: Any, artifact_id: str, registration_run_id: str
+) -> None:
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP(), lease_expires_at = NULL
+           WHERE artifact_id = %s AND registration_run_id = %s""",
+        (artifact_id, registration_run_id),
+    )
+
+
+def _fail_registration_artifact(
+    cursor: Any, artifact_id: str, registration_run_id: str, error: Exception
+) -> None:
+    """Retain a safe failure marker so a later bounded pass can resume."""
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           SET status = 'FAILED', lease_expires_at = NULL, redacted_error = %s
+           WHERE artifact_id = %s AND registration_run_id = %s""",
+        (type(error).__name__, artifact_id, registration_run_id),
+    )
+
+
+def _remaining_registration_artifacts(cursor: Any, config_sha256: str, total_artifacts: int) -> int:
+    cursor.execute(
+        """SELECT COUNT(*) FROM GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           WHERE config_sha256 = %s AND status = 'COMPLETED'""",
+        (config_sha256,),
+    )
+    (completed_artifacts,) = cursor.fetchone()
+    return max(total_artifacts - int(completed_artifacts or 0), 0)
+
+
+def register_completed_discovery(
+    config_sha256: str, maximum_artifacts: int = 5
+) -> dict[str, int | str]:
+    """Register a resumable bounded artifact batch without acquiring source payloads."""
     if len(config_sha256) != 64 or any(
         character not in "0123456789abcdef" for character in config_sha256
     ):
         raise ValueError("config_sha256 must be a lowercase SHA-256 digest")
+    if not 1 <= maximum_artifacts <= 100:
+        raise ValueError("maximum_artifacts must be between 1 and 100")
     settings = PipelineSettings()
     s3 = _spaces_client(settings)
+    registration_run_id = str(uuid4())
     registered_datasets = 0
     registered_resources = 0
     observed_artifacts = 0
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
         with connection.cursor() as cursor:
-            artifacts = _completed_artifacts(cursor, config_sha256)
-            for artifact_id, run_id, request_id, artifact_uri, catalog_id, term in artifacts:
-                for dataset in normalize_catalog_payload(
-                    catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
-                ):
-                    registered_datasets += 1
-                    if not dataset.resources:
-                        _write_dataset(cursor, dataset, datetime.now(UTC))
-                    for resource in dataset.resources:
-                        _write_candidate(
-                            cursor,
-                            dataset=dataset,
-                            resource=resource,
-                            artifact_id=artifact_id,
-                            ingestion_run_id=run_id,
-                            ingestion_request_id=request_id,
-                            term=term,
-                            observed_at=datetime.now(UTC),
-                        )
-                        registered_resources += 1
-                observed_artifacts += 1
+            artifacts, available_artifacts = _claim_registration_batch(
+                cursor, config_sha256, maximum_artifacts, registration_run_id
+            )
             connection.commit()
+            for artifact_id, run_id, request_id, artifact_uri, catalog_id, term in artifacts:
+                try:
+                    for dataset in normalize_catalog_payload(
+                        catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
+                    ):
+                        registered_datasets += 1
+                        if not dataset.resources:
+                            _write_dataset(cursor, dataset, datetime.now(UTC))
+                        for resource in dataset.resources:
+                            _write_candidate(
+                                cursor,
+                                dataset=dataset,
+                                resource=resource,
+                                artifact_id=artifact_id,
+                                ingestion_run_id=run_id,
+                                ingestion_request_id=request_id,
+                                term=term,
+                                observed_at=datetime.now(UTC),
+                            )
+                            registered_resources += 1
+                    _complete_registration_artifact(cursor, artifact_id, registration_run_id)
+                    connection.commit()
+                    observed_artifacts += 1
+                except Exception as error:
+                    connection.rollback()
+                    _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
+                    connection.commit()
+                    raise
+            remaining_artifacts = _remaining_registration_artifacts(
+                cursor, config_sha256, available_artifacts
+            )
     return {
-        "status": "COMPLETED",
+        "status": "COMPLETED" if remaining_artifacts == 0 else "PARTIAL",
         "config_sha256": config_sha256,
+        "registration_run_id": registration_run_id,
         "observed_artifacts": observed_artifacts,
+        "available_artifacts": available_artifacts,
+        "remaining_artifacts": remaining_artifacts,
         "registered_datasets": registered_datasets,
         "registered_resources": registered_resources,
     }
 
 
-def register_latest_completed_discovery() -> dict[str, int | str]:
+def register_latest_completed_discovery(maximum_artifacts: int = 5) -> dict[str, int | str]:
     """Materialize the newest completed discovery chain without source acquisition."""
-    return register_completed_discovery(latest_completed_discovery_config_sha256())
+    return register_completed_discovery(
+        latest_completed_discovery_config_sha256(), maximum_artifacts
+    )

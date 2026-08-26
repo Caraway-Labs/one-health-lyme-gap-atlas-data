@@ -81,6 +81,14 @@ sample, create an access profile or assessment, create an approval-console
 entry, or ingest source payloads. Those remain the separate, gated operations
 in steps 9 through 11.
 
+Registration processes a bounded artifact batch (five artifacts by default).
+It commits each artifact's dataset/resource/observation writes and its durable
+registration marker independently. A `PARTIAL` result is a successful bounded
+pass, not a discovery retry; the next pass resumes only artifacts without a
+completed marker. An expired in-progress lease can be reclaimed after an
+interrupted worker. This keeps platform job limits from requiring discovery or
+source acquisition to be repeated.
+
 ## Source classification and routing
 
 | Observed resource | First-release action | Full-data action after approval |

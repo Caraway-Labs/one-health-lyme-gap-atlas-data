@@ -590,6 +590,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V025",
         "V026",
         "V027",
+        "V028",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -597,7 +598,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 27
+    assert len(prod_plan) == 28
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -631,6 +632,9 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "CATALOG_DISCOVERY_OBSERVATIONS" in registration
     assert "V_DISCOVERY_CANDIDATES" in registration
     assert "COLLECT_METADATA_AND_SAMPLE" in registration
+    resumable_registration = migrations[27].source
+    assert "CATALOG_DISCOVERY_REGISTRATIONS" in resumable_registration
+    assert "lease_expires_at" in resumable_registration
     dbt_grants = migrations[18].source
     assert "GRANT SELECT ON TABLE RAW.CDC_LYME_X5J9_WYBP" in dbt_grants
     assert "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA STAGING" in dbt_grants
