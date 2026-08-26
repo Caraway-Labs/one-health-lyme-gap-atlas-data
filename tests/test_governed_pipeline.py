@@ -8,13 +8,14 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 import yaml
 
-from lyme_gap_atlas_data import orchestration
+from lyme_gap_atlas_data import cli, orchestration
 from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.catalog_registration import (
     _completed_artifacts,
     canonicalize_public_url,
+    latest_completed_discovery_config_sha256,
     normalize_catalog_payload,
 )
 from lyme_gap_atlas_data.cdc import load_cdc_profile
@@ -335,6 +336,11 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
         jobs["approved-source-ingestion"]["run_command"]
         == "uv run atlas-data pipeline run-production-schedule"
     )
+    assert jobs["catalog-registration"]["kind"] == "POST_DEPLOY"
+    assert (
+        jobs["catalog-registration"]["run_command"]
+        == "uv run atlas-data pipeline register-latest-discovery"
+    )
     for job in jobs.values():
         assert any(
             env["key"] == "ENABLE_PRODUCTION_EXECUTION" and env["value"] == "true"
@@ -347,6 +353,9 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
     assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"' in workflow
     assert 'doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait' in workflow
     assert ".image.digest = $image_digest" in workflow
+    assert '"catalog-registration"' in workflow
+    assert '"POST_DEPLOY"' in workflow
+    assert "register-latest-discovery" in workflow
     assert "provider-encrypted secret values" in workflow
     assert "exit 1" not in workflow
 
@@ -456,6 +465,75 @@ def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
     assert "status = 'COMPLETED'" in cursor.queries[0]
     assert "WITH RECURSIVE completed_chain" in cursor.queries[1]
     assert "resumed_from_ingestion_run_id" in cursor.queries[1]
+
+
+def test_latest_completed_discovery_config_requires_a_completed_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def execute(self, query: str) -> None:
+            assert "status = 'COMPLETED'" in query
+
+        def fetchone(self) -> None:
+            return None
+
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    class Connection:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def __enter__(self) -> "Connection":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration.connect", lambda _: Connection())
+    with pytest.raises(ValueError, match="No completed catalog-discovery"):
+        latest_completed_discovery_config_sha256()
+
+
+def test_discover_registers_only_after_a_completed_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "run_discovery",
+        lambda **_: {"status": "COMPLETED", "config_sha256": "a" * 64},
+    )
+    monkeypatch.setattr(
+        cli,
+        "register_completed_discovery",
+        lambda config_sha256: {"status": "COMPLETED", "config_sha256": config_sha256},
+    )
+    monkeypatch.setattr(cli.typer, "echo", emitted.append)
+
+    cli.discover()
+
+    assert json.loads(emitted[0])["candidate_registration"]["status"] == "COMPLETED"
+
+
+def test_discover_does_not_register_a_paused_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "run_discovery",
+        lambda **_: {"status": "PAUSED", "config_sha256": "a" * 64},
+    )
+    monkeypatch.setattr(
+        cli,
+        "register_completed_discovery",
+        lambda _: pytest.fail("paused discovery must not register candidates"),
+    )
+    monkeypatch.setattr(cli.typer, "echo", emitted.append)
+
+    cli.discover()
+
+    assert "candidate_registration" not in json.loads(emitted[0])
 
 
 def test_cdc_profile_requires_deterministic_ordering() -> None:

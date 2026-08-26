@@ -109,3 +109,52 @@ jobs:
       - key: SPACES_SECRET_ACCESS_KEY
         scope: RUN_TIME
         type: SECRET
+  # This one-off deploy-time job is intentionally not scheduled.  The regular
+  # discovery command registers candidates after a completed chain; this job
+  # idempotently materializes the already-completed chain when V027 is promoted.
+  - name: catalog-registration
+    kind: POST_DEPLOY
+    image:
+      registry_type: DOCR
+      repository: pipeline
+      digest: ${IMAGE_DIGEST}
+    run_command: uv run atlas-data pipeline register-latest-discovery
+    envs:
+      - key: TOPX_ENV
+        value: prod
+      - key: ENABLE_PRODUCTION_EXECUTION
+        value: "true"
+      - key: SNOWFLAKE_DATABASE
+        value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
+      - key: SNOWFLAKE_ROLE
+        value: OH_LYME_PROD_PIPELINE_RUNTIME
+      - key: SNOWFLAKE_WAREHOUSE
+        value: OH_LYME_PROD_INGEST_XS_WH
+      - key: SNOWFLAKE_AUTH_METHOD
+        value: key_pair
+      - key: SNOWFLAKE_ACCOUNT
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_USER
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_B64
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_REGION
+        value: sfo3
+      - key: SPACES_ENDPOINT
+        value: https://sfo3.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: one-health-lyme-gap-atlas-data-prod
+      - key: SPACES_PREFIX
+        value: prod
+      - key: SPACES_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
