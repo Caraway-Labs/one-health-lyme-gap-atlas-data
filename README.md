@@ -39,6 +39,14 @@ each response as a private, content-addressed artifact with append-only
 Snowflake request/run lineage. It discovers metadata only; full source
 ingestion remains blocked pending a steward decision.
 
+After a discovery configuration reaches one durable `COMPLETED` run, run
+`pipeline register-discovery --config-sha256 <checksum>` as a separate,
+reviewed metadata-only step. It reads only the captured private artifacts,
+normalizes catalog datasets/resources, preserves every term/catalog observation,
+and publishes `GOVERNANCE.V_DISCOVERY_CANDIDATES` for triage. It does not follow
+publisher URLs, retrieve samples, create access profiles or assessments, queue
+an approval decision, or ingest any source payload.
+
 For the first reference source, run `uv run atlas-data pipeline cdc-sample` to
 capture only CDC/Socrata `x5j9-wybp` metadata and an explicitly ordered sample.
 It creates a `PENDING_REVIEW` candidate in the internal Snowflake

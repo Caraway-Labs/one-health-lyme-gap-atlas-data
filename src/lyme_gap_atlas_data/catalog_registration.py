@@ -1,0 +1,477 @@
+"""Normalize immutable catalog-discovery artifacts into governed candidates.
+
+This module deliberately stops at candidate registration.  It never follows a
+publisher URL, collects a sample, scores a candidate, or authorizes ingestion.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+import boto3  # type: ignore[import-untyped]
+from botocore.config import Config  # type: ignore[import-untyped]
+from lyme_gap_atlas_shared.settings import SnowflakeSettings
+from lyme_gap_atlas_shared.snowflake import connect
+
+from .settings import PipelineSettings
+
+_SENSITIVE_QUERY_PARAMETERS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "key",
+    "signature",
+    "sig",
+    "token",
+}
+
+
+@dataclass(frozen=True)
+class CatalogResource:
+    """One normalized, non-authoritative publisher-resource candidate."""
+
+    resource_type: str
+    resource_url: str | None
+    canonical_source_url: str | None
+    api_dataset_id: str | None
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CatalogDataset:
+    """One normalized catalog record with its candidate resources."""
+
+    catalog_id: str
+    catalog_record_id: str
+    dataset_key: str
+    payload: dict[str, Any]
+    resources: tuple[CatalogResource, ...]
+
+
+def _stable_id(*values: str) -> str:
+    return hashlib.sha256("\x1f".join(values).encode("utf-8")).hexdigest()
+
+
+def canonicalize_public_url(value: object) -> str | None:
+    """Normalize a public HTTP(S) URL without retaining secret query values."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = urlsplit(value.strip())
+    if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc:
+        return None
+    public_query = [
+        (key, item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.casefold() not in _SENSITIVE_QUERY_PARAMETERS
+    ]
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit(
+        (
+            parsed.scheme.casefold(),
+            parsed.netloc.casefold(),
+            path,
+            urlencode(public_query, doseq=True),
+            "",
+        )
+    )
+
+
+def _resource_type(*, access_level: object, hint: str) -> str:
+    if isinstance(access_level, str) and access_level.casefold() not in {"public", "open"}:
+        return "CONTROLLED_ACCESS"
+    return hint
+
+
+def _resource(
+    *,
+    resource_type: str,
+    url: object,
+    access_level: object,
+    api_dataset_id: object,
+    payload: dict[str, Any],
+) -> CatalogResource | None:
+    canonical_url = canonicalize_public_url(url)
+    if canonical_url is None:
+        return None
+    return CatalogResource(
+        resource_type=_resource_type(access_level=access_level, hint=resource_type),
+        resource_url=canonical_url,
+        canonical_source_url=canonical_url,
+        api_dataset_id=str(api_dataset_id) if api_dataset_id else None,
+        payload=payload,
+    )
+
+
+def _datagov_datasets(payload: dict[str, Any]) -> list[CatalogDataset]:
+    datasets: list[CatalogDataset] = []
+    results = payload.get("results", [])
+    if not isinstance(results, list):
+        return datasets
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        dcat_value = result.get("dcat")
+        dcat: dict[str, Any] = dcat_value if isinstance(dcat_value, dict) else {}
+        record_id = str(result.get("identifier") or dcat.get("identifier") or "")
+        if not record_id:
+            record_id = _stable_id(str(result.get("title", "")), str(result.get("landingPage", "")))
+        title = str(result.get("title") or dcat.get("title") or "Untitled catalog record")
+        access_level = result.get("accessLevel", dcat.get("accessLevel"))
+        base_payload = {
+            "title": title,
+            "description": result.get("description", dcat.get("description")),
+            "publisher": result.get("publisher", dcat.get("publisher")),
+            "keywords": result.get("keyword", dcat.get("keyword", [])),
+            "catalog_record": result,
+        }
+        resources: list[CatalogResource] = []
+        landing_page = result.get("landingPage", dcat.get("landingPage"))
+        landing = _resource(
+            resource_type="LANDING_PAGE",
+            url=landing_page,
+            access_level=access_level,
+            api_dataset_id=None,
+            payload={**base_payload, "resource_role": "landing_page"},
+        )
+        if landing is not None:
+            resources.append(landing)
+        for distribution in dcat.get("distribution", []):
+            if not isinstance(distribution, dict):
+                continue
+            distribution_payload = {**base_payload, "distribution": distribution}
+            download = _resource(
+                resource_type="DATA",
+                url=distribution.get("downloadURL"),
+                access_level=access_level,
+                api_dataset_id=None,
+                payload={**distribution_payload, "resource_role": "download"},
+            )
+            access = _resource(
+                resource_type="API",
+                url=distribution.get("accessURL"),
+                access_level=access_level,
+                api_dataset_id=None,
+                payload={**distribution_payload, "resource_role": "access"},
+            )
+            resources.extend(item for item in (download, access) if item is not None)
+        for documentation_url in [
+            dcat.get("describedBy"),
+            *([item for item in dcat.get("references", []) if isinstance(item, str)]),
+        ]:
+            documentation = _resource(
+                resource_type="DOCUMENTATION",
+                url=documentation_url,
+                access_level=access_level,
+                api_dataset_id=None,
+                payload={**base_payload, "resource_role": "documentation"},
+            )
+            if documentation is not None:
+                resources.append(documentation)
+        datasets.append(
+            CatalogDataset(
+                catalog_id="DATA_GOV",
+                catalog_record_id=record_id,
+                dataset_key=f"data_gov:{record_id}",
+                payload=base_payload,
+                resources=tuple(_deduplicate_resources(resources)),
+            )
+        )
+    return datasets
+
+
+def _socrata_datasets(catalog_id: str, payload: dict[str, Any]) -> list[CatalogDataset]:
+    datasets: list[CatalogDataset] = []
+    results = payload.get("results", [])
+    if not isinstance(results, list):
+        return datasets
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        resource_value = result.get("resource")
+        resource: dict[str, Any] = resource_value if isinstance(resource_value, dict) else {}
+        metadata_value = result.get("metadata")
+        metadata: dict[str, Any] = metadata_value if isinstance(metadata_value, dict) else {}
+        resource_id = resource.get("id")
+        domain = metadata.get("domain")
+        record_id = str(resource_id or result.get("id") or "")
+        if not record_id:
+            record_id = _stable_id(str(resource.get("name", "")), str(result.get("permalink", "")))
+        title = str(resource.get("name") or result.get("name") or "Untitled catalog record")
+        api_url = (
+            f"https://{domain}/resource/{resource_id}.json"
+            if isinstance(domain, str) and resource_id
+            else None
+        )
+        landing_url = result.get("permalink") or result.get("link")
+        base_payload = {
+            "title": title,
+            "description": resource.get("description"),
+            "publisher": metadata.get("domain"),
+            "keywords": metadata.get("tags", []),
+            "catalog_record": result,
+        }
+        resources = [
+            item
+            for item in (
+                _resource(
+                    resource_type="API",
+                    url=api_url,
+                    access_level="public",
+                    api_dataset_id=resource_id,
+                    payload={**base_payload, "resource_role": "socrata_api"},
+                ),
+                _resource(
+                    resource_type="LANDING_PAGE",
+                    url=landing_url,
+                    access_level="public",
+                    api_dataset_id=resource_id,
+                    payload={**base_payload, "resource_role": "landing_page"},
+                ),
+            )
+            if item is not None
+        ]
+        datasets.append(
+            CatalogDataset(
+                catalog_id=catalog_id,
+                catalog_record_id=record_id,
+                dataset_key=f"{catalog_id.casefold()}:{record_id}",
+                payload=base_payload,
+                resources=tuple(_deduplicate_resources(resources)),
+            )
+        )
+    return datasets
+
+
+def normalize_catalog_payload(catalog_id: str, payload: dict[str, Any]) -> list[CatalogDataset]:
+    """Normalize one already-captured catalog response without network access."""
+    if catalog_id == "DATA_GOV":
+        return _datagov_datasets(payload)
+    if catalog_id in {"HEALTHDATA_GOV", "SOCRATA_ODN"}:
+        return _socrata_datasets(catalog_id, payload)
+    raise ValueError(f"Unsupported discovery catalog {catalog_id}")
+
+
+def _deduplicate_resources(resources: list[CatalogResource]) -> list[CatalogResource]:
+    unique: dict[tuple[str, str], CatalogResource] = {}
+    for resource in resources:
+        if resource.canonical_source_url is not None:
+            unique.setdefault((resource.resource_type, resource.canonical_source_url), resource)
+    return list(unique.values())
+
+
+def _spaces_client(settings: PipelineSettings) -> Any:
+    if settings.spaces_access_key_id is None or settings.spaces_secret_access_key is None:
+        raise ValueError("Spaces credentials are required")
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.spaces_endpoint,
+        aws_access_key_id=settings.spaces_access_key_id.get_secret_value(),
+        aws_secret_access_key=settings.spaces_secret_access_key.get_secret_value(),
+        region_name=settings.spaces_region,
+        config=Config(signature_version="s3v4"),
+    )
+
+
+def _read_artifact_payload(
+    s3: Any, settings: PipelineSettings, artifact_uri: str
+) -> dict[str, Any]:
+    parsed = urlsplit(artifact_uri)
+    if parsed.scheme != "s3" or parsed.netloc != settings.spaces_bucket or not parsed.path:
+        raise ValueError("Catalog artifact is outside the configured private bucket")
+    body = s3.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))["Body"].read()
+    payload = json.loads(body.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Catalog artifact payload must be a JSON object")
+    return payload
+
+
+def _completed_artifacts(
+    cursor: Any, config_sha256: str
+) -> list[tuple[str, str, str, str, str, str]]:
+    cursor.execute(
+        """SELECT COUNT_IF(status = 'COMPLETED')
+           FROM GOVERNANCE.INGESTION_RUNS
+           WHERE resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'
+             AND config_sha256 = %s""",
+        (config_sha256,),
+    )
+    (completed,) = cursor.fetchone()
+    if int(completed or 0) < 1:
+        raise ValueError("Discovery configuration has no completed run")
+    cursor.execute(
+        """WITH RECURSIVE completed_chain AS (
+             SELECT ingestion_run_id, resumed_from_ingestion_run_id
+             FROM GOVERNANCE.INGESTION_RUNS
+             WHERE resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'
+               AND config_sha256 = %s AND status = 'COMPLETED'
+             UNION ALL
+             SELECT prior.ingestion_run_id, prior.resumed_from_ingestion_run_id
+             FROM GOVERNANCE.INGESTION_RUNS prior
+             JOIN completed_chain chain
+               ON prior.ingestion_run_id = chain.resumed_from_ingestion_run_id
+           )
+           SELECT a.artifact_id, a.ingestion_run_id, q.ingestion_request_id, a.artifact_uri,
+                  q.redacted_request:catalog_id::VARCHAR, q.redacted_request:term::VARCHAR
+           FROM GOVERNANCE.RAW_ARTIFACTS a
+           JOIN GOVERNANCE.INGESTION_REQUESTS q ON q.ingestion_request_id = a.ingestion_request_id
+           JOIN completed_chain chain ON chain.ingestion_run_id = a.ingestion_run_id
+           WHERE a.artifact_type = 'CATALOG_METADATA'
+             AND q.status_code = 200
+           ORDER BY a.created_at, a.artifact_id""",
+        (config_sha256,),
+    )
+    return [
+        (str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), str(row[5]))
+        for row in cursor.fetchall()
+    ]
+
+
+def _write_dataset(cursor: Any, dataset: CatalogDataset, observed_at: datetime) -> str:
+    dataset_payload = json.dumps(dataset.payload, sort_keys=True, separators=(",", ":"))
+    dataset_sha256 = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
+    dataset_id = _stable_id(dataset.catalog_id, dataset.catalog_record_id, dataset_sha256)
+    cursor.execute(
+        """MERGE INTO GOVERNANCE.CATALOG_DATASETS target
+           USING (SELECT %s AS catalog_dataset_id, %s AS dataset_key, %s AS catalog_name,
+                         %s AS catalog_record_id, PARSE_JSON(%s) AS metadata_payload,
+                         %s AS metadata_sha256, %s AS discovered_at) source
+           ON target.catalog_dataset_id = source.catalog_dataset_id
+           WHEN NOT MATCHED THEN INSERT (catalog_dataset_id, dataset_key, catalog_name,
+             catalog_record_id, metadata_payload, metadata_sha256, discovered_at, is_current)
+             VALUES (source.catalog_dataset_id, source.dataset_key, source.catalog_name,
+               source.catalog_record_id, source.metadata_payload, source.metadata_sha256,
+               source.discovered_at, TRUE)""",
+        (
+            dataset_id,
+            dataset.dataset_key,
+            dataset.catalog_id,
+            dataset.catalog_record_id,
+            dataset_payload,
+            dataset_sha256,
+            observed_at,
+        ),
+    )
+    return dataset_id
+
+
+def _write_candidate(
+    cursor: Any,
+    *,
+    dataset: CatalogDataset,
+    resource: CatalogResource,
+    artifact_id: str,
+    ingestion_run_id: str,
+    ingestion_request_id: str,
+    term: str,
+    observed_at: datetime,
+) -> None:
+    dataset_id = _write_dataset(cursor, dataset, observed_at)
+    canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
+    resource_key = f"candidate:{_stable_id(canonical)[:32]}"
+    resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
+    resource_payload = json.dumps(resource.payload, sort_keys=True, separators=(",", ":"))
+    observation_id = _stable_id(artifact_id, resource_id)
+    cursor.execute(
+        """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
+           USING (SELECT %s AS catalog_resource_id, %s AS catalog_dataset_id, %s AS resource_key,
+                         %s AS resource_type, %s AS resource_url, %s AS canonical_source_url,
+                         %s AS api_dataset_id, PARSE_JSON(%s) AS resource_payload,
+                         %s AS registered_at) source
+           ON target.catalog_resource_id = source.catalog_resource_id
+           WHEN NOT MATCHED THEN INSERT (catalog_resource_id, catalog_dataset_id, resource_key,
+             resource_type, resource_url, canonical_source_url, api_dataset_id, resource_payload,
+             registered_at, is_active) VALUES (source.catalog_resource_id,
+             source.catalog_dataset_id,
+             source.resource_key, source.resource_type, source.resource_url,
+             source.canonical_source_url, source.api_dataset_id, source.resource_payload,
+             source.registered_at, TRUE)""",
+        (
+            resource_id,
+            dataset_id,
+            resource_key,
+            resource.resource_type,
+            resource.resource_url,
+            resource.canonical_source_url,
+            resource.api_dataset_id,
+            resource_payload,
+            observed_at,
+        ),
+    )
+    cursor.execute(
+        """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS target
+           USING (SELECT %s AS observation_id, %s AS ingestion_run_id, %s AS ingestion_request_id,
+                         %s AS artifact_id, %s AS catalog_id, %s AS catalog_record_id,
+                         %s AS matched_term, %s AS catalog_dataset_id, %s AS catalog_resource_id,
+                         %s AS canonical_resource_key, %s AS observed_at) source
+           ON target.observation_id = source.observation_id
+           WHEN NOT MATCHED THEN INSERT (observation_id, ingestion_run_id, ingestion_request_id,
+             artifact_id, catalog_id, catalog_record_id, matched_term, catalog_dataset_id,
+             catalog_resource_id, canonical_resource_key, observed_at)
+             VALUES (source.observation_id, source.ingestion_run_id, source.ingestion_request_id,
+               source.artifact_id, source.catalog_id, source.catalog_record_id, source.matched_term,
+               source.catalog_dataset_id, source.catalog_resource_id, source.canonical_resource_key,
+               source.observed_at)""",
+        (
+            observation_id,
+            ingestion_run_id,
+            ingestion_request_id,
+            artifact_id,
+            dataset.catalog_id,
+            dataset.catalog_record_id,
+            term,
+            dataset_id,
+            resource_id,
+            resource_key,
+            observed_at,
+        ),
+    )
+
+
+def register_completed_discovery(config_sha256: str) -> dict[str, int | str]:
+    """Register a completed discovery chain without acquiring any source payload."""
+    if len(config_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in config_sha256
+    ):
+        raise ValueError("config_sha256 must be a lowercase SHA-256 digest")
+    settings = PipelineSettings()
+    s3 = _spaces_client(settings)
+    registered_datasets = 0
+    registered_resources = 0
+    observed_artifacts = 0
+    with connect(SnowflakeSettings()) as connection:
+        connection.autocommit(False)
+        with connection.cursor() as cursor:
+            artifacts = _completed_artifacts(cursor, config_sha256)
+            for artifact_id, run_id, request_id, artifact_uri, catalog_id, term in artifacts:
+                for dataset in normalize_catalog_payload(
+                    catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
+                ):
+                    registered_datasets += 1
+                    if not dataset.resources:
+                        _write_dataset(cursor, dataset, datetime.now(UTC))
+                    for resource in dataset.resources:
+                        _write_candidate(
+                            cursor,
+                            dataset=dataset,
+                            resource=resource,
+                            artifact_id=artifact_id,
+                            ingestion_run_id=run_id,
+                            ingestion_request_id=request_id,
+                            term=term,
+                            observed_at=datetime.now(UTC),
+                        )
+                        registered_resources += 1
+                observed_artifacts += 1
+            connection.commit()
+    return {
+        "status": "COMPLETED",
+        "config_sha256": config_sha256,
+        "observed_artifacts": observed_artifacts,
+        "registered_datasets": registered_datasets,
+        "registered_resources": registered_resources,
+    }
