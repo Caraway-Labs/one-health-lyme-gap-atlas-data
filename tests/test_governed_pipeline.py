@@ -187,6 +187,7 @@ def test_legacy_rate_limit_check_requires_a_recorded_429() -> None:
 
 def test_discovery_runtime_budget_is_bounded_before_platform_timeout() -> None:
     assert PipelineSettings().discovery_max_runtime_seconds == 1500
+    assert PipelineSettings().neo4j_runtime_user == "graph_runtime"
     with pytest.raises(ValueError, match="DISCOVERY_MAX_RUNTIME_SECONDS"):
         PipelineSettings(discovery_max_runtime_seconds=1741)
 

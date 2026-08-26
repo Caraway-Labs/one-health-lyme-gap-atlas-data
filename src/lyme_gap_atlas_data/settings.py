@@ -35,8 +35,8 @@ class PipelineSettings(BaseSettings):
     ncbi_email: str = ""
     papers_require_human_review: bool = True
     neo4j_uri: str = ""
-    neo4j_writer_user: str = "graph_writer"
-    neo4j_writer_password: SecretStr | None = None
+    neo4j_runtime_user: str = "graph_runtime"
+    neo4j_runtime_password: SecretStr | None = None
     groq_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
 

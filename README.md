@@ -13,6 +13,12 @@ See workspace ADR 0005 before provisioning it.
 Deployment and DEV-to-PROD promotion are governed by workspace ADR 0006 and
 the [deployment runbook](docs/operations/deployment-promotion.md).
 
+The knowledge-graph pipeline uses the protected `graph_runtime` Neo4j
+Community identity described in the knowledge-graph repository's ADR 0008.
+Community does not enforce separate API-reader and pipeline-writer permissions;
+the VPC, secret store, fixed API retrieval templates, and review gate are the
+required compensating controls.
+
 ```powershell
 uv sync --extra dev
 uv run atlas-data provision --dry-run
