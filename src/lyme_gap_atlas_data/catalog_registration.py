@@ -377,29 +377,59 @@ def _write_dataset(cursor: Any, dataset: CatalogDataset, observed_at: datetime) 
     return dataset_id
 
 
-def _write_candidate(
+def _write_dataset_resources(
     cursor: Any,
     *,
     dataset_id: str,
     dataset: CatalogDataset,
-    resource: CatalogResource,
+    resources: tuple[CatalogResource, ...],
     artifact_id: str,
     ingestion_run_id: str,
     ingestion_request_id: str,
     term: str,
     observed_at: datetime,
-) -> None:
-    canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
-    resource_key = f"candidate:{_stable_id(canonical)[:32]}"
-    resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
-    resource_payload = json.dumps(resource.payload, sort_keys=True, separators=(",", ":"))
-    observation_id = _stable_id(artifact_id, resource_id)
+) -> int:
+    """Register every resource for one checkpointed dataset in two set-based merges."""
+    rows: list[dict[str, object]] = []
+    for resource in resources:
+        canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
+        resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
+        rows.append(
+            {
+                "catalog_resource_id": resource_id,
+                "catalog_dataset_id": dataset_id,
+                "resource_key": f"candidate:{_stable_id(canonical)[:32]}",
+                "resource_type": resource.resource_type,
+                "resource_url": resource.resource_url,
+                "canonical_source_url": resource.canonical_source_url,
+                "api_dataset_id": resource.api_dataset_id,
+                "resource_payload": resource.payload,
+                "observation_id": _stable_id(artifact_id, resource_id),
+                "ingestion_run_id": ingestion_run_id,
+                "ingestion_request_id": ingestion_request_id,
+                "artifact_id": artifact_id,
+                "catalog_id": dataset.catalog_id,
+                "catalog_record_id": dataset.catalog_record_id,
+                "matched_term": term,
+            }
+        )
+    if not rows:
+        return 0
+    source_json = json.dumps(rows, sort_keys=True, separators=(",", ":"))
     cursor.execute(
         """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
-           USING (SELECT %s AS catalog_resource_id, %s AS catalog_dataset_id, %s AS resource_key,
-                         %s AS resource_type, %s AS resource_url, %s AS canonical_source_url,
-                         %s AS api_dataset_id, PARSE_JSON(%s) AS resource_payload,
-                         %s AS registered_at) source
+           USING (
+             SELECT value:catalog_resource_id::VARCHAR AS catalog_resource_id,
+                    value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
+                    value:resource_key::VARCHAR AS resource_key,
+                    value:resource_type::VARCHAR AS resource_type,
+                    value:resource_url::VARCHAR AS resource_url,
+                    value:canonical_source_url::VARCHAR AS canonical_source_url,
+                    value:api_dataset_id::VARCHAR AS api_dataset_id,
+                    value:resource_payload AS resource_payload,
+                    %s AS registered_at
+             FROM TABLE(FLATTEN(input => PARSE_JSON(%s)))
+           ) source
            ON target.catalog_resource_id = source.catalog_resource_id
            WHEN NOT MATCHED THEN INSERT (catalog_resource_id, catalog_dataset_id, resource_key,
              resource_type, resource_url, canonical_source_url, api_dataset_id, resource_payload,
@@ -408,24 +438,24 @@ def _write_candidate(
              source.resource_key, source.resource_type, source.resource_url,
              source.canonical_source_url, source.api_dataset_id, source.resource_payload,
              source.registered_at, TRUE)""",
-        (
-            resource_id,
-            dataset_id,
-            resource_key,
-            resource.resource_type,
-            resource.resource_url,
-            resource.canonical_source_url,
-            resource.api_dataset_id,
-            resource_payload,
-            observed_at,
-        ),
+        (observed_at, source_json),
     )
     cursor.execute(
         """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS target
-           USING (SELECT %s AS observation_id, %s AS ingestion_run_id, %s AS ingestion_request_id,
-                         %s AS artifact_id, %s AS catalog_id, %s AS catalog_record_id,
-                         %s AS matched_term, %s AS catalog_dataset_id, %s AS catalog_resource_id,
-                         %s AS canonical_resource_key, %s AS observed_at) source
+           USING (
+             SELECT value:observation_id::VARCHAR AS observation_id,
+                    value:ingestion_run_id::VARCHAR AS ingestion_run_id,
+                    value:ingestion_request_id::VARCHAR AS ingestion_request_id,
+                    value:artifact_id::VARCHAR AS artifact_id,
+                    value:catalog_id::VARCHAR AS catalog_id,
+                    value:catalog_record_id::VARCHAR AS catalog_record_id,
+                    value:matched_term::VARCHAR AS matched_term,
+                    value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
+                    value:catalog_resource_id::VARCHAR AS catalog_resource_id,
+                    value:resource_key::VARCHAR AS canonical_resource_key,
+                    %s AS observed_at
+             FROM TABLE(FLATTEN(input => PARSE_JSON(%s)))
+           ) source
            ON target.observation_id = source.observation_id
            WHEN NOT MATCHED THEN INSERT (observation_id, ingestion_run_id, ingestion_request_id,
              artifact_id, catalog_id, catalog_record_id, matched_term, catalog_dataset_id,
@@ -434,20 +464,9 @@ def _write_candidate(
                source.artifact_id, source.catalog_id, source.catalog_record_id, source.matched_term,
                source.catalog_dataset_id, source.catalog_resource_id, source.canonical_resource_key,
                source.observed_at)""",
-        (
-            observation_id,
-            ingestion_run_id,
-            ingestion_request_id,
-            artifact_id,
-            dataset.catalog_id,
-            dataset.catalog_record_id,
-            term,
-            dataset_id,
-            resource_id,
-            resource_key,
-            observed_at,
-        ),
+        (observed_at, source_json),
     )
+    return len(rows)
 
 
 def _claim_registration_batch(
@@ -599,19 +618,17 @@ def register_completed_discovery(
                         # needlessly consumed the bounded job's Snowflake time.
                         observed_at = datetime.now(UTC)
                         dataset_id = _write_dataset(cursor, dataset, observed_at)
-                        for resource in dataset.resources:
-                            _write_candidate(
-                                cursor,
-                                dataset_id=dataset_id,
-                                dataset=dataset,
-                                resource=resource,
-                                artifact_id=artifact_id,
-                                ingestion_run_id=run_id,
-                                ingestion_request_id=request_id,
-                                term=term,
-                                observed_at=observed_at,
-                            )
-                            registered_resources += 1
+                        registered_resources += _write_dataset_resources(
+                            cursor,
+                            dataset_id=dataset_id,
+                            dataset=dataset,
+                            resources=dataset.resources,
+                            artifact_id=artifact_id,
+                            ingestion_run_id=run_id,
+                            ingestion_request_id=request_id,
+                            term=term,
+                            observed_at=observed_at,
+                        )
                         _advance_registration_dataset(
                             cursor, artifact_id, registration_run_id, next_offset
                         )
