@@ -380,6 +380,7 @@ def _write_dataset(cursor: Any, dataset: CatalogDataset, observed_at: datetime) 
 def _write_candidate(
     cursor: Any,
     *,
+    dataset_id: str,
     dataset: CatalogDataset,
     resource: CatalogResource,
     artifact_id: str,
@@ -388,7 +389,6 @@ def _write_candidate(
     term: str,
     observed_at: datetime,
 ) -> None:
-    dataset_id = _write_dataset(cursor, dataset, observed_at)
     canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
     resource_key = f"candidate:{_stable_id(canonical)[:32]}"
     resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
@@ -593,18 +593,23 @@ def register_completed_discovery(
                         start=dataset_offset + 1,
                     ):
                         registered_datasets += 1
-                        if not dataset.resources:
-                            _write_dataset(cursor, dataset, datetime.now(UTC))
+                        # A dataset can expose many resources.  Materialize its
+                        # parent once, then attach every resource to that stable
+                        # identifier.  Re-merging the parent for each resource
+                        # needlessly consumed the bounded job's Snowflake time.
+                        observed_at = datetime.now(UTC)
+                        dataset_id = _write_dataset(cursor, dataset, observed_at)
                         for resource in dataset.resources:
                             _write_candidate(
                                 cursor,
+                                dataset_id=dataset_id,
                                 dataset=dataset,
                                 resource=resource,
                                 artifact_id=artifact_id,
                                 ingestion_run_id=run_id,
                                 ingestion_request_id=request_id,
                                 term=term,
-                                observed_at=datetime.now(UTC),
+                                observed_at=observed_at,
                             )
                             registered_resources += 1
                         _advance_registration_dataset(
