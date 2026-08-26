@@ -7,7 +7,7 @@ import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from .catalog_registration import register_completed_discovery
+from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
 from .database import load as load_release
 from .database import provision as provision_database
@@ -94,7 +94,12 @@ def discover(
     max_requests: int | None = typer.Option(None, "--max-requests", min=1),
 ) -> None:
     """Persist catalog metadata only; it never ingests a source resource."""
-    typer.echo(json.dumps(run_discovery(maximum_requests=max_requests)))
+    result = run_discovery(maximum_requests=max_requests)
+    if result["status"] == "COMPLETED":
+        result["candidate_registration"] = register_completed_discovery(
+            str(result["config_sha256"])
+        )
+    typer.echo(json.dumps(result))
 
 
 @pipeline_app.command("register-discovery")
@@ -103,6 +108,12 @@ def register_discovery(
 ) -> None:
     """Normalize a completed discovery chain; never acquire source data."""
     typer.echo(json.dumps(register_completed_discovery(config_sha256)))
+
+
+@pipeline_app.command("register-latest-discovery")
+def register_latest_discovery() -> None:
+    """Materialize the newest completed discovery chain; never acquire source data."""
+    typer.echo(json.dumps(register_latest_completed_discovery()))
 
 
 @pipeline_app.command("migration-plan")

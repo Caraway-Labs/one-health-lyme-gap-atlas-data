@@ -331,6 +331,23 @@ def _completed_artifacts(
     ]
 
 
+def latest_completed_discovery_config_sha256() -> str:
+    """Return the configuration of the newest completed governed discovery run."""
+    with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT config_sha256
+               FROM GOVERNANCE.INGESTION_RUNS
+               WHERE resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'
+                 AND status = 'COMPLETED' AND config_sha256 IS NOT NULL
+               ORDER BY completed_at DESC, started_at DESC
+               LIMIT 1"""
+        )
+        row = cursor.fetchone()
+    if row is None or not isinstance(row[0], str):
+        raise ValueError("No completed catalog-discovery run is available for registration")
+    return row[0]
+
+
 def _write_dataset(cursor: Any, dataset: CatalogDataset, observed_at: datetime) -> str:
     dataset_payload = json.dumps(dataset.payload, sort_keys=True, separators=(",", ":"))
     dataset_sha256 = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
@@ -475,3 +492,8 @@ def register_completed_discovery(config_sha256: str) -> dict[str, int | str]:
         "registered_datasets": registered_datasets,
         "registered_resources": registered_resources,
     }
+
+
+def register_latest_completed_discovery() -> dict[str, int | str]:
+    """Materialize the newest completed discovery chain without source acquisition."""
+    return register_completed_discovery(latest_completed_discovery_config_sha256())
