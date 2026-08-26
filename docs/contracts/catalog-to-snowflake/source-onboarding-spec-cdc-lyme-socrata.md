@@ -64,6 +64,23 @@ The pipeline shall make one catalog search per unique enabled term, with terms d
 10. Run deterministic automated assessment. Write the assessment and its evidence references to `dataset_quality_assessments`.
 11. Route every candidate recommended for full ingestion to the Snowflake Streamlit [`SOURCE_APPROVAL_CONSOLE`](streamlit-snowflake-approval-app-requirements.md). Only an `APPROVED` or `APPROVED_WITH_CONDITIONS` decision recorded by its controlled procedure can activate a source access profile and full ingestion.
 
+### Discovery-candidate registration boundary
+
+The `pipeline register-discovery --config-sha256 <checksum>` command is the
+reviewed handoff between completed catalog discovery and later source
+onboarding. It reads only `CATALOG_METADATA` artifacts already captured in the
+configured private Spaces bucket, verifies that the configuration has at least
+one completed discovery chain, and writes normalized catalog
+datasets, resources, and one immutable observation for each catalog-term
+match. `GOVERNANCE.V_DISCOVERY_CANDIDATES` is a triage view: its
+`next_action` identifies whether a candidate needs metadata/sample collection,
+must not be acquired automatically, or is only a research lead.
+
+Candidate registration does not call a publisher URL, retrieve a source
+sample, create an access profile or assessment, create an approval-console
+entry, or ingest source payloads. Those remain the separate, gated operations
+in steps 9 through 11.
+
 ## Source classification and routing
 
 | Observed resource | First-release action | Full-data action after approval |

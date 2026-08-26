@@ -12,6 +12,11 @@ from lyme_gap_atlas_data import orchestration
 from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
+from lyme_gap_atlas_data.catalog_registration import (
+    _completed_artifacts,
+    canonicalize_public_url,
+    normalize_catalog_payload,
+)
 from lyme_gap_atlas_data.cdc import load_cdc_profile
 from lyme_gap_atlas_data.discovery import (
     DiscoveryRequest,
@@ -368,6 +373,91 @@ def test_catalog_resource_key_is_deterministic_without_exposing_term() -> None:
     assert request.term not in _resource_key(request)
 
 
+def test_data_gov_catalog_registration_preserves_public_resources() -> None:
+    datasets = normalize_catalog_payload(
+        "DATA_GOV",
+        {
+            "results": [
+                {
+                    "identifier": "dataset-1",
+                    "title": "Lyme surveillance",
+                    "description": "Public metadata",
+                    "accessLevel": "public",
+                    "dcat": {
+                        "identifier": "dataset-1",
+                        "landingPage": "https://example.gov/lyme",
+                        "describedBy": "https://example.gov/lyme/schema",
+                        "distribution": [
+                            {
+                                "downloadURL": "https://example.gov/lyme.csv",
+                                "accessURL": "https://api.example.gov/lyme",
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+    )
+    assert datasets[0].dataset_key == "data_gov:dataset-1"
+    assert {resource.resource_type for resource in datasets[0].resources} == {
+        "API",
+        "DATA",
+        "DOCUMENTATION",
+        "LANDING_PAGE",
+    }
+    assert all(resource.canonical_source_url for resource in datasets[0].resources)
+
+
+def test_socrata_catalog_registration_creates_api_candidate() -> None:
+    datasets = normalize_catalog_payload(
+        "HEALTHDATA_GOV",
+        {
+            "results": [
+                {
+                    "permalink": "https://data.example.gov/d/abcd-1234",
+                    "resource": {
+                        "id": "abcd-1234",
+                        "name": "Public health dataset",
+                        "description": "Metadata only",
+                    },
+                    "metadata": {"domain": "data.example.gov", "tags": ["lyme"]},
+                }
+            ]
+        },
+    )
+    api = next(resource for resource in datasets[0].resources if resource.resource_type == "API")
+    assert api.api_dataset_id == "abcd-1234"
+    assert api.canonical_source_url == "https://data.example.gov/resource/abcd-1234.json"
+
+
+def test_catalog_registration_canonical_url_removes_secret_query_parameters() -> None:
+    assert (
+        canonicalize_public_url("HTTPS://Example.gov/data/?token=secret&format=json#ignore")
+        == "https://example.gov/data?format=json"
+    )
+
+
+def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def execute(self, query: str, _parameters: tuple[str]) -> None:
+            self.queries.append(query)
+
+        def fetchone(self) -> tuple[int]:
+            return (1,)
+
+        def fetchall(self) -> list[tuple[str, str, str, str, str, str]]:
+            return []
+
+    cursor = Cursor()
+    assert _completed_artifacts(cursor, "a" * 64) == []
+    assert "status = 'COMPLETED'" in cursor.queries[0]
+    assert "WITH RECURSIVE completed_chain" in cursor.queries[1]
+    assert "resumed_from_ingestion_run_id" in cursor.queries[1]
+
+
 def test_cdc_profile_requires_deterministic_ordering() -> None:
     profile = load_cdc_profile()
     assert profile["resource_key"] == "cdc_lyme_x5j9_wybp"
@@ -421,6 +511,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V024",
         "V025",
         "V026",
+        "V027",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -428,7 +519,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 26
+    assert len(prod_plan) == 27
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -458,6 +549,10 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "metadata_sha256" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" in catalog_repair
     assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS" in migrations[17].source
+    registration = migrations[26].source
+    assert "CATALOG_DISCOVERY_OBSERVATIONS" in registration
+    assert "V_DISCOVERY_CANDIDATES" in registration
+    assert "COLLECT_METADATA_AND_SAMPLE" in registration
     dbt_grants = migrations[18].source
     assert "GRANT SELECT ON TABLE RAW.CDC_LYME_X5J9_WYBP" in dbt_grants
     assert "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA STAGING" in dbt_grants
