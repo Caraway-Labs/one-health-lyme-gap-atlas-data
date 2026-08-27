@@ -49,8 +49,13 @@ def test_artifact_identity_is_content_addressed() -> None:
 
 def test_container_uses_cmd_so_app_platform_can_replace_each_job_command() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    assert 'CMD ["uv", "run", "atlas-data", "pipeline", "discover"]' in dockerfile
+    assert 'CMD ["/app/.venv/bin/atlas-data", "pipeline", "discover"]' in dockerfile
     assert "\nENTRYPOINT " not in dockerfile
+
+
+def test_promotion_runs_registration_from_the_built_virtual_environment() -> None:
+    workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    assert '"/app/.venv/bin/atlas-data pipeline register-latest-discovery"' in workflow
 
 
 def test_assessment_policy_thresholds() -> None:

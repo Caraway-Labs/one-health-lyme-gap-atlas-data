@@ -32,6 +32,7 @@ jobs:
       - run: uv run pytest -q
       - run: uv run dbt parse --project-dir dbt --profiles-dir dbt
       - run: docker build --tag one-health-lyme-gap-atlas-data:ci .
+      - run: docker run --rm one-health-lyme-gap-atlas-data:ci /app/.venv/bin/atlas-data pipeline --help
       - run: uv run atlas-data provision --dry-run
       - run: uv run atlas-data load --release alpha-2026-08-06 --dry-run
       - name: Scan Git history for secrets
