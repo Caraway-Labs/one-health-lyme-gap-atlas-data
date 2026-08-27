@@ -64,7 +64,10 @@ jobs:
               else error("required production jobs do not use the pipeline image") end
             |
             .jobs |= map(
-              if .name == "catalog-discovery" or .name == "approved-source-ingestion" or .name == "catalog-registration"
+              if .name == "catalog-registration"
+              then .image.digest = $image_digest
+                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery"
+              elif .name == "catalog-discovery" or .name == "approved-source-ingestion"
               then .image.digest = $image_digest
               else .
               end
