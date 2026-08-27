@@ -54,6 +54,17 @@ class CatalogDataset:
     resources: tuple[CatalogResource, ...]
 
 
+@dataclass(frozen=True)
+class RegistrationDataset:
+    """One dataset and the immutable discovery evidence required to register it."""
+
+    dataset: CatalogDataset
+    artifact_id: str
+    ingestion_run_id: str
+    ingestion_request_id: str
+    term: str
+
+
 def _stable_id(*values: str) -> str:
     return hashlib.sha256("\x1f".join(values).encode("utf-8")).hexdigest()
 
@@ -349,73 +360,73 @@ def latest_completed_discovery_config_sha256() -> str:
     return row[0]
 
 
-def _write_dataset(cursor: Any, dataset: CatalogDataset, observed_at: datetime) -> str:
-    dataset_payload = json.dumps(dataset.payload, sort_keys=True, separators=(",", ":"))
-    dataset_sha256 = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
-    dataset_id = _stable_id(dataset.catalog_id, dataset.catalog_record_id, dataset_sha256)
+def _write_registration_dataset_batch(
+    cursor: Any, datasets: list[RegistrationDataset], observed_at: datetime
+) -> int:
+    """Write a bounded dataset slice in three set-based merges before checkpointing it."""
+    dataset_rows: list[dict[str, object]] = []
+    resource_rows: list[dict[str, object]] = []
+    for item in datasets:
+        dataset = item.dataset
+        dataset_payload = json.dumps(dataset.payload, sort_keys=True, separators=(",", ":"))
+        dataset_sha256 = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
+        dataset_id = _stable_id(dataset.catalog_id, dataset.catalog_record_id, dataset_sha256)
+        dataset_rows.append(
+            {
+                "catalog_dataset_id": dataset_id,
+                "dataset_key": dataset.dataset_key,
+                "catalog_name": dataset.catalog_id,
+                "catalog_record_id": dataset.catalog_record_id,
+                "metadata_payload": dataset.payload,
+                "metadata_sha256": dataset_sha256,
+            }
+        )
+        for resource in dataset.resources:
+            canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
+            resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
+            resource_rows.append(
+                {
+                    "catalog_resource_id": resource_id,
+                    "catalog_dataset_id": dataset_id,
+                    "resource_key": f"candidate:{_stable_id(canonical)[:32]}",
+                    "resource_type": resource.resource_type,
+                    "resource_url": resource.resource_url,
+                    "canonical_source_url": resource.canonical_source_url,
+                    "api_dataset_id": resource.api_dataset_id,
+                    "resource_payload": resource.payload,
+                    "observation_id": _stable_id(item.artifact_id, resource_id),
+                    "ingestion_run_id": item.ingestion_run_id,
+                    "ingestion_request_id": item.ingestion_request_id,
+                    "artifact_id": item.artifact_id,
+                    "catalog_id": dataset.catalog_id,
+                    "catalog_record_id": dataset.catalog_record_id,
+                    "matched_term": item.term,
+                }
+            )
+    dataset_json = json.dumps(dataset_rows, sort_keys=True, separators=(",", ":"))
     cursor.execute(
         """MERGE INTO GOVERNANCE.CATALOG_DATASETS target
-           USING (SELECT %s AS catalog_dataset_id, %s AS dataset_key, %s AS catalog_name,
-                         %s AS catalog_record_id, PARSE_JSON(%s) AS metadata_payload,
-                         %s AS metadata_sha256, %s AS discovered_at) source
+           USING (
+             SELECT value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
+                    value:dataset_key::VARCHAR AS dataset_key,
+                    value:catalog_name::VARCHAR AS catalog_name,
+                    value:catalog_record_id::VARCHAR AS catalog_record_id,
+                    value:metadata_payload AS metadata_payload,
+                    value:metadata_sha256::VARCHAR AS metadata_sha256,
+                    %s AS discovered_at
+             FROM TABLE(FLATTEN(input => PARSE_JSON(%s)))
+           ) source
            ON target.catalog_dataset_id = source.catalog_dataset_id
            WHEN NOT MATCHED THEN INSERT (catalog_dataset_id, dataset_key, catalog_name,
              catalog_record_id, metadata_payload, metadata_sha256, discovered_at, is_current)
              VALUES (source.catalog_dataset_id, source.dataset_key, source.catalog_name,
                source.catalog_record_id, source.metadata_payload, source.metadata_sha256,
                source.discovered_at, TRUE)""",
-        (
-            dataset_id,
-            dataset.dataset_key,
-            dataset.catalog_id,
-            dataset.catalog_record_id,
-            dataset_payload,
-            dataset_sha256,
-            observed_at,
-        ),
+        (observed_at, dataset_json),
     )
-    return dataset_id
-
-
-def _write_dataset_resources(
-    cursor: Any,
-    *,
-    dataset_id: str,
-    dataset: CatalogDataset,
-    resources: tuple[CatalogResource, ...],
-    artifact_id: str,
-    ingestion_run_id: str,
-    ingestion_request_id: str,
-    term: str,
-    observed_at: datetime,
-) -> int:
-    """Register every resource for one checkpointed dataset in two set-based merges."""
-    rows: list[dict[str, object]] = []
-    for resource in resources:
-        canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
-        resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
-        rows.append(
-            {
-                "catalog_resource_id": resource_id,
-                "catalog_dataset_id": dataset_id,
-                "resource_key": f"candidate:{_stable_id(canonical)[:32]}",
-                "resource_type": resource.resource_type,
-                "resource_url": resource.resource_url,
-                "canonical_source_url": resource.canonical_source_url,
-                "api_dataset_id": resource.api_dataset_id,
-                "resource_payload": resource.payload,
-                "observation_id": _stable_id(artifact_id, resource_id),
-                "ingestion_run_id": ingestion_run_id,
-                "ingestion_request_id": ingestion_request_id,
-                "artifact_id": artifact_id,
-                "catalog_id": dataset.catalog_id,
-                "catalog_record_id": dataset.catalog_record_id,
-                "matched_term": term,
-            }
-        )
-    if not rows:
+    if not resource_rows:
         return 0
-    source_json = json.dumps(rows, sort_keys=True, separators=(",", ":"))
+    source_json = json.dumps(resource_rows, sort_keys=True, separators=(",", ":"))
     cursor.execute(
         """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
            USING (
@@ -466,7 +477,7 @@ def _write_dataset_resources(
                source.observed_at)""",
         (observed_at, source_json),
     )
-    return len(rows)
+    return len(resource_rows)
 
 
 def _claim_registration_batch(
@@ -569,7 +580,7 @@ def _remaining_registration_artifacts(cursor: Any, config_sha256: str, total_art
 
 
 def register_completed_discovery(
-    config_sha256: str, maximum_artifacts: int = 1, maximum_datasets: int = 5
+    config_sha256: str, maximum_artifacts: int = 100, maximum_datasets: int = 10_000
 ) -> dict[str, int | str]:
     """Register a resumable bounded dataset slice without acquiring source payloads."""
     if len(config_sha256) != 64 or any(
@@ -578,8 +589,8 @@ def register_completed_discovery(
         raise ValueError("config_sha256 must be a lowercase SHA-256 digest")
     if not 1 <= maximum_artifacts <= 100:
         raise ValueError("maximum_artifacts must be between 1 and 100")
-    if not 1 <= maximum_datasets <= 100:
-        raise ValueError("maximum_datasets must be between 1 and 100")
+    if not 1 <= maximum_datasets <= 10_000:
+        raise ValueError("maximum_datasets must be between 1 and 10,000")
     settings = PipelineSettings()
     s3 = _spaces_client(settings)
     registration_run_id = str(uuid4())
@@ -594,6 +605,8 @@ def register_completed_discovery(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
             )
             connection.commit()
+            registration_datasets: list[RegistrationDataset] = []
+            artifact_progress: list[tuple[str, int, int]] = []
             for (
                 artifact_id,
                 run_id,
@@ -607,47 +620,47 @@ def register_completed_discovery(
                     datasets = normalize_catalog_payload(
                         catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
                     )
-                    for next_offset, dataset in enumerate(
-                        datasets[dataset_offset : dataset_offset + maximum_datasets],
-                        start=dataset_offset + 1,
-                    ):
-                        registered_datasets += 1
-                        # A dataset can expose many resources.  Materialize its
-                        # parent once, then attach every resource to that stable
-                        # identifier.  Re-merging the parent for each resource
-                        # needlessly consumed the bounded job's Snowflake time.
-                        observed_at = datetime.now(UTC)
-                        dataset_id = _write_dataset(cursor, dataset, observed_at)
-                        registered_resources += _write_dataset_resources(
-                            cursor,
-                            dataset_id=dataset_id,
-                            dataset=dataset,
-                            resources=dataset.resources,
-                            artifact_id=artifact_id,
-                            ingestion_run_id=run_id,
-                            ingestion_request_id=request_id,
-                            term=term,
-                            observed_at=observed_at,
-                        )
-                        _advance_registration_dataset(
-                            cursor, artifact_id, registration_run_id, next_offset
-                        )
-                        connection.commit()
-                        processed_datasets += 1
-                    if dataset_offset + maximum_datasets >= len(datasets):
-                        _complete_registration_artifact(cursor, artifact_id, registration_run_id)
-                        connection.commit()
-                        observed_artifacts += 1
-                    else:
-                        _release_partial_registration_artifact(
-                            cursor, artifact_id, registration_run_id
-                        )
-                        connection.commit()
+                    remaining_capacity = maximum_datasets - len(registration_datasets)
+                    selected = datasets[
+                        dataset_offset : dataset_offset + max(remaining_capacity, 0)
+                    ]
+                    registration_datasets.extend(
+                        RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
+                        for dataset in selected
+                    )
+                    artifact_progress.append(
+                        (artifact_id, dataset_offset + len(selected), len(datasets))
+                    )
                 except Exception as error:
                     connection.rollback()
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
                     connection.commit()
                     raise
+            try:
+                if registration_datasets:
+                    registered_datasets = len(registration_datasets)
+                    registered_resources = _write_registration_dataset_batch(
+                        cursor, registration_datasets, datetime.now(UTC)
+                    )
+                for artifact_id, next_offset, total_datasets in artifact_progress:
+                    if next_offset >= total_datasets:
+                        _complete_registration_artifact(cursor, artifact_id, registration_run_id)
+                        observed_artifacts += 1
+                    else:
+                        _advance_registration_dataset(
+                            cursor, artifact_id, registration_run_id, next_offset
+                        )
+                        _release_partial_registration_artifact(
+                            cursor, artifact_id, registration_run_id
+                        )
+                connection.commit()
+                processed_datasets = registered_datasets
+            except Exception as error:
+                connection.rollback()
+                for artifact_id, _, _ in artifact_progress:
+                    _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
+                connection.commit()
+                raise
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
@@ -665,7 +678,7 @@ def register_completed_discovery(
 
 
 def register_latest_completed_discovery(
-    maximum_artifacts: int = 1, maximum_datasets: int = 5
+    maximum_artifacts: int = 100, maximum_datasets: int = 10_000
 ) -> dict[str, int | str]:
     """Materialize the newest completed discovery chain without source acquisition."""
     return register_completed_discovery(
