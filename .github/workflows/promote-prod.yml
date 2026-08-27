@@ -55,7 +55,7 @@ jobs:
               (.jobs[] | select(.name == "catalog-discovery")
                 | .name = "catalog-registration"
                 | .kind = "SCHEDULED"
-                | .schedule = {cron: "*/5 * * * *", time_zone: "America/Denver"}
+                | .schedule = {cron: "*/15 * * * *", time_zone: "America/Denver"}
                 | .run_command = "uv run atlas-data pipeline register-latest-discovery")
             ] end
             | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or .name == "catalog-registration")] | length) == 3 then .
@@ -67,7 +67,7 @@ jobs:
               if .name == "catalog-registration"
               then .image.digest = $image_digest
                 | .kind = "SCHEDULED"
-                | .schedule = {cron: "*/5 * * * *", time_zone: "America/Denver"}
+                | .schedule = {cron: "*/15 * * * *", time_zone: "America/Denver"}
                 | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery"
               elif .name == "catalog-discovery" or .name == "approved-source-ingestion"
               then .image.digest = $image_digest

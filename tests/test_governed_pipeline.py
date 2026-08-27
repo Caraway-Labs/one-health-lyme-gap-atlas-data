@@ -57,7 +57,7 @@ def test_promotion_runs_registration_from_the_built_virtual_environment() -> Non
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     assert '"/app/.venv/bin/atlas-data pipeline register-latest-discovery"' in workflow
     assert '.kind = "SCHEDULED"' in workflow
-    assert 'cron: "*/5 * * * *"' in workflow
+    assert 'cron: "*/15 * * * *"' in workflow
 
 
 def test_assessment_policy_thresholds() -> None:
