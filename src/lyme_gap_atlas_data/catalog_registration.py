@@ -488,39 +488,49 @@ def _claim_registration_batch(
 ) -> tuple[list[tuple[str, str, str, str, str, str, int]], int]:
     """Durably claim a short artifact batch before any Spaces reads occur."""
     artifacts = _completed_artifacts(cursor, config_sha256)
-    claimed: list[tuple[str, str, str, str, str, str, int]] = []
-    for artifact in artifacts:
-        artifact_id = artifact[0]
-        cursor.execute(
-            """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS target
-               USING (SELECT %s AS artifact_id, %s AS config_sha256) source
-               ON target.artifact_id = source.artifact_id
-               WHEN NOT MATCHED THEN INSERT (artifact_id, config_sha256, status, attempt_count)
-                 VALUES (source.artifact_id, source.config_sha256, 'PENDING', 0)""",
-            (artifact_id, config_sha256),
-        )
-        cursor.execute(
-            """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
-               SET status = 'IN_PROGRESS', registration_run_id = %s,
-                   attempt_count = attempt_count + 1, started_at = CURRENT_TIMESTAMP(),
-                   lease_expires_at = DATEADD(minute, 25, CURRENT_TIMESTAMP()),
-                   completed_at = NULL, redacted_error = NULL
-               WHERE artifact_id = %s AND config_sha256 = %s
-                 AND (status IN ('PENDING', 'FAILED')
-                      OR (status = 'IN_PROGRESS' AND lease_expires_at <= CURRENT_TIMESTAMP()))""",
-            (registration_run_id, artifact_id, config_sha256),
-        )
-        if cursor.rowcount == 1:
-            cursor.execute(
-                """SELECT next_dataset_offset
-                   FROM GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
-                   WHERE artifact_id = %s AND registration_run_id = %s""",
-                (artifact_id, registration_run_id),
-            )
-            (next_dataset_offset,) = cursor.fetchone()
-            claimed.append((*artifact, int(next_dataset_offset or 0)))
-        if len(claimed) == maximum_artifacts:
-            break
+    artifact_json = json.dumps(
+        [{"artifact_id": artifact[0]} for artifact in artifacts], separators=(",", ":")
+    )
+    cursor.execute(
+        """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS target
+           USING (
+             SELECT value:artifact_id::VARCHAR AS artifact_id, %s AS config_sha256
+             FROM TABLE(FLATTEN(input => PARSE_JSON(%s)))
+           ) source
+           ON target.artifact_id = source.artifact_id
+           WHEN NOT MATCHED THEN INSERT (artifact_id, config_sha256, status, attempt_count)
+             VALUES (source.artifact_id, source.config_sha256, 'PENDING', 0)""",
+        (config_sha256, artifact_json),
+    )
+    candidate_ids = [artifact[0] for artifact in artifacts[:maximum_artifacts]]
+    candidate_json = json.dumps(candidate_ids, separators=(",", ":"))
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           SET status = 'IN_PROGRESS', registration_run_id = %s,
+               attempt_count = attempt_count + 1, started_at = CURRENT_TIMESTAMP(),
+               lease_expires_at = DATEADD(minute, 25, CURRENT_TIMESTAMP()),
+               completed_at = NULL, redacted_error = NULL
+           WHERE config_sha256 = %s
+             AND artifact_id IN (
+               SELECT value::VARCHAR FROM TABLE(FLATTEN(input => PARSE_JSON(%s)))
+             )
+             AND (status IN ('PENDING', 'FAILED')
+                  OR (status = 'IN_PROGRESS' AND lease_expires_at <= CURRENT_TIMESTAMP()))""",
+        (registration_run_id, config_sha256, candidate_json),
+    )
+    cursor.execute(
+        """SELECT artifact_id, next_dataset_offset
+           FROM GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           WHERE registration_run_id = %s AND status = 'IN_PROGRESS'
+             AND artifact_id IN (
+               SELECT value::VARCHAR FROM TABLE(FLATTEN(input => PARSE_JSON(%s)))
+             )""",
+        (registration_run_id, candidate_json),
+    )
+    offsets = {str(row[0]): int(row[1] or 0) for row in cursor.fetchall()}
+    claimed = [
+        (*artifact, offsets[artifact[0]]) for artifact in artifacts if artifact[0] in offsets
+    ]
     return claimed, len(artifacts)
 
 
