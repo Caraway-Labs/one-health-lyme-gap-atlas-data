@@ -118,7 +118,24 @@ def register_latest_discovery(
     max_datasets: int = typer.Option(10_000, "--max-datasets", min=1, max=10_000),
 ) -> None:
     """Register a bounded dataset slice from the newest completed discovery chain only."""
-    typer.echo(json.dumps(register_latest_completed_discovery(max_artifacts, max_datasets)))
+    try:
+        result = register_latest_completed_discovery(max_artifacts, max_datasets)
+    except Exception as error:
+        # App Platform can omit traceback output for failed post-deploy jobs.
+        # Emit only safe diagnostics before preserving the non-zero exit status.
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "FAILED",
+                    "error_type": type(error).__name__,
+                    "error_code": getattr(error, "errno", None),
+                    "sql_state": getattr(error, "sqlstate", None),
+                    "error_message": str(error)[:500],
+                }
+            )
+        )
+        raise
+    typer.echo(json.dumps(result))
 
 
 @pipeline_app.command("migration-plan")

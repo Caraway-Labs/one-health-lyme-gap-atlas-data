@@ -645,6 +645,30 @@ def test_discover_does_not_register_a_paused_run(monkeypatch: pytest.MonkeyPatch
     assert "candidate_registration" not in json.loads(emitted[0])
 
 
+def test_registration_command_emits_safe_failure_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[str] = []
+    error = RuntimeError("registration failed")
+    monkeypatch.setattr(
+        cli,
+        "register_latest_completed_discovery",
+        lambda *_: (_ for _ in ()).throw(error),
+    )
+    monkeypatch.setattr(cli.typer, "echo", emitted.append)
+
+    with pytest.raises(RuntimeError, match="registration failed"):
+        cli.register_latest_discovery()
+
+    assert json.loads(emitted[0]) == {
+        "status": "FAILED",
+        "error_type": "RuntimeError",
+        "error_code": None,
+        "sql_state": None,
+        "error_message": "registration failed",
+    }
+
+
 def test_cdc_profile_requires_deterministic_ordering() -> None:
     profile = load_cdc_profile()
     assert profile["resource_key"] == "cdc_lyme_x5j9_wybp"
