@@ -56,6 +56,8 @@ def test_container_uses_cmd_so_app_platform_can_replace_each_job_command() -> No
 def test_promotion_runs_registration_from_the_built_virtual_environment() -> None:
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     assert '"/app/.venv/bin/atlas-data pipeline register-latest-discovery"' in workflow
+    assert '.kind = "SCHEDULED"' in workflow
+    assert 'cron: "*/5 * * * *"' in workflow
 
 
 def test_assessment_policy_thresholds() -> None:
@@ -371,7 +373,7 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
     assert 'doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait' in workflow
     assert ".image.digest = $image_digest" in workflow
     assert '"catalog-registration"' in workflow
-    assert '"POST_DEPLOY"' in workflow
+    assert '"SCHEDULED"' in workflow
     assert "register-latest-discovery" in workflow
     assert "provider-encrypted secret values" in workflow
     assert "exit 1" not in workflow

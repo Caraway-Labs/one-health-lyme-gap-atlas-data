@@ -45,7 +45,7 @@ jobs:
           # Keep the rendered production specification out of workflow output:
           # it contains provider-encrypted secret values. The registration job
           # is cloned from discovery so existing encrypted runtime secrets stay
-          # opaque; only its name, kind, command, and image digest may change.
+          # opaque; only its name, schedule, command, and image digest may change.
           doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
           test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
 
@@ -54,8 +54,8 @@ jobs:
             else .jobs += [
               (.jobs[] | select(.name == "catalog-discovery")
                 | .name = "catalog-registration"
-                | .kind = "POST_DEPLOY"
-                | del(.schedule)
+                | .kind = "SCHEDULED"
+                | .schedule = {cron: "*/5 * * * *", time_zone: "America/Denver"}
                 | .run_command = "uv run atlas-data pipeline register-latest-discovery")
             ] end
             | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or .name == "catalog-registration")] | length) == 3 then .
@@ -66,6 +66,8 @@ jobs:
             .jobs |= map(
               if .name == "catalog-registration"
               then .image.digest = $image_digest
+                | .kind = "SCHEDULED"
+                | .schedule = {cron: "*/5 * * * *", time_zone: "America/Denver"}
                 | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery"
               elif .name == "catalog-discovery" or .name == "approved-source-ingestion"
               then .image.digest = $image_digest
