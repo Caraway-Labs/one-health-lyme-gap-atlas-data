@@ -16,8 +16,9 @@ from lyme_gap_atlas_data.assessment import Assessment
 from lyme_gap_atlas_data.catalog_registration import (
     CatalogDataset,
     CatalogResource,
+    RegistrationDataset,
     _completed_artifacts,
-    _write_dataset_resources,
+    _write_registration_dataset_batch,
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
     normalize_catalog_payload,
@@ -450,7 +451,7 @@ def test_catalog_registration_canonical_url_removes_secret_query_parameters() ->
     )
 
 
-def test_catalog_registration_batches_dataset_resources_into_two_merges() -> None:
+def test_catalog_registration_batches_dataset_resources_into_three_merges() -> None:
     class Cursor:
         def __init__(self) -> None:
             self.calls: list[tuple[str, tuple[object, ...]]] = []
@@ -473,22 +474,25 @@ def test_catalog_registration_batches_dataset_resources_into_two_merges() -> Non
     )
 
     assert (
-        _write_dataset_resources(
+        _write_registration_dataset_batch(
             cursor,
-            dataset_id="dataset-id",
-            dataset=dataset,
-            resources=dataset.resources,
-            artifact_id="artifact-id",
-            ingestion_run_id="run-id",
-            ingestion_request_id="request-id",
-            term="lyme",
+            [
+                RegistrationDataset(
+                    dataset,
+                    artifact_id="artifact-id",
+                    ingestion_run_id="run-id",
+                    ingestion_request_id="request-id",
+                    term="lyme",
+                )
+            ],
             observed_at=datetime(2026, 8, 26, tzinfo=UTC),
         )
         == 2
     )
-    assert len(cursor.calls) == 2
+    assert len(cursor.calls) == 3
     assert all("FLATTEN(input => PARSE_JSON(%s))" in query for query, _ in cursor.calls)
-    assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls)
+    assert '"catalog_dataset_id"' in str(cursor.calls[0][1][1])
+    assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:

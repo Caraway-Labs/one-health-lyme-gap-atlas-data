@@ -81,13 +81,14 @@ sample, create an access profile or assessment, create an approval-console
 entry, or ingest source payloads. Those remain the separate, gated operations
 in steps 9 through 11.
 
-Registration processes one artifact and a bounded dataset slice (five datasets
-by default). It commits each dataset's resource/observation writes and durable
-dataset checkpoint independently. A `PARTIAL` result is a successful bounded
-pass, not a discovery retry; the next pass resumes from the saved dataset offset
-before advancing to another artifact. An expired in-progress lease can be
-reclaimed after an interrupted worker. This keeps platform job limits from
-requiring discovery or source acquisition to be repeated.
+Registration processes up to 100 artifacts and 10,000 datasets per bounded
+pass. It uses set-based Snowflake merges for datasets, resources, and
+observations, then atomically commits the durable offset of each affected
+artifact. A `PARTIAL` result is a successful bounded pass, not a discovery
+retry; the next pass resumes from the saved offsets before advancing further.
+An expired in-progress lease can be reclaimed after an interrupted worker. This
+keeps platform job limits from requiring discovery or source acquisition to be
+repeated.
 
 ## Source classification and routing
 
