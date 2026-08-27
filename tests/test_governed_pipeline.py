@@ -422,6 +422,27 @@ def test_data_gov_catalog_registration_preserves_public_resources() -> None:
     assert all(resource.canonical_source_url for resource in datasets[0].resources)
 
 
+def test_data_gov_catalog_registration_accepts_null_optional_arrays() -> None:
+    datasets = normalize_catalog_payload(
+        "DATA_GOV",
+        {
+            "results": [
+                {
+                    "identifier": "dataset-null-arrays",
+                    "title": "Lyme surveillance",
+                    "dcat": {
+                        "identifier": "dataset-null-arrays",
+                        "distribution": None,
+                        "references": None,
+                    },
+                }
+            ]
+        },
+    )
+    assert datasets[0].dataset_key == "data_gov:dataset-null-arrays"
+    assert datasets[0].resources == ()
+
+
 def test_socrata_catalog_registration_creates_api_candidate() -> None:
     datasets = normalize_catalog_payload(
         "HEALTHDATA_GOV",

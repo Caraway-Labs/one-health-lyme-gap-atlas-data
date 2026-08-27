@@ -152,7 +152,7 @@ def _datagov_datasets(payload: dict[str, Any]) -> list[CatalogDataset]:
         )
         if landing is not None:
             resources.append(landing)
-        for distribution in dcat.get("distribution", []):
+        for distribution in dcat.get("distribution") or []:
             if not isinstance(distribution, dict):
                 continue
             distribution_payload = {**base_payload, "distribution": distribution}
@@ -173,7 +173,7 @@ def _datagov_datasets(payload: dict[str, Any]) -> list[CatalogDataset]:
             resources.extend(item for item in (download, access) if item is not None)
         for documentation_url in [
             dcat.get("describedBy"),
-            *([item for item in dcat.get("references", []) if isinstance(item, str)]),
+            *([item for item in dcat.get("references") or [] if isinstance(item, str)]),
         ]:
             documentation = _resource(
                 resource_type="DOCUMENTATION",
