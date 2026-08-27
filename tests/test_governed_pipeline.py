@@ -47,6 +47,12 @@ def test_artifact_identity_is_content_addressed() -> None:
     assert artifact.byte_count == 6
 
 
+def test_container_uses_cmd_so_app_platform_can_replace_each_job_command() -> None:
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    assert 'CMD ["uv", "run", "atlas-data", "pipeline", "discover"]' in dockerfile
+    assert "\nENTRYPOINT " not in dockerfile
+
+
 def test_assessment_policy_thresholds() -> None:
     assert Assessment(70, 70, 70, 70, 70).recommendation == "APPROVED"
     assert Assessment(50, 50, 50, 50, 50).recommendation == "CONDITIONAL"
