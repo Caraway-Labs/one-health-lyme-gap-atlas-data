@@ -26,6 +26,7 @@ jobs:
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
       - name: Verify digest is currently deployed and approved in DEV
         run: |
           test -n "$IMAGE_DIGEST"
