@@ -17,6 +17,7 @@ from lyme_gap_atlas_data.catalog_registration import (
     CatalogDataset,
     CatalogResource,
     RegistrationDataset,
+    _claim_registration_batch,
     _completed_artifacts,
     _write_registration_dataset_batch,
     canonicalize_public_url,
@@ -514,6 +515,38 @@ def test_catalog_registration_batches_dataset_resources_into_three_merges() -> N
     assert all("FLATTEN(input => PARSE_JSON(%s))" in query for query, _ in cursor.calls)
     assert '"catalog_dataset_id"' in str(cursor.calls[0][1][1])
     assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
+
+
+def test_catalog_registration_claims_a_batch_with_three_set_based_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def execute(self, query: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((query, parameters))
+
+        def fetchall(self) -> list[tuple[str, int]]:
+            return [("artifact-a", 4), ("artifact-b", 0)]
+
+    artifacts = [
+        ("artifact-a", "run-a", "request-a", "lyme", "catalog-a", "object-a"),
+        ("artifact-b", "run-b", "request-b", "lyme", "catalog-b", "object-b"),
+        ("artifact-c", "run-c", "request-c", "lyme", "catalog-c", "object-c"),
+    ]
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._completed_artifacts", lambda *_: artifacts
+    )
+    cursor = Cursor()
+
+    claimed, available = _claim_registration_batch(cursor, "a" * 64, 2, "registration-run")
+
+    assert available == 3
+    assert claimed == [(*artifacts[0], 4), (*artifacts[1], 0)]
+    assert len(cursor.calls) == 3
+    assert all("FLATTEN(input => PARSE_JSON(%s))" in query for query, _ in cursor.calls)
+    assert '"artifact-c"' not in str(cursor.calls[1][1])
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
