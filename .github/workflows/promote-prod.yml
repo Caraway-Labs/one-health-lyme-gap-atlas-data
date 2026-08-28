@@ -62,7 +62,7 @@ jobs:
                 | $registration_template
                 | .name = ("catalog-registration-" + ($worker | tostring | if length == 1 then "0" + . else . end))
                 | .kind = "SCHEDULED"
-                | .schedule = {cron: (([0, 2, 5, 7, 10, 12][$worker - 1] | tostring) + " */15 * * *"), time_zone: "America/Denver"}
+                | .schedule = {cron: ["0,15,30,45 * * * *", "2,17,32,47 * * * *", "5,20,35,50 * * * *", "7,22,37,52 * * * *", "10,25,40,55 * * * *", "12,27,42,57 * * * *"][$worker - 1], time_zone: "America/Denver"}
                 | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 12 --max-datasets 1500"
               ]
             | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$")))] | length) == 8 then .
