@@ -56,11 +56,11 @@ an approval decision, or ingest any source payload.
 ### Temporary registration backfill
 
 When a completed discovery chain has a large metadata-registration backlog,
-the protected production promotion workflow deploys six bounded
-`catalog-registration-01` through `catalog-registration-06` scheduled jobs.
-Each runs every 15 minutes on staggered start minutes (0, 2, 5, 7, 10, and 12),
+the protected production promotion workflow deploys twenty bounded
+`catalog-registration-01` through `catalog-registration-20` scheduled jobs.
+Each runs hourly on a distinct three-minute start interval (0 through 57),
 claims disjoint artifact leases in Snowflake, and
-processes at most 12 artifacts and 1,500 datasets. This produces at most 6,912
+processes at most 12 artifacts and 1,500 datasets. This produces at most 5,760
 artifact slots per day while preserving the same immutable-artifact,
 checkpoint, and steward-approval boundaries. The backfill is metadata-only;
 it does not acquire source data, approve candidates, or run dbt.
