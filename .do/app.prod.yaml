@@ -111,6 +111,8 @@ jobs:
         type: SECRET
   # Temporary catch-up workers register metadata from an already-completed
   # discovery chain. Snowflake leases ensure their artifact claims are disjoint.
+  # Start minutes are staggered to avoid concurrent MERGE statements on the
+  # X-Small warehouse while retaining a 15-minute cadence per worker.
   - &catalog_registration
     name: catalog-registration-01
     kind: SCHEDULED
@@ -163,11 +165,26 @@ jobs:
         type: SECRET
   - <<: *catalog_registration
     name: catalog-registration-02
+    schedule:
+      cron: "2-59/15 * * * *"
+      time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-03
+    schedule:
+      cron: "5-59/15 * * * *"
+      time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-04
+    schedule:
+      cron: "7-59/15 * * * *"
+      time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-05
+    schedule:
+      cron: "10-59/15 * * * *"
+      time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-06
+    schedule:
+      cron: "12-59/15 * * * *"
+      time_zone: America/Denver
