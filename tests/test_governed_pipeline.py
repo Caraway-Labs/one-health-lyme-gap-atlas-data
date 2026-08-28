@@ -649,8 +649,8 @@ def test_catalog_registration_continues_after_one_artifact_read_failure(
 
     assert result["failed_artifacts"] == 1
     assert result["observed_artifacts"] == 1
-    assert connection.rollbacks == 1
-    assert connection.commits == 3
+    assert connection.rollbacks == 0
+    assert connection.commits == 2
     assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
     assert any("SET status = 'COMPLETED'" in query for query, _ in connection.cursor_instance.calls)
 
