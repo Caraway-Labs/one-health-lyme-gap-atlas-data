@@ -641,7 +641,14 @@ def register_completed_discovery(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
             )
             connection.commit()
-            registration_datasets: list[RegistrationDataset] = []
+            # Keep every individual Snowflake merge small.  Parallel workers
+            # can each claim several artifacts, but sending every claimed
+            # artifact as one large JSON-backed MERGE causes concurrent
+            # statement timeouts on the X-Small ingestion warehouse.
+            #
+            # The writes below remain in this invocation's one transaction:
+            # artifact completion checkpoints are recorded only after all
+            # artifact-level merges have succeeded.
             artifact_progress: list[tuple[str, int, int]] = []
             for artifact_index, (
                 artifact_id,
@@ -655,7 +662,7 @@ def register_completed_discovery(
                 # Do not read or normalize further artifacts once this pass has
                 # reached its declared dataset boundary.  Release their leases
                 # immediately so another bounded pass can claim them.
-                if len(registration_datasets) >= maximum_datasets:
+                if registered_datasets >= maximum_datasets:
                     for deferred_artifact, *_ in artifacts[artifact_index:]:
                         _release_partial_registration_artifact(
                             cursor, deferred_artifact, registration_run_id
@@ -666,29 +673,42 @@ def register_completed_discovery(
                     datasets = normalize_catalog_payload(
                         catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
                     )
-                    remaining_capacity = maximum_datasets - len(registration_datasets)
-                    selected = datasets[
-                        dataset_offset : dataset_offset + max(remaining_capacity, 0)
-                    ]
-                    registration_datasets.extend(
-                        RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
-                        for dataset in selected
-                    )
-                    artifact_progress.append(
-                        (artifact_id, dataset_offset + len(selected), len(datasets))
-                    )
                 except Exception as error:
-                    connection.rollback()
+                    # A read/normalization failure has no pending writes for
+                    # this artifact. Its failure marker is committed with the
+                    # rest of this invocation's transaction.
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
-                    connection.commit()
                     failed_artifacts += 1
                     continue
+                remaining_capacity = maximum_datasets - registered_datasets
+                selected = datasets[dataset_offset : dataset_offset + max(remaining_capacity, 0)]
+                artifact_datasets = [
+                    RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
+                    for dataset in selected
+                ]
+                try:
+                    if artifact_datasets:
+                        registered_resources += _write_registration_dataset_batch(
+                            cursor, artifact_datasets, datetime.now(UTC)
+                        )
+                        registered_datasets += len(artifact_datasets)
+                except Exception as error:
+                    # None of the per-artifact writes or checkpoints may
+                    # survive a failed merge. Roll back the whole bounded
+                    # registration transaction, then leave durable failure
+                    # markers for every affected lease.
+                    connection.rollback()
+                    for progressed_artifact, _, _ in artifact_progress:
+                        _fail_registration_artifact(
+                            cursor, progressed_artifact, registration_run_id, error
+                        )
+                    _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
+                    connection.commit()
+                    raise
+                artifact_progress.append(
+                    (artifact_id, dataset_offset + len(selected), len(datasets))
+                )
             try:
-                if registration_datasets:
-                    registered_datasets = len(registration_datasets)
-                    registered_resources = _write_registration_dataset_batch(
-                        cursor, registration_datasets, datetime.now(UTC)
-                    )
                 for artifact_id, next_offset, total_datasets in artifact_progress:
                     if next_offset >= total_datasets:
                         _complete_registration_artifact(cursor, artifact_id, registration_run_id)
