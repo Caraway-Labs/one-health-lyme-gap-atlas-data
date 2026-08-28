@@ -44,9 +44,10 @@ jobs:
 
           # Keep the rendered production specification out of workflow output:
           # it contains provider-encrypted secret values. Six registration jobs
-          # are cloned from discovery so secrets remain opaque. They concurrently
-          # claim disjoint artifact leases; each stays bounded to 12 artifacts and
-          # 1,500 datasets per 15-minute invocation.
+          # are cloned from discovery so secrets remain opaque. They claim disjoint
+          # artifact leases, but start on staggered minutes to prevent concurrent
+          # MERGE statements from saturating the X-Small Snowflake warehouse. Each
+          # stays bounded to 12 artifacts and 1,500 datasets per 15-minute invocation.
           doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
           test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
 
@@ -61,7 +62,7 @@ jobs:
                 | $registration_template
                 | .name = ("catalog-registration-" + ($worker | tostring | if length == 1 then "0" + . else . end))
                 | .kind = "SCHEDULED"
-                | .schedule = {cron: "*/15 * * * *", time_zone: "America/Denver"}
+                | .schedule = {cron: (([0, 2, 5, 7, 10, 12][$worker - 1] | tostring) + " */15 * * *"), time_zone: "America/Denver"}
                 | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 12 --max-datasets 1500"
               ]
             | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$")))] | length) == 8 then .
