@@ -111,7 +111,7 @@ jobs:
         type: SECRET
   # Temporary catch-up workers register metadata from an already-completed
   # discovery chain. Snowflake leases ensure their artifact claims are disjoint.
-  # Each worker runs hourly; start minutes are three minutes apart to avoid
+  # Each worker runs hourly; start minutes are ten minutes apart to avoid
   # concurrent MERGE statements on the X-Small warehouse.
   - &catalog_registration
     name: catalog-registration-01
@@ -123,7 +123,7 @@ jobs:
       registry_type: DOCR
       repository: pipeline
       digest: ${IMAGE_DIGEST}
-    run_command: /app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 12 --max-datasets 1500
+    run_command: /app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 32 --max-datasets 4000
     envs:
       - key: TOPX_ENV
         value: prod
@@ -166,95 +166,26 @@ jobs:
   - <<: *catalog_registration
     name: catalog-registration-02
     schedule:
-      cron: "3 * * * *"
+      cron: "10 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-03
     schedule:
-      cron: "6 * * * *"
+      cron: "20 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-04
     schedule:
-      cron: "9 * * * *"
+      cron: "30 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-05
     schedule:
-      cron: "12 * * * *"
+      cron: "40 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-06
     schedule:
-      cron: "15 * * * *"
-  - <<: *catalog_registration
-    name: catalog-registration-07
-    schedule:
-      cron: "18 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-08
-    schedule:
-      cron: "21 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-09
-    schedule:
-      cron: "24 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-10
-    schedule:
-      cron: "27 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-11
-    schedule:
-      cron: "30 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-12
-    schedule:
-      cron: "33 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-13
-    schedule:
-      cron: "36 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-14
-    schedule:
-      cron: "39 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-15
-    schedule:
-      cron: "42 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-16
-    schedule:
-      cron: "45 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-17
-    schedule:
-      cron: "48 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-18
-    schedule:
-      cron: "51 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-19
-    schedule:
-      cron: "54 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-20
-    schedule:
-      cron: "57 * * * *"
+      cron: "50 * * * *"
       time_zone: America/Denver
       time_zone: America/Denver
