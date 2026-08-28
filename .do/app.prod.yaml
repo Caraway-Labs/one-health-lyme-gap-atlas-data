@@ -117,7 +117,7 @@ jobs:
     name: catalog-registration-01
     kind: SCHEDULED
     schedule:
-      cron: "*/15 * * * *"
+      cron: "0,15,30,45 * * * *"
       time_zone: America/Denver
     image:
       registry_type: DOCR
@@ -166,25 +166,25 @@ jobs:
   - <<: *catalog_registration
     name: catalog-registration-02
     schedule:
-      cron: "2-59/15 * * * *"
+      cron: "2,17,32,47 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-03
     schedule:
-      cron: "5-59/15 * * * *"
+      cron: "5,20,35,50 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-04
     schedule:
-      cron: "7-59/15 * * * *"
+      cron: "7,22,37,52 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-05
     schedule:
-      cron: "10-59/15 * * * *"
+      cron: "10,25,40,55 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-06
     schedule:
-      cron: "12-59/15 * * * *"
+      cron: "12,27,42,57 * * * *"
       time_zone: America/Denver
