@@ -541,6 +541,38 @@ def test_catalog_registration_batches_dataset_resources_into_three_merges() -> N
     assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
 
 
+def test_catalog_registration_chunks_large_resource_merges() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def execute(self, query: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((query, parameters))
+
+    resources = tuple(
+        CatalogResource("DATA", f"https://example.gov/{index}", None, None, {})
+        for index in range(1_001)
+    )
+    dataset = CatalogDataset("DATA_GOV", "dataset-1", "key", {}, resources)
+    cursor = Cursor()
+
+    assert (
+        _write_registration_dataset_batch(
+            cursor,
+            [RegistrationDataset(dataset, "artifact", "run", "request", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+        )
+        == 1_001
+    )
+    assert len(cursor.calls) == 5
+    resource_payload_sizes = [
+        len(json.loads(parameters[1]))
+        for query, parameters in cursor.calls
+        if "CATALOG_RESOURCES" in query or "CATALOG_DISCOVERY_OBSERVATIONS" in query
+    ]
+    assert resource_payload_sizes == [1_000, 1_000, 1, 1]
+
+
 def test_catalog_registration_claims_an_eligible_batch_with_set_based_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -727,6 +759,91 @@ def test_catalog_registration_releases_unread_artifacts_at_dataset_boundary(
         and parameters[0] == "artifact-deferred"
         for query, parameters in connection.cursor_instance.calls
     )
+
+
+def test_catalog_registration_commits_each_dataset_chunk_before_a_later_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def execute(self, query: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((query, parameters))
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+    class Connection:
+        def __init__(self) -> None:
+            self.cursor_instance = Cursor()
+            self.commits = 0
+            self.rollbacks = 0
+
+        def __enter__(self) -> "Connection":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return self.cursor_instance
+
+        def commit(self) -> None:
+            self.commits += 1
+
+        def rollback(self) -> None:
+            self.rollbacks += 1
+
+    connection = Connection()
+    artifact = ("artifact", "run", "request", "s3://bucket/artifact", "DATA_GOV", "term", 0)
+    datasets = [CatalogDataset("DATA_GOV", str(index), str(index), {}, ()) for index in range(51)]
+    calls = 0
+
+    def write_chunk(*_args: object) -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("chunk timeout")
+        return 0
+
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration.connect", lambda _: connection)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._spaces_client", lambda _: object()
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._claim_registration_batch",
+        lambda *_: ([artifact], 1),
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_artifact_payload", lambda *_: {}
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration.normalize_catalog_payload", lambda *_: datasets
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._write_registration_dataset_batch", write_chunk
+    )
+
+    with pytest.raises(RuntimeError, match="chunk timeout"):
+        register_completed_discovery("a" * 64, maximum_artifacts=1, maximum_datasets=51)
+
+    assert connection.rollbacks == 1
+    assert connection.commits >= 3
+    assert any(
+        "SET next_dataset_offset = %s" in query and parameters[0] == 50
+        for query, parameters in connection.cursor_instance.calls
+    )
+    assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
