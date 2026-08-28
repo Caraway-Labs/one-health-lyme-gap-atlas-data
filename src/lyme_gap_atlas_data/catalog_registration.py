@@ -32,6 +32,12 @@ _SENSITIVE_QUERY_PARAMETERS = {
     "token",
 }
 
+# Bound every JSON-backed Snowflake MERGE independently of the size of an
+# immutable discovery artifact. These limits protect the X-Small runtime from
+# a single unusually large catalog response while retaining resumable offsets.
+REGISTRATION_DATASET_CHUNK_SIZE = 50
+REGISTRATION_RESOURCE_CHUNK_SIZE = 1_000
+
 
 @dataclass(frozen=True)
 class CatalogResource:
@@ -412,9 +418,14 @@ def _write_registration_dataset_batch(
                     "matched_term": item.term,
                 }
             )
-    dataset_json = json.dumps(dataset_rows, sort_keys=True, separators=(",", ":"))
-    cursor.execute(
-        """MERGE INTO GOVERNANCE.CATALOG_DATASETS target
+    for start in range(0, len(dataset_rows), REGISTRATION_DATASET_CHUNK_SIZE):
+        dataset_json = json.dumps(
+            dataset_rows[start : start + REGISTRATION_DATASET_CHUNK_SIZE],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        cursor.execute(
+            """MERGE INTO GOVERNANCE.CATALOG_DATASETS target
            USING (
              SELECT value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
                     value:dataset_key::VARCHAR AS dataset_key,
@@ -431,13 +442,18 @@ def _write_registration_dataset_batch(
              VALUES (source.catalog_dataset_id, source.dataset_key, source.catalog_name,
                source.catalog_record_id, source.metadata_payload, source.metadata_sha256,
                source.discovered_at, TRUE)""",
-        (observed_at, dataset_json),
-    )
+            (observed_at, dataset_json),
+        )
     if not resource_rows:
         return 0
-    source_json = json.dumps(resource_rows, sort_keys=True, separators=(",", ":"))
-    cursor.execute(
-        """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
+    for start in range(0, len(resource_rows), REGISTRATION_RESOURCE_CHUNK_SIZE):
+        source_json = json.dumps(
+            resource_rows[start : start + REGISTRATION_RESOURCE_CHUNK_SIZE],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        cursor.execute(
+            """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
            USING (
              SELECT value:catalog_resource_id::VARCHAR AS catalog_resource_id,
                     value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
@@ -458,10 +474,10 @@ def _write_registration_dataset_batch(
              source.resource_key, source.resource_type, source.resource_url,
              source.canonical_source_url, source.api_dataset_id, source.resource_payload,
              source.registered_at, TRUE)""",
-        (observed_at, source_json),
-    )
-    cursor.execute(
-        """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS target
+            (observed_at, source_json),
+        )
+        cursor.execute(
+            """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS target
            USING (
              SELECT value:observation_id::VARCHAR AS observation_id,
                     value:ingestion_run_id::VARCHAR AS ingestion_run_id,
@@ -484,8 +500,8 @@ def _write_registration_dataset_batch(
                source.artifact_id, source.catalog_id, source.catalog_record_id, source.matched_term,
                source.catalog_dataset_id, source.catalog_resource_id, source.canonical_resource_key,
                source.observed_at)""",
-        (observed_at, source_json),
-    )
+            (observed_at, source_json),
+        )
     return len(resource_rows)
 
 
@@ -641,15 +657,6 @@ def register_completed_discovery(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
             )
             connection.commit()
-            # Keep every individual Snowflake merge small.  Parallel workers
-            # can each claim several artifacts, but sending every claimed
-            # artifact as one large JSON-backed MERGE causes concurrent
-            # statement timeouts on the X-Small ingestion warehouse.
-            #
-            # The writes below remain in this invocation's one transaction:
-            # artifact completion checkpoints are recorded only after all
-            # artifact-level merges have succeeded.
-            artifact_progress: list[tuple[str, int, int]] = []
             for artifact_index, (
                 artifact_id,
                 run_id,
@@ -682,52 +689,54 @@ def register_completed_discovery(
                     continue
                 remaining_capacity = maximum_datasets - registered_datasets
                 selected = datasets[dataset_offset : dataset_offset + max(remaining_capacity, 0)]
-                artifact_datasets = [
-                    RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
-                    for dataset in selected
-                ]
+                if not selected:
+                    if dataset_offset >= len(datasets):
+                        _complete_registration_artifact(cursor, artifact_id, registration_run_id)
+                        observed_artifacts += 1
+                    else:
+                        _release_partial_registration_artifact(
+                            cursor, artifact_id, registration_run_id
+                        )
+                    connection.commit()
+                    continue
+                next_offset = dataset_offset
                 try:
-                    if artifact_datasets:
+                    for start in range(0, len(selected), REGISTRATION_DATASET_CHUNK_SIZE):
+                        artifact_datasets = [
+                            RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
+                            for dataset in selected[start : start + REGISTRATION_DATASET_CHUNK_SIZE]
+                        ]
+                        if not artifact_datasets:
+                            continue
                         registered_resources += _write_registration_dataset_batch(
                             cursor, artifact_datasets, datetime.now(UTC)
                         )
                         registered_datasets += len(artifact_datasets)
+                        next_offset += len(artifact_datasets)
+                        if next_offset >= len(datasets):
+                            _complete_registration_artifact(
+                                cursor, artifact_id, registration_run_id
+                            )
+                            observed_artifacts += 1
+                        else:
+                            _advance_registration_dataset(
+                                cursor, artifact_id, registration_run_id, next_offset
+                            )
+                        # A successfully merged chunk must survive a later timeout. The
+                        # next invocation resumes from this durable offset rather than
+                        # replaying a large artifact-level MERGE.
+                        connection.commit()
                 except Exception as error:
-                    # None of the per-artifact writes or checkpoints may
-                    # survive a failed merge. Roll back the whole bounded
-                    # registration transaction, then leave durable failure
-                    # markers for every affected lease.
+                    # The current uncommitted merge is rolled back, while prior chunk
+                    # checkpoints remain durable and safe to resume.
                     connection.rollback()
-                    for progressed_artifact, _, _ in artifact_progress:
-                        _fail_registration_artifact(
-                            cursor, progressed_artifact, registration_run_id, error
-                        )
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
                     connection.commit()
                     raise
-                artifact_progress.append(
-                    (artifact_id, dataset_offset + len(selected), len(datasets))
-                )
-            try:
-                for artifact_id, next_offset, total_datasets in artifact_progress:
-                    if next_offset >= total_datasets:
-                        _complete_registration_artifact(cursor, artifact_id, registration_run_id)
-                        observed_artifacts += 1
-                    else:
-                        _advance_registration_dataset(
-                            cursor, artifact_id, registration_run_id, next_offset
-                        )
-                        _release_partial_registration_artifact(
-                            cursor, artifact_id, registration_run_id
-                        )
-                connection.commit()
-                processed_datasets = registered_datasets
-            except Exception as error:
-                connection.rollback()
-                for artifact_id, _, _ in artifact_progress:
-                    _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
-                connection.commit()
-                raise
+                if next_offset < len(datasets):
+                    _release_partial_registration_artifact(cursor, artifact_id, registration_run_id)
+                    connection.commit()
+            processed_datasets = registered_datasets
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
