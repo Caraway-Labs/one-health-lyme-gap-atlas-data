@@ -530,7 +530,7 @@ def test_catalog_registration_batches_dataset_resources_into_three_merges() -> N
     assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
 
 
-def test_catalog_registration_claims_a_batch_with_three_set_based_queries(
+def test_catalog_registration_claims_an_eligible_batch_with_set_based_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class Cursor:
@@ -540,7 +540,9 @@ def test_catalog_registration_claims_a_batch_with_three_set_based_queries(
         def execute(self, query: str, parameters: tuple[object, ...]) -> None:
             self.calls.append((query, parameters))
 
-        def fetchall(self) -> list[tuple[str, int]]:
+        def fetchall(self) -> list[tuple[str, int]] | list[tuple[str]]:
+            if len(self.calls) == 2:
+                return [("artifact-a",), ("artifact-b",)]
             return [("artifact-a", 4), ("artifact-b", 0)]
 
     artifacts = [
@@ -557,9 +559,14 @@ def test_catalog_registration_claims_a_batch_with_three_set_based_queries(
 
     assert available == 3
     assert claimed == [(*artifacts[0], 4), (*artifacts[1], 0)]
-    assert len(cursor.calls) == 3
-    assert all("FLATTEN(input => PARSE_JSON(%s))" in query for query, _ in cursor.calls)
-    assert '"artifact-c"' not in str(cursor.calls[1][1])
+    assert len(cursor.calls) == 4
+    assert "status IN ('PENDING', 'FAILED')" in cursor.calls[1][0]
+    assert "lease_expires_at <= CURRENT_TIMESTAMP()" in cursor.calls[1][0]
+    assert all(
+        "FLATTEN(input => PARSE_JSON(%s))" in query
+        for query, _ in (cursor.calls[0], cursor.calls[2], cursor.calls[3])
+    )
+    assert '"artifact-c"' not in str(cursor.calls[2][1])
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:

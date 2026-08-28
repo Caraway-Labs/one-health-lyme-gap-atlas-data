@@ -502,7 +502,23 @@ def _claim_registration_batch(
              VALUES (source.artifact_id, source.config_sha256, 'PENDING', 0)""",
         (config_sha256, artifact_json),
     )
-    candidate_ids = [artifact[0] for artifact in artifacts[:maximum_artifacts]]
+    # Select from the durable ledger rather than simply slicing the artifact
+    # list.  A prior interrupted invocation can leave an unexpired lease at
+    # the front of the discovery chain; later pending artifacts must still be
+    # eligible for a bounded pass instead of every scheduled invocation doing
+    # zero work until that lease expires.
+    cursor.execute(
+        """SELECT artifact_id
+           FROM GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
+           WHERE config_sha256 = %s
+             AND (status IN ('PENDING', 'FAILED')
+                  OR (status = 'IN_PROGRESS' AND lease_expires_at <= CURRENT_TIMESTAMP()))
+           ORDER BY CASE status WHEN 'FAILED' THEN 0 WHEN 'PENDING' THEN 1 ELSE 2 END,
+                    COALESCE(started_at, TO_TIMESTAMP_NTZ(0)), artifact_id
+           LIMIT %s""",
+        (config_sha256, maximum_artifacts),
+    )
+    candidate_ids = [str(row[0]) for row in cursor.fetchall()]
     candidate_json = json.dumps(candidate_ids, separators=(",", ":"))
     cursor.execute(
         """UPDATE GOVERNANCE.CATALOG_DISCOVERY_REGISTRATIONS
