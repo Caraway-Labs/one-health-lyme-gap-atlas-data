@@ -109,16 +109,19 @@ jobs:
       - key: SPACES_SECRET_ACCESS_KEY
         scope: RUN_TIME
         type: SECRET
-  # This one-off deploy-time job is intentionally not scheduled.  The regular
-  # discovery command registers candidates after a completed chain; this job
-  # idempotently materializes the already-completed chain when V027 is promoted.
-  - name: catalog-registration
-    kind: POST_DEPLOY
+  # Temporary catch-up workers register metadata from an already-completed
+  # discovery chain. Snowflake leases ensure their artifact claims are disjoint.
+  - &catalog_registration
+    name: catalog-registration-01
+    kind: SCHEDULED
+    schedule:
+      cron: "*/15 * * * *"
+      time_zone: America/Denver
     image:
       registry_type: DOCR
       repository: pipeline
       digest: ${IMAGE_DIGEST}
-    run_command: uv run atlas-data pipeline register-latest-discovery
+    run_command: /app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 12 --max-datasets 1500
     envs:
       - key: TOPX_ENV
         value: prod
@@ -158,3 +161,13 @@ jobs:
       - key: SPACES_SECRET_ACCESS_KEY
         scope: RUN_TIME
         type: SECRET
+  - <<: *catalog_registration
+    name: catalog-registration-02
+  - <<: *catalog_registration
+    name: catalog-registration-03
+  - <<: *catalog_registration
+    name: catalog-registration-04
+  - <<: *catalog_registration
+    name: catalog-registration-05
+  - <<: *catalog_registration
+    name: catalog-registration-06

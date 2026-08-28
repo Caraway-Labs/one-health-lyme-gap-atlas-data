@@ -36,43 +36,43 @@ jobs:
         run: |
           test -n "$PROD_APP_ID"
           doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
-      - name: Promote the immutable image and add registration without exposing secrets
+      - name: Promote the immutable image and add bounded parallel registration without exposing secrets
         run: |
           prod_spec="$(mktemp)"
           next_spec="$(mktemp)"
           trap 'rm -f "$prod_spec" "$next_spec"' EXIT
 
           # Keep the rendered production specification out of workflow output:
-          # it contains provider-encrypted secret values. The registration job
-          # is cloned from discovery so existing encrypted runtime secrets stay
-          # opaque; only its name, schedule, command, and image digest may change.
+          # it contains provider-encrypted secret values. Six registration jobs
+          # are cloned from discovery so secrets remain opaque. They concurrently
+          # claim disjoint artifact leases; each stays bounded to 12 artifacts and
+          # 1,500 datasets per 15-minute invocation.
           doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
           test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
 
           jq --arg image_digest "$IMAGE_DIGEST" '
-            if any(.jobs[]; .name == "catalog-registration") then .
-            else .jobs += [
-              (.jobs[] | select(.name == "catalog-discovery")
-                | .name = "catalog-registration"
+            (.jobs[] | select(.name == "catalog-discovery")) as $registration_template
+            | .jobs |= map(select(
+                .name != "catalog-registration"
+                and (.name | test("^catalog-registration-[0-9]+$") | not)
+              ))
+            | .jobs += [
+                range(1; 7) as $worker
+                | $registration_template
+                | .name = ("catalog-registration-" + ($worker | tostring | if length == 1 then "0" + . else . end))
                 | .kind = "SCHEDULED"
                 | .schedule = {cron: "*/15 * * * *", time_zone: "America/Denver"}
-                | .run_command = "uv run atlas-data pipeline register-latest-discovery")
-            ] end
-            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or .name == "catalog-registration")] | length) == 3 then .
+                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 12 --max-datasets 1500"
+              ]
+            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$")))] | length) == 8 then .
               else error("required production jobs are missing") end
-            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or .name == "catalog-registration") | select(.image.registry_type == "DOCR" and .image.repository == "pipeline")] | length) == 3 then .
+            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$"))) | select(.image.registry_type == "DOCR" and .image.repository == "pipeline")] | length) == 8 then .
               else error("required production jobs do not use the pipeline image") end
-            |
-            .jobs |= map(
-              if .name == "catalog-registration"
-              then .image.digest = $image_digest
-                | .kind = "SCHEDULED"
-                | .schedule = {cron: "*/15 * * * *", time_zone: "America/Denver"}
-                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 1 --max-datasets 250"
-              elif .name == "catalog-discovery" or .name == "approved-source-ingestion"
-              then .image.digest = $image_digest
-              else .
-              end
-            )
+            | .jobs |= map(
+                if .name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$"))
+                then .image.digest = $image_digest
+                else .
+                end
+              )
           ' "$prod_spec" > "$next_spec"
           doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait

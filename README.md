@@ -53,6 +53,17 @@ and publishes `GOVERNANCE.V_DISCOVERY_CANDIDATES` for triage. It does not follow
 publisher URLs, retrieve samples, create access profiles or assessments, queue
 an approval decision, or ingest any source payload.
 
+### Temporary registration backfill
+
+When a completed discovery chain has a large metadata-registration backlog,
+the protected production promotion workflow deploys six identical bounded
+`catalog-registration-01` through `catalog-registration-06` scheduled jobs.
+Each runs every 15 minutes, claims disjoint artifact leases in Snowflake, and
+processes at most 12 artifacts and 1,500 datasets. This produces at most 6,912
+artifact slots per day while preserving the same immutable-artifact,
+checkpoint, and steward-approval boundaries. The backfill is metadata-only;
+it does not acquire source data, approve candidates, or run dbt.
+
 For the first reference source, run `uv run atlas-data pipeline cdc-sample` to
 capture only CDC/Socrata `x5j9-wybp` metadata and an explicitly ordered sample.
 It creates a `PENDING_REVIEW` candidate in the internal Snowflake
