@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Governed Data Pipeline: Current Registration State",
+    "subtitle": "Observed from the successful production registration run at 2026-08-28 03:30 UTC. Counts are operational snapshots, not source-data totals.",
+    "output": "docs/operations/pipeline-current-state.html",
+    "viewBox": [1080, 860],
+    "quality_profile": "showcase",
+    "views": [
+      {"id":"discovery", "label":"1. Discovery", "focus":["catalogs", "discovery", "artifacts"], "note":"External catalogs are queried only by the scheduled discovery job; their responses are captured as immutable artifacts."},
+      {"id":"registration", "label":"2. Registration", "focus":["artifacts", "registration", "governance"], "note":"Every 15 minutes, one artifact is safely converted into governed catalog records and provenance observations."},
+      {"id":"approval", "label":"3. Approval gate", "focus":["governance", "approval", "raw"], "note":"Registration creates research leads only. It never authorizes data acquisition."},
+      {"id":"approved-path", "label":"4. Approved source", "focus":["approval", "raw", "dbt", "conformed"], "note":"Only a steward-approved source version can enter RAW and then dbt transformations."}
+    ]
+  },
+  "stages": [
+    {"label":"Discover"},
+    {"label":"Capture"},
+    {"label":"Register"},
+    {"label":"Review"},
+    {"label":"Acquire & Transform"}
+  ],
+  "nodes": [
+    {"id":"catalogs", "type":"external", "label":"Public catalog APIs", "sublabel":"Data.gov · HealthData · Socrata", "tag":"weekly discovery", "stage":0, "row":1, "width":150},
+    {"id":"discovery", "type":"cloud", "label":"Discovery job", "sublabel":"metadata only", "tag":"scheduled", "stage":1, "row":1, "width":175},
+    {"id":"artifacts", "type":"cloud", "label":"Immutable artifacts", "sublabel":"4,410 responses in chain", "tag":"private Spaces", "stage":1, "row":3, "width":175},
+    {"id":"registration", "type":"backend", "label":"Registration job", "sublabel":"1 artifact / 15 min", "tag":"latest: 100 datasets", "stage":2, "row":1, "width":175},
+    {"id":"governance", "type":"database", "label":"Governance ledger", "sublabel":"100 datasets · 200 resources", "tag":"provenance", "stage":2, "row":3, "width":175},
+    {"id":"approval", "type":"security", "label":"Steward approval", "sublabel":"human decision", "tag":"ingestion blocked", "stage":3, "row":1, "width":175},
+    {"id":"raw", "type":"database", "label":"RAW payloads", "sublabel":"approved source only", "tag":"not reached now", "stage":4, "row":0, "width":175},
+    {"id":"dbt", "type":"backend", "label":"dbt models + tests", "sublabel":"STAGING → CONFORMED", "tag":"approved inputs", "stage":4, "row":2, "width":175},
+    {"id":"conformed", "type":"database", "label":"Conformed data", "sublabel":"analytical relations", "tag":"not reached now", "stage":4, "row":4, "width":175}
+  ],
+  "flows": [
+    {"id":"discover-catalogs", "from":"catalogs", "to":"discovery", "label":"metadata", "variant":"default", "labelDy":50},
+    {"id":"capture-responses", "from":"discovery", "to":"artifacts", "label":"capture", "variant":"emphasis", "labelDy":48},
+    {"id":"claim-artifact", "from":"artifacts", "to":"registration", "label":"claim", "variant":"emphasis", "labelDy":10},
+    {"id":"write-governance", "from":"registration", "to":"governance", "label":"register", "variant":"emphasis", "labelDy":68},
+    {"id":"candidate-review", "from":"governance", "to":"approval", "label":"review gate", "variant":"security", "labelDy":-38},
+    {"id":"approved-acquisition", "from":"approval", "to":"raw", "label":"approved", "variant":"security", "labelDy":24},
+    {"id":"transform", "from":"raw", "to":"dbt", "label":"RAW data", "variant":"dashed", "labelDy":-28},
+    {"id":"publish", "from":"dbt", "to":"conformed", "label":"dbt", "variant":"dashed", "labelDy":20}
+  ],
+  "cards": [
+    {"dot":"cyan", "title":"What is running now", "items":["Production registration succeeds every 15 minutes.", "Latest run: 1 artifact, 100 catalog datasets, and 200 catalog resources.", "4,402 of 4,410 artifacts remain; this is intentional checkpointed backlog processing."]},
+    {"dot":"amber", "title":"Why it takes time", "items":["The one-artifact cap bounds memory and runtime on the scheduled worker.", "At the observed rate, the remaining backlog is about 46 days if every artifact needs its own run.", "The job is resumable: it records a checkpoint only after the Snowflake writes succeed."]},
+    {"dot":"rose", "title":"What it does not do", "items":["It does not download full datasets, run dbt, or publish analytical results.", "It does not approve a source or activate a source version.", "The approval gate prevents a catalog listing from becoming an automatic ingestion."]}
+  ]
+}

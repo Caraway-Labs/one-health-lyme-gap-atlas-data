@@ -58,8 +58,10 @@ def test_promotion_runs_registration_from_the_built_virtual_environment() -> Non
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     assert (
         '"/app/.venv/bin/atlas-data pipeline register-latest-discovery '
-        '--max-artifacts 1 --max-datasets 250"'
+        '--max-artifacts 12 --max-datasets 1500"'
     ) in workflow
+    assert "range(1; 7)" in workflow
+    assert 'test("^catalog-registration-0[1-6]$")' in workflow
     assert '.kind = "SCHEDULED"' in workflow
     assert 'cron: "*/15 * * * *"' in workflow
 
@@ -359,10 +361,13 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
         jobs["approved-source-ingestion"]["run_command"]
         == "uv run atlas-data pipeline run-production-schedule"
     )
-    assert jobs["catalog-registration"]["kind"] == "POST_DEPLOY"
-    assert (
-        jobs["catalog-registration"]["run_command"]
-        == "uv run atlas-data pipeline register-latest-discovery"
+    registrations = [jobs[f"catalog-registration-{worker:02d}"] for worker in range(1, 7)]
+    assert all(job["kind"] == "SCHEDULED" for job in registrations)
+    assert all(job["schedule"]["cron"] == "*/15 * * * *" for job in registrations)
+    assert all(
+        job["run_command"] == "/app/.venv/bin/atlas-data pipeline register-latest-discovery "
+        "--max-artifacts 12 --max-datasets 1500"
+        for job in registrations
     )
     for job in jobs.values():
         assert any(
