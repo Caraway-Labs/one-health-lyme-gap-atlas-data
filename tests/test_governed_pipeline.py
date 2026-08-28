@@ -60,11 +60,10 @@ def test_promotion_runs_registration_from_the_built_virtual_environment() -> Non
         '"/app/.venv/bin/atlas-data pipeline register-latest-discovery '
         '--max-artifacts 12 --max-datasets 1500"'
     ) in workflow
-    assert "range(1; 7)" in workflow
-    assert 'test("^catalog-registration-0[1-6]$")' in workflow
+    assert "range(1; 21)" in workflow
+    assert 'test("^catalog-registration-(0[1-9]|1[0-9]|20)$")' in workflow
     assert '.kind = "SCHEDULED"' in workflow
-    assert '"0,15,30,45 * * * *"' in workflow
-    assert '"12,27,42,57 * * * *"' in workflow
+    assert '" * * * *"' in workflow
 
 
 def test_assessment_policy_thresholds() -> None:
@@ -362,15 +361,10 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
         jobs["approved-source-ingestion"]["run_command"]
         == "uv run atlas-data pipeline run-production-schedule"
     )
-    registrations = [jobs[f"catalog-registration-{worker:02d}"] for worker in range(1, 7)]
+    registrations = [jobs[f"catalog-registration-{worker:02d}"] for worker in range(1, 21)]
     assert all(job["kind"] == "SCHEDULED" for job in registrations)
     assert [job["schedule"]["cron"] for job in registrations] == [
-        "0,15,30,45 * * * *",
-        "2,17,32,47 * * * *",
-        "5,20,35,50 * * * *",
-        "7,22,37,52 * * * *",
-        "10,25,40,55 * * * *",
-        "12,27,42,57 * * * *",
+        f"{minute} * * * *" for minute in range(0, 60, 3)
     ]
     assert all(
         job["run_command"] == "/app/.venv/bin/atlas-data pipeline register-latest-discovery "
