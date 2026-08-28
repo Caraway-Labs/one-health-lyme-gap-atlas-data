@@ -513,7 +513,7 @@ def _claim_registration_batch(
            WHERE config_sha256 = %s
              AND (status IN ('PENDING', 'FAILED')
                   OR (status = 'IN_PROGRESS' AND lease_expires_at <= CURRENT_TIMESTAMP()))
-           ORDER BY CASE status WHEN 'FAILED' THEN 0 WHEN 'PENDING' THEN 1 ELSE 2 END,
+           ORDER BY CASE status WHEN 'PENDING' THEN 0 WHEN 'IN_PROGRESS' THEN 1 ELSE 2 END,
                     COALESCE(started_at, TO_TIMESTAMP_NTZ(0)), artifact_id
            LIMIT %s""",
         (config_sha256, maximum_artifacts),
@@ -624,6 +624,7 @@ def register_completed_discovery(
     registered_resources = 0
     observed_artifacts = 0
     processed_datasets = 0
+    failed_artifacts = 0
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
         with connection.cursor() as cursor:
@@ -661,7 +662,8 @@ def register_completed_discovery(
                     connection.rollback()
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
                     connection.commit()
-                    raise
+                    failed_artifacts += 1
+                    continue
             try:
                 if registration_datasets:
                     registered_datasets = len(registration_datasets)
@@ -695,6 +697,7 @@ def register_completed_discovery(
         "config_sha256": config_sha256,
         "registration_run_id": registration_run_id,
         "observed_artifacts": observed_artifacts,
+        "failed_artifacts": failed_artifacts,
         "processed_datasets": processed_datasets,
         "available_artifacts": available_artifacts,
         "remaining_artifacts": remaining_artifacts,

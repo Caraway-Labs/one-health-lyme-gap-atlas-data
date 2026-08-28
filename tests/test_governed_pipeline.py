@@ -23,6 +23,7 @@ from lyme_gap_atlas_data.catalog_registration import (
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
     normalize_catalog_payload,
+    register_completed_discovery,
 )
 from lyme_gap_atlas_data.cdc import load_cdc_profile
 from lyme_gap_atlas_data.discovery import (
@@ -562,11 +563,88 @@ def test_catalog_registration_claims_an_eligible_batch_with_set_based_queries(
     assert len(cursor.calls) == 4
     assert "status IN ('PENDING', 'FAILED')" in cursor.calls[1][0]
     assert "lease_expires_at <= CURRENT_TIMESTAMP()" in cursor.calls[1][0]
+    assert "WHEN 'PENDING' THEN 0" in cursor.calls[1][0]
     assert all(
         "FLATTEN(input => PARSE_JSON(%s))" in query
         for query, _ in (cursor.calls[0], cursor.calls[2], cursor.calls[3])
     )
     assert '"artifact-c"' not in str(cursor.calls[2][1])
+
+
+def test_catalog_registration_continues_after_one_artifact_read_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def execute(self, query: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((query, parameters))
+
+        def fetchone(self) -> tuple[int]:
+            return (1,)
+
+    class Connection:
+        def __init__(self) -> None:
+            self.cursor_instance = Cursor()
+            self.commits = 0
+            self.rollbacks = 0
+
+        def __enter__(self) -> "Connection":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return self.cursor_instance
+
+        def commit(self) -> None:
+            self.commits += 1
+
+        def rollback(self) -> None:
+            self.rollbacks += 1
+
+    connection = Connection()
+    artifacts = [
+        ("artifact-failed", "run", "request", "s3://bucket/failed", "DATA_GOV", "term", 0),
+        ("artifact-good", "run", "request", "s3://bucket/good", "DATA_GOV", "term", 0),
+    ]
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration.connect", lambda _: connection)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._spaces_client", lambda _: object()
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._claim_registration_batch",
+        lambda *_: (artifacts, 2),
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_artifact_payload",
+        lambda _s3, _settings, uri: (
+            (_ for _ in ()).throw(OSError("unavailable")) if uri.endswith("failed") else {}
+        ),
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration.normalize_catalog_payload", lambda *_: []
+    )
+
+    result = register_completed_discovery("a" * 64, maximum_artifacts=2)
+
+    assert result["failed_artifacts"] == 1
+    assert result["observed_artifacts"] == 1
+    assert connection.rollbacks == 1
+    assert connection.commits == 3
+    assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
+    assert any("SET status = 'COMPLETED'" in query for query, _ in connection.cursor_instance.calls)
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
