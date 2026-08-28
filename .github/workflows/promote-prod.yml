@@ -68,7 +68,7 @@ jobs:
               then .image.digest = $image_digest
                 | .kind = "SCHEDULED"
                 | .schedule = {cron: "*/15 * * * *", time_zone: "America/Denver"}
-                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery"
+                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 1 --max-datasets 250"
               elif .name == "catalog-discovery" or .name == "approved-source-ingestion"
               then .image.digest = $image_digest
               else .

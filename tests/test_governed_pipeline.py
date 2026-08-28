@@ -56,7 +56,10 @@ def test_container_uses_cmd_so_app_platform_can_replace_each_job_command() -> No
 
 def test_promotion_runs_registration_from_the_built_virtual_environment() -> None:
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
-    assert '"/app/.venv/bin/atlas-data pipeline register-latest-discovery"' in workflow
+    assert (
+        '"/app/.venv/bin/atlas-data pipeline register-latest-discovery '
+        '--max-artifacts 1 --max-datasets 250"'
+    ) in workflow
     assert '.kind = "SCHEDULED"' in workflow
     assert 'cron: "*/15 * * * *"' in workflow
 
@@ -645,6 +648,78 @@ def test_catalog_registration_continues_after_one_artifact_read_failure(
     assert connection.commits == 3
     assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
     assert any("SET status = 'COMPLETED'" in query for query, _ in connection.cursor_instance.calls)
+
+
+def test_catalog_registration_releases_unread_artifacts_at_dataset_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def execute(self, query: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((query, parameters))
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+    class Connection:
+        def __init__(self) -> None:
+            self.cursor_instance = Cursor()
+            self.commits = 0
+
+        def __enter__(self) -> "Connection":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return self.cursor_instance
+
+        def commit(self) -> None:
+            self.commits += 1
+
+        def rollback(self) -> None:
+            return None
+
+    connection = Connection()
+    artifacts = [
+        ("artifact-first", "run", "request", "s3://bucket/first", "DATA_GOV", "term", 0),
+        ("artifact-deferred", "run", "request", "s3://bucket/deferred", "DATA_GOV", "term", 0),
+    ]
+    dataset = CatalogDataset("DATA_GOV", "record", "key", {}, ())
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration.connect", lambda _: connection)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._spaces_client", lambda _: object()
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._claim_registration_batch",
+        lambda *_: (artifacts, 2),
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_artifact_payload", lambda *_: {}
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration.normalize_catalog_payload", lambda *_: [dataset]
+    )
+
+    register_completed_discovery("a" * 64, maximum_artifacts=2, maximum_datasets=1)
+
+    assert any(
+        "SET status = 'PENDING', lease_expires_at = NULL" in query
+        and parameters[0] == "artifact-deferred"
+        for query, parameters in connection.cursor_instance.calls
+    )
 
 
 def test_catalog_registration_reads_only_completed_discovery_chains() -> None:
