@@ -10,6 +10,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import TextIOWrapper
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
@@ -295,8 +296,16 @@ def _read_artifact_payload(
     parsed = urlsplit(artifact_uri)
     if parsed.scheme != "s3" or parsed.netloc != settings.spaces_bucket or not parsed.path:
         raise ValueError("Catalog artifact is outside the configured private bucket")
-    body = s3.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))["Body"].read()
-    payload = json.loads(body.decode("utf-8"))
+    # Decode directly from the streaming response.  Keeping an additional bytes
+    # buffer and decoded string alongside a large immutable artifact can exceed
+    # the small scheduled-job memory limit before the bounded checkpoint is made.
+    body = s3.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))["Body"]
+    stream = TextIOWrapper(body, encoding="utf-8")
+    try:
+        payload = json.load(stream)
+    finally:
+        stream.detach()
+        body.close()
     if not isinstance(payload, dict):
         raise ValueError("Catalog artifact payload must be a JSON object")
     return payload
@@ -634,7 +643,7 @@ def register_completed_discovery(
             connection.commit()
             registration_datasets: list[RegistrationDataset] = []
             artifact_progress: list[tuple[str, int, int]] = []
-            for (
+            for artifact_index, (
                 artifact_id,
                 run_id,
                 request_id,
@@ -642,7 +651,17 @@ def register_completed_discovery(
                 catalog_id,
                 term,
                 dataset_offset,
-            ) in artifacts:
+            ) in enumerate(artifacts):
+                # Do not read or normalize further artifacts once this pass has
+                # reached its declared dataset boundary.  Release their leases
+                # immediately so another bounded pass can claim them.
+                if len(registration_datasets) >= maximum_datasets:
+                    for deferred_artifact, *_ in artifacts[artifact_index:]:
+                        _release_partial_registration_artifact(
+                            cursor, deferred_artifact, registration_run_id
+                        )
+                    connection.commit()
+                    break
                 try:
                     datasets = normalize_catalog_payload(
                         catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
