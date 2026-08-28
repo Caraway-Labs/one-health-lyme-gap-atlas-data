@@ -111,19 +111,19 @@ jobs:
         type: SECRET
   # Temporary catch-up workers register metadata from an already-completed
   # discovery chain. Snowflake leases ensure their artifact claims are disjoint.
-  # Each worker runs hourly; start minutes are ten minutes apart to avoid
+  # Each worker runs hourly; start minutes are fifteen minutes apart to avoid
   # concurrent MERGE statements on the X-Small warehouse.
   - &catalog_registration
     name: catalog-registration-01
     kind: SCHEDULED
     schedule:
-      cron: "0 * * * *"
+      cron: "15 * * * *"
       time_zone: America/Denver
     image:
       registry_type: DOCR
       repository: pipeline
       digest: ${IMAGE_DIGEST}
-    run_command: /app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 32 --max-datasets 4000
+    run_command: /app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 64 --max-datasets 8000
     envs:
       - key: TOPX_ENV
         value: prod
@@ -166,26 +166,11 @@ jobs:
   - <<: *catalog_registration
     name: catalog-registration-02
     schedule:
-      cron: "10 * * * *"
+      cron: "30 * * * *"
       time_zone: America/Denver
   - <<: *catalog_registration
     name: catalog-registration-03
     schedule:
-      cron: "20 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-04
-    schedule:
-      cron: "30 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-05
-    schedule:
-      cron: "40 * * * *"
-      time_zone: America/Denver
-  - <<: *catalog_registration
-    name: catalog-registration-06
-    schedule:
-      cron: "50 * * * *"
+      cron: "45 * * * *"
       time_zone: America/Denver
       time_zone: America/Denver

@@ -45,9 +45,9 @@ jobs:
           # Keep the rendered production specification out of workflow output:
           # it contains provider-encrypted secret values. Six registration jobs
           # are cloned from discovery so secrets remain opaque. They claim disjoint
-          # artifact leases, but start each worker ten minutes apart to prevent
+          # artifact leases, but start each worker fifteen minutes apart to prevent
           # concurrent MERGE statements from saturating the X-Small Snowflake
-          # warehouse. Each stays bounded to 32 artifacts and 4,000 datasets.
+          # warehouse. Each stays bounded to 64 artifacts and 8,000 datasets.
           doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
           test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
 
@@ -58,19 +58,19 @@ jobs:
                 and (.name | test("^catalog-registration-[0-9]+$") | not)
               ))
             | .jobs += [
-                range(1; 7) as $worker
+                range(1; 4) as $worker
                 | $registration_template
                 | .name = ("catalog-registration-" + ($worker | tostring | if length == 1 then "0" + . else . end))
                 | .kind = "SCHEDULED"
-                | .schedule = {cron: (((($worker - 1) * 10) | tostring) + " * * * *"), time_zone: "America/Denver"}
-                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 32 --max-datasets 4000"
+                | .schedule = {cron: ((($worker * 15) | tostring) + " * * * *"), time_zone: "America/Denver"}
+                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 64 --max-datasets 8000"
               ]
-            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$")))] | length) == 8 then .
+            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-3]$")))] | length) == 5 then .
               else error("required production jobs are missing") end
-            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$"))) | select(.image.registry_type == "DOCR" and .image.repository == "pipeline")] | length) == 8 then .
+            | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-3]$"))) | select(.image.registry_type == "DOCR" and .image.repository == "pipeline")] | length) == 5 then .
               else error("required production jobs do not use the pipeline image") end
             | .jobs |= map(
-                if .name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-6]$"))
+                if .name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-3]$"))
                 then .image.digest = $image_digest
                 else .
                 end
