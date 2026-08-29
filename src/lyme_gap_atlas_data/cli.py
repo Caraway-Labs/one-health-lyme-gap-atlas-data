@@ -1,6 +1,7 @@
 """Operator CLI for the MVP Snowflake release."""
 
 import json
+import logging
 from pathlib import Path
 
 import typer
@@ -23,12 +24,28 @@ from .streamlit_deploy import deploy_approval_console
 app = typer.Typer(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
+logger = logging.getLogger(__name__)
+
+
+@app.callback()
+def configure_runtime_observability() -> None:
+    """Initialize redacted JSON logs for every CLI command, including jobs."""
+    configure_logging()
+    configure_tracing("one-health-lyme-gap-atlas-data")
 
 
 def _settings() -> SnowflakeSettings:
-    configure_logging()
-    configure_tracing("one-health-lyme-gap-atlas-data")
     return SnowflakeSettings()
+
+
+def _safe_failure_diagnostics(error: Exception) -> dict[str, object | None]:
+    """Return provider correlation fields without serializing exception text."""
+    return {
+        "error_type": type(error).__name__,
+        "error_code": getattr(error, "errno", None),
+        "sql_state": getattr(error, "sqlstate", None),
+        "snowflake_query_id": getattr(error, "sfqid", None),
+    }
 
 
 @app.command()
@@ -122,18 +139,15 @@ def register_latest_discovery(
         result = register_latest_completed_discovery(max_artifacts, max_datasets)
     except Exception as error:
         # App Platform can omit traceback output for failed post-deploy jobs.
-        # Emit only safe diagnostics before preserving the non-zero exit status.
-        typer.echo(
-            json.dumps(
-                {
-                    "status": "FAILED",
-                    "error_type": type(error).__name__,
-                    "error_code": getattr(error, "errno", None),
-                    "sql_state": getattr(error, "sqlstate", None),
-                    "error_message": str(error)[:500],
-                }
-            )
-        )
+        # Emit only redacted, correlation-safe diagnostics before retaining the
+        # non-zero status for the scheduler.
+        diagnostics = {
+            "status": "FAILED",
+            "operation": "catalog_registration",
+            **_safe_failure_diagnostics(error),
+        }
+        logger.error("catalog_registration.failed", extra={"context": diagnostics})
+        typer.echo(json.dumps(diagnostics))
         raise
     typer.echo(json.dumps(result))
 
