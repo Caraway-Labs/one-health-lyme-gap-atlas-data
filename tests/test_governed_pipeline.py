@@ -58,7 +58,7 @@ def test_promotion_runs_registration_from_the_built_virtual_environment() -> Non
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     assert (
         '"/app/.venv/bin/atlas-data pipeline register-latest-discovery '
-        '--max-artifacts 64 --max-datasets 8000"'
+        '--max-artifacts 12 --max-datasets 1500"'
     ) in workflow
     assert "range(1; 4)" in workflow
     assert 'test("^catalog-registration-0[1-3]$")' in workflow
@@ -368,7 +368,7 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
     ]
     assert all(
         job["run_command"] == "/app/.venv/bin/atlas-data pipeline register-latest-discovery "
-        "--max-artifacts 64 --max-datasets 8000"
+        "--max-artifacts 12 --max-datasets 1500"
         for job in registrations
     )
     for job in jobs.values():
@@ -953,10 +953,11 @@ def test_registration_command_emits_safe_failure_diagnostics(
 
     assert json.loads(emitted[0]) == {
         "status": "FAILED",
+        "operation": "catalog_registration",
         "error_type": "RuntimeError",
         "error_code": None,
         "sql_state": None,
-        "error_message": "registration failed",
+        "snowflake_query_id": None,
     }
 
 

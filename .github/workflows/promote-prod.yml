@@ -47,7 +47,7 @@ jobs:
           # are cloned from discovery so secrets remain opaque. They claim disjoint
           # artifact leases, but start each worker fifteen minutes apart to prevent
           # concurrent MERGE statements from saturating the X-Small Snowflake
-          # warehouse. Each stays bounded to 64 artifacts and 8,000 datasets.
+          # warehouse. Each stays bounded to 12 artifacts and 1,500 datasets.
           doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
           test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
 
@@ -63,7 +63,7 @@ jobs:
                 | .name = ("catalog-registration-" + ($worker | tostring | if length == 1 then "0" + . else . end))
                 | .kind = "SCHEDULED"
                 | .schedule = {cron: ((($worker * 15) | tostring) + " * * * *"), time_zone: "America/Denver"}
-                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 64 --max-datasets 8000"
+                | .run_command = "/app/.venv/bin/atlas-data pipeline register-latest-discovery --max-artifacts 12 --max-datasets 1500"
               ]
             | if ([.jobs[] | select(.name == "catalog-discovery" or .name == "approved-source-ingestion" or (.name | test("^catalog-registration-0[1-3]$")))] | length) == 5 then .
               else error("required production jobs are missing") end

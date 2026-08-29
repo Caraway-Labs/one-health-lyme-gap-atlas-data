@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import TextIOWrapper
@@ -21,6 +22,8 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .settings import PipelineSettings
+
+logger = logging.getLogger(__name__)
 
 _SENSITIVE_QUERY_PARAMETERS = {
     "access_token",
@@ -657,6 +660,19 @@ def register_completed_discovery(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
             )
             connection.commit()
+            logger.info(
+                "catalog_registration.claimed",
+                extra={
+                    "context": {
+                        "registration_run_id": registration_run_id,
+                        "config_sha256": config_sha256,
+                        "claimed_artifacts": len(artifacts),
+                        "available_artifacts": available_artifacts,
+                        "maximum_artifacts": maximum_artifacts,
+                        "maximum_datasets": maximum_datasets,
+                    }
+                },
+            )
             for artifact_index, (
                 artifact_id,
                 run_id,
@@ -686,6 +702,17 @@ def register_completed_discovery(
                     # rest of this invocation's transaction.
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
                     failed_artifacts += 1
+                    logger.warning(
+                        "catalog_registration.artifact_read_failed",
+                        extra={
+                            "context": {
+                                "registration_run_id": registration_run_id,
+                                "artifact_id": artifact_id,
+                                "catalog_id": catalog_id,
+                                "error_type": type(error).__name__,
+                            }
+                        },
+                    )
                     continue
                 remaining_capacity = maximum_datasets - registered_datasets
                 selected = datasets[dataset_offset : dataset_offset + max(remaining_capacity, 0)]
@@ -713,6 +740,20 @@ def register_completed_discovery(
                         )
                         registered_datasets += len(artifact_datasets)
                         next_offset += len(artifact_datasets)
+                        logger.info(
+                            "catalog_registration.chunk_merged",
+                            extra={
+                                "context": {
+                                    "registration_run_id": registration_run_id,
+                                    "artifact_id": artifact_id,
+                                    "catalog_id": catalog_id,
+                                    "dataset_offset_end": next_offset,
+                                    "dataset_count": len(artifact_datasets),
+                                    "total_artifact_datasets": len(datasets),
+                                    "registered_resources": registered_resources,
+                                }
+                            },
+                        )
                         if next_offset >= len(datasets):
                             _complete_registration_artifact(
                                 cursor, artifact_id, registration_run_id
@@ -732,6 +773,21 @@ def register_completed_discovery(
                     connection.rollback()
                     _fail_registration_artifact(cursor, artifact_id, registration_run_id, error)
                     connection.commit()
+                    logger.error(
+                        "catalog_registration.chunk_merge_failed",
+                        extra={
+                            "context": {
+                                "registration_run_id": registration_run_id,
+                                "artifact_id": artifact_id,
+                                "catalog_id": catalog_id,
+                                "dataset_offset_end": next_offset,
+                                "error_type": type(error).__name__,
+                                "error_code": getattr(error, "errno", None),
+                                "sql_state": getattr(error, "sqlstate", None),
+                                "snowflake_query_id": getattr(error, "sfqid", None),
+                            }
+                        },
+                    )
                     raise
                 if next_offset < len(datasets):
                     _release_partial_registration_artifact(cursor, artifact_id, registration_run_id)
@@ -740,6 +796,20 @@ def register_completed_discovery(
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
+    logger.info(
+        "catalog_registration.completed",
+        extra={
+            "context": {
+                "registration_run_id": registration_run_id,
+                "config_sha256": config_sha256,
+                "processed_datasets": processed_datasets,
+                "registered_resources": registered_resources,
+                "observed_artifacts": observed_artifacts,
+                "failed_artifacts": failed_artifacts,
+                "remaining_artifacts": remaining_artifacts,
+            }
+        },
+    )
     return {
         "status": "COMPLETED" if remaining_artifacts == 0 else "PARTIAL",
         "config_sha256": config_sha256,

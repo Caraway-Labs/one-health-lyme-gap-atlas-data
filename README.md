@@ -59,9 +59,9 @@ When a completed discovery chain has a large metadata-registration backlog,
 the protected production promotion workflow deploys three bounded
 `catalog-registration-01` through `catalog-registration-03` scheduled jobs.
 Each runs hourly on a distinct fifteen-minute start interval (15, 30, and 45),
-claims disjoint artifact leases in Snowflake, and
-processes at most 64 artifacts and 8,000 datasets. This produces at most 4,608
-artifact slots per day while preserving the same immutable-artifact,
+claims disjoint artifact leases in Snowflake, and processes at most 12 artifacts
+and 1,500 datasets. This produces at most 864 artifact slots per day while
+preserving the same immutable-artifact,
 checkpoint, and steward-approval boundaries. The backfill is metadata-only;
 it does not acquire source data, approve candidates, or run dbt.
 
