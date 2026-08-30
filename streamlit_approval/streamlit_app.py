@@ -20,6 +20,7 @@ APP_VERSION: Final = "1.0.0"
 CDC_RESOURCE_KEY: Final = "cdc_lyme_x5j9_wybp"
 DECISIONS: Final = {"APPROVED", "APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 CONDITIONS_REQUIRED: Final = {"APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
+BACKLOG_PAGE_SIZE: Final = 100
 session = get_active_session()
 viewer = st.user.user_name
 
@@ -136,7 +137,7 @@ def _artifact_backlog_page(
     )
     page = _rows(
         f"SELECT artifact_id, catalog, matched_term, captured_at, byte_count, status, attempt_count, started_at, lease_expires_at, has_expired_lease, redacted_error FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where} ORDER BY captured_at, artifact_id LIMIT ? OFFSET ?",
-        [*parameters, 100, offset],
+        [*parameters, BACKLOG_PAGE_SIZE, offset],
     )
     return int(total[0]["TOTAL"]), page
 
@@ -179,9 +180,20 @@ def _render_operations(page: str) -> None:
             "Registration status", ["All", "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"]
         )
         expired = st.checkbox("Only show expired leases")
-        total, rows = _artifact_backlog_page(status, expired, 0)
-        st.caption(f"Showing up to 100 of {total:,} matching redacted artifacts.")
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        total, _ = _artifact_backlog_page(status, expired, 0)
+        page_count = max(1, (total + BACKLOG_PAGE_SIZE - 1) // BACKLOG_PAGE_SIZE)
+        page_number = int(
+            st.number_input("Backlog page", min_value=1, max_value=page_count, value=1, step=1)
+        )
+        offset = (page_number - 1) * BACKLOG_PAGE_SIZE
+        _, rows = _artifact_backlog_page(status, expired, offset)
+        st.caption(
+            f"Showing page {page_number} of {page_count} ({len(rows):,} of {total:,} matching redacted artifacts)."
+        )
+        if not rows:
+            st.info("No redacted artifacts match the selected filters.")
+        else:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         view = {
             "Pipeline health": "V_PIPELINE_DISCOVERY_RUNS",

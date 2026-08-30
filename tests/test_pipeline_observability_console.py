@@ -16,3 +16,11 @@ def test_observability_migration_exposes_only_redacted_governed_views() -> None:
     assert "artifact_uri" not in source
     assert "redacted_request" in source
     assert "RAW_ARTIFACTS" in source
+
+
+def test_operations_console_uses_bounded_server_side_backlog_pagination() -> None:
+    source = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
+    assert "BACKLOG_PAGE_SIZE: Final = 100" in source
+    assert "LIMIT ? OFFSET ?" in source
+    assert "offset = (page_number - 1) * BACKLOG_PAGE_SIZE" in source
+    assert "No redacted artifacts match the selected filters." in source
