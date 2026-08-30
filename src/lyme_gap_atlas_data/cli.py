@@ -2,11 +2,17 @@
 
 import json
 import logging
+import os
+import sys
+from contextlib import suppress
 from pathlib import Path
+from time import monotonic
 
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
@@ -21,7 +27,59 @@ from .preflight import run_preflight
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console
 
-app = typer.Typer(no_args_is_help=True)
+SERVICE_NAME = "one-health-lyme-gap-atlas-data"
+
+
+def _command_path(arguments: list[str]) -> str:
+    """Return only command names, never user-supplied option values."""
+    if not arguments:
+        return "help"
+    if arguments[0] == "pipeline":
+        subcommand = arguments[1] if len(arguments) > 1 else "help"
+        return "pipeline." + (subcommand if not subcommand.startswith("-") else "help")
+    return arguments[0] if not arguments[0].startswith("-") else "help"
+
+
+def _flush_and_shutdown_tracing() -> None:
+    """Finish optional telemetry without allowing exporter failures to affect a command."""
+    provider = trace.get_tracer_provider()
+    for method_name in ("force_flush", "shutdown"):
+        method = getattr(provider, method_name, None)
+        if callable(method):
+            with suppress(Exception):
+                method()
+
+
+class ObservedTyper(typer.Typer):
+    """Typer app with one privacy-safe span around each short-lived CLI invocation."""
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        configure_logging()
+        configure_tracing(SERVICE_NAME)
+        command = _command_path(sys.argv[1:])
+        started = monotonic()
+        span = trace.get_tracer(SERVICE_NAME).start_span("atlas-data.cli")
+        span.set_attribute("atlas.command", command)
+        span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+        try:
+            result = super().__call__(*args, **kwargs)
+        except BaseException as error:
+            failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
+            span.set_attribute("atlas.outcome", "failure" if failed else "success")
+            if failed:
+                span.set_attribute("error.type", type(error).__name__)
+                span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+            raise
+        else:
+            span.set_attribute("atlas.outcome", "success")
+            return result
+        finally:
+            span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
+            span.end()
+            _flush_and_shutdown_tracing()
+
+
+app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 logger = logging.getLogger(__name__)
@@ -31,7 +89,7 @@ logger = logging.getLogger(__name__)
 def configure_runtime_observability() -> None:
     """Initialize redacted JSON logs for every CLI command, including jobs."""
     configure_logging()
-    configure_tracing("one-health-lyme-gap-atlas-data")
+    configure_tracing(SERVICE_NAME)
 
 
 def _settings() -> SnowflakeSettings:
