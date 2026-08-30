@@ -1046,6 +1046,9 @@ def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key()
     assert "SNOWFLAKE_AUTH_METHOD=key_pair" in workflow
     assert 'SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"' in workflow
     assert 'SNOWFLAKE_PRIVATE_KEY_B64="$SNOWFLAKE_PRIVATE_KEY_B64"' not in workflow
+    assert (
+        "SELECT version, filename, sha256, applied_at FROM GOVERNANCE.SCHEMA_MIGRATIONS" in workflow
+    )
     assert "atlas-data pipeline apply-migrations" in workflow
     assert '--database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm' in workflow
     assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
