@@ -33,7 +33,15 @@ from lyme_gap_atlas_data.discovery import (
     load_search_configuration,
     next_page_request,
 )
-from lyme_gap_atlas_data.migrations import load_migrations, migration_plan, render_migration
+from lyme_gap_atlas_data.migrations import (
+    DEV_DATABASE,
+    LEGACY_DEV_MIGRATION_CHECKSUMS,
+    is_authorized_legacy_reconciliation,
+    legacy_dev_reconciliation_plan,
+    load_migrations,
+    migration_plan,
+    render_migration,
+)
 from lyme_gap_atlas_data.orchestration import _resource_key
 from lyme_gap_atlas_data.preflight import _required_settings
 from lyme_gap_atlas_data.redaction import redact_mapping
@@ -1021,6 +1029,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V031",
         "V032",
         "V033",
+        "V034",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1029,6 +1038,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert len(prod_plan) == 33
+    assert "V034" not in {item["version"] for item in prod_plan}
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -1041,6 +1051,60 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "RETIRED" in migrations[10].source
 
 
+def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() -> None:
+    migrations = load_migrations()
+    reconciliations = legacy_dev_reconciliation_plan(
+        dict(LEGACY_DEV_MIGRATION_CHECKSUMS), migrations
+    )
+    assert [migration.version for migration in reconciliations] == ["V028", "V029", "V033"]
+    assert all(
+        migration.sha256 != LEGACY_DEV_MIGRATION_CHECKSUMS[migration.version]
+        for migration in reconciliations
+    )
+    with pytest.raises(ValueError, match="Unexpected DEV ledger checksum"):
+        legacy_dev_reconciliation_plan({"V028": "not-authorized"}, migrations)
+    v028 = next(migration for migration in migrations if migration.version == "V028")
+    assert is_authorized_legacy_reconciliation(
+        DEV_DATABASE,
+        "V028",
+        LEGACY_DEV_MIGRATION_CHECKSUMS["V028"],
+        v028.sha256,
+        {"V028": (LEGACY_DEV_MIGRATION_CHECKSUMS["V028"], v028.sha256)},
+    )
+    assert not is_authorized_legacy_reconciliation(
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "V028",
+        LEGACY_DEV_MIGRATION_CHECKSUMS["V028"],
+        v028.sha256,
+        {"V028": (LEGACY_DEV_MIGRATION_CHECKSUMS["V028"], v028.sha256)},
+    )
+    assert not is_authorized_legacy_reconciliation(
+        DEV_DATABASE,
+        "V001",
+        "unapproved",
+        "unapproved",
+        {"V001": ("unapproved", "unapproved")},
+    )
+    assert DEV_DATABASE == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+
+
+def test_v034_reasserts_the_redacted_observability_contract_after_legacy_reconciliation() -> None:
+    source = next(
+        migration.source for migration in load_migrations() if migration.version == "V034"
+    )
+    for view_name in (
+        "V_PIPELINE_OBSERVABILITY_OVERVIEW",
+        "V_PIPELINE_ARTIFACT_BACKLOG",
+        "V_PIPELINE_DISCOVERY_RUNS",
+        "V_PIPELINE_CATALOG_COVERAGE",
+        "V_PIPELINE_REGISTRATION_OUTCOMES",
+        "V_PIPELINE_SOURCE_GOVERNANCE",
+    ):
+        assert f"CREATE OR REPLACE VIEW GOVERNANCE.{view_name}" in source
+    assert "object_key" not in source
+    assert "payload" not in source
+
+
 def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key() -> None:
     workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
     assert "SNOWFLAKE_AUTH_METHOD=key_pair" in workflow
@@ -1049,6 +1113,7 @@ def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key()
     assert (
         "SELECT version, filename, sha256, applied_at FROM GOVERNANCE.SCHEMA_MIGRATIONS" in workflow
     )
+    assert "reconcile-legacy-dev-migrations" in workflow
     assert "atlas-data pipeline apply-migrations" in workflow
     assert '--database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm' in workflow
     assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
