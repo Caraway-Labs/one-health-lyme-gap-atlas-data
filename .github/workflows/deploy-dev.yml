@@ -23,18 +23,22 @@ jobs:
         run: |
           set -euo pipefail
           key_file="$RUNNER_TEMP/oh-lyme-dev-pipeline-key.p8"
-          trap 'rm -f "$key_file"' EXIT
+          config_file="$RUNNER_TEMP/snowflake-connections.toml"
+          trap 'rm -f "$key_file" "$config_file"' EXIT
           umask 077
           printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | base64 --decode > "$key_file"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_ACCOUNT="$SNOWFLAKE_ACCOUNT"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_USER="$SNOWFLAKE_USER"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_ROLE="$SNOWFLAKE_ROLE"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_WAREHOUSE="$SNOWFLAKE_WAREHOUSE"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_DATABASE="$SNOWFLAKE_DATABASE"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_AUTHENTICATOR="SNOWFLAKE_JWT"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_PRIVATE_KEY_PATH="$key_file"
-          export SNOWFLAKE_CONNECTIONS_OH_LYME_DEV_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
-          snow sql -c oh_lyme_dev \
+          cat > "$config_file" <<EOF
+          [connections.oh_lyme_dev]
+          account = "$SNOWFLAKE_ACCOUNT"
+          user = "$SNOWFLAKE_USER"
+          role = "$SNOWFLAKE_ROLE"
+          warehouse = "$SNOWFLAKE_WAREHOUSE"
+          database = "$SNOWFLAKE_DATABASE"
+          authenticator = "SNOWFLAKE_JWT"
+          private_key_path = "$key_file"
+          private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
+          EOF
+          snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE()" --format JSON
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
