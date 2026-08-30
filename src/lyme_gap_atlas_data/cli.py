@@ -21,7 +21,7 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
-from .migrations import apply_migrations, migration_plan
+from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
 from .orchestration import run_discovery, run_production_schedule
 from .preflight import run_preflight
 from .settings import PipelineSettings
@@ -228,6 +228,20 @@ def apply_migrations_command(
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
     typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+
+
+@pipeline_app.command("reconcile-legacy-dev-migrations")
+def reconcile_legacy_dev_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Append the owner-approved DEV-only legacy migration reconciliation evidence."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to reconcile legacy DEV migrations")
+    typer.echo(
+        json.dumps({"reconciled": reconcile_legacy_dev_migrations(_settings(), database, commit)})
+    )
 
 
 @pipeline_app.command("deploy-approval-console")
