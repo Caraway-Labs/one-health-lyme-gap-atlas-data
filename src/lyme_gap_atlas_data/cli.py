@@ -24,6 +24,7 @@ from .discovery import initial_requests, load_search_configuration
 from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
 from .orchestration import run_discovery, run_production_schedule
 from .preflight import run_preflight
+from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console
 
@@ -175,6 +176,20 @@ def discover(
             str(result["config_sha256"])
         )
     typer.echo(json.dumps(result))
+
+
+@pipeline_app.command("pubmed-discover")
+def pubmed_discover(
+    family: str = typer.Option(..., "--family"),
+    max_records: int = typer.Option(
+        MAX_RECORDS_PER_RUN, "--max-records", min=1, max=MAX_RECORDS_PER_RUN
+    ),
+    batch_size: int = typer.Option(MAX_BATCH_SIZE, "--batch-size", min=1, max=MAX_BATCH_SIZE),
+) -> None:
+    """Capture bounded PubMed citation metadata; it cannot approve or fetch full text."""
+    typer.echo(
+        json.dumps(discover_pubmed(family, maximum_records=max_records, batch_size=batch_size))
+    )
 
 
 @pipeline_app.command("register-discovery")
