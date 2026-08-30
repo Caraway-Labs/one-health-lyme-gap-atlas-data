@@ -26,7 +26,11 @@ jobs:
           config_file="$RUNNER_TEMP/snowflake-connections.toml"
           trap 'rm -f "$key_file" "$config_file"' EXIT
           umask 077
-          printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | base64 --decode > "$key_file"
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
           cat > "$config_file" <<EOF
           [connections.oh_lyme_dev]
           account = "$SNOWFLAKE_ACCOUNT"
