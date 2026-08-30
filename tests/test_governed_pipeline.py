@@ -1041,6 +1041,15 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "RETIRED" in migrations[10].source
 
 
+def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key() -> None:
+    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    assert "SNOWFLAKE_AUTH_METHOD=key_pair" in workflow
+    assert 'SNOWFLAKE_PRIVATE_KEY_PATH="$key_file"' in workflow
+    assert "atlas-data pipeline apply-migrations" in workflow
+    assert '--database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm' in workflow
+    assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
+
+
 def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_narrow() -> None:
     migrations = load_migrations()
     migration_sources = {item.version: item.source for item in migrations}
