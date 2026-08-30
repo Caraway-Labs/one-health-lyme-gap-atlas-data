@@ -1017,6 +1017,10 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V027",
         "V028",
         "V029",
+        "V030",
+        "V031",
+        "V032",
+        "V033",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1024,7 +1028,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 29
+    assert len(prod_plan) == 33
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -1035,6 +1039,24 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "BEGIN TRANSACTION" in migrations[9].source
     assert "WHEN OTHER THEN" in migrations[9].source
     assert "RETIRED" in migrations[10].source
+
+
+def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_narrow() -> None:
+    migrations = load_migrations()
+    migration_sources = {item.version: item.source for item in migrations}
+    grants = migration_sources["V030"]
+    assert "REVOKE INSERT, UPDATE ON ALL TABLES IN SCHEMA KNOWLEDGE_GRAPH" in grants
+    assert "PAPERS" in grants
+    assert "PAPER_QUERY_MATCHES" in grants
+    assert "PMC_FULL_TEXT_ARTIFACTS" not in grants
+    history = migration_sources["V031"]
+    assert "EXECUTE AS OWNER" in history
+    assert "token_hash = :TOKEN_HASH" in history
+    assert "MAX_TURNS < 1 OR MAX_TURNS > 12" in history
+    assert "GRANT SELECT ON TABLE GOVERNANCE.KG_CONVERSATION" not in history
+    ledger = migration_sources["V032"]
+    for field in ("pmid", "pmcid", "artifact_id", "license_url", "jats_sha256", "text_sha256"):
+        assert field in ledger
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
