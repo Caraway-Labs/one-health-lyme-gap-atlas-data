@@ -19,7 +19,34 @@ jobs:
       - run: uv run pytest -q
       - run: uv run dbt parse --project-dir dbt --profiles-dir dbt
       - run: docker build -t one-health-lyme-gap-atlas-data .
-      - name: Capability preflight
-        run: snow sql -c "$SNOWFLAKE_CONNECTION" -q "SELECT CURRENT_ACCOUNT()" --format JSON
+      - name: Configure and verify the DEV Snowflake service connection
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/oh-lyme-dev-pipeline-key.p8"
+          export SNOWFLAKE_HOME="$RUNNER_TEMP/snowflake-home"
+          config_file="$SNOWFLAKE_HOME/connections.toml"
+          trap 'rm -rf "$SNOWFLAKE_HOME" "$key_file"' EXIT
+          umask 077
+          mkdir -p "$SNOWFLAKE_HOME"
+          printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | base64 --decode > "$key_file"
+          cat > "$config_file" <<EOF
+          [connections.oh_lyme_dev]
+          account = "$SNOWFLAKE_ACCOUNT"
+          user = "$SNOWFLAKE_USER"
+          role = "$SNOWFLAKE_ROLE"
+          warehouse = "$SNOWFLAKE_WAREHOUSE"
+          database = "$SNOWFLAKE_DATABASE"
+          authenticator = "SNOWFLAKE_JWT"
+          private_key_path = "$key_file"
+          private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
+          EOF
+          snow sql -c oh_lyme_dev \
+            -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE()" --format JSON
         env:
-          SNOWFLAKE_CONNECTION: ${{ secrets.SNOWFLAKE_CONNECTION }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
