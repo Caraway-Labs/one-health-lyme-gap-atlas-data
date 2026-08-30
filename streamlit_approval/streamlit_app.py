@@ -111,6 +111,92 @@ def _paper_queue() -> list[dict[str, object]]:
     )
 
 
+def _operations_rows(view: str) -> list[dict[str, object]]:
+    """Query an allow-listed, redacted operational view only."""
+    allowed = {
+        "V_PIPELINE_OBSERVABILITY_OVERVIEW",
+        "V_PIPELINE_ARTIFACT_BACKLOG",
+        "V_PIPELINE_DISCOVERY_RUNS",
+        "V_PIPELINE_CATALOG_COVERAGE",
+        "V_PIPELINE_REGISTRATION_OUTCOMES",
+        "V_PIPELINE_SOURCE_GOVERNANCE",
+    }
+    if view not in allowed:
+        raise ValueError("Unsupported operational view")
+    return _rows(f"SELECT * FROM GOVERNANCE.{view}")
+
+
+def _artifact_backlog_page(
+    status: str, expired_only: bool, offset: int
+) -> tuple[int, list[dict[str, object]]]:
+    where = "WHERE (? = 'All' OR status = ?) AND (? = FALSE OR has_expired_lease = TRUE)"
+    parameters = [status, status, expired_only]
+    total = _rows(
+        f"SELECT COUNT(*) AS total FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where}", parameters
+    )
+    page = _rows(
+        f"SELECT artifact_id, catalog, matched_term, captured_at, byte_count, status, attempt_count, started_at, lease_expires_at, has_expired_lease, redacted_error FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where} ORDER BY captured_at, artifact_id LIMIT ? OFFSET ?",
+        [*parameters, 100, offset],
+    )
+    return int(total[0]["TOTAL"]), page
+
+
+def _render_operations(page: str) -> None:
+    if page == "Overview":
+        rows = _operations_rows("V_PIPELINE_OBSERVABILITY_OVERVIEW")
+        if not rows:
+            st.info("No governed pipeline-operational records are available yet.")
+            return
+        row = _lower_keys(rows[0])
+        st.subheader("Live pipeline overview")
+        st.caption(
+            "Historical inventory retains every artifact; active chain is the latest registerable chain; completed means durably committed registration."
+        )
+        columns = st.columns(4)
+        for column, label, key in zip(
+            columns,
+            (
+                "Historical inventory",
+                "Active registration chain",
+                "Durably processed",
+                "Unresolved",
+            ),
+            (
+                "captured_artifacts",
+                "active_chain_artifacts",
+                "completed_artifacts",
+                "unresolved_artifacts",
+            ),
+            strict=True,
+        ):
+            column.metric(label, f"{int(row.get(key) or 0):,}")
+        if row.get("expired_lease_artifacts") or row.get("failed_artifacts"):
+            st.warning(
+                "Expired leases and failed registrations are unresolved work, not active processing. This application cannot retry or reclaim them."
+            )
+    elif page == "Artifact backlog":
+        status = st.selectbox(
+            "Registration status", ["All", "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"]
+        )
+        expired = st.checkbox("Only show expired leases")
+        total, rows = _artifact_backlog_page(status, expired, 0)
+        st.caption(f"Showing up to 100 of {total:,} matching redacted artifacts.")
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        view = {
+            "Pipeline health": "V_PIPELINE_DISCOVERY_RUNS",
+            "Discovery coverage": "V_PIPELINE_CATALOG_COVERAGE",
+            "Registration outcomes": "V_PIPELINE_REGISTRATION_OUTCOMES",
+            "Governance & approval": "V_PIPELINE_SOURCE_GOVERNANCE",
+            "Run explorer": "V_PIPELINE_DISCOVERY_RUNS",
+        }[page]
+        st.subheader(page)
+        st.dataframe(_operations_rows(view), use_container_width=True, hide_index=True)
+        st.caption(
+            "Read-only governed metadata; payloads, request bodies, artifact locations, and credentials are excluded."
+        )
+
+
 st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("SOURCE_APPROVAL_CONSOLE")
 st.caption("DEV only | CDC/Socrata x5j9-wybp only | internal governed review")
@@ -139,15 +225,39 @@ try:
     )
     page = st.sidebar.radio(
         "View",
-        ("Paper review", "Queue", "Candidate detail", "Decision form", "Decision history"),
+        (
+            "Overview",
+            "Pipeline health",
+            "Artifact backlog",
+            "Discovery coverage",
+            "Registration outcomes",
+            "Governance & approval",
+            "Run explorer",
+            "Paper review",
+            "Queue",
+            "Candidate detail",
+            "Decision form",
+            "Decision history",
+        ),
     )
-    queue = _queue()
+    queue = _queue() if page == "Queue" else []
 except Exception as exc:
     st.error("Governance data is currently unavailable. No decision was recorded.")
     st.code(_safe_snowflake_error(exc), language="text")
     st.stop()
 
-if page == "Paper review":
+if page in {
+    "Overview",
+    "Pipeline health",
+    "Artifact backlog",
+    "Discovery coverage",
+    "Registration outcomes",
+    "Governance & approval",
+    "Run explorer",
+}:
+    _render_operations(page)
+
+elif page == "Paper review":
     st.subheader("Literature paper review")
     st.caption(
         "Review metadata, abstract, access evidence, and query matches. "
