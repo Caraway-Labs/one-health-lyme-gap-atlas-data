@@ -1044,7 +1044,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
 def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key() -> None:
     workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
     assert "SNOWFLAKE_AUTH_METHOD=key_pair" in workflow
-    assert 'SNOWFLAKE_PRIVATE_KEY_PATH="$key_file"' in workflow
+    assert 'SNOWFLAKE_PRIVATE_KEY_B64="$SNOWFLAKE_PRIVATE_KEY_B64"' in workflow
     assert "atlas-data pipeline apply-migrations" in workflow
     assert '--database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm' in workflow
     assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
