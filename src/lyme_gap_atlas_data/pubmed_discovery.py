@@ -194,7 +194,7 @@ def discover_pubmed(
                 (discovery_run_id, family, query_text, query_sha256, webenv, query_key, result_count,
                  next_retstart, batch_size, status, request_evidence, started_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, 'RUNNING',
-                        OBJECT_CONSTRUCT('provider', 'NCBI', 'operation', 'esearch'), %s)""",
+                        PARSE_JSON('{"provider":"NCBI","operation":"esearch"}'), %s)""",
                 (
                     run_id,
                     family,
@@ -224,7 +224,7 @@ def discover_pubmed(
                         (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
                          endpoint, redacted_request, started_at, finished_at)
                         VALUES (%s, %s, %s, 'PUBMED_EFETCH_METADATA', %s,
-                                OBJECT_CONSTRUCT('operation', 'efetch_metadata'), %s, %s)""",
+                                PARSE_JSON('{"operation":"efetch_metadata"}'), %s, %s)""",
                         (
                             str(uuid.uuid4()),
                             run_id,
@@ -260,7 +260,7 @@ def discover_pubmed(
                     (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose, endpoint,
                      redacted_request, status_code, started_at, finished_at)
                     VALUES (%s, %s, %s, 'PUBMED_EFETCH_METADATA', %s,
-                            OBJECT_CONSTRUCT('operation', 'efetch_metadata'), 200, %s, %s)""",
+                            PARSE_JSON('{"operation":"efetch_metadata"}'), 200, %s, %s)""",
                     (
                         request_id,
                         run_id,
