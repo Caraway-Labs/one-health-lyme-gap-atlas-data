@@ -99,10 +99,10 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     request_statement = next(
         statement for statement, _ in statements if "INGESTION_REQUESTS" in statement
     )
-    assert "OBJECT_CONSTRUCT" in evidence_statement
-    assert "OBJECT_CONSTRUCT" in request_statement
-    assert "PARSE_JSON" not in evidence_statement
-    assert "PARSE_JSON" not in request_statement
+    assert "OBJECT_CONSTRUCT" not in evidence_statement
+    assert "OBJECT_CONSTRUCT" not in request_statement
+    assert "PARSE_JSON" in evidence_statement
+    assert "PARSE_JSON" in request_statement
 
 
 def test_discovery_rejects_unbounded_or_non_review_execution() -> None:
