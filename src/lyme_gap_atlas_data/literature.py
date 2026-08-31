@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -96,6 +97,10 @@ class EntrezHistoryClient:
     def __init__(self, email: str, api_key: str | None = None) -> None:
         if not email:
             raise ValueError("NCBI email is required")
+        # httpx INFO output includes complete request URLs (including the NCBI
+        # contact and query). The governed worker records redacted evidence
+        # separately, so provider request logging must stay suppressed.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
         self._params = {"tool": "one_health_lyme_gap_atlas", "email": email}
         if api_key:
             self._params["api_key"] = api_key

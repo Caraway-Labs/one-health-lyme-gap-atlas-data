@@ -36,6 +36,7 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
+    statements: list[tuple[str, object]] = []
     calls = 0
 
     class Client:
@@ -60,6 +61,7 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
 
     class Cursor:
         def execute(self, query: str, values: object = None) -> None:
+            statements.append((query, values))
             events.append("raw" if "RAW_ARTIFACTS" in query else "sql")
 
     class Connection:
@@ -91,6 +93,16 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     assert result["record_count"] == 1
     assert calls == 2
     assert events.index("artifact") < events.index("raw")
+    evidence_statement = next(
+        statement for statement, _ in statements if "PUBMED_DISCOVERY_RUNS" in statement
+    )
+    request_statement = next(
+        statement for statement, _ in statements if "INGESTION_REQUESTS" in statement
+    )
+    assert "OBJECT_CONSTRUCT" in evidence_statement
+    assert "OBJECT_CONSTRUCT" in request_statement
+    assert "PARSE_JSON" not in evidence_statement
+    assert "PARSE_JSON" not in request_statement
 
 
 def test_discovery_rejects_unbounded_or_non_review_execution() -> None:

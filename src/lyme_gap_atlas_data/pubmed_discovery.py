@@ -24,7 +24,6 @@ from .literature import (
     build_pubmed_query,
     configuration_version,
 )
-from .redaction import redact_mapping
 from .settings import PipelineSettings
 
 logger = logging.getLogger(__name__)
@@ -194,7 +193,8 @@ def discover_pubmed(
                 """INSERT INTO KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS
                 (discovery_run_id, family, query_text, query_sha256, webenv, query_key, result_count,
                  next_retstart, batch_size, status, request_evidence, started_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, 'RUNNING', PARSE_JSON(%s), %s)""",
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, 'RUNNING',
+                        OBJECT_CONSTRUCT('provider', 'NCBI', 'operation', 'esearch', 'family', %s), %s)""",
                 (
                     run_id,
                     family,
@@ -204,11 +204,7 @@ def discover_pubmed(
                     history.query_key,
                     history.count,
                     batch_size,
-                    json.dumps(
-                        redact_mapping(
-                            {"provider": "NCBI", "operation": "esearch", "family": family}
-                        )
-                    ),
+                    family,
                     started_at,
                 ),
             )
@@ -228,21 +224,16 @@ def discover_pubmed(
                         """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
                         (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
                          endpoint, redacted_request, started_at, finished_at)
-                        VALUES (%s, %s, %s, 'PUBMED_EFETCH_METADATA', %s, PARSE_JSON(%s), %s, %s)""",
+                        VALUES (%s, %s, %s, 'PUBMED_EFETCH_METADATA', %s,
+                                OBJECT_CONSTRUCT('family', %s, 'retstart', %s, 'error_type', %s), %s, %s)""",
                         (
                             str(uuid.uuid4()),
                             run_id,
                             retstart // batch_size + 1,
                             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-                            json.dumps(
-                                redact_mapping(
-                                    {
-                                        "family": family,
-                                        "retstart": retstart,
-                                        "error_type": type(error).__name__,
-                                    }
-                                )
-                            ),
+                            family,
+                            retstart,
+                            type(error).__name__,
                             datetime.now(UTC),
                             datetime.now(UTC),
                         ),
@@ -272,21 +263,16 @@ def discover_pubmed(
                     """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
                     (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose, endpoint,
                      redacted_request, status_code, started_at, finished_at)
-                    VALUES (%s, %s, %s, 'PUBMED_EFETCH_METADATA', %s, PARSE_JSON(%s), 200, %s, %s)""",
+                    VALUES (%s, %s, %s, 'PUBMED_EFETCH_METADATA', %s,
+                            OBJECT_CONSTRUCT('family', %s, 'retstart', %s, 'retmax', %s), 200, %s, %s)""",
                     (
                         request_id,
                         run_id,
                         retstart // batch_size + 1,
                         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-                        json.dumps(
-                            redact_mapping(
-                                {
-                                    "family": family,
-                                    "retstart": retstart,
-                                    "retmax": cursor_at.batch_size,
-                                }
-                            )
-                        ),
+                        family,
+                        retstart,
+                        cursor_at.batch_size,
                         datetime.now(UTC),
                         datetime.now(UTC),
                     ),
