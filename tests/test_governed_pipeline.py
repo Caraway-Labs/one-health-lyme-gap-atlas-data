@@ -386,6 +386,14 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
         )
 
 
+def test_dev_image_deployment_updates_every_scheduled_job() -> None:
+    workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
+    assert ".jobs |= map(" in workflow
+    assert 'registry: "oh-lyme-data"' in workflow
+    assert 'doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json && exit 0' in workflow
+    assert ".jobs[0]" not in workflow
+
+
 def test_production_promotion_only_updates_an_existing_secret_preserving_app() -> None:
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"' in workflow
