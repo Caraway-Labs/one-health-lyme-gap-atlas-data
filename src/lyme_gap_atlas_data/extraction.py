@@ -133,8 +133,22 @@ class ExtractionCoordinator:
         self._cost = cost_estimator
 
     def process(self, request_id: str, full_request: str) -> dict[str, object]:
-        tokens = self._tokens(full_request)
-        route = extraction_provider(tokens)
+        """Build a validated contribution then publish it atomically."""
+        contribution = self.build_contribution(request_id, full_request)
+        return self._publisher.publish(contribution)
+
+    def route_for_request(self, full_request: str) -> str:
+        """Expose the deterministic model route for durable attempt provenance."""
+        return extraction_provider(self.estimate_input_tokens(full_request))
+
+    def estimate_input_tokens(self, full_request: str) -> int:
+        """Expose the deterministic input estimate used by the budget reservation."""
+        return self._tokens(full_request)
+
+    def build_contribution(self, request_id: str, full_request: str) -> GraphContribution:
+        """Reserve budget and return a validated, embedded contribution without publishing it."""
+        tokens = self.estimate_input_tokens(full_request)
+        route = self.route_for_request(full_request)
         if not self._budget.reserve(request_id, route, self._cost(route, tokens)):
             raise RuntimeError("extraction budget is unavailable")
         # The validated Pydantic schema is passed directly to the provider. The
@@ -162,4 +176,4 @@ class ExtractionCoordinator:
                     ]
                 }
             )
-        return self._publisher.publish(contribution)
+        return contribution

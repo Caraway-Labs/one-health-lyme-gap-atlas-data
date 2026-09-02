@@ -87,3 +87,12 @@ def test_cli_root_span_marks_a_failure_without_exception_text(
     assert "do-not-record" not in repr(span.attributes)
     assert span.status.status_code.name == "ERROR"
     assert (provider.flushes, provider.shutdowns) == (1, 1)
+
+
+def test_pmc_extraction_command_requires_explicit_confirmation() -> None:
+    command = next(
+        item for item in cli.pipeline_app.registered_commands if item.name == "pmc-extract"
+    )
+    assert command.callback is not None
+    with pytest.raises(typer.BadParameter, match="steward approves"):
+        command.callback(estimated_cost_usd=1.0, confirm=False)

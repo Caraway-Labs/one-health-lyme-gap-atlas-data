@@ -23,6 +23,7 @@ from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
 from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
 from .orchestration import run_discovery, run_production_schedule
+from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .settings import PipelineSettings
@@ -189,6 +190,21 @@ def pubmed_discover(
     """Capture bounded PubMed citation metadata; it cannot approve or fetch full text."""
     typer.echo(
         json.dumps(discover_pubmed(family, maximum_records=max_records, batch_size=batch_size))
+    )
+
+
+@pipeline_app.command("pmc-extract")
+def pmc_extract(
+    estimated_cost_usd: float = typer.Option(..., "--estimated-cost-usd", min=0.01, max=20.0),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Extract at most one steward-approved PMC Open Access paper in DEV."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm after a steward approves one paper")
+    typer.echo(
+        json.dumps(
+            run_pmc_extraction(estimated_cost_usd=estimated_cost_usd, settings=PipelineSettings())
+        )
     )
 
 

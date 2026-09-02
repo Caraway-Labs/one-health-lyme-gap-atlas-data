@@ -1038,6 +1038,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V032",
         "V033",
         "V034",
+        "V035",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1045,7 +1046,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 33
+    assert len(prod_plan) == 34
     assert "V034" not in {item["version"] for item in prod_plan}
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
@@ -1143,6 +1144,10 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     ledger = migration_sources["V032"]
     for field in ("pmid", "pmcid", "artifact_id", "license_url", "jats_sha256", "text_sha256"):
         assert field in ledger
+    extraction_lineage = migration_sources["V035"]
+    for field in ("lease_expires_at", "method_version", "extraction_attempt_id", "artifact_id"):
+        assert field in extraction_lineage
+    assert "ONE_HEALTH_LYME_GAP_ATLAS" not in extraction_lineage.replace("{{ DATABASE }}", "")
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
