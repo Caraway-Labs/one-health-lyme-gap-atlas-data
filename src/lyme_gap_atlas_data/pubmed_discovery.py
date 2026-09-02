@@ -222,15 +222,14 @@ def discover_pubmed(
                     cursor.execute(
                         """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
                         (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
-                         endpoint, redacted_request, started_at, finished_at)
+                         endpoint, redacted_request, created_at)
                         SELECT %s, %s, %s, 'PUBMED_EFETCH_METADATA', %s,
-                               PARSE_JSON('{"operation":"efetch_metadata"}'), %s, %s""",
+                               PARSE_JSON('{"operation":"efetch_metadata"}'), %s""",
                         (
                             str(uuid.uuid4()),
                             run_id,
                             retstart // batch_size + 1,
                             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-                            datetime.now(UTC),
                             datetime.now(UTC),
                         ),
                     )
@@ -258,15 +257,14 @@ def discover_pubmed(
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
                     (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose, endpoint,
-                     redacted_request, status_code, started_at, finished_at)
+                     redacted_request, status_code, created_at)
                     SELECT %s, %s, %s, 'PUBMED_EFETCH_METADATA', %s,
-                           PARSE_JSON('{"operation":"efetch_metadata"}'), 200, %s, %s""",
+                           PARSE_JSON('{"operation":"efetch_metadata"}'), 200, %s""",
                     (
                         request_id,
                         run_id,
                         retstart // batch_size + 1,
                         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-                        datetime.now(UTC),
                         datetime.now(UTC),
                     ),
                 )
