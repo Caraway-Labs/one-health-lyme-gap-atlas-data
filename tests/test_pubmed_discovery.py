@@ -103,6 +103,8 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     assert "OBJECT_CONSTRUCT" not in request_statement
     assert "PARSE_JSON" in evidence_statement
     assert "PARSE_JSON" in request_statement
+    assert "SELECT" in evidence_statement
+    assert "SELECT" in request_statement
 
 
 def test_discovery_rejects_unbounded_or_non_review_execution() -> None:
