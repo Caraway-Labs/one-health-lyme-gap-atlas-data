@@ -1039,6 +1039,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V033",
         "V034",
         "V035",
+        "V036",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1046,7 +1047,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 34
+    assert len(prod_plan) == 35
     assert "V034" not in {item["version"] for item in prod_plan}
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
@@ -1148,6 +1149,13 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     for field in ("lease_expires_at", "method_version", "extraction_attempt_id", "artifact_id"):
         assert field in extraction_lineage
     assert "ONE_HEALTH_LYME_GAP_ATLAS" not in extraction_lineage.replace("{{ DATABASE }}", "")
+    paper_review_owner = migration_sources["V036"]
+    assert "KG_PAPER_REVIEW_OWNER" in paper_review_owner
+    assert (
+        "GRANT OWNERSHIP ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" in paper_review_owner
+    )
+    assert "GRANT SELECT, UPDATE ON TABLE KNOWLEDGE_GRAPH.PAPERS" in paper_review_owner
+    assert "TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER" in paper_review_owner
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
