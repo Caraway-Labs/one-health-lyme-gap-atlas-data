@@ -977,6 +977,67 @@ def test_registration_command_emits_safe_failure_diagnostics(
     }
 
 
+def test_registration_failure_emits_one_safe_terminal_event_after_a_claim(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail_after_claim(
+        _config_sha256: str, _maximum_artifacts: int, _maximum_datasets: int, progress: object
+    ) -> dict[str, int | str]:
+        progress.phase = "dataset_merge"  # type: ignore[attr-defined]
+        progress.artifact_id = "artifact-123"  # type: ignore[attr-defined]
+        progress.claimed_artifacts = 12  # type: ignore[attr-defined]
+        progress.available_artifacts = 4410  # type: ignore[attr-defined]
+        raise RuntimeError("token=must-not-be-recorded")
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._register_completed_discovery", fail_after_claim
+    )
+
+    with pytest.raises(RuntimeError, match="must-not-be-recorded"):
+        register_completed_discovery("a" * 64, maximum_artifacts=12, maximum_datasets=1500)
+
+    terminal_events = [
+        record for record in caplog.records if record.getMessage() == "catalog_registration.failed"
+    ]
+    assert len(terminal_events) == 1
+    context = terminal_events[0].context
+    assert context["phase"] == "dataset_merge"
+    assert context["artifact_id"] == "artifact-123"
+    assert context["claimed_artifacts"] == 12
+    assert context["available_artifacts"] == 4410
+    assert context["retryable"] is False
+    assert "must-not-be-recorded" not in repr(context)
+
+
+def test_registration_command_reuses_the_worker_terminal_event(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    emitted: list[str] = []
+    error = RuntimeError("private detail")
+    diagnostics = {
+        "operation": "catalog_registration",
+        "registration_run_id": "run-123",
+        "phase": "remaining_count",
+        "error_type": "RuntimeError",
+    }
+    setattr(error, "catalog_registration_diagnostics", diagnostics)  # noqa: B010
+    setattr(error, "catalog_registration_terminal_emitted", True)  # noqa: B010
+    monkeypatch.setattr(
+        cli,
+        "register_latest_completed_discovery",
+        lambda *_: (_ for _ in ()).throw(error),
+    )
+    monkeypatch.setattr(cli.typer, "echo", emitted.append)
+
+    with pytest.raises(RuntimeError, match="private detail"):
+        cli.register_latest_discovery()
+
+    assert json.loads(emitted[0]) == {"status": "FAILED", **diagnostics}
+    assert not [
+        record for record in caplog.records if record.getMessage() == "catalog_registration.failed"
+    ]
+
+
 def test_cdc_profile_requires_deterministic_ordering() -> None:
     profile = load_cdc_profile()
     assert profile["resource_key"] == "cdc_lyme_x5j9_wybp"
