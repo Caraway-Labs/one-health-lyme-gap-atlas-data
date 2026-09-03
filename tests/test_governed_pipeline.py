@@ -1102,6 +1102,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V035",
         "V036",
         "V037",
+        "V038",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1226,6 +1227,12 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     streamlit_app = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
     assert "Recovery states can only be rejected" in streamlit_app
     assert '["rejected"] if recovery_selected' in streamlit_app
+    recovery_procedure = migration_sources["V038"]
+    assert "SP_REJECT_PMC_RECOVERY_BATCH" in recovery_procedure
+    assert "p.state IN ('retry_pending','retry_exhausted')" in recovery_procedure
+    assert "pmc_oa_recovery_rejection" in recovery_procedure
+    assert "GRANT SELECT ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery_procedure
+    assert "SP_REJECT_PMC_RECOVERY_BATCH(PARSE_JSON(?)" in streamlit_app
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source

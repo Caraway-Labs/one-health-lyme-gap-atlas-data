@@ -15,7 +15,7 @@ from snowflake.connector.errors import ProgrammingError
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
-DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037"}
+DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
 # They are an explicit, DEV-only recovery boundary—not a general checksum bypass.
