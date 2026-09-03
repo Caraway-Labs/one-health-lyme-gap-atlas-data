@@ -1,4 +1,5 @@
 import json
+import logging
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,8 +18,11 @@ from lyme_gap_atlas_data.catalog_registration import (
     CatalogDataset,
     CatalogResource,
     RegistrationDataset,
+    RegistrationProgress,
+    _cgroup_memory_context,
     _claim_registration_batch,
     _completed_artifacts,
+    _log_registration_phase,
     _write_registration_dataset_batch,
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
@@ -1007,6 +1011,63 @@ def test_registration_failure_emits_one_safe_terminal_event_after_a_claim(
     assert context["available_artifacts"] == 4410
     assert context["retryable"] is False
     assert "must-not-be-recorded" not in repr(context)
+
+
+def test_registration_phase_boundary_records_safe_cgroup_memory(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    values = {
+        "memory.current": "419430400",
+        "memory.max": "536870912",
+        "memory.events": "low 0\nhigh 1\nmax 2\noom 3\noom_kill 4\nunknown 99",
+    }
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
+        lambda path: values.get(path.name),
+    )
+    progress = RegistrationProgress(
+        registration_run_id="run-123",
+        artifact_id="artifact-123",
+        claimed_artifacts=12,
+        available_artifacts=4410,
+    )
+
+    with caplog.at_level(logging.INFO, logger="lyme_gap_atlas_data.catalog_registration"):
+        _log_registration_phase(progress, "artifact_read", catalog_id="DATA_GOV", dataset_offset=0)
+
+    event = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "catalog_registration.phase_started"
+    )
+    assert progress.phase == "artifact_read"
+    assert event.context == {
+        "registration_run_id": "run-123",
+        "phase": "artifact_read",
+        "artifact_id": "artifact-123",
+        "catalog_id": "DATA_GOV",
+        "dataset_offset": 0,
+        "dataset_count": None,
+        "claimed_artifacts": 12,
+        "available_artifacts": 4410,
+        "cgroup_memory_current_bytes": 419430400,
+        "cgroup_memory_limit_bytes": 536870912,
+        "cgroup_memory_events": {"low": 0, "high": 1, "max": 2, "oom": 3, "oom_kill": 4},
+    }
+
+
+def test_cgroup_memory_context_is_safe_when_files_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file", lambda _path: None
+    )
+
+    assert _cgroup_memory_context() == {
+        "cgroup_memory_current_bytes": None,
+        "cgroup_memory_limit_bytes": None,
+        "cgroup_memory_events": {},
+    }
 
 
 def test_registration_command_reuses_the_worker_terminal_event(
