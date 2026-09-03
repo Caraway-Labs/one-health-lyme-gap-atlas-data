@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
-import tarfile
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -37,7 +35,8 @@ from .pmc_graph import (
 )
 from .pubmed_discovery import _spaces_client
 
-_OA_ENDPOINT = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
+_OAI_ENDPOINT = "https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/"
+_OAI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
 
 
 @dataclass(frozen=True)
@@ -102,32 +101,40 @@ class JatsFetcher(Protocol):
 
 
 class PMCOpenAccessClient:
-    """Fetch an OA package only after the ledger has granted a paper claim."""
+    """Fetch reusable JATS only after the ledger has granted a paper claim."""
 
     def fetch_jats(self, pmcid: str) -> bytes:
         if not pmcid.startswith("PMC"):
             raise ValueError("PMC identifier is required")
-        manifest = httpx.get(_OA_ENDPOINT, params={"id": pmcid}, timeout=30)
-        manifest.raise_for_status()
-        root = ET.fromstring(manifest.content)
-        links = [node.attrib.get("href", "") for node in root.findall(".//link")]
-        package_url = next((link for link in links if link.endswith(".tar.gz")), "")
-        if package_url.startswith("ftp://ftp.ncbi.nlm.nih.gov/"):
-            package_url = "https://" + package_url.removeprefix("ftp://")
-        if not package_url.startswith("https://"):
-            raise ValueError("PMC Open Access package is unavailable")
-        package = httpx.get(package_url, timeout=120)
-        package.raise_for_status()
-        with tarfile.open(fileobj=io.BytesIO(package.content), mode="r:gz") as archive:
-            member = next(
-                (item for item in archive.getmembers() if item.name.endswith(".nxml")), None
+        numeric_pmcid = pmcid.removeprefix("PMC")
+        if not numeric_pmcid.isdecimal():
+            raise ValueError("PMC identifier is malformed")
+        response = httpx.get(
+            _OAI_ENDPOINT,
+            params={
+                "verb": "GetRecord",
+                "identifier": f"oai:pubmedcentral.nih.gov:{numeric_pmcid}",
+                "metadataPrefix": "pmc",
+            },
+            headers=_OAI_HEADERS,
+            timeout=30,
+        )
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        error = next((node for node in root.iter() if _local_name(node.tag) == "error"), None)
+        if error is not None:
+            raise ValueError(
+                "PMC OAI full text is unavailable"
+                + (f": {error.attrib.get('code')}" if error.attrib.get("code") else "")
             )
-            if member is None:
-                raise ValueError("PMC Open Access package has no JATS XML")
-            source = archive.extractfile(member)
-            if source is None:
-                raise ValueError("PMC JATS XML cannot be read")
-            return source.read()
+        article = next((node for node in root.iter() if _local_name(node.tag) == "article"), None)
+        if article is None:
+            raise ValueError("PMC OAI response has no reusable JATS XML")
+        return bytes(ET.tostring(article, encoding="utf-8"))
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", maxsplit=1)[-1]
 
 
 def build_extraction_request(

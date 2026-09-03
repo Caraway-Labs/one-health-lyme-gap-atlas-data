@@ -15,6 +15,10 @@ _SPACE = re.compile(r"\s+")
 _OPEN_LICENSE_HOSTS = ("creativecommons.org/licenses/", "creativecommons.org/publicdomain/")
 
 
+def _nodes(root: ET.Element, name: str) -> list[ET.Element]:
+    return [node for node in root.iter() if node.tag.rsplit("}", maxsplit=1)[-1] == name]
+
+
 @dataclass(frozen=True)
 class AdmittedFullText:
     pmcid: str
@@ -30,18 +34,30 @@ def admit_pmc_open_access(jats: bytes) -> AdmittedFullText:
     language = root.attrib.get("{http://www.w3.org/XML/1998/namespace}lang", "").casefold()
     if language not in {"en", "eng", "english"}:
         raise ValueError("PMC article is not English")
-    pmcid = "".join(root.findtext(".//article-id[@pub-id-type='pmc']", default="").split())
+    pmcid = "".join(
+        next(
+            (
+                node.text or ""
+                for node in _nodes(root, "article-id")
+                if node.attrib.get("pub-id-type") in {"pmc", "pmcid"}
+            ),
+            "",
+        ).split()
+    )
     if not pmcid.startswith("PMC"):
         raise ValueError("PMC identifier is missing")
     license_url = ""
-    for license_node in root.findall(".//license"):
-        candidate = license_node.attrib.get("{http://www.w3.org/1999/xlink}href", "")
-        if any(host in candidate.casefold() for host in _OPEN_LICENSE_HOSTS):
-            license_url = candidate
+    for license_node in _nodes(root, "license"):
+        for link_node in license_node.iter():
+            candidate = link_node.attrib.get("{http://www.w3.org/1999/xlink}href", "")
+            if any(host in candidate.casefold() for host in _OPEN_LICENSE_HOSTS):
+                license_url = candidate
+                break
+        if license_url:
             break
     if not license_url:
         raise ValueError("PMC Open Access license evidence is missing")
-    body = root.find(".//body")
+    body = next(iter(_nodes(root, "body")), None)
     if body is None:
         raise ValueError("JATS body is missing")
     normalized = _SPACE.sub(" ", " ".join(body.itertext())).strip()
