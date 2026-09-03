@@ -16,7 +16,12 @@ from lyme_gap_atlas_kg import (
     SemanticEdge,
 )
 
-from lyme_gap_atlas_data.pmc_extraction_worker import ApprovedPaper, PMCExtractionWorker
+from lyme_gap_atlas_data import pmc_extraction_worker
+from lyme_gap_atlas_data.pmc_extraction_worker import (
+    ApprovedPaper,
+    PMCExtractionWorker,
+    PMCOpenAccessClient,
+)
 
 JATS = b"""<article xml:lang="en" xmlns:xlink="http://www.w3.org/1999/xlink"><front><article-meta>
 <article-id pub-id-type="pmc">PMC123</article-id><permissions><license xlink:href="https://creativecommons.org/licenses/by/4.0/"/>
@@ -25,6 +30,69 @@ JATS = b"""<article xml:lang="en" xmlns:xlink="http://www.w3.org/1999/xlink"><fr
 NON_OA_JATS = JATS.replace(
     b"creativecommons.org/licenses/by/4.0", b"example.org/all-rights-reserved"
 )
+
+OAI_JATS = b"""<article xml:lang="en" xmlns="https://jats.nlm.nih.gov/ns/archiving/1.4"
+xmlns:xlink="http://www.w3.org/1999/xlink"><front><article-meta>
+<article-id pub-id-type="pmcid">PMC123</article-id><permissions>
+<license><license-p><ext-link xlink:href="https://creativecommons.org/licenses/by/4.0/"/>
+</license-p></license></permissions>
+</article-meta></front><body><sec><p>Approved evidence.</p></sec></body></article>"""
+OAI_RESPONSE = (
+    b"""<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"><GetRecord>
+<record><metadata>"""
+    + OAI_JATS
+    + b"""</metadata></record></GetRecord></OAI-PMH>"""
+)
+
+
+class HTTPResponse:
+    def __init__(self, payload: bytes) -> None:
+        self.content = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+def test_oai_client_fetches_only_full_text_jats_for_requested_pmcid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def get(*args: object, **kwargs: object) -> HTTPResponse:
+        calls.append(kwargs)
+        return HTTPResponse(OAI_RESPONSE)
+
+    monkeypatch.setattr(pmc_extraction_worker.httpx, "get", get)
+    jats = PMCOpenAccessClient().fetch_jats("PMC123")
+    assert b"<ns0:article" in jats
+    assert calls == [
+        {
+            "params": {
+                "verb": "GetRecord",
+                "identifier": "oai:pubmedcentral.nih.gov:123",
+                "metadataPrefix": "pmc",
+            },
+            "headers": {"Accept-Encoding": "gzip, deflate"},
+            "timeout": 30,
+        }
+    ]
+
+
+def test_oai_client_rejects_unavailable_full_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    unavailable = b"""<OAI-PMH><error code="idDoesNotExist">not reusable</error></OAI-PMH>"""
+    monkeypatch.setattr(
+        pmc_extraction_worker.httpx, "get", lambda *args, **kwargs: HTTPResponse(unavailable)
+    )
+    with pytest.raises(ValueError, match="unavailable: idDoesNotExist"):
+        PMCOpenAccessClient().fetch_jats("PMC123")
+
+
+def test_namespaced_oai_jats_preserves_open_access_admission() -> None:
+    from lyme_gap_atlas_data.pmc_graph import admit_pmc_open_access
+
+    admitted = admit_pmc_open_access(OAI_JATS)
+    assert admitted.pmcid == "PMC123"
+    assert admitted.normalized_text == "Approved evidence."
 
 
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
