@@ -347,17 +347,23 @@ elif page == "Paper review":
             st.error("Confirm the immutable batch decision before submission.")
         else:
             try:
-                response = _rows(
-                    "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(PARSE_JSON(?), ?, ?, ?, ?, ?)",
-                    [
-                        json.dumps(selected),
-                        decision,
-                        rationale,
-                        viewer,
-                        APP_VERSION,
-                        str(uuid.uuid4()),
-                    ],
-                )
+                if recovery_selected:
+                    response = _rows(
+                        "CALL GOVERNANCE.SP_REJECT_PMC_RECOVERY_BATCH(PARSE_JSON(?), ?, ?, ?, ?)",
+                        [json.dumps(selected), rationale, viewer, APP_VERSION, str(uuid.uuid4())],
+                    )
+                else:
+                    response = _rows(
+                        "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(PARSE_JSON(?), ?, ?, ?, ?, ?)",
+                        [
+                            json.dumps(selected),
+                            decision,
+                            rationale,
+                            viewer,
+                            APP_VERSION,
+                            str(uuid.uuid4()),
+                        ],
+                    )
                 st.success(f"Recorded {decision} for {len(selected)} papers.")
                 st.json(response)
             except Exception as exc:
