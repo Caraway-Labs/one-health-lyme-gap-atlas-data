@@ -230,12 +230,18 @@ def register_latest_discovery(
         # App Platform can omit traceback output for failed post-deploy jobs.
         # Emit only redacted, correlation-safe diagnostics before retaining the
         # non-zero status for the scheduler.
-        diagnostics = {
-            "status": "FAILED",
-            "operation": "catalog_registration",
-            **_safe_failure_diagnostics(error),
-        }
-        logger.error("catalog_registration.failed", extra={"context": diagnostics})
+        emitted = getattr(error, "catalog_registration_diagnostics", None)
+        diagnostics = (
+            {"status": "FAILED", **emitted}
+            if isinstance(emitted, dict)
+            else {
+                "status": "FAILED",
+                "operation": "catalog_registration",
+                **_safe_failure_diagnostics(error),
+            }
+        )
+        if not getattr(error, "catalog_registration_terminal_emitted", False):
+            logger.error("catalog_registration.failed", extra={"context": diagnostics})
         typer.echo(json.dumps(diagnostics))
         raise
     typer.echo(json.dumps(result))

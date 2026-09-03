@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import TextIOWrapper
+from time import monotonic
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
@@ -73,6 +74,36 @@ class RegistrationDataset:
     ingestion_run_id: str
     ingestion_request_id: str
     term: str
+
+
+@dataclass
+class RegistrationProgress:
+    """Safe, bounded state retained only to make one failed invocation diagnosable."""
+
+    registration_run_id: str
+    phase: str = "runtime_initialization"
+    artifact_id: str | None = None
+    claimed_artifacts: int = 0
+    available_artifacts: int | None = None
+
+
+def _safe_failure_diagnostics(
+    error: Exception, progress: RegistrationProgress, started: float
+) -> dict[str, object | None]:
+    """Return terminal diagnostics without serializing exception text or artifact contents."""
+    return {
+        "registration_run_id": progress.registration_run_id,
+        "phase": progress.phase,
+        "artifact_id": progress.artifact_id,
+        "claimed_artifacts": progress.claimed_artifacts,
+        "available_artifacts": progress.available_artifacts,
+        "duration_ms": int((monotonic() - started) * 1000),
+        "error_type": type(error).__name__,
+        "error_code": getattr(error, "errno", None),
+        "sql_state": getattr(error, "sqlstate", None),
+        "snowflake_query_id": getattr(error, "sfqid", None),
+        "retryable": isinstance(error, (ConnectionError, TimeoutError)),
+    }
 
 
 def _stable_id(*values: str) -> str:
@@ -645,9 +676,36 @@ def register_completed_discovery(
         raise ValueError("maximum_artifacts must be between 1 and 100")
     if not 1 <= maximum_datasets <= 10_000:
         raise ValueError("maximum_datasets must be between 1 and 10,000")
+    progress = RegistrationProgress(registration_run_id=str(uuid4()))
+    started = monotonic()
+    try:
+        return _register_completed_discovery(
+            config_sha256, maximum_artifacts, maximum_datasets, progress
+        )
+    except Exception as error:
+        diagnostics = {
+            "operation": "catalog_registration",
+            "config_sha256": config_sha256,
+            "maximum_artifacts": maximum_artifacts,
+            "maximum_datasets": maximum_datasets,
+            **_safe_failure_diagnostics(error, progress, started),
+        }
+        logger.error("catalog_registration.failed", extra={"context": diagnostics})
+        setattr(error, "catalog_registration_diagnostics", diagnostics)  # noqa: B010
+        setattr(error, "catalog_registration_terminal_emitted", True)  # noqa: B010
+        raise
+
+
+def _register_completed_discovery(
+    config_sha256: str,
+    maximum_artifacts: int,
+    maximum_datasets: int,
+    progress: RegistrationProgress,
+) -> dict[str, int | str]:
+    """Perform the bounded registration after the caller creates failure telemetry state."""
     settings = PipelineSettings()
     s3 = _spaces_client(settings)
-    registration_run_id = str(uuid4())
+    registration_run_id = progress.registration_run_id
     registered_datasets = 0
     registered_resources = 0
     observed_artifacts = 0
@@ -656,9 +714,12 @@ def register_completed_discovery(
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
         with connection.cursor() as cursor:
+            progress.phase = "claim"
             artifacts, available_artifacts = _claim_registration_batch(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
             )
+            progress.claimed_artifacts = len(artifacts)
+            progress.available_artifacts = available_artifacts
             connection.commit()
             logger.info(
                 "catalog_registration.claimed",
@@ -682,6 +743,7 @@ def register_completed_discovery(
                 term,
                 dataset_offset,
             ) in enumerate(artifacts):
+                progress.artifact_id = artifact_id
                 # Do not read or normalize further artifacts once this pass has
                 # reached its declared dataset boundary.  Release their leases
                 # immediately so another bounded pass can claim them.
@@ -693,6 +755,7 @@ def register_completed_discovery(
                     connection.commit()
                     break
                 try:
+                    progress.phase = "artifact_read"
                     datasets = normalize_catalog_payload(
                         catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
                     )
@@ -728,6 +791,7 @@ def register_completed_discovery(
                     continue
                 next_offset = dataset_offset
                 try:
+                    progress.phase = "dataset_merge"
                     for start in range(0, len(selected), REGISTRATION_DATASET_CHUNK_SIZE):
                         artifact_datasets = [
                             RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
@@ -766,6 +830,7 @@ def register_completed_discovery(
                         # A successfully merged chunk must survive a later timeout. The
                         # next invocation resumes from this durable offset rather than
                         # replaying a large artifact-level MERGE.
+                        progress.phase = "checkpoint"
                         connection.commit()
                 except Exception as error:
                     # The current uncommitted merge is rolled back, while prior chunk
@@ -792,10 +857,12 @@ def register_completed_discovery(
                 if next_offset < len(datasets):
                     _release_partial_registration_artifact(cursor, artifact_id, registration_run_id)
                     connection.commit()
+            progress.phase = "remaining_count"
             processed_datasets = registered_datasets
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
+    progress.phase = "completed"
     logger.info(
         "catalog_registration.completed",
         extra={
