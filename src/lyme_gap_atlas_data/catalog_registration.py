@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import TextIOWrapper
+from pathlib import Path
 from time import monotonic
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -104,6 +105,65 @@ def _safe_failure_diagnostics(
         "snowflake_query_id": getattr(error, "sfqid", None),
         "retryable": isinstance(error, (ConnectionError, TimeoutError)),
     }
+
+
+def _read_cgroup_file(path: Path) -> str | None:
+    """Read one bounded cgroup metric without allowing observability to fail registration."""
+    try:
+        return path.read_text(encoding="utf-8")[:512].strip()
+    except OSError:
+        return None
+
+
+def _cgroup_memory_context() -> dict[str, object]:
+    """Return safe Linux cgroup memory values; local and non-cgroup runs degrade cleanly."""
+    root = Path("/sys/fs/cgroup")
+    current = _read_cgroup_file(root / "memory.current")
+    maximum = _read_cgroup_file(root / "memory.max")
+    event_lines = _read_cgroup_file(root / "memory.events")
+    events: dict[str, int] = {}
+    if event_lines is not None:
+        for line in event_lines.splitlines():
+            key, _, value = line.partition(" ")
+            if key in {"low", "high", "max", "oom", "oom_kill"} and value.isdigit():
+                events[key] = int(value)
+    return {
+        "cgroup_memory_current_bytes": int(current)
+        if current is not None and current.isdigit()
+        else None,
+        "cgroup_memory_limit_bytes": int(maximum)
+        if maximum is not None and maximum.isdigit()
+        else None,
+        "cgroup_memory_events": events,
+    }
+
+
+def _log_registration_phase(
+    progress: RegistrationProgress,
+    phase: str,
+    *,
+    catalog_id: str | None = None,
+    dataset_offset: int | None = None,
+    dataset_count: int | None = None,
+) -> None:
+    """Synchronously mark a process boundary before a potentially fatal operation."""
+    progress.phase = phase
+    logger.info(
+        "catalog_registration.phase_started",
+        extra={
+            "context": {
+                "registration_run_id": progress.registration_run_id,
+                "phase": phase,
+                "artifact_id": progress.artifact_id,
+                "catalog_id": catalog_id,
+                "dataset_offset": dataset_offset,
+                "dataset_count": dataset_count,
+                "claimed_artifacts": progress.claimed_artifacts,
+                "available_artifacts": progress.available_artifacts,
+                **_cgroup_memory_context(),
+            }
+        },
+    )
 
 
 def _stable_id(*values: str) -> str:
@@ -755,9 +815,27 @@ def _register_completed_discovery(
                     connection.commit()
                     break
                 try:
-                    progress.phase = "artifact_read"
+                    _log_registration_phase(
+                        progress,
+                        "artifact_read",
+                        catalog_id=catalog_id,
+                        dataset_offset=dataset_offset,
+                    )
                     datasets = normalize_catalog_payload(
                         catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
+                    )
+                    logger.info(
+                        "catalog_registration.artifact_normalized",
+                        extra={
+                            "context": {
+                                "registration_run_id": registration_run_id,
+                                "artifact_id": artifact_id,
+                                "catalog_id": catalog_id,
+                                "dataset_offset": dataset_offset,
+                                "dataset_count": len(datasets),
+                                **_cgroup_memory_context(),
+                            }
+                        },
                     )
                 except Exception as error:
                     # A read/normalization failure has no pending writes for
@@ -791,7 +869,6 @@ def _register_completed_discovery(
                     continue
                 next_offset = dataset_offset
                 try:
-                    progress.phase = "dataset_merge"
                     for start in range(0, len(selected), REGISTRATION_DATASET_CHUNK_SIZE):
                         artifact_datasets = [
                             RegistrationDataset(dataset, artifact_id, run_id, request_id, term)
@@ -799,6 +876,13 @@ def _register_completed_discovery(
                         ]
                         if not artifact_datasets:
                             continue
+                        _log_registration_phase(
+                            progress,
+                            "dataset_merge",
+                            catalog_id=catalog_id,
+                            dataset_offset=next_offset,
+                            dataset_count=len(artifact_datasets),
+                        )
                         registered_resources += _write_registration_dataset_batch(
                             cursor, artifact_datasets, datetime.now(UTC)
                         )
@@ -830,7 +914,13 @@ def _register_completed_discovery(
                         # A successfully merged chunk must survive a later timeout. The
                         # next invocation resumes from this durable offset rather than
                         # replaying a large artifact-level MERGE.
-                        progress.phase = "checkpoint"
+                        _log_registration_phase(
+                            progress,
+                            "checkpoint",
+                            catalog_id=catalog_id,
+                            dataset_offset=next_offset,
+                            dataset_count=len(artifact_datasets),
+                        )
                         connection.commit()
                 except Exception as error:
                     # The current uncommitted merge is rolled back, while prior chunk
