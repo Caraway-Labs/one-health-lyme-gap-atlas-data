@@ -14,6 +14,7 @@ def test_vpc_worker_provisioning_preserves_private_graph_boundary() -> None:
     assert '"NEO4J_URI=bolt://$Neo4jPrivateIp:7687"' in configurator
     assert "doctl registry docker-config oh-lyme-data --expiry-seconds 3600" in configurator
     assert "Worker SSH did not become ready; secret transfer was not attempted." in configurator
+    assert "tr -d '\\r' </tmp/install-pmc-worker.sh" in configurator
 
 
 def test_vpc_worker_configuration_overrides_only_governed_runtime_values() -> None:
