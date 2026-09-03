@@ -135,3 +135,18 @@ def test_dev_job_is_bounded_and_uses_runtime_contact_secret() -> None:
         "SNOWFLAKE_PRIVATE_KEY_B64",
         "SPACES_SECRET_ACCESS_KEY",
     }
+
+
+def test_pmc_extraction_job_is_one_paper_private_and_fail_closed() -> None:
+    spec = yaml.safe_load(Path(".do/app.yaml").read_text(encoding="utf-8"))
+    job = next(item for item in spec["jobs"] if item["name"] == "pmc-extraction")
+    assert job["kind"] == "SCHEDULED"
+    assert job["schedule"] == {"cron": "45 8 * * 1", "time_zone": "America/Denver"}
+    assert job["run_command"].endswith("pmc-extract --estimated-cost-usd 0.10 --confirm")
+    envs = {item["key"]: item for item in job["envs"]}
+    assert envs["TOPX_ENV"]["value"] == "dev"
+    assert envs["PAPERS_REQUIRE_HUMAN_REVIEW"]["value"] == "true"
+    assert envs["KG_CHAT_ENABLED"]["value"] == "false"
+    assert {"GROQ_API_KEY", "OPENAI_API_KEY", "NEO4J_URI", "NEO4J_RUNTIME_PASSWORD"} <= {
+        key for key, value in envs.items() if value.get("type") == "SECRET"
+    }
