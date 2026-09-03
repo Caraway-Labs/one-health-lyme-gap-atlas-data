@@ -39,7 +39,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Protected runtime environment transfer failed.' }
   & scp -q $dockerFile "root@${SshHost}:/tmp/docker-config.json"
   if ($LASTEXITCODE -ne 0) { throw 'Registry credential transfer failed.' }
-  & ssh -o BatchMode=yes "root@$SshHost" "set -e; chmod 0700 /tmp/install-pmc-worker.sh; IMAGE_DIGEST='$ImageDigest' /tmp/install-pmc-worker.sh"
+  & ssh -o BatchMode=yes "root@$SshHost" "set -e; tr -d '\r' </tmp/install-pmc-worker.sh >/tmp/install-pmc-worker.lf; mv /tmp/install-pmc-worker.lf /tmp/install-pmc-worker.sh; chmod 0700 /tmp/install-pmc-worker.sh; IMAGE_DIGEST='$ImageDigest' /tmp/install-pmc-worker.sh"
   if ($LASTEXITCODE -ne 0) { throw 'Worker installation failed.' }
 } finally {
   Remove-Item $envFile, $dockerFile -Force -ErrorAction SilentlyContinue
