@@ -321,8 +321,20 @@ elif page == "Paper review":
     if not steward:
         st.info("You have read-only access. An active data steward must submit decisions.")
         st.stop()
+    recovery_selected = any(
+        str(row["STATE"]) in {"retry_pending", "retry_exhausted"}
+        for row in displayed
+        if str(row["PMID"]) in selected
+    )
+    if recovery_selected:
+        st.warning(
+            "PMC Open Access admission failed for a selected paper. Recovery states can only be rejected."
+        )
     with st.form("paper-review-batch"):
-        decision = st.selectbox("Batch decision", ["approved", "rejected", "deferred"])
+        decision = st.selectbox(
+            "Batch decision",
+            ["rejected"] if recovery_selected else ["approved", "rejected", "deferred"],
+        )
         rationale = st.text_area("Rationale", max_chars=10_000)
         confirm = st.checkbox("I confirm this creates immutable decisions for every selected PMID.")
         submitted = st.form_submit_button("Record paper decisions")
