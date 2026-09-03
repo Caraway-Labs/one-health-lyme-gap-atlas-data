@@ -22,7 +22,25 @@ if (-not $ready) { throw 'Worker SSH did not become ready; secret transfer was n
 $envFile = New-TemporaryFile
 $dockerFile = New-TemporaryFile
 try {
-  $managedNames = @('TOPX_ENV', 'PAPERS_REQUIRE_HUMAN_REVIEW', 'KG_CHAT_ENABLED', 'NEO4J_URI')
+  $managedNames = @(
+    'TOPX_ENV', 'PAPERS_REQUIRE_HUMAN_REVIEW', 'KG_CHAT_ENABLED', 'NEO4J_URI',
+    'SNOWFLAKE_PRIVATE_KEY_PATH', 'SNOWFLAKE_PRIVATE_KEY_B64'
+  )
+  $keyPathLine = Get-Content -LiteralPath $RuntimeEnvFile |
+    Where-Object { $_ -match '^SNOWFLAKE_PRIVATE_KEY_PATH=.+' } |
+    Select-Object -First 1
+  $keyB64Line = Get-Content -LiteralPath $RuntimeEnvFile |
+    Where-Object { $_ -match '^SNOWFLAKE_PRIVATE_KEY_B64=.+' } |
+    Select-Object -First 1
+  if ($keyB64Line) {
+    $snowflakeKeyB64 = $keyB64Line.Split('=', 2)[1]
+  } elseif ($keyPathLine) {
+    $keyPath = $keyPathLine.Split('=', 2)[1]
+    if (-not (Test-Path -LiteralPath $keyPath)) { throw 'Snowflake private key path is unavailable.' }
+    $snowflakeKeyB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($keyPath))
+  } else {
+    throw 'A Snowflake private key path or base64 value is required for the worker.'
+  }
   $lines = Get-Content -LiteralPath $RuntimeEnvFile |
     Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } |
     Where-Object { $managedNames -notcontains ($_.Split('=', 2)[0]) }
@@ -30,6 +48,7 @@ try {
   $lines += 'PAPERS_REQUIRE_HUMAN_REVIEW=true'
   $lines += 'KG_CHAT_ENABLED=false'
   $lines += "NEO4J_URI=bolt://$Neo4jPrivateIp:7687"
+  $lines += "SNOWFLAKE_PRIVATE_KEY_B64=$snowflakeKeyB64"
   Set-Content -LiteralPath $envFile -Value ($lines -join "`n") -Encoding utf8 -NoNewline
   & doctl registry docker-config oh-lyme-data --expiry-seconds 3600 | Set-Content -LiteralPath $dockerFile -Encoding utf8 -NoNewline
   if ($LASTEXITCODE -ne 0) { throw 'Unable to obtain a short-lived read-only registry credential.' }
@@ -39,7 +58,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Protected runtime environment transfer failed.' }
   & scp -q $dockerFile "root@${SshHost}:/tmp/docker-config.json"
   if ($LASTEXITCODE -ne 0) { throw 'Registry credential transfer failed.' }
-  & ssh -o BatchMode=yes "root@$SshHost" "set -e; tr -d '\r' </tmp/install-pmc-worker.sh >/tmp/install-pmc-worker.lf; mv /tmp/install-pmc-worker.lf /tmp/install-pmc-worker.sh; chmod 0700 /tmp/install-pmc-worker.sh; IMAGE_DIGEST='$ImageDigest' /tmp/install-pmc-worker.sh"
+  & ssh -o BatchMode=yes "root@$SshHost" "set -e; trap 'rm -f /tmp/pmc-runtime.env /tmp/docker-config.json /tmp/install-pmc-worker.sh /tmp/install-pmc-worker.lf' EXIT; tr -d '\r' </tmp/install-pmc-worker.sh >/tmp/install-pmc-worker.lf; mv /tmp/install-pmc-worker.lf /tmp/install-pmc-worker.sh; chmod 0700 /tmp/install-pmc-worker.sh; IMAGE_DIGEST='$ImageDigest' /tmp/install-pmc-worker.sh"
   if ($LASTEXITCODE -ne 0) { throw 'Worker installation failed.' }
 } finally {
   Remove-Item $envFile, $dockerFile -Force -ErrorAction SilentlyContinue

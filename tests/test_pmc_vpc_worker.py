@@ -15,13 +15,16 @@ def test_vpc_worker_provisioning_preserves_private_graph_boundary() -> None:
     assert "doctl registry docker-config oh-lyme-data --expiry-seconds 3600" in configurator
     assert "Worker SSH did not become ready; secret transfer was not attempted." in configurator
     assert "tr -d '\\r' </tmp/install-pmc-worker.sh" in configurator
+    assert "SNOWFLAKE_PRIVATE_KEY_PATH', 'SNOWFLAKE_PRIVATE_KEY_B64" in configurator
+    assert "[Convert]::ToBase64String([IO.File]::ReadAllBytes($keyPath))" in configurator
+    assert '"SNOWFLAKE_PRIVATE_KEY_B64=$snowflakeKeyB64"' in configurator
+    assert "trap 'rm -f /tmp/pmc-runtime.env /tmp/docker-config.json" in configurator
 
 
 def test_vpc_worker_configuration_overrides_only_governed_runtime_values() -> None:
     configurator = Path("infra/Configure-PmcExtractionWorker.ps1").read_text(encoding="utf-8")
     assert (
-        "$managedNames = @('TOPX_ENV', 'PAPERS_REQUIRE_HUMAN_REVIEW', "
-        "'KG_CHAT_ENABLED', 'NEO4J_URI')"
+        "'TOPX_ENV', 'PAPERS_REQUIRE_HUMAN_REVIEW', 'KG_CHAT_ENABLED', 'NEO4J_URI',"
     ) in configurator
     assert "PAPERS_REQUIRE_HUMAN_REVIEW=true" in configurator
     assert "KG_CHAT_ENABLED=false" in configurator
