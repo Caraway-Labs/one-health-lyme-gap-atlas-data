@@ -3,16 +3,56 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
+import tarfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any
 
-from lyme_gap_atlas_kg import EvidencePassageNode, GraphNode, PaperNode, SemanticEdge
+import httpx
+from lyme_gap_atlas_kg import (
+    GraphContribution,
+)
 from neo4j import Driver
 
 _SPACE = re.compile(r"\s+")
 _OPEN_LICENSE_HOSTS = ("creativecommons.org/licenses/", "creativecommons.org/publicdomain/")
+
+
+class PmcOpenAccessClient:
+    """Fetch only an article package explicitly listed by the PMC OA service."""
+
+    def fetch_jats(self, pmcid: str) -> bytes:
+        if not re.fullmatch(r"PMC\d+", pmcid):
+            raise ValueError("invalid PMCID")
+        listing = httpx.get(
+            "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi",
+            params={"id": pmcid},
+            timeout=30,
+        )
+        listing.raise_for_status()
+        root = ET.fromstring(listing.content)
+        link = next(
+            (
+                item.attrib["href"]
+                for item in root.findall(".//link")
+                if item.attrib.get("format") == "tgz" and item.attrib.get("href")
+            ),
+            None,
+        )
+        if link is None:
+            raise ValueError("PMC Open Access package is unavailable")
+        package = httpx.get(link.replace("ftp://", "https://", 1), timeout=120)
+        package.raise_for_status()
+        with tarfile.open(fileobj=io.BytesIO(package.content), mode="r:gz") as archive:
+            members = [member for member in archive.getmembers() if member.name.endswith(".nxml")]
+            if len(members) != 1:
+                raise ValueError("PMC package does not contain exactly one JATS article")
+            extracted = archive.extractfile(members[0])
+            if extracted is None:
+                raise ValueError("PMC JATS article could not be extracted")
+            return extracted.read()
 
 
 @dataclass(frozen=True)
@@ -56,21 +96,13 @@ def admit_pmc_open_access(jats: bytes) -> AdmittedFullText:
     )
 
 
-@dataclass(frozen=True)
-class GraphContribution:
-    paper: PaperNode
-    nodes: list[GraphNode]
-    passages: list[EvidencePassageNode]
-    edges: list[SemanticEdge]
-
-
 class Neo4jPaperPublisher:
     """Replace one paper's deterministic contribution in a single write transaction."""
 
     def __init__(self, driver: Driver) -> None:
         self._driver = driver
 
-    def publish(self, contribution: GraphContribution) -> dict[str, Any]:
+    def publish(self, contribution: GraphContribution) -> dict[str, object]:
         payload = {
             "paper": contribution.paper.model_dump(mode="json"),
             "nodes": [node.model_dump(mode="json") for node in contribution.nodes],

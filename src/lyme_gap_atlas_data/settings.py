@@ -39,6 +39,7 @@ class PipelineSettings(BaseSettings):
     neo4j_runtime_password: SecretStr | None = None
     groq_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
+    extraction_estimated_cost_usd: float = 0.10
 
     @model_validator(mode="after")
     def validate_environment(self) -> "PipelineSettings":
@@ -53,4 +54,6 @@ class PipelineSettings(BaseSettings):
             raise ValueError("The Alpha POC database is not a pipeline target")
         if not 1 <= self.discovery_max_runtime_seconds <= 1740:
             raise ValueError("DISCOVERY_MAX_RUNTIME_SECONDS must be between 1 and 1740")
+        if not 0 < self.extraction_estimated_cost_usd <= 20:
+            raise ValueError("EXTRACTION_ESTIMATED_COST_USD must be between 0 and 20")
         return self

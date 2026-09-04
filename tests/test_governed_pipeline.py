@@ -864,7 +864,8 @@ def test_catalog_registration_continues_after_one_artifact_read_failure(
     assert result["failed_artifacts"] == 1
     assert result["observed_artifacts"] == 1
     assert connection.rollbacks == 0
-    assert connection.commits == 2
+    # Claim, artifact outcome, and durable invocation summary commit separately.
+    assert connection.commits == 3
     assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
     assert any("SET status = 'COMPLETED'" in query for query, _ in connection.cursor_instance.calls)
 
@@ -1381,6 +1382,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V036",
         "V037",
         "V038",
+        "V039",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1388,8 +1390,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 35
+    assert len(prod_plan) == 36
     assert "V034" not in {item["version"] for item in prod_plan}
+    operations_console = next(item.source for item in migrations if item.version == "V039")
+    assert "CATALOG_REGISTRATION_RUNS" in operations_console
+    assert "V_PIPELINE_COMMAND_CENTER" in operations_console
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"

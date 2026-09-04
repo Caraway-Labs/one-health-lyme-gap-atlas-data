@@ -950,6 +950,58 @@ def _remaining_registration_artifacts(cursor: Any, config_sha256: str, total_art
     return max(total_artifacts - int(completed_artifacts or 0), 0)
 
 
+def _start_registration_run(
+    cursor: Any,
+    registration_run_id: str,
+    config_sha256: str,
+    maximum_artifacts: int,
+    maximum_datasets: int,
+    claimed_artifacts: int,
+    available_artifacts: int,
+) -> None:
+    cursor.execute(
+        """INSERT INTO GOVERNANCE.CATALOG_REGISTRATION_RUNS (
+             registration_run_id, config_sha256, status, started_at, maximum_artifacts,
+             maximum_datasets, claimed_artifacts, available_artifacts
+           ) SELECT %s, %s, 'RUNNING', CURRENT_TIMESTAMP(), %s, %s, %s, %s""",
+        (
+            registration_run_id,
+            config_sha256,
+            maximum_artifacts,
+            maximum_datasets,
+            claimed_artifacts,
+            available_artifacts,
+        ),
+    )
+
+
+def _complete_registration_run(
+    cursor: Any,
+    registration_run_id: str,
+    status: str,
+    processed_datasets: int,
+    registered_resources: int,
+    completed_artifacts: int,
+    failed_artifacts: int,
+    remaining_artifacts: int,
+) -> None:
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_REGISTRATION_RUNS SET status = %s,
+             completed_at = CURRENT_TIMESTAMP(), processed_datasets = %s,
+             registered_resources = %s, completed_artifacts = %s, failed_artifacts = %s,
+             remaining_artifacts = %s WHERE registration_run_id = %s""",
+        (
+            status,
+            processed_datasets,
+            registered_resources,
+            completed_artifacts,
+            failed_artifacts,
+            remaining_artifacts,
+            registration_run_id,
+        ),
+    )
+
+
 def register_completed_discovery(
     config_sha256: str, maximum_artifacts: int = 100, maximum_datasets: int = 10_000
 ) -> dict[str, int | str]:
@@ -1022,6 +1074,15 @@ def _register_completed_discovery(
             )
             progress.claimed_artifacts = len(artifacts)
             progress.available_artifacts = available_artifacts
+            _start_registration_run(
+                cursor,
+                registration_run_id,
+                config_sha256,
+                maximum_artifacts,
+                maximum_datasets,
+                len(artifacts),
+                available_artifacts,
+            )
             connection.commit()
             logger.info(
                 "catalog_registration.claimed",
@@ -1210,6 +1271,17 @@ def _register_completed_discovery(
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
+            _complete_registration_run(
+                cursor,
+                registration_run_id,
+                "COMPLETED" if remaining_artifacts == 0 else "PARTIAL",
+                processed_datasets,
+                registered_resources,
+                observed_artifacts,
+                failed_artifacts,
+                remaining_artifacts,
+            )
+            connection.commit()
     progress.phase = "completed"
     logger.info(
         "catalog_registration.completed",

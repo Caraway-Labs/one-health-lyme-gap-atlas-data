@@ -32,9 +32,6 @@ from .pmc_graph import (
     Neo4jPaperPublisher,
     admit_pmc_open_access,
 )
-from .pmc_graph import (
-    GraphContribution as Neo4jGraphContribution,
-)
 from .pubmed_discovery import _spaces_client
 
 _OA_ENDPOINT = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
@@ -263,14 +260,7 @@ class PMCExtractionWorker:
             )
             contribution = self._coordinator.build_contribution(attempt_id, request)
             validate_contribution_identity(contribution, paper, admitted, artifact)
-            receipt = self._publisher.publish(
-                Neo4jGraphContribution(
-                    paper=contribution.paper,
-                    nodes=contribution.nodes,
-                    passages=contribution.passages,
-                    edges=contribution.edges,
-                )
-            )
+            receipt = self._publisher.publish(contribution)
             contribution_sha = contribution_sha256(contribution)
             self._ledger.record_receipt(paper, attempt_id, artifact_id, contribution_sha, receipt)
             self._ledger.finish(paper, attempt_id)

@@ -1,5 +1,7 @@
 name: oh-lyme-data-prod
 region: sfo
+vpc:
+  id: a937d8dd-4ee9-4de2-a8df-b32e7ad4098e
 jobs:
   - name: catalog-discovery
     kind: SCHEDULED
@@ -174,3 +176,134 @@ jobs:
     schedule:
       cron: "45 * * * *"
       time_zone: America/Denver
+  # The finite, versioned PubMed families run independently so a failed
+  # family is retained and retried without silently replacing other results.
+  - &pubmed_discovery
+    name: pubmed-discovery-surveillance
+    kind: SCHEDULED
+    schedule:
+      cron: "0 8 * * 1"
+      time_zone: America/Denver
+    image:
+      registry_type: DOCR
+      repository: pipeline
+      digest: ${IMAGE_DIGEST}
+    run_command: /app/.venv/bin/atlas-data pipeline pubmed-discover --family surveillance_epidemiology
+    envs:
+      - key: TOPX_ENV
+        value: prod
+      - key: ENABLE_PRODUCTION_EXECUTION
+        value: "true"
+      - key: SNOWFLAKE_DATABASE
+        value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
+      - key: SNOWFLAKE_ROLE
+        value: OH_LYME_PROD_PIPELINE_RUNTIME
+      - key: SNOWFLAKE_WAREHOUSE
+        value: OH_LYME_PROD_INGEST_XS_WH
+      - key: SNOWFLAKE_AUTH_METHOD
+        value: key_pair
+      - key: SNOWFLAKE_ACCOUNT
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_USER
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_B64
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+        scope: RUN_TIME
+        type: SECRET
+      - key: NCBI_EMAIL
+        scope: RUN_TIME
+        type: SECRET
+      - key: NCBI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_REGION
+        value: sfo3
+      - key: SPACES_ENDPOINT
+        value: https://sfo3.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: one-health-lyme-gap-atlas-data-prod
+      - key: SPACES_PREFIX
+        value: prod
+      - key: SPACES_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+  - <<: *pubmed_discovery
+    name: pubmed-discovery-vector-host-pathogen
+    run_command: /app/.venv/bin/atlas-data pipeline pubmed-discover --family vector_host_pathogen
+  - <<: *pubmed_discovery
+    name: pubmed-discovery-environment-exposure
+    run_command: /app/.venv/bin/atlas-data pipeline pubmed-discover --family environment_exposure
+  - <<: *pubmed_discovery
+    name: pubmed-discovery-diagnostics-interventions-outcomes
+    run_command: /app/.venv/bin/atlas-data pipeline pubmed-discover --family diagnostics_interventions_outcomes
+  # A single worker preserves the configured extraction concurrency of one.
+  # It claims only one reviewed paper per run and records retry/audit state.
+  - name: approved-paper-extraction
+    kind: SCHEDULED
+    schedule:
+      cron: "*/15 * * * *"
+      time_zone: America/Denver
+    image:
+      registry_type: DOCR
+      repository: pipeline
+      digest: ${IMAGE_DIGEST}
+    run_command: /app/.venv/bin/atlas-data pipeline extract-approved-paper
+    envs:
+      - key: TOPX_ENV
+        value: prod
+      - key: ENABLE_PRODUCTION_EXECUTION
+        value: "true"
+      - key: SNOWFLAKE_DATABASE
+        value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
+      - key: SNOWFLAKE_ROLE
+        value: OH_LYME_PROD_PIPELINE_RUNTIME
+      - key: SNOWFLAKE_WAREHOUSE
+        value: OH_LYME_PROD_INGEST_XS_WH
+      - key: SNOWFLAKE_AUTH_METHOD
+        value: key_pair
+      - key: SNOWFLAKE_ACCOUNT
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_USER
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_B64
+        scope: RUN_TIME
+        type: SECRET
+      - key: SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+        scope: RUN_TIME
+        type: SECRET
+      - key: NEO4J_URI
+        value: bolt://10.116.0.3:7687
+      - key: NEO4J_RUNTIME_USER
+        value: graph_runtime
+      - key: NEO4J_RUNTIME_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
+      - key: GROQ_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_REGION
+        value: sfo3
+      - key: SPACES_ENDPOINT
+        value: https://sfo3.digitaloceanspaces.com
+      - key: SPACES_BUCKET
+        value: one-health-lyme-gap-atlas-data-prod
+      - key: SPACES_PREFIX
+        value: prod
+      - key: SPACES_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET

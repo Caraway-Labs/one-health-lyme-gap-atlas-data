@@ -121,6 +121,9 @@ def _operations_rows(view: str) -> list[dict[str, object]]:
         "V_PIPELINE_CATALOG_COVERAGE",
         "V_PIPELINE_REGISTRATION_OUTCOMES",
         "V_PIPELINE_SOURCE_GOVERNANCE",
+        "V_PIPELINE_COMMAND_CENTER",
+        "V_PIPELINE_REGISTRATION_RUNS",
+        "V_PIPELINE_SEARCH_COVERAGE",
     }
     if view not in allowed:
         raise ValueError("Unsupported operational view")
@@ -143,7 +146,61 @@ def _artifact_backlog_page(
 
 
 def _render_operations(page: str) -> None:
-    if page == "Overview":
+    if page == "Pipeline command center":
+        rows = _operations_rows("V_PIPELINE_COMMAND_CENTER")
+        if not rows:
+            st.info("No completed discovery chain is available yet.")
+            return
+        row = _lower_keys(rows[0])
+        st.subheader("Pipeline command center")
+        st.caption(
+            "Current-chain governed-ledger state only; it does not claim scheduler, container, memory, digest, or trace health."
+        )
+        columns = st.columns(4)
+        for column, label, key in zip(
+            columns,
+            ("Operational state", "Active-chain artifacts", "Completed", "Remaining"),
+            (
+                "operational_state",
+                "active_chain_artifacts",
+                "completed_artifacts",
+                "pending_or_in_progress_artifacts",
+            ),
+            strict=True,
+        ):
+            value = row.get(key) or 0
+            column.metric(
+                label,
+                str(value).replace("_", " ").title()
+                if key == "operational_state"
+                else f"{int(value):,}",
+            )
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    elif page == "Registration recovery":
+        st.subheader(page)
+        st.dataframe(
+            _rows(
+                "SELECT * FROM GOVERNANCE.V_PIPELINE_REGISTRATION_RUNS ORDER BY started_at DESC LIMIT 100"
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "PARTIAL means a bounded metadata-registration pass reached its declared limit; it is not failed full-source ingestion."
+        )
+    elif page == "Search coverage and gaps":
+        st.subheader(page)
+        st.dataframe(
+            _rows(
+                "SELECT * FROM GOVERNANCE.V_PIPELINE_SEARCH_COVERAGE ORDER BY requested_at DESC LIMIT 500"
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "Recorded zero-result searches are explicit. Absence of a request is not inferred to mean an unattempted search."
+        )
+    elif page == "Overview":
         rows = _operations_rows("V_PIPELINE_OBSERVABILITY_OVERVIEW")
         if not rows:
             st.info("No governed pipeline-operational records are available yet.")
@@ -239,9 +296,12 @@ try:
         "View",
         (
             "Overview",
+            "Pipeline command center",
             "Pipeline health",
+            "Registration recovery",
             "Artifact backlog",
             "Discovery coverage",
+            "Search coverage and gaps",
             "Registration outcomes",
             "Governance & approval",
             "Run explorer",
@@ -260,9 +320,12 @@ except Exception as exc:
 
 if page in {
     "Overview",
+    "Pipeline command center",
     "Pipeline health",
+    "Registration recovery",
     "Artifact backlog",
     "Discovery coverage",
+    "Search coverage and gaps",
     "Registration outcomes",
     "Governance & approval",
     "Run explorer",

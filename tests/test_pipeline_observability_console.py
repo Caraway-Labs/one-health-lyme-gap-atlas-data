@@ -24,3 +24,16 @@ def test_operations_console_uses_bounded_server_side_backlog_pagination() -> Non
     assert "LIMIT ? OFFSET ?" in source
     assert "offset = (page_number - 1) * BACKLOG_PAGE_SIZE" in source
     assert "No redacted artifacts match the selected filters." in source
+
+
+def test_operations_console_has_safe_durable_registration_views() -> None:
+    source = Path("migrations/V039__pipeline_operations_console.sql").read_text(encoding="utf-8")
+    app = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
+    for view in (
+        "V_PIPELINE_REGISTRATION_RUNS",
+        "V_PIPELINE_COMMAND_CENTER",
+        "V_PIPELINE_SEARCH_COVERAGE",
+    ):
+        assert f"CREATE OR REPLACE VIEW GOVERNANCE.{view}" in source
+        assert view in app
+    assert "artifact_uri" not in source

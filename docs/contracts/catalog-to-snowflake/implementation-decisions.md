@@ -25,7 +25,7 @@ An implementation agent must follow these decisions. It may propose alternatives
 | MVP reference source | CDC/Socrata Lyme family, beginning with `x5j9-wybp`. |
 | Immutable artifacts | Private DigitalOcean Spaces is authoritative; Snowflake named internal stage is temporary load transport. |
 | Artifact retention | Seven-year default; no automatic deletion for active/published versions, unresolved incidents/reviews, holds, or stricter terms. |
-| Snowflake authentication | Dedicated least-privilege service user with rotating key-pair authentication. |
+| Snowflake authentication | The deployed pipeline uses a dedicated least-privilege service user with rotating key-pair authentication. Codex-initiated local DEV Snowflake work uses the Snowflake CLI with a named, role-restricted programmatic access token (PAT) connection. |
 | Snowflake loading | Worker uploads to a private named stage and uses `COPY INTO` for source-specific RAW tables. |
 | Transformations | Python handles discovery/acquisition/RAW; dbt Core builds/tests `STAGING`, `CONFORMED`, and `ANALYTICS`. Do not use dbt Cloud. |
 | Snowflake compute | Dedicated X-Small ingestion warehouse, auto-resume, 60-second auto-suspend, and budget/resource monitoring. |
@@ -185,6 +185,24 @@ Implement the 15 governance entities and dataset-specific RAW standard columns d
 - Locally, `.env` may reference an encrypted private-key file path and passphrase.
 - In App Platform, inject a base64-encoded encrypted private key and its passphrase as separate encrypted runtime secrets; decode/use the key in memory only.
 - The application must never write the private key, decoded bytes, passphrase, access token, or connection configuration into artifacts, logs, table columns, or error output.
+
+### Codex local Snowflake CLI authentication
+
+- Codex uses the installed Snowflake CLI and the local `BVB26657_PAT` named
+  connection with `authenticator = "PROGRAMMATIC_ACCESS_TOKEN"`; it must not
+  use browser, OAuth, password, or external-browser authentication as a
+  fallback.
+- The PAT is role-restricted, stored only in a local token file outside the
+  repository, and referenced by `token_file_path` in the user-level Snowflake
+  CLI connection configuration. Do not place the token in `.env`, source
+  control, command-line arguments, output, or logs.
+- Default Codex access is DEV and least privilege. Before an action, run a
+  read-only query through the named connection to confirm effective user,
+  role, database, and warehouse. Production, migrations, grants, or other
+  privilege changes require explicit user authorization for that action.
+- PAT expiry or invalidation is a hard stop. The account owner rotates the PAT
+  through an authenticated Snowflake session; Codex does not fall back to
+  interactive login.
 
 ### Artifact-to-RAW loading
 
