@@ -1,5 +1,7 @@
 name: oh-lyme-data-dev
 region: sfo
+vpc:
+  id: a937d8dd-4ee9-4de2-a8df-b32e7ad4098e
 jobs:
   - name: catalog-ingestion
     kind: SCHEDULED

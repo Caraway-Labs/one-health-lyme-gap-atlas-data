@@ -14,3 +14,5 @@ build/
 dbt/.user.yml
 dbt/logs/
 dbt/target/
+.worktrees/
+streamlit_approval/output/

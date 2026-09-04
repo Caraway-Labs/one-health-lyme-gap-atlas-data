@@ -22,6 +22,8 @@ The console provides an accessible, auditable way for a data steward to decide w
 - Read-only display of catalog metadata, resource classification, source documentation snapshots, schema/sample summaries, deterministic assessment results, and prior decisions.
 - Creation of approval decisions and approval conditions through a controlled Snowflake stored procedure.
 - Audit display, filtering, and drill-down for candidates, decisions, and blocked issues.
+- Read-only pipeline observability: discovery-run health, artifact backlog and lease state,
+  catalog search coverage, registration outcomes, source-version state, and governed lineage.
 
 ### Out of scope
 
@@ -114,6 +116,15 @@ The app reads from governed views rather than base tables wherever a view can li
 | `GOVERNANCE.V_SOURCE_APPROVAL_DETAIL` | Candidate metadata/resource/access/document/schema/quality evidence. |
 | `GOVERNANCE.V_SOURCE_REVIEW_HISTORY` | Immutable decisions and supersession history. |
 | `GOVERNANCE.V_SOURCE_PIPELINE_STATUS` | Latest run, source-version, and promotion eligibility status. |
+| `GOVERNANCE.V_PIPELINE_OBSERVABILITY_OVERVIEW` | Historical inventory, active-chain, completed, unresolved, failed, and expired-lease summary. |
+| `GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG` | Redacted per-artifact backlog metadata; excludes payloads, request bodies, and artifact locations. |
+| `GOVERNANCE.V_PIPELINE_DISCOVERY_RUNS` | Discovery-run lineage and state. |
+| `GOVERNANCE.V_PIPELINE_CATALOG_COVERAGE` | Catalog/term/response coverage and registration progress. |
+| `GOVERNANCE.V_PIPELINE_REGISTRATION_OUTCOMES` | Normalized dataset/resource/observation and source-version counts. |
+| `GOVERNANCE.V_PIPELINE_SOURCE_GOVERNANCE` | Source-version status summary. |
+| `GOVERNANCE.V_PIPELINE_COMMAND_CENTER` | Latest completed discovery-chain operational state and the latest durable registration summary; it does not claim external runtime health. |
+| `GOVERNANCE.V_PIPELINE_REGISTRATION_RUNS` | Redacted bounded registration-invocation progress, duration, remaining work, and typed failure classification. |
+| `GOVERNANCE.V_PIPELINE_SEARCH_COVERAGE` | Recorded request-level catalog/term coverage, including explicit zero-result and registration states; absence is never inferred as unattempted. |
 | `GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION` | Validates steward scope; records immutable decision; activates/supersedes source version only when permitted. |
 
 The implementation must define and test these views/procedure against the governance entities already required in `SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md`. The Streamlit app may not independently define a duplicate source registry or approval ledger.
@@ -134,6 +145,13 @@ The implementation must define and test these views/procedure against the govern
 - Use clear, plain-language labels; show the decision consequence before submit, such as “Approve: allows scheduled full ingestion after deployment.”
 - Require an explicit confirmation step for approval, rejection, retirement, and any decision that changes an active source.
 - Keep the interface performant with paginated queries, server-side filtering, and summary-first rendering. It must not load all raw artifacts or candidate payloads into the browser.
+- The operational overview shall explain the difference between the complete retained artifact
+  inventory, the latest completed registerable discovery chain, and durably completed
+  registrations. It shall make expired leases and failed registrations visible as distinct
+  unresolved states rather than presenting them as active work.
+- Pipeline state labels must state their ledger scope. They must not imply scheduler, container,
+  memory, deployment-digest, or trace health unless an approved, redacted durable summary exists
+  in Snowflake; the app must not call external observability services to obtain it.
 - Display empty states, data-access errors, stale-result notices, and procedure-validation errors without exposing implementation internals or secrets.
 
 ## Non-functional requirements

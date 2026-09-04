@@ -633,6 +633,93 @@ def _remaining_registration_artifacts(cursor: Any, config_sha256: str, total_art
     return max(total_artifacts - int(completed_artifacts or 0), 0)
 
 
+def _start_registration_run(
+    cursor: Any,
+    *,
+    registration_run_id: str,
+    config_sha256: str,
+    maximum_artifacts: int,
+    maximum_datasets: int,
+    claimed_artifacts: int,
+    available_artifacts: int,
+) -> None:
+    """Persist a redacted invocation summary before processing artifact bytes."""
+    cursor.execute(
+        """MERGE INTO GOVERNANCE.CATALOG_REGISTRATION_RUNS target
+           USING (SELECT %s AS registration_run_id) source
+           ON target.registration_run_id = source.registration_run_id
+           WHEN NOT MATCHED THEN INSERT (
+             registration_run_id, config_sha256, status, started_at,
+             maximum_artifacts, maximum_datasets, claimed_artifacts, available_artifacts
+           ) VALUES (%s, %s, 'RUNNING', CURRENT_TIMESTAMP(), %s, %s, %s, %s)""",
+        (
+            registration_run_id,
+            registration_run_id,
+            config_sha256,
+            maximum_artifacts,
+            maximum_datasets,
+            claimed_artifacts,
+            available_artifacts,
+        ),
+    )
+
+
+def _complete_registration_run(
+    cursor: Any,
+    *,
+    registration_run_id: str,
+    status: str,
+    processed_datasets: int,
+    registered_resources: int,
+    completed_artifacts: int,
+    failed_artifacts: int,
+    remaining_artifacts: int,
+) -> None:
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_REGISTRATION_RUNS
+           SET status = %s, completed_at = CURRENT_TIMESTAMP(),
+               processed_datasets = %s, registered_resources = %s,
+               completed_artifacts = %s, failed_artifacts = %s,
+               remaining_artifacts = %s
+           WHERE registration_run_id = %s""",
+        (
+            status,
+            processed_datasets,
+            registered_resources,
+            completed_artifacts,
+            failed_artifacts,
+            remaining_artifacts,
+            registration_run_id,
+        ),
+    )
+
+
+def _fail_registration_run(registration_run_id: str, config_sha256: str, error: Exception) -> None:
+    """Record only the error class after a failed invocation; never retain its message."""
+    with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """MERGE INTO GOVERNANCE.CATALOG_REGISTRATION_RUNS target
+                   USING (SELECT %s AS registration_run_id) source
+                   ON target.registration_run_id = source.registration_run_id
+                   WHEN MATCHED THEN UPDATE SET status = 'FAILED',
+                     completed_at = CURRENT_TIMESTAMP(),
+                     error_classification = %s
+                   WHEN NOT MATCHED THEN INSERT (
+                     registration_run_id, config_sha256, status, started_at, completed_at,
+                     maximum_artifacts, maximum_datasets, error_classification
+                   ) VALUES (%s, %s, 'FAILED', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(),
+                     0, 0, %s)""",
+            (
+                registration_run_id,
+                type(error).__name__,
+                registration_run_id,
+                config_sha256,
+                type(error).__name__,
+            ),
+        )
+        connection.commit()
+
+
 def register_completed_discovery(
     config_sha256: str, maximum_artifacts: int = 100, maximum_datasets: int = 10_000
 ) -> dict[str, int | str]:
@@ -653,11 +740,21 @@ def register_completed_discovery(
     observed_artifacts = 0
     processed_datasets = 0
     failed_artifacts = 0
-    with connect(SnowflakeSettings()) as connection:
-        connection.autocommit(False)
-        with connection.cursor() as cursor:
+    try:
+        with connect(SnowflakeSettings()) as connection:
+            connection.autocommit(False)
+            cursor = connection.cursor()
             artifacts, available_artifacts = _claim_registration_batch(
                 cursor, config_sha256, maximum_artifacts, registration_run_id
+            )
+            _start_registration_run(
+                cursor,
+                registration_run_id=registration_run_id,
+                config_sha256=config_sha256,
+                maximum_artifacts=maximum_artifacts,
+                maximum_datasets=maximum_datasets,
+                claimed_artifacts=len(artifacts),
+                available_artifacts=available_artifacts,
             )
             connection.commit()
             logger.info(
@@ -796,6 +893,20 @@ def register_completed_discovery(
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
+            _complete_registration_run(
+                cursor,
+                registration_run_id=registration_run_id,
+                status="COMPLETED" if remaining_artifacts == 0 else "PARTIAL",
+                processed_datasets=processed_datasets,
+                registered_resources=registered_resources,
+                completed_artifacts=observed_artifacts,
+                failed_artifacts=failed_artifacts,
+                remaining_artifacts=remaining_artifacts,
+            )
+            connection.commit()
+    except Exception as error:
+        _fail_registration_run(registration_run_id, config_sha256, error)
+        raise
     logger.info(
         "catalog_registration.completed",
         extra={

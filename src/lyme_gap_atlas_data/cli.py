@@ -2,11 +2,18 @@
 
 import json
 import logging
+import os
+import sys
+from contextlib import suppress
 from pathlib import Path
+from time import monotonic
 
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
+from neo4j import GraphDatabase
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
@@ -15,13 +22,76 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
+from .extraction import (
+    ExtractionCoordinator,
+    GroqStructuredExtractor,
+    OpenAIEmbeddingClient,
+    OpenAIResponsesExtractor,
+)
+from .graph_extraction import ApprovedPaperExtractionWorker
+from .literature import EntrezHistoryClient
 from .migrations import apply_migrations, migration_plan
 from .orchestration import run_discovery, run_production_schedule
+from .pmc_graph import Neo4jPaperPublisher, PmcOpenAccessClient
 from .preflight import run_preflight
+from .pubmed_pipeline import PubmedDiscoveryWorker, SnowflakeDiscoveryLedger, SpacesArtifactStore
 from .settings import PipelineSettings
+from .snowflake_extraction import SnowflakeExtractionBudget, SnowflakeExtractionWorkStore
 from .streamlit_deploy import deploy_approval_console
 
-app = typer.Typer(no_args_is_help=True)
+SERVICE_NAME = "one-health-lyme-gap-atlas-data"
+
+
+def _command_path(arguments: list[str]) -> str:
+    """Return only command names, never user-supplied option values."""
+    if not arguments:
+        return "help"
+    if arguments[0] == "pipeline":
+        subcommand = arguments[1] if len(arguments) > 1 else "help"
+        return "pipeline." + (subcommand if not subcommand.startswith("-") else "help")
+    return arguments[0] if not arguments[0].startswith("-") else "help"
+
+
+def _flush_and_shutdown_tracing() -> None:
+    """Finish optional telemetry without allowing exporter failures to affect a command."""
+    provider = trace.get_tracer_provider()
+    for method_name in ("force_flush", "shutdown"):
+        method = getattr(provider, method_name, None)
+        if callable(method):
+            with suppress(Exception):
+                method()
+
+
+class ObservedTyper(typer.Typer):
+    """Typer app with one privacy-safe span around each short-lived CLI invocation."""
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        configure_logging()
+        configure_tracing(SERVICE_NAME)
+        command = _command_path(sys.argv[1:])
+        started = monotonic()
+        span = trace.get_tracer(SERVICE_NAME).start_span("atlas-data.cli")
+        span.set_attribute("atlas.command", command)
+        span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+        try:
+            result = super().__call__(*args, **kwargs)
+        except BaseException as error:
+            failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
+            span.set_attribute("atlas.outcome", "failure" if failed else "success")
+            if failed:
+                span.set_attribute("error.type", type(error).__name__)
+                span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+            raise
+        else:
+            span.set_attribute("atlas.outcome", "success")
+            return result
+        finally:
+            span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
+            span.end()
+            _flush_and_shutdown_tracing()
+
+
+app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 logger = logging.getLogger(__name__)
@@ -31,7 +101,7 @@ logger = logging.getLogger(__name__)
 def configure_runtime_observability() -> None:
     """Initialize redacted JSON logs for every CLI command, including jobs."""
     configure_logging()
-    configure_tracing("one-health-lyme-gap-atlas-data")
+    configure_tracing(SERVICE_NAME)
 
 
 def _settings() -> SnowflakeSettings:
@@ -210,3 +280,56 @@ def promote_approved_cdc_command(
 def run_production_schedule_command() -> None:
     """Run the production scheduled approved-source ingestion and dbt path."""
     typer.echo(json.dumps(run_production_schedule(), default=str))
+
+
+@pipeline_app.command("pubmed-discover")
+def pubmed_discover(
+    family: str = typer.Option(..., "--family"),
+    max_batches: int | None = typer.Option(None, "--max-batches", min=1),
+) -> None:
+    """Discover a bounded PubMed query family and queue papers for steward review."""
+    settings = PipelineSettings()
+    client = EntrezHistoryClient(
+        settings.ncbi_email,
+        settings.ncbi_api_key.get_secret_value() if settings.ncbi_api_key else None,
+    )
+    worker = PubmedDiscoveryWorker(
+        client,
+        SpacesArtifactStore(settings),
+        SnowflakeDiscoveryLedger(SnowflakeSettings()),
+    )
+    typer.echo(json.dumps(worker.run(family, maximum_batches=max_batches)))
+
+
+@pipeline_app.command("extract-approved-paper")
+def extract_approved_paper() -> None:
+    """Extract and publish one already-approved PMC Open Access paper."""
+    settings = PipelineSettings()
+    if not settings.neo4j_uri or settings.neo4j_runtime_password is None:
+        raise typer.BadParameter("NEO4J_URI and NEO4J_RUNTIME_PASSWORD are required")
+    if settings.groq_api_key is None or settings.openai_api_key is None:
+        raise typer.BadParameter("GROQ_API_KEY and OPENAI_API_KEY are required")
+    snowflake = SnowflakeSettings()
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_runtime_user, settings.neo4j_runtime_password.get_secret_value()),
+    )
+    try:
+        coordinator = ExtractionCoordinator(
+            groq=GroqStructuredExtractor(settings.groq_api_key.get_secret_value()),
+            openai=OpenAIResponsesExtractor(settings.openai_api_key.get_secret_value()),
+            budget=SnowflakeExtractionBudget(snowflake),
+            publisher=Neo4jPaperPublisher(driver),
+            embedder=OpenAIEmbeddingClient(settings.openai_api_key.get_secret_value()),
+            token_estimator=lambda request: max(1, len(request) // 4),
+            cost_estimator=lambda _route, _tokens: settings.extraction_estimated_cost_usd,
+        )
+        worker = ApprovedPaperExtractionWorker(
+            SnowflakeExtractionWorkStore(snowflake),
+            PmcOpenAccessClient().fetch_jats,
+            SpacesArtifactStore(settings),
+            coordinator,
+        )
+        typer.echo(json.dumps(worker.run_once(), default=str))
+    finally:
+        driver.close()

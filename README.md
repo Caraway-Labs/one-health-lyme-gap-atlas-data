@@ -19,6 +19,14 @@ Community does not enforce separate API-reader and pipeline-writer permissions;
 the VPC, secret store, fixed API retrieval templates, and review gate are the
 required compensating controls.
 
+The literature worker is deliberately split at the human-review boundary:
+`pipeline pubmed-discover --family <family>` writes immutable EFetch XML and
+queues normalized citations for a steward. Only after a paper is approved can
+`pipeline extract-approved-paper` claim one PMC Open Access paper, validate its
+license-bearing JATS content, reserve extraction budget, and publish a
+passage-backed graph contribution. Both commands use the isolated DEV/PROD
+database selected by `TOPX_ENV`; neither touches the Alpha POC database.
+
 ```powershell
 uv sync --extra dev
 uv run atlas-data provision --dry-run
