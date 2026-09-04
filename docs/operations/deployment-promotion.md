@@ -75,6 +75,19 @@ reconciliation command; no ledger history is rewritten. To disable the
 operational views after V034, revoke the Streamlit owner role's view usage as
 a separately reviewed, append-only grant change while retaining audit evidence.
 
+### DEV V037 paper-review procedure ownership handoff
+
+V037 replaces an owner-rights paper-review procedure. The GitHub DEV migration
+role cannot preserve existing grants while transferring ownership because
+`COPY CURRENT GRANTS` requires account-level `MANAGE GRANTS`. For this
+DEV-only migration, use a separately approved AccountAdmin session to transfer
+`GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(ARRAY, VARCHAR, VARCHAR, VARCHAR,
+VARCHAR, VARCHAR)` to `OH_LYME_DEV_MIGRATION_DEPLOYER` before the migration
+workflow. After its successful ledger entry, transfer ownership back to
+`OH_LYME_DEV_KG_PAPER_REVIEW_OWNER` with `COPY CURRENT GRANTS`, then verify
+that `OH_LYME_DEV_STREAMLIT_OWNER` retains `USAGE`. Do not use this procedure
+or its DEV roles for production promotion.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App

@@ -1506,7 +1506,8 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     assert "GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" not in recovery
     assert "PAPER_QUERY_MATCHES" in recovery
     assert "DECISION = 'rejected' AND p.state IN ('retry_pending','retry_exhausted')" in recovery
-    assert "COPY CURRENT GRANTS" in recovery
+    assert "GRANT OWNERSHIP ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" not in recovery
+    assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" in recovery
     streamlit_app = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
     assert "Recovery states can only be rejected" in streamlit_app
     assert '["rejected"] if recovery_selected' in streamlit_app
