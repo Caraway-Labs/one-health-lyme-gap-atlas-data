@@ -119,7 +119,7 @@ class _Artifacts:
 
 
 class _Coordinator:
-    def process(
+    def process_validated(
         self, request_id: str, request: str, validator: object, attempt_started: object
     ) -> dict[str, object]:
         assert json.loads(request)["paper"]["full_text_object_key"] == "private/PMC123.xml"

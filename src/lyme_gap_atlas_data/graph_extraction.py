@@ -144,7 +144,7 @@ class ApprovedPaperExtractionWorker:
             attempt_is_running = True
 
         try:
-            receipt = self._coordinator.process(
+            receipt = self._coordinator.process_validated(
                 str(uuid.uuid4()),
                 extraction_request(paper, admitted, artifact.object_key),
                 validate_contribution(paper, admitted, artifact.object_key),
