@@ -1503,7 +1503,7 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     assert "GRANT SELECT, UPDATE ON TABLE KNOWLEDGE_GRAPH.PAPERS" in paper_review_owner
     assert "TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER" in paper_review_owner
     recovery = migration_sources["V037"]
-    assert "GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery
+    assert "GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" not in recovery
     assert "PAPER_QUERY_MATCHES" in recovery
     assert "DECISION = 'rejected' AND p.state IN ('retry_pending','retry_exhausted')" in recovery
     assert "COPY CURRENT GRANTS" in recovery

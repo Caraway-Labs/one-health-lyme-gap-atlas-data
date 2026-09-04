@@ -1,7 +1,7 @@
 USE DATABASE {{ DATABASE }};
 
--- DEV-only recovery: retain the Streamlit caller boundary while giving the
--- already-isolated review owner enough read access to own the review view.
+-- DEV-only recovery: retain the Streamlit caller boundary without transferring
+-- ownership of an existing governed view from the least-privilege deploy role.
 -- A paper that fails the external PMC OA admission check can be rejected by a
 -- steward; it cannot be approved again from a retry state.
 GRANT SELECT ON TABLE KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES
@@ -17,9 +17,6 @@ FROM KNOWLEDGE_GRAPH.PAPERS p
 JOIN KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m ON m.pmid = p.pmid
 WHERE p.state IN ('awaiting_review', 'deferred', 'retry_pending', 'retry_exhausted')
 GROUP BY ALL;
-
-GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE
-  TO ROLE OH_LYME_{{ ENV }}_KG_PAPER_REVIEW_OWNER COPY CURRENT GRANTS;
 
 CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(
   PMIDS ARRAY, DECISION VARCHAR, RATIONALE VARCHAR, REVIEWER_USERNAME VARCHAR,
