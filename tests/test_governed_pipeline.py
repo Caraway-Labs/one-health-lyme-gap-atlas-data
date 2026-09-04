@@ -22,6 +22,7 @@ from lyme_gap_atlas_data.catalog_registration import (
     _cgroup_memory_context,
     _claim_registration_batch,
     _completed_artifacts,
+    _execute_registration_merge,
     _log_registration_phase,
     _process_memory_context,
     _write_registration_dataset_batch,
@@ -628,6 +629,67 @@ def test_catalog_registration_logs_each_merge_statement_without_payloads(
     assert "token=secret" not in repr([record.context for record in events])
 
 
+def test_catalog_registration_merge_span_contains_only_safe_correlation_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Span:
+        def __init__(self) -> None:
+            self.attributes: dict[str, object] = {}
+
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def set_attribute(self, name: str, value: object) -> None:
+            self.attributes[name] = value
+
+        def set_status(self, _status: object) -> None:
+            return None
+
+    class Tracer:
+        def __init__(self) -> None:
+            self.span = Span()
+
+        def start_as_current_span(self, _name: str) -> Span:
+            return self.span
+
+    class Cursor:
+        sfqid = "safe-query-id"
+
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    tracer = Tracer()
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration._TRACER", tracer)
+    _execute_registration_merge(
+        Cursor(),
+        "private SQL text",
+        ("token=must-not-be-recorded",),
+        progress=RegistrationProgress("run-id", artifact_id="artifact-id"),
+        operation="catalog_resources",
+        catalog_id="DATA_GOV",
+        dataset_offset=7,
+        row_count=100,
+    )
+
+    assert {
+        key: value for key, value in tracer.span.attributes.items() if key != "atlas.duration_ms"
+    } == {
+        "atlas.registration.run_id": "run-id",
+        "atlas.registration.artifact_id": "artifact-id",
+        "atlas.registration.catalog_id": "DATA_GOV",
+        "atlas.registration.dataset_offset": 7,
+        "atlas.registration.row_count": 100,
+        "atlas.registration.merge_operation": "catalog_resources",
+        "db.snowflake.query_id": "safe-query-id",
+    }
+    assert isinstance(tracer.span.attributes["atlas.duration_ms"], int)
+    assert "must-not-be-recorded" not in repr(tracer.span.attributes)
+    assert "private SQL text" not in repr(tracer.span.attributes)
+
+
 def test_catalog_registration_chunks_large_resource_merges() -> None:
     class Cursor:
         def __init__(self) -> None:
@@ -651,13 +713,44 @@ def test_catalog_registration_chunks_large_resource_merges() -> None:
         )
         == 1_001
     )
-    assert len(cursor.calls) == 5
+    assert len(cursor.calls) == 23
     resource_payload_sizes = [
         len(json.loads(parameters[1]))
         for query, parameters in cursor.calls
         if "CATALOG_RESOURCES" in query or "CATALOG_DISCOVERY_OBSERVATIONS" in query
     ]
-    assert resource_payload_sizes == [1_000, 1_000, 1, 1]
+    assert resource_payload_sizes == [100] * 20 + [1, 1]
+
+
+def test_catalog_registration_checkpoints_each_resource_observation_slice() -> None:
+    class Cursor:
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    class Connection:
+        def __init__(self) -> None:
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    resources = tuple(
+        CatalogResource("DATA", f"https://example.gov/{index}", None, None, {})
+        for index in range(201)
+    )
+    connection = Connection()
+    dataset = CatalogDataset("DATA_GOV", "dataset-1", "key", {}, resources)
+
+    assert (
+        _write_registration_dataset_batch(
+            Cursor(),
+            [RegistrationDataset(dataset, "artifact", "run", "request", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+            connection=connection,
+        )
+        == 201
+    )
+    assert connection.commits == 3
 
 
 def test_catalog_registration_claims_an_eligible_batch_with_set_based_queries(
