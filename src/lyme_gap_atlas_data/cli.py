@@ -60,24 +60,27 @@ class ObservedTyper(typer.Typer):
         configure_tracing(SERVICE_NAME)
         command = _command_path(sys.argv[1:])
         started = monotonic()
-        span = trace.get_tracer(SERVICE_NAME).start_span("atlas-data.cli")
-        span.set_attribute("atlas.command", command)
-        span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
         try:
-            result = super().__call__(*args, **kwargs)
-        except BaseException as error:
-            failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
-            span.set_attribute("atlas.outcome", "failure" if failed else "success")
-            if failed:
-                span.set_attribute("error.type", type(error).__name__)
-                span.set_status(Status(StatusCode.ERROR, type(error).__name__))
-            raise
-        else:
-            span.set_attribute("atlas.outcome", "success")
-            return result
+            # The current context lets safe, bounded child spans correlate to the
+            # command that invoked them without adding command arguments to traces.
+            with trace.get_tracer(SERVICE_NAME).start_as_current_span("atlas-data.cli") as span:
+                span.set_attribute("atlas.command", command)
+                span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+                try:
+                    result = super().__call__(*args, **kwargs)
+                except BaseException as error:
+                    failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
+                    span.set_attribute("atlas.outcome", "failure" if failed else "success")
+                    if failed:
+                        span.set_attribute("error.type", type(error).__name__)
+                        span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+                    raise
+                else:
+                    span.set_attribute("atlas.outcome", "success")
+                    return result
+                finally:
+                    span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
         finally:
-            span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
-            span.end()
             _flush_and_shutdown_tracing()
 
 

@@ -24,6 +24,12 @@ class FakeSpan:
     def end(self) -> None:
         self.ended = True
 
+    def __enter__(self) -> FakeSpan:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.end()
+
 
 class FakeProvider:
     def __init__(self) -> None:
@@ -42,7 +48,7 @@ def _configure_observed_app(monkeypatch: pytest.MonkeyPatch, span: FakeSpan) -> 
     monkeypatch.setattr(cli, "configure_logging", lambda: None)
     monkeypatch.setattr(cli, "configure_tracing", lambda _service: None)
     monkeypatch.setenv("TOPX_ENV", "prod")
-    tracer = SimpleNamespace(start_span=lambda _name: span)
+    tracer = SimpleNamespace(start_as_current_span=lambda _name: span)
     monkeypatch.setattr(cli.trace, "get_tracer", lambda _service: tracer)
     monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
     return provider
