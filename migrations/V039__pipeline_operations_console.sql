@@ -137,5 +137,6 @@ GRANT SELECT ON VIEW GOVERNANCE.V_PIPELINE_SEARCH_COVERAGE
   TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER;
 GRANT SELECT ON TABLE GOVERNANCE.CATALOG_REGISTRATION_RUNS
   TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER;
-GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS
-  TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER;
+-- V023 grants the existing INGESTION_RUNS dependency to Streamlit. Re-granting
+-- it here would require ownership that the least-privilege migration role
+-- deliberately does not hold.

@@ -1395,6 +1395,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
     assert "V_PIPELINE_COMMAND_CENTER" in operations_console
+    assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS" not in operations_console
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
