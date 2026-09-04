@@ -7,6 +7,7 @@ publisher URL, collects a sample, scores a candidate, or authorizes ingestion.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 from dataclasses import dataclass
@@ -116,7 +117,7 @@ def _read_cgroup_file(path: Path) -> str | None:
 
 
 def _cgroup_memory_context() -> dict[str, object]:
-    """Return safe Linux cgroup memory values; local and non-cgroup runs degrade cleanly."""
+    """Return safe Linux cgroup v2 or v1 memory values without raising."""
     root = Path("/sys/fs/cgroup")
     current = _read_cgroup_file(root / "memory.current")
     maximum = _read_cgroup_file(root / "memory.max")
@@ -127,7 +128,28 @@ def _cgroup_memory_context() -> dict[str, object]:
             key, _, value = line.partition(" ")
             if key in {"low", "high", "max", "oom", "oom_kill"} and value.isdigit():
                 events[key] = int(value)
+    if current is not None or maximum is not None or event_lines is not None:
+        return {
+            "cgroup_memory_mode": "v2",
+            "cgroup_memory_current_bytes": int(current)
+            if current is not None and current.isdigit()
+            else None,
+            "cgroup_memory_limit_bytes": int(maximum)
+            if maximum is not None and maximum.isdigit()
+            else None,
+            "cgroup_memory_events": events,
+        }
+
+    v1_root = root / "memory"
+    current = _read_cgroup_file(v1_root / "memory.usage_in_bytes")
+    maximum = _read_cgroup_file(v1_root / "memory.limit_in_bytes")
+    fail_count = _read_cgroup_file(v1_root / "memory.failcnt")
+    if fail_count is not None and fail_count.isdigit():
+        events["failcnt"] = int(fail_count)
     return {
+        "cgroup_memory_mode": "v1"
+        if current is not None or maximum is not None or fail_count is not None
+        else "unavailable",
         "cgroup_memory_current_bytes": int(current)
         if current is not None and current.isdigit()
         else None,
@@ -136,6 +158,52 @@ def _cgroup_memory_context() -> dict[str, object]:
         else None,
         "cgroup_memory_events": events,
     }
+
+
+def _read_process_status() -> str | None:
+    """Read a bounded Linux process-status snapshot without raising."""
+    try:
+        return Path("/proc/self/status").read_text(encoding="utf-8")[:4096]
+    except OSError:
+        return None
+
+
+def _process_memory_context() -> dict[str, object | None]:
+    """Return bounded, data-free process memory telemetry across supported runtimes."""
+    status = _read_process_status()
+    values: dict[str, int] = {}
+    if status is not None:
+        for line in status.splitlines():
+            key, _, value = line.partition(":")
+            amount = value.strip().split(maxsplit=1)
+            if key in {"VmRSS", "VmHWM", "VmSize", "Threads"} and amount and amount[0].isdigit():
+                multiplier = 1024 if key != "Threads" else 1
+                values[key] = int(amount[0]) * multiplier
+    rusage_maxrss_bytes: int | None = None
+    try:
+        resource_module = importlib.import_module("resource")
+        getrusage = getattr(resource_module, "getrusage", None)
+        rusage_self = getattr(resource_module, "RUSAGE_SELF", None)
+        if callable(getrusage) and rusage_self is not None:
+            rusage_maxrss_bytes = int(getrusage(rusage_self).ru_maxrss)
+        # Linux reports KiB while macOS reports bytes.  The production App Platform
+        # runtime is Linux; keep this fallback conservative on non-Linux hosts.
+        if rusage_maxrss_bytes is not None and Path("/proc").is_dir():
+            rusage_maxrss_bytes *= 1024
+    except (ImportError, AttributeError, OSError):
+        rusage_maxrss_bytes = None
+    return {
+        "process_rss_bytes": values.get("VmRSS"),
+        "process_peak_rss_bytes": values.get("VmHWM"),
+        "process_virtual_memory_bytes": values.get("VmSize"),
+        "process_thread_count": values.get("Threads"),
+        "process_rusage_maxrss_bytes": rusage_maxrss_bytes,
+    }
+
+
+def _registration_memory_context() -> dict[str, object | None]:
+    """Combine safe container and process memory evidence for a log record."""
+    return {**_cgroup_memory_context(), **_process_memory_context()}
 
 
 def _log_registration_phase(
@@ -160,10 +228,79 @@ def _log_registration_phase(
                 "dataset_count": dataset_count,
                 "claimed_artifacts": progress.claimed_artifacts,
                 "available_artifacts": progress.available_artifacts,
-                **_cgroup_memory_context(),
+                **_registration_memory_context(),
             }
         },
     )
+
+
+def _log_registration_merge_operation(
+    progress: RegistrationProgress,
+    *,
+    event: str,
+    operation: str,
+    catalog_id: str,
+    dataset_offset: int,
+    row_count: int,
+    started: float | None = None,
+    cursor: Any | None = None,
+) -> None:
+    """Record a redacted boundary around one Snowflake merge statement."""
+    if event == "started":
+        progress.phase = f"dataset_merge:{operation}"
+    logger.info(
+        f"catalog_registration.merge_operation_{event}",
+        extra={
+            "context": {
+                "registration_run_id": progress.registration_run_id,
+                "phase": progress.phase,
+                "operation": operation,
+                "artifact_id": progress.artifact_id,
+                "catalog_id": catalog_id,
+                "dataset_offset": dataset_offset,
+                "row_count": row_count,
+                "duration_ms": int((monotonic() - started) * 1000) if started is not None else None,
+                "snowflake_query_id": getattr(cursor, "sfqid", None) if cursor else None,
+                **_registration_memory_context(),
+            }
+        },
+    )
+
+
+def _execute_registration_merge(
+    cursor: Any,
+    statement: str,
+    parameters: tuple[object, ...],
+    *,
+    progress: RegistrationProgress | None,
+    operation: str,
+    catalog_id: str | None,
+    dataset_offset: int,
+    row_count: int,
+) -> None:
+    """Execute one bounded merge with a durable, redacted before/after log pair."""
+    started = monotonic()
+    if progress is not None and catalog_id is not None:
+        _log_registration_merge_operation(
+            progress,
+            event="started",
+            operation=operation,
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset,
+            row_count=row_count,
+        )
+    cursor.execute(statement, parameters)
+    if progress is not None and catalog_id is not None:
+        _log_registration_merge_operation(
+            progress,
+            event="completed",
+            operation=operation,
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset,
+            row_count=row_count,
+            started=started,
+            cursor=cursor,
+        )
 
 
 def _stable_id(*values: str) -> str:
@@ -470,7 +607,13 @@ def latest_completed_discovery_config_sha256() -> str:
 
 
 def _write_registration_dataset_batch(
-    cursor: Any, datasets: list[RegistrationDataset], observed_at: datetime
+    cursor: Any,
+    datasets: list[RegistrationDataset],
+    observed_at: datetime,
+    *,
+    progress: RegistrationProgress | None = None,
+    catalog_id: str | None = None,
+    dataset_offset: int = 0,
 ) -> int:
     """Write a bounded dataset slice in three set-based merges before checkpointing it."""
     dataset_rows: list[dict[str, object]] = []
@@ -518,7 +661,8 @@ def _write_registration_dataset_batch(
             sort_keys=True,
             separators=(",", ":"),
         )
-        cursor.execute(
+        _execute_registration_merge(
+            cursor,
             """MERGE INTO GOVERNANCE.CATALOG_DATASETS target
            USING (
              SELECT value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
@@ -537,6 +681,11 @@ def _write_registration_dataset_batch(
                source.catalog_record_id, source.metadata_payload, source.metadata_sha256,
                source.discovered_at, TRUE)""",
             (observed_at, dataset_json),
+            progress=progress,
+            operation="catalog_datasets",
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset + start,
+            row_count=len(dataset_rows[start : start + REGISTRATION_DATASET_CHUNK_SIZE]),
         )
     if not resource_rows:
         return 0
@@ -546,7 +695,8 @@ def _write_registration_dataset_batch(
             sort_keys=True,
             separators=(",", ":"),
         )
-        cursor.execute(
+        _execute_registration_merge(
+            cursor,
             """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
            USING (
              SELECT value:catalog_resource_id::VARCHAR AS catalog_resource_id,
@@ -569,8 +719,14 @@ def _write_registration_dataset_batch(
              source.canonical_source_url, source.api_dataset_id, source.resource_payload,
              source.registered_at, TRUE)""",
             (observed_at, source_json),
+            progress=progress,
+            operation="catalog_resources",
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset,
+            row_count=len(resource_rows[start : start + REGISTRATION_RESOURCE_CHUNK_SIZE]),
         )
-        cursor.execute(
+        _execute_registration_merge(
+            cursor,
             """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS target
            USING (
              SELECT value:observation_id::VARCHAR AS observation_id,
@@ -595,6 +751,11 @@ def _write_registration_dataset_batch(
                source.catalog_dataset_id, source.catalog_resource_id, source.canonical_resource_key,
                source.observed_at)""",
             (observed_at, source_json),
+            progress=progress,
+            operation="catalog_discovery_observations",
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset,
+            row_count=len(resource_rows[start : start + REGISTRATION_RESOURCE_CHUNK_SIZE]),
         )
     return len(resource_rows)
 
@@ -833,7 +994,7 @@ def _register_completed_discovery(
                                 "catalog_id": catalog_id,
                                 "dataset_offset": dataset_offset,
                                 "dataset_count": len(datasets),
-                                **_cgroup_memory_context(),
+                                **_registration_memory_context(),
                             }
                         },
                     )
@@ -884,7 +1045,12 @@ def _register_completed_discovery(
                             dataset_count=len(artifact_datasets),
                         )
                         registered_resources += _write_registration_dataset_batch(
-                            cursor, artifact_datasets, datetime.now(UTC)
+                            cursor,
+                            artifact_datasets,
+                            datetime.now(UTC),
+                            progress=progress,
+                            catalog_id=catalog_id,
+                            dataset_offset=next_offset,
                         )
                         registered_datasets += len(artifact_datasets)
                         next_offset += len(artifact_datasets)

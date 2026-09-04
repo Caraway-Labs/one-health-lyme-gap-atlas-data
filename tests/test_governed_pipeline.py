@@ -23,6 +23,7 @@ from lyme_gap_atlas_data.catalog_registration import (
     _claim_registration_batch,
     _completed_artifacts,
     _log_registration_phase,
+    _process_memory_context,
     _write_registration_dataset_batch,
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
@@ -561,6 +562,72 @@ def test_catalog_registration_batches_dataset_resources_into_three_merges() -> N
     assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
 
 
+def test_catalog_registration_logs_each_merge_statement_without_payloads(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Cursor:
+        sfqid = "safe-query-id"
+
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._registration_memory_context",
+        lambda: {
+            "cgroup_memory_mode": "unavailable",
+            "cgroup_memory_current_bytes": None,
+            "cgroup_memory_limit_bytes": None,
+            "cgroup_memory_events": {},
+            "process_rss_bytes": 100,
+            "process_peak_rss_bytes": 200,
+            "process_virtual_memory_bytes": 300,
+            "process_thread_count": 4,
+            "process_rusage_maxrss_bytes": 200,
+        },
+    )
+    progress = RegistrationProgress("run-id", artifact_id="artifact-id")
+    dataset = CatalogDataset(
+        "DATA_GOV",
+        "dataset-1",
+        "data_gov:dataset-1",
+        {"private_payload": "must-not-be-recorded"},
+        (CatalogResource("API", "https://example.gov/api?token=secret", None, None, {}),),
+    )
+
+    with caplog.at_level(logging.INFO, logger="lyme_gap_atlas_data.catalog_registration"):
+        _write_registration_dataset_batch(
+            Cursor(),
+            [RegistrationDataset(dataset, "artifact-id", "run-id", "request-id", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+            progress=progress,
+            catalog_id="DATA_GOV",
+            dataset_offset=7,
+        )
+
+    events = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("catalog_registration.merge_operation_")
+    ]
+    assert [record.getMessage() for record in events] == [
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+    ]
+    assert [record.context["operation"] for record in events[::2]] == [
+        "catalog_datasets",
+        "catalog_resources",
+        "catalog_discovery_observations",
+    ]
+    assert all(record.context["dataset_offset"] == 7 for record in events)
+    assert all(record.context["snowflake_query_id"] == "safe-query-id" for record in events[1::2])
+    assert "must-not-be-recorded" not in repr([record.context for record in events])
+    assert "token=secret" not in repr([record.context for record in events])
+
+
 def test_catalog_registration_chunks_large_resource_merges() -> None:
     class Cursor:
         def __init__(self) -> None:
@@ -829,7 +896,7 @@ def test_catalog_registration_commits_each_dataset_chunk_before_a_later_failure(
     datasets = [CatalogDataset("DATA_GOV", str(index), str(index), {}, ()) for index in range(51)]
     calls = 0
 
-    def write_chunk(*_args: object) -> int:
+    def write_chunk(*_args: object, **_kwargs: object) -> int:
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -1025,6 +1092,16 @@ def test_registration_phase_boundary_records_safe_cgroup_memory(
         "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
         lambda path: values.get(path.name),
     )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._process_memory_context",
+        lambda: {
+            "process_rss_bytes": 1,
+            "process_peak_rss_bytes": 2,
+            "process_virtual_memory_bytes": 3,
+            "process_thread_count": 4,
+            "process_rusage_maxrss_bytes": 5,
+        },
+    )
     progress = RegistrationProgress(
         registration_run_id="run-123",
         artifact_id="artifact-123",
@@ -1050,9 +1127,15 @@ def test_registration_phase_boundary_records_safe_cgroup_memory(
         "dataset_count": None,
         "claimed_artifacts": 12,
         "available_artifacts": 4410,
+        "cgroup_memory_mode": "v2",
         "cgroup_memory_current_bytes": 419430400,
         "cgroup_memory_limit_bytes": 536870912,
         "cgroup_memory_events": {"low": 0, "high": 1, "max": 2, "oom": 3, "oom_kill": 4},
+        "process_rss_bytes": 1,
+        "process_peak_rss_bytes": 2,
+        "process_virtual_memory_bytes": 3,
+        "process_thread_count": 4,
+        "process_rusage_maxrss_bytes": 5,
     }
 
 
@@ -1064,10 +1147,51 @@ def test_cgroup_memory_context_is_safe_when_files_are_unavailable(
     )
 
     assert _cgroup_memory_context() == {
+        "cgroup_memory_mode": "unavailable",
         "cgroup_memory_current_bytes": None,
         "cgroup_memory_limit_bytes": None,
         "cgroup_memory_events": {},
     }
+
+
+def test_cgroup_memory_context_uses_v1_when_v2_files_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = {
+        "memory.usage_in_bytes": "419430400",
+        "memory.limit_in_bytes": "536870912",
+        "memory.failcnt": "2",
+    }
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
+        lambda path: values.get(path.name),
+    )
+
+    assert _cgroup_memory_context() == {
+        "cgroup_memory_mode": "v1",
+        "cgroup_memory_current_bytes": 419430400,
+        "cgroup_memory_limit_bytes": 536870912,
+        "cgroup_memory_events": {"failcnt": 2},
+    }
+
+
+def test_process_memory_context_reads_only_numeric_status_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_process_status",
+        lambda: (
+            "Name:\tprivate-command\nVmRSS:\t100 kB\nVmHWM:\t200 kB\nVmSize:\t300 kB\nThreads:\t4\n"
+        ),
+    )
+
+    context = _process_memory_context()
+
+    assert context["process_rss_bytes"] == 102400
+    assert context["process_peak_rss_bytes"] == 204800
+    assert context["process_virtual_memory_bytes"] == 307200
+    assert context["process_thread_count"] == 4
+    assert "private-command" not in repr(context)
 
 
 def test_registration_command_reuses_the_worker_terminal_event(
