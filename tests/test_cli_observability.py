@@ -72,6 +72,32 @@ def test_cli_root_span_has_only_safe_success_attributes(monkeypatch: pytest.Monk
     assert (provider.flushes, provider.shutdowns) == (1, 1)
 
 
+def test_cli_initializes_observability_once_per_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    span = FakeSpan()
+    provider = FakeProvider()
+    logging_initializations = 0
+    tracing_initializations: list[str] = []
+
+    def configure_log() -> None:
+        nonlocal logging_initializations
+        logging_initializations += 1
+
+    monkeypatch.setattr(cli, "configure_logging", configure_log)
+    monkeypatch.setattr(cli, "configure_tracing", tracing_initializations.append)
+    monkeypatch.setattr(
+        cli.trace,
+        "get_tracer",
+        lambda _service: SimpleNamespace(start_as_current_span=lambda _name: span),
+    )
+    monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
+    monkeypatch.setattr(typer.Typer, "__call__", lambda *_args, **_kwargs: None)
+
+    cli.ObservedTyper()()
+
+    assert logging_initializations == 1
+    assert tracing_initializations == [cli.SERVICE_NAME]
+
+
 def test_cli_root_span_marks_a_failure_without_exception_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

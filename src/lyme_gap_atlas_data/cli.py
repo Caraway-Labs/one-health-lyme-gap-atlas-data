@@ -90,13 +90,6 @@ app.add_typer(pipeline_app, name="pipeline")
 logger = logging.getLogger(__name__)
 
 
-@app.callback()
-def configure_runtime_observability() -> None:
-    """Initialize redacted JSON logs for every CLI command, including jobs."""
-    configure_logging()
-    configure_tracing(SERVICE_NAME)
-
-
 def _settings() -> SnowflakeSettings:
     return SnowflakeSettings()
 
