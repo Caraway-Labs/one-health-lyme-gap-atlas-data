@@ -24,6 +24,12 @@ class FakeSpan:
     def end(self) -> None:
         self.ended = True
 
+    def __enter__(self) -> FakeSpan:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.end()
+
 
 class FakeProvider:
     def __init__(self) -> None:
@@ -42,7 +48,7 @@ def _configure_observed_app(monkeypatch: pytest.MonkeyPatch, span: FakeSpan) -> 
     monkeypatch.setattr(cli, "configure_logging", lambda: None)
     monkeypatch.setattr(cli, "configure_tracing", lambda _service: None)
     monkeypatch.setenv("TOPX_ENV", "prod")
-    tracer = SimpleNamespace(start_span=lambda _name: span)
+    tracer = SimpleNamespace(start_as_current_span=lambda _name: span)
     monkeypatch.setattr(cli.trace, "get_tracer", lambda _service: tracer)
     monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
     return provider
@@ -66,6 +72,32 @@ def test_cli_root_span_has_only_safe_success_attributes(monkeypatch: pytest.Monk
     assert (provider.flushes, provider.shutdowns) == (1, 1)
 
 
+def test_cli_initializes_observability_once_per_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    span = FakeSpan()
+    provider = FakeProvider()
+    logging_initializations = 0
+    tracing_initializations: list[str] = []
+
+    def configure_log() -> None:
+        nonlocal logging_initializations
+        logging_initializations += 1
+
+    monkeypatch.setattr(cli, "configure_logging", configure_log)
+    monkeypatch.setattr(cli, "configure_tracing", tracing_initializations.append)
+    monkeypatch.setattr(
+        cli.trace,
+        "get_tracer",
+        lambda _service: SimpleNamespace(start_as_current_span=lambda _name: span),
+    )
+    monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
+    monkeypatch.setattr(typer.Typer, "__call__", lambda *_args, **_kwargs: None)
+
+    cli.ObservedTyper()()
+
+    assert logging_initializations == 1
+    assert tracing_initializations == [cli.SERVICE_NAME]
+
+
 def test_cli_root_span_marks_a_failure_without_exception_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -87,3 +119,12 @@ def test_cli_root_span_marks_a_failure_without_exception_text(
     assert "do-not-record" not in repr(span.attributes)
     assert span.status.status_code.name == "ERROR"
     assert (provider.flushes, provider.shutdowns) == (1, 1)
+
+
+def test_pmc_extraction_command_requires_explicit_confirmation() -> None:
+    command = next(
+        item for item in cli.pipeline_app.registered_commands if item.name == "pmc-extract"
+    )
+    assert command.callback is not None
+    with pytest.raises(typer.BadParameter, match="steward approves"):
+        command.callback(estimated_cost_usd=1.0, confirm=False)

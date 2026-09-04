@@ -61,6 +61,20 @@ Completed controls:
 4. DEV App Platform now uses an image digest, not a mutable GitHub source
    reference.
 
+### DEV legacy migration-ledger recovery
+
+If the checksum-enforced runner encounters the documented DEV legacy set for
+V028, V029, and V033, it remains fail-closed until the separately reviewed
+`pipeline reconcile-legacy-dev-migrations --confirm` command runs. That
+command is hard-coded to the DEV database and the observed legacy checksums;
+it verifies the registration-ledger shape and appends immutable reconciliation
+records. It never updates or deletes `SCHEMA_MIGRATIONS` rows, and it cannot
+run against PROD. V034 then reasserts the current redacted operations-view
+contract in DEV only. To roll back before V034, stop the workflow or omit the
+reconciliation command; no ledger history is rewritten. To disable the
+operational views after V034, revoke the Streamlit owner role's view usage as
+a separately reviewed, append-only grant change while retaining audit evidence.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App

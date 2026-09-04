@@ -1,8 +1,10 @@
+import logging
 from datetime import UTC, datetime
 
 import pytest
 
 from lyme_gap_atlas_data.literature import (
+    EntrezHistoryClient,
     PaperState,
     build_pubmed_query,
     extraction_provider,
@@ -32,3 +34,8 @@ def test_state_machine_is_forward_only() -> None:
 )
 def test_complete_request_routing(tokens: int, expected: str) -> None:
     assert extraction_provider(tokens) == expected
+
+
+def test_entrez_client_suppresses_provider_request_urls() -> None:
+    EntrezHistoryClient("steward@example.org")
+    assert logging.getLogger("httpx").level == logging.WARNING

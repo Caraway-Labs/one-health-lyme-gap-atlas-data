@@ -83,12 +83,18 @@ jobs:
         run: |
           doctl apps spec get "$APP_ID" --format json > /tmp/dev-app.json
           jq --arg digest "$IMAGE_DIGEST" '
-            del(.jobs[0].github, .jobs[0].dockerfile_path, .jobs[0].source_dir)
-            | .jobs[0].image = {
-                registry_type: "DOCR",
-                registry: "",
-                repository: "pipeline",
-                digest: $digest
-              }
+            .jobs |= map(
+              del(.github, .dockerfile_path, .source_dir)
+              | .image = {
+                  registry_type: "DOCR",
+                  registry: "oh-lyme-data",
+                  repository: "pipeline",
+                  digest: $digest
+                }
+            )
           ' /tmp/dev-app.json > /tmp/dev-app-image.json
-          doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json
+          for attempt in $(seq 1 12); do
+            doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json && exit 0
+            sleep 5
+          done
+          exit 1

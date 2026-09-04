@@ -11,7 +11,6 @@ from time import monotonic
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from neo4j import GraphDatabase
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
@@ -22,21 +21,12 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
-from .extraction import (
-    ExtractionCoordinator,
-    GroqStructuredExtractor,
-    OpenAIEmbeddingClient,
-    OpenAIResponsesExtractor,
-)
-from .graph_extraction import ApprovedPaperExtractionWorker
-from .literature import EntrezHistoryClient
-from .migrations import apply_migrations, migration_plan
+from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
 from .orchestration import run_discovery, run_production_schedule
-from .pmc_graph import Neo4jPaperPublisher, PmcOpenAccessClient
+from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
-from .pubmed_pipeline import PubmedDiscoveryWorker, SnowflakeDiscoveryLedger, SpacesArtifactStore
+from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .settings import PipelineSettings
-from .snowflake_extraction import SnowflakeExtractionBudget, SnowflakeExtractionWorkStore
 from .streamlit_deploy import deploy_approval_console
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
@@ -70,24 +60,27 @@ class ObservedTyper(typer.Typer):
         configure_tracing(SERVICE_NAME)
         command = _command_path(sys.argv[1:])
         started = monotonic()
-        span = trace.get_tracer(SERVICE_NAME).start_span("atlas-data.cli")
-        span.set_attribute("atlas.command", command)
-        span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
         try:
-            result = super().__call__(*args, **kwargs)
-        except BaseException as error:
-            failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
-            span.set_attribute("atlas.outcome", "failure" if failed else "success")
-            if failed:
-                span.set_attribute("error.type", type(error).__name__)
-                span.set_status(Status(StatusCode.ERROR, type(error).__name__))
-            raise
-        else:
-            span.set_attribute("atlas.outcome", "success")
-            return result
+            # The current context lets safe, bounded child spans correlate to the
+            # command that invoked them without adding command arguments to traces.
+            with trace.get_tracer(SERVICE_NAME).start_as_current_span("atlas-data.cli") as span:
+                span.set_attribute("atlas.command", command)
+                span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+                try:
+                    result = super().__call__(*args, **kwargs)
+                except BaseException as error:
+                    failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
+                    span.set_attribute("atlas.outcome", "failure" if failed else "success")
+                    if failed:
+                        span.set_attribute("error.type", type(error).__name__)
+                        span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+                    raise
+                else:
+                    span.set_attribute("atlas.outcome", "success")
+                    return result
+                finally:
+                    span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
         finally:
-            span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
-            span.end()
             _flush_and_shutdown_tracing()
 
 
@@ -95,13 +88,6 @@ app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 logger = logging.getLogger(__name__)
-
-
-@app.callback()
-def configure_runtime_observability() -> None:
-    """Initialize redacted JSON logs for every CLI command, including jobs."""
-    configure_logging()
-    configure_tracing(SERVICE_NAME)
 
 
 def _settings() -> SnowflakeSettings:
@@ -189,6 +175,35 @@ def discover(
     typer.echo(json.dumps(result))
 
 
+@pipeline_app.command("pubmed-discover")
+def pubmed_discover(
+    family: str = typer.Option(..., "--family"),
+    max_records: int = typer.Option(
+        MAX_RECORDS_PER_RUN, "--max-records", min=1, max=MAX_RECORDS_PER_RUN
+    ),
+    batch_size: int = typer.Option(MAX_BATCH_SIZE, "--batch-size", min=1, max=MAX_BATCH_SIZE),
+) -> None:
+    """Capture bounded PubMed citation metadata; it cannot approve or fetch full text."""
+    typer.echo(
+        json.dumps(discover_pubmed(family, maximum_records=max_records, batch_size=batch_size))
+    )
+
+
+@pipeline_app.command("pmc-extract")
+def pmc_extract(
+    estimated_cost_usd: float = typer.Option(..., "--estimated-cost-usd", min=0.01, max=20.0),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Extract at most one steward-approved PMC Open Access paper in DEV."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm after a steward approves one paper")
+    typer.echo(
+        json.dumps(
+            run_pmc_extraction(estimated_cost_usd=estimated_cost_usd, settings=PipelineSettings())
+        )
+    )
+
+
 @pipeline_app.command("register-discovery")
 def register_discovery(
     config_sha256: str = typer.Option(..., "--config-sha256"),
@@ -211,12 +226,18 @@ def register_latest_discovery(
         # App Platform can omit traceback output for failed post-deploy jobs.
         # Emit only redacted, correlation-safe diagnostics before retaining the
         # non-zero status for the scheduler.
-        diagnostics = {
-            "status": "FAILED",
-            "operation": "catalog_registration",
-            **_safe_failure_diagnostics(error),
-        }
-        logger.error("catalog_registration.failed", extra={"context": diagnostics})
+        emitted = getattr(error, "catalog_registration_diagnostics", None)
+        diagnostics = (
+            {"status": "FAILED", **emitted}
+            if isinstance(emitted, dict)
+            else {
+                "status": "FAILED",
+                "operation": "catalog_registration",
+                **_safe_failure_diagnostics(error),
+            }
+        )
+        if not getattr(error, "catalog_registration_terminal_emitted", False):
+            logger.error("catalog_registration.failed", extra={"context": diagnostics})
         typer.echo(json.dumps(diagnostics))
         raise
     typer.echo(json.dumps(result))
@@ -240,6 +261,20 @@ def apply_migrations_command(
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
     typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+
+
+@pipeline_app.command("reconcile-legacy-dev-migrations")
+def reconcile_legacy_dev_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Append the owner-approved DEV-only legacy migration reconciliation evidence."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to reconcile legacy DEV migrations")
+    typer.echo(
+        json.dumps({"reconciled": reconcile_legacy_dev_migrations(_settings(), database, commit)})
+    )
 
 
 @pipeline_app.command("deploy-approval-console")
@@ -280,56 +315,3 @@ def promote_approved_cdc_command(
 def run_production_schedule_command() -> None:
     """Run the production scheduled approved-source ingestion and dbt path."""
     typer.echo(json.dumps(run_production_schedule(), default=str))
-
-
-@pipeline_app.command("pubmed-discover")
-def pubmed_discover(
-    family: str = typer.Option(..., "--family"),
-    max_batches: int | None = typer.Option(None, "--max-batches", min=1),
-) -> None:
-    """Discover a bounded PubMed query family and queue papers for steward review."""
-    settings = PipelineSettings()
-    client = EntrezHistoryClient(
-        settings.ncbi_email,
-        settings.ncbi_api_key.get_secret_value() if settings.ncbi_api_key else None,
-    )
-    worker = PubmedDiscoveryWorker(
-        client,
-        SpacesArtifactStore(settings),
-        SnowflakeDiscoveryLedger(SnowflakeSettings()),
-    )
-    typer.echo(json.dumps(worker.run(family, maximum_batches=max_batches)))
-
-
-@pipeline_app.command("extract-approved-paper")
-def extract_approved_paper() -> None:
-    """Extract and publish one already-approved PMC Open Access paper."""
-    settings = PipelineSettings()
-    if not settings.neo4j_uri or settings.neo4j_runtime_password is None:
-        raise typer.BadParameter("NEO4J_URI and NEO4J_RUNTIME_PASSWORD are required")
-    if settings.groq_api_key is None or settings.openai_api_key is None:
-        raise typer.BadParameter("GROQ_API_KEY and OPENAI_API_KEY are required")
-    snowflake = SnowflakeSettings()
-    driver = GraphDatabase.driver(
-        settings.neo4j_uri,
-        auth=(settings.neo4j_runtime_user, settings.neo4j_runtime_password.get_secret_value()),
-    )
-    try:
-        coordinator = ExtractionCoordinator(
-            groq=GroqStructuredExtractor(settings.groq_api_key.get_secret_value()),
-            openai=OpenAIResponsesExtractor(settings.openai_api_key.get_secret_value()),
-            budget=SnowflakeExtractionBudget(snowflake),
-            publisher=Neo4jPaperPublisher(driver),
-            embedder=OpenAIEmbeddingClient(settings.openai_api_key.get_secret_value()),
-            token_estimator=lambda request: max(1, len(request) // 4),
-            cost_estimator=lambda _route, _tokens: settings.extraction_estimated_cost_usd,
-        )
-        worker = ApprovedPaperExtractionWorker(
-            SnowflakeExtractionWorkStore(snowflake),
-            PmcOpenAccessClient().fetch_jats,
-            SpacesArtifactStore(settings),
-            coordinator,
-        )
-        typer.echo(json.dumps(worker.run_once(), default=str))
-    finally:
-        driver.close()

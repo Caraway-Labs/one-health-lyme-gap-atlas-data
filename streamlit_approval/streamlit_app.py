@@ -20,6 +20,7 @@ APP_VERSION: Final = "1.0.0"
 CDC_RESOURCE_KEY: Final = "cdc_lyme_x5j9_wybp"
 DECISIONS: Final = {"APPROVED", "APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 CONDITIONS_REQUIRED: Final = {"APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
+BACKLOG_PAGE_SIZE: Final = 100
 session = get_active_session()
 viewer = st.user.user_name
 
@@ -112,292 +113,162 @@ def _paper_queue() -> list[dict[str, object]]:
 
 
 def _operations_rows(view: str) -> list[dict[str, object]]:
-    """Read a redacted, governed operations view; never query artifact payloads."""
+    """Query an allow-listed, redacted operational view only."""
+    allowed = {
+        "V_PIPELINE_OBSERVABILITY_OVERVIEW",
+        "V_PIPELINE_ARTIFACT_BACKLOG",
+        "V_PIPELINE_DISCOVERY_RUNS",
+        "V_PIPELINE_CATALOG_COVERAGE",
+        "V_PIPELINE_REGISTRATION_OUTCOMES",
+        "V_PIPELINE_SOURCE_GOVERNANCE",
+        "V_PIPELINE_COMMAND_CENTER",
+        "V_PIPELINE_REGISTRATION_RUNS",
+        "V_PIPELINE_SEARCH_COVERAGE",
+    }
+    if view not in allowed:
+        raise ValueError("Unsupported operational view")
     return _rows(f"SELECT * FROM GOVERNANCE.{view}")
 
 
 def _artifact_backlog_page(
-    status: str, only_expired: bool, page_size: int, offset: int
+    status: str, expired_only: bool, offset: int
 ) -> tuple[int, list[dict[str, object]]]:
-    """Fetch one metadata-only backlog page; do not load all artifact rows in the browser."""
-    where_clause = """WHERE (? = 'All' OR status = ?)
-                    AND (? = FALSE OR has_expired_lease = TRUE)"""
+    where = "WHERE (? = 'All' OR status = ?) AND (? = FALSE OR has_expired_lease = TRUE)"
+    parameters = [status, status, expired_only]
     total = _rows(
-        f"SELECT COUNT(*) AS total FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where_clause}",
-        [status, status, only_expired],
+        f"SELECT COUNT(*) AS total FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where}", parameters
     )
     page = _rows(
-        f"""SELECT artifact_id, catalog, matched_term, captured_at, byte_count, status,
-                   attempt_count, started_at, lease_expires_at, has_expired_lease, redacted_error
-            FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where_clause}
-            ORDER BY captured_at ASC, artifact_id ASC
-            LIMIT ? OFFSET ?""",
-        [status, status, only_expired, page_size, offset],
+        f"SELECT artifact_id, catalog, matched_term, captured_at, byte_count, status, attempt_count, started_at, lease_expires_at, has_expired_lease, redacted_error FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG {where} ORDER BY captured_at, artifact_id LIMIT ? OFFSET ?",
+        [*parameters, BACKLOG_PAGE_SIZE, offset],
     )
     return int(total[0]["TOTAL"]), page
 
 
-def _render_pipeline_explainer() -> None:
-    st.subheader("How to read this pipeline")
-    st.markdown(
-        """The pipeline first **discovers catalog metadata**, then stores every successful
-        catalog response as an immutable private artifact. Registration converts the metadata
-        into governed catalog dataset, resource, and observation records. It does **not**
-        download full source datasets, approve sources, run dbt, or publish analytical results.
-
-        The dashboard intentionally separates three counts: **historical inventory** is every
-        retained discovery artifact; **active chain** is the latest completed discovery chain
-        eligible for registration; and **completed** is the active-chain work durably committed
-        to the governance ledger. Earlier failed, paused, or superseded chains remain preserved
-        for provenance but do not inflate the current work queue.
-
-        A source can advance beyond this dashboard only after a steward records an immutable
-        approval through the governed decision workflow. Artifact payloads, request bodies,
-        credentials, and raw source data are never displayed here."""
-    )
-
-
-def _render_overview() -> None:
-    overview = _operations_rows("V_PIPELINE_OBSERVABILITY_OVERVIEW")
-    if not overview:
-        st.info("No governed pipeline-operational records are available yet.")
-        return
-    row = _lower_keys(overview[0])
-    captured = int(row.get("captured_artifacts") or 0)
-    active = int(row.get("active_chain_artifacts") or 0)
-    completed = int(row.get("completed_artifacts") or 0)
-    unresolved = int(row.get("unresolved_artifacts") or 0)
-    failed = int(row.get("failed_artifacts") or 0)
-    expired = int(row.get("expired_lease_artifacts") or 0)
-    st.subheader("Live pipeline overview")
-    st.caption("Read-only Snowflake governance-ledger snapshot. Refresh the page for a new query.")
-    columns = st.columns(4)
-    columns[0].metric("Historical artifact inventory", f"{captured:,}")
-    columns[1].metric("Active registration chain", f"{active:,}")
-    columns[2].metric("Durably processed", f"{completed:,}")
-    columns[3].metric("Unresolved", f"{unresolved:,}")
-    st.markdown(
-        f"**Current work queue:** {completed:,} of {active:,} active-chain artifacts are "
-        f"completed. Of the {unresolved:,} unresolved artifacts, {expired:,} have expired "
-        f"leases and {failed:,} are failed registrations."
-    )
-    if expired or failed:
-        st.warning(
-            "Attention required: expired leases and failed registrations are retained safely, "
-            "but they need the scheduled worker's reclaim/retry path to make forward progress."
-        )
-    st.caption(f"Latest successful registration: {row.get('latest_registration_completed_at')}")
-    _render_pipeline_explainer()
-
-
-def _render_pipeline_command_center() -> None:
-    rows = _operations_rows("V_PIPELINE_COMMAND_CENTER")
-    if not rows:
-        st.info("No completed discovery chain is available for an operational snapshot.")
-        return
-    row = _lower_keys(rows[0])
-    state = str(row.get("operational_state") or "NO_COMPLETED_DISCOVERY")
-    st.subheader("Pipeline command center")
-    st.caption(
-        "Current-chain ledger state only. It does not assert DigitalOcean scheduler, container, "
-        "memory, deployment-digest, or trace health."
-    )
-    columns = st.columns(4)
-    columns[0].metric("Operational state", state.replace("_", " ").title())
-    columns[1].metric("Active-chain artifacts", f"{int(row.get('active_chain_artifacts') or 0):,}")
-    columns[2].metric("Durably completed", f"{int(row.get('completed_artifacts') or 0):,}")
-    columns[3].metric(
-        "Remaining",
-        f"{int(row.get('pending_or_in_progress_artifacts') or 0):,}",
-    )
-    failed = int(row.get("failed_artifacts") or 0)
-    expired = int(row.get("expired_lease_artifacts") or 0)
-    if state == "ATTENTION_REQUIRED":
-        st.warning(
-            f"Attention required: {failed:,} failed artifact registrations and {expired:,} expired "
-            "leases are retained for the scheduled recovery path."
-        )
-    elif state == "AWAITING_REGISTRATION":
-        st.info("The latest completed discovery chain has no registration ledger rows yet.")
-    elif state == "COMPLETE":
-        st.success("Every registered artifact in the latest completed discovery chain is durable.")
-    else:
-        st.info("Registration is progressing or awaiting a bounded recovery pass.")
-    st.dataframe(
-        [
-            {
-                "discovery_config_sha256": row.get("config_sha256"),
-                "latest_discovery_completed_at": row.get("discovery_completed_at"),
-                "latest_registration_status": row.get("latest_registration_run_status"),
-                "latest_registration_started_at": row.get("latest_registration_run_started_at"),
-                "latest_registration_completed_at": row.get("latest_registration_run_completed_at"),
-                "latest_registration_remaining": row.get(
-                    "latest_registration_run_remaining_artifacts"
-                ),
-                "latest_registration_error_classification": row.get(
-                    "latest_registration_run_error_classification"
-                ),
-            }
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
-def _render_registration_runs() -> None:
-    st.subheader("Registration recovery")
-    rows = _rows(
-        """SELECT registration_run_id, config_sha256, status, started_at, completed_at,
-                  duration_seconds, claimed_artifacts, available_artifacts, processed_datasets,
-                  registered_resources, completed_artifacts, failed_artifacts,
-                  remaining_artifacts, error_classification
-           FROM GOVERNANCE.V_PIPELINE_REGISTRATION_RUNS
-           ORDER BY started_at DESC, registration_run_id DESC LIMIT 100"""
-    )
-    if not rows:
-        st.info("No durable registration invocation summaries are available yet.")
-        return
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-    st.caption(
-        "Each row is one bounded metadata-registration invocation. A PARTIAL result is expected "
-        "when the invocation reaches its declared artifact or dataset limit; it is not a failed "
-        "source ingestion. Error classifications are typed and redacted."
-    )
-
-
-def _render_search_coverage() -> None:
-    st.subheader("Search coverage and gaps")
-    rows = _rows(
-        """SELECT catalog, matched_term, requested_at, status_code, retrieved_row_count,
-                  captured_artifacts, registered_artifacts, failed_artifacts, coverage_state
-           FROM GOVERNANCE.V_PIPELINE_SEARCH_COVERAGE
-           ORDER BY requested_at DESC, catalog, matched_term LIMIT 500"""
-    )
-    if not rows:
-        st.info("No catalog-discovery request records are available yet.")
-        return
-    states = sorted({str(item.get("COVERAGE_STATE")) for item in rows})
-    selected = st.multiselect("Coverage state", states, default=states, key="coverage_state")
-    st.dataframe(
-        [item for item in rows if str(item.get("COVERAGE_STATE")) in selected],
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.caption(
-        "This reports requests that were actually recorded. Zero-result searches are explicit. "
-        "A missing configured search cannot be inferred from absence of a request row, so this "
-        "page never labels an unrecorded term as unattempted."
-    )
-
-
-def _render_pipeline_health() -> None:
-    st.subheader("Pipeline health")
-    runs = _operations_rows("V_PIPELINE_DISCOVERY_RUNS")
-    if not runs:
-        st.info("No discovery runs are recorded.")
-        return
-    st.dataframe(runs, use_container_width=True, hide_index=True)
-    st.caption(
-        "Run history is ledger metadata only; errors are classified but not expanded into secrets."
-    )
-
-
-def _render_artifact_backlog() -> None:
-    st.subheader("Artifact backlog")
-    status_rows = _rows(
-        "SELECT DISTINCT status FROM GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG ORDER BY status"
-    )
-    status_options = [str(item["STATUS"]) for item in status_rows]
-    selected = st.selectbox("Registration status", ["All", *status_options])
-    show_expired = st.checkbox("Only show expired leases", value=False)
-    page_size = 100
-    total, _ = _artifact_backlog_page(selected, show_expired, page_size, 0)
-    page_count = max(1, (total + page_size - 1) // page_size)
-    page_number = st.number_input("Page", min_value=1, max_value=page_count, value=1, step=1)
-    displayed_total, displayed = _artifact_backlog_page(
-        selected, show_expired, page_size, (int(page_number) - 1) * page_size
-    )
-    st.caption(
-        f"Showing page {page_number} of {page_count} ({displayed_total:,} matching artifacts)."
-    )
-    st.dataframe(displayed, use_container_width=True, hide_index=True)
-    st.download_button(
-        "Download this backlog page (JSON)",
-        json.dumps(displayed, default=str, indent=2),
-        f"pipeline_artifact_backlog_page_{page_number}.json",
-        "application/json",
-    )
-    st.caption("This export excludes artifact locations, artifact contents, and request bodies.")
-
-
-def _render_discovery_coverage() -> None:
-    st.subheader("Discovery coverage")
-    rows = _operations_rows("V_PIPELINE_CATALOG_COVERAGE")
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-    st.caption(
-        "Each artifact is a captured catalog-search response. Catalog terms and response sizes "
-        "show coverage; they do not indicate source approval or analytical quality."
-    )
-
-
-def _render_registration_outcomes() -> None:
-    st.subheader("Registration outcomes")
-    rows = _operations_rows("V_PIPELINE_REGISTRATION_OUTCOMES")
-    if rows:
+def _render_operations(page: str) -> None:
+    if page == "Pipeline command center":
+        rows = _operations_rows("V_PIPELINE_COMMAND_CENTER")
+        if not rows:
+            st.info("No completed discovery chain is available yet.")
+            return
         row = _lower_keys(rows[0])
+        st.subheader("Pipeline command center")
+        st.caption(
+            "Current-chain governed-ledger state only; it does not claim scheduler, container, memory, digest, or trace health."
+        )
         columns = st.columns(4)
-        columns[0].metric(
-            "Unique catalog datasets", f"{int(row.get('unique_catalog_datasets') or 0):,}"
-        )
-        columns[1].metric(
-            "Unique catalog resources", f"{int(row.get('unique_catalog_resources') or 0):,}"
-        )
-        columns[2].metric(
-            "Immutable observations", f"{int(row.get('immutable_observations') or 0):,}"
-        )
-        columns[3].metric("Approved source versions", f"{int(row.get('source_versions') or 0):,}")
-    st.caption(
-        "Dataset and resource counts are normalized catalog records. Observations retain every "
-        "artifact-to-record match, so they are intentionally larger than deduplicated records."
-    )
-
-
-def _render_governance_summary() -> None:
-    st.subheader("Governance and approval")
-    rows = _operations_rows("V_PIPELINE_SOURCE_GOVERNANCE")
-    if not rows:
-        st.info(
-            "No approved source version exists. Catalog discovery remains a research-lead process."
-        )
-    else:
+        for column, label, key in zip(
+            columns,
+            ("Operational state", "Active-chain artifacts", "Completed", "Remaining"),
+            (
+                "operational_state",
+                "active_chain_artifacts",
+                "completed_artifacts",
+                "pending_or_in_progress_artifacts",
+            ),
+            strict=True,
+        ):
+            value = row.get(key) or 0
+            column.metric(
+                label,
+                str(value).replace("_", " ").title()
+                if key == "operational_state"
+                else f"{int(value):,}",
+            )
         st.dataframe(rows, use_container_width=True, hide_index=True)
-    st.info(
-        "Only a data steward's immutable decision can activate a source version. This dashboard "
-        "cannot start discovery, registration, full ingestion, retries, or transformations."
-    )
-
-
-def _render_run_explorer() -> None:
-    st.subheader("Run explorer")
-    rows = _operations_rows("V_PIPELINE_DISCOVERY_RUNS")
-    status_options = sorted({str(item.get("STATUS")) for item in rows})
-    selected = st.multiselect(
-        "Run status", status_options, default=status_options, key="run_status"
-    )
-    st.dataframe(
-        [item for item in rows if str(item.get("STATUS")) in selected],
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.caption(
-        "A run links to governed requests and immutable artifacts. Use Artifact backlog to "
-        "inspect safe, per-artifact registration metadata without opening payloads."
-    )
+    elif page == "Registration recovery":
+        st.subheader(page)
+        st.dataframe(
+            _rows(
+                "SELECT * FROM GOVERNANCE.V_PIPELINE_REGISTRATION_RUNS ORDER BY started_at DESC LIMIT 100"
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "PARTIAL means a bounded metadata-registration pass reached its declared limit; it is not failed full-source ingestion."
+        )
+    elif page == "Search coverage and gaps":
+        st.subheader(page)
+        st.dataframe(
+            _rows(
+                "SELECT * FROM GOVERNANCE.V_PIPELINE_SEARCH_COVERAGE ORDER BY requested_at DESC LIMIT 500"
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "Recorded zero-result searches are explicit. Absence of a request is not inferred to mean an unattempted search."
+        )
+    elif page == "Overview":
+        rows = _operations_rows("V_PIPELINE_OBSERVABILITY_OVERVIEW")
+        if not rows:
+            st.info("No governed pipeline-operational records are available yet.")
+            return
+        row = _lower_keys(rows[0])
+        st.subheader("Live pipeline overview")
+        st.caption(
+            "Historical inventory retains every artifact; active chain is the latest registerable chain; completed means durably committed registration."
+        )
+        columns = st.columns(4)
+        for column, label, key in zip(
+            columns,
+            (
+                "Historical inventory",
+                "Active registration chain",
+                "Durably processed",
+                "Unresolved",
+            ),
+            (
+                "captured_artifacts",
+                "active_chain_artifacts",
+                "completed_artifacts",
+                "unresolved_artifacts",
+            ),
+            strict=True,
+        ):
+            column.metric(label, f"{int(row.get(key) or 0):,}")
+        if row.get("expired_lease_artifacts") or row.get("failed_artifacts"):
+            st.warning(
+                "Expired leases and failed registrations are unresolved work, not active processing. This application cannot retry or reclaim them."
+            )
+    elif page == "Artifact backlog":
+        status = st.selectbox(
+            "Registration status", ["All", "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"]
+        )
+        expired = st.checkbox("Only show expired leases")
+        total, _ = _artifact_backlog_page(status, expired, 0)
+        page_count = max(1, (total + BACKLOG_PAGE_SIZE - 1) // BACKLOG_PAGE_SIZE)
+        page_number = int(
+            st.number_input("Backlog page", min_value=1, max_value=page_count, value=1, step=1)
+        )
+        offset = (page_number - 1) * BACKLOG_PAGE_SIZE
+        _, rows = _artifact_backlog_page(status, expired, offset)
+        st.caption(
+            f"Showing page {page_number} of {page_count} ({len(rows):,} of {total:,} matching redacted artifacts)."
+        )
+        if not rows:
+            st.info("No redacted artifacts match the selected filters.")
+        else:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        view = {
+            "Pipeline health": "V_PIPELINE_DISCOVERY_RUNS",
+            "Discovery coverage": "V_PIPELINE_CATALOG_COVERAGE",
+            "Registration outcomes": "V_PIPELINE_REGISTRATION_OUTCOMES",
+            "Governance & approval": "V_PIPELINE_SOURCE_GOVERNANCE",
+            "Run explorer": "V_PIPELINE_DISCOVERY_RUNS",
+        }[page]
+        st.subheader(page)
+        st.dataframe(_operations_rows(view), use_container_width=True, hide_index=True)
+        st.caption(
+            "Read-only governed metadata; payloads, request bodies, artifact locations, and credentials are excluded."
+        )
 
 
 st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("SOURCE_APPROVAL_CONSOLE")
-st.caption("Internal governed review and read-only pipeline observability")
+st.caption("DEV only | CDC/Socrata x5j9-wybp only | internal governed review")
 st.info("This console cannot run discovery, ingestion, retries, or transformations.")
 recorded_decision = st.session_state.pop("recorded_decision", None)
 if recorded_decision:
@@ -447,42 +318,19 @@ except Exception as exc:
     st.code(_safe_snowflake_error(exc), language="text")
     st.stop()
 
-if page == "Overview":
-    _render_overview()
-
-elif page == "Pipeline command center":
-    _render_pipeline_command_center()
-
-elif page == "Pipeline health":
-    _render_pipeline_health()
-
-elif page == "Registration recovery":
-    _render_registration_runs()
-
-elif page == "Artifact backlog":
-    _render_artifact_backlog()
-
-elif page == "Discovery coverage":
-    _render_discovery_coverage()
-
-elif page == "Search coverage and gaps":
-    _render_search_coverage()
-
-elif page == "Registration outcomes":
-    _render_registration_outcomes()
-
-elif page == "Governance & approval":
-    _render_governance_summary()
-    st.divider()
-    st.caption(
-        "Use the existing review workflow below to inspect or decide on the scoped candidate."
-    )
-    history = _history()
-    if history:
-        st.dataframe(history, use_container_width=True, hide_index=True)
-
-elif page == "Run explorer":
-    _render_run_explorer()
+if page in {
+    "Overview",
+    "Pipeline command center",
+    "Pipeline health",
+    "Registration recovery",
+    "Artifact backlog",
+    "Discovery coverage",
+    "Search coverage and gaps",
+    "Registration outcomes",
+    "Governance & approval",
+    "Run explorer",
+}:
+    _render_operations(page)
 
 elif page == "Paper review":
     st.subheader("Literature paper review")
@@ -536,8 +384,20 @@ elif page == "Paper review":
     if not steward:
         st.info("You have read-only access. An active data steward must submit decisions.")
         st.stop()
+    recovery_selected = any(
+        str(row["STATE"]) in {"retry_pending", "retry_exhausted"}
+        for row in displayed
+        if str(row["PMID"]) in selected
+    )
+    if recovery_selected:
+        st.warning(
+            "PMC Open Access admission failed for a selected paper. Recovery states can only be rejected."
+        )
     with st.form("paper-review-batch"):
-        decision = st.selectbox("Batch decision", ["approved", "rejected", "deferred"])
+        decision = st.selectbox(
+            "Batch decision",
+            ["rejected"] if recovery_selected else ["approved", "rejected", "deferred"],
+        )
         rationale = st.text_area("Rationale", max_chars=10_000)
         confirm = st.checkbox("I confirm this creates immutable decisions for every selected PMID.")
         submitted = st.form_submit_button("Record paper decisions")
@@ -550,17 +410,23 @@ elif page == "Paper review":
             st.error("Confirm the immutable batch decision before submission.")
         else:
             try:
-                response = _rows(
-                    "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(PARSE_JSON(?), ?, ?, ?, ?, ?)",
-                    [
-                        json.dumps(selected),
-                        decision,
-                        rationale,
-                        viewer,
-                        APP_VERSION,
-                        str(uuid.uuid4()),
-                    ],
-                )
+                if recovery_selected:
+                    response = _rows(
+                        "CALL GOVERNANCE.SP_REJECT_PMC_RECOVERY_BATCH(PARSE_JSON(?), ?, ?, ?, ?)",
+                        [json.dumps(selected), rationale, viewer, APP_VERSION, str(uuid.uuid4())],
+                    )
+                else:
+                    response = _rows(
+                        "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(PARSE_JSON(?), ?, ?, ?, ?, ?)",
+                        [
+                            json.dumps(selected),
+                            decision,
+                            rationale,
+                            viewer,
+                            APP_VERSION,
+                            str(uuid.uuid4()),
+                        ],
+                    )
                 st.success(f"Recorded {decision} for {len(selected)} papers.")
                 st.json(response)
             except Exception as exc:

@@ -1,7 +1,8 @@
 USE DATABASE {{ DATABASE }};
 
--- Read-only, summary-first operational views. They exclude locations, payloads,
--- request bodies, and secrets.
+-- V033 was deployed from a legacy source whose checksum differs from the
+-- reviewed source. Reassert the current read-only, redacted view contract as
+-- an append-only migration after the immutable reconciliation record exists.
 CREATE OR REPLACE VIEW GOVERNANCE.V_PIPELINE_OBSERVABILITY_OVERVIEW AS
 SELECT
   (SELECT COUNT(*) FROM GOVERNANCE.RAW_ARTIFACTS WHERE artifact_type = 'CATALOG_METADATA') AS captured_artifacts,

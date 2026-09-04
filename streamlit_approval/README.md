@@ -37,7 +37,7 @@ search-plan ledger.
 ## Controlled deployment and verification
 
 Apply `migrations/V033__pipeline_observability_views.sql` and
-`migrations/V034__pipeline_operations_console.sql` to DEV before PROD,
+`migrations/V039__pipeline_operations_console.sql` to DEV before PROD,
 using the governed migration runner so its checksum is recorded. Deploy this
 directory with the dedicated `<ENV>_STREAMLIT_OWNER` role, then verify each
 `V_PIPELINE_*` view as that owner role before granting viewer access. The

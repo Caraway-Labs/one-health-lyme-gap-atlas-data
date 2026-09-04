@@ -1,4 +1,5 @@
 import json
+import logging
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,8 +18,13 @@ from lyme_gap_atlas_data.catalog_registration import (
     CatalogDataset,
     CatalogResource,
     RegistrationDataset,
+    RegistrationProgress,
+    _cgroup_memory_context,
     _claim_registration_batch,
     _completed_artifacts,
+    _execute_registration_merge,
+    _log_registration_phase,
+    _process_memory_context,
     _write_registration_dataset_batch,
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
@@ -33,7 +39,15 @@ from lyme_gap_atlas_data.discovery import (
     load_search_configuration,
     next_page_request,
 )
-from lyme_gap_atlas_data.migrations import load_migrations, migration_plan, render_migration
+from lyme_gap_atlas_data.migrations import (
+    DEV_DATABASE,
+    LEGACY_DEV_MIGRATION_CHECKSUMS,
+    is_authorized_legacy_reconciliation,
+    legacy_dev_reconciliation_plan,
+    load_migrations,
+    migration_plan,
+    render_migration,
+)
 from lyme_gap_atlas_data.orchestration import _resource_key
 from lyme_gap_atlas_data.preflight import _required_settings
 from lyme_gap_atlas_data.redaction import redact_mapping
@@ -378,6 +392,14 @@ def test_production_app_spec_has_separate_gated_jobs() -> None:
         )
 
 
+def test_dev_image_deployment_updates_every_scheduled_job() -> None:
+    workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
+    assert ".jobs |= map(" in workflow
+    assert 'registry: "oh-lyme-data"' in workflow
+    assert 'doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json && exit 0' in workflow
+    assert ".jobs[0]" not in workflow
+
+
 def test_production_promotion_only_updates_an_existing_secret_preserving_app() -> None:
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"' in workflow
@@ -388,15 +410,6 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
     assert "register-latest-discovery" in workflow
     assert "provider-encrypted secret values" in workflow
     assert "exit 1" not in workflow
-
-
-def test_vpc_attachment_helper_preserves_provider_encrypted_runtime_values() -> None:
-    helper = Path("scripts/attach_app_vpc.ps1").read_text(encoding="utf-8")
-    assert "doctl apps get $AppId --output json" in helper
-    assert "Add-Member -NotePropertyName vpc" in helper
-    assert "doctl apps update $AppId --spec $temporarySpec.FullName --wait" in helper
-    assert "Remove-Item -LiteralPath $temporarySpec.FullName" in helper
-    assert "ConvertTo-Json" in helper
 
 
 def test_preflight_identifies_missing_required_configuration() -> None:
@@ -550,6 +563,133 @@ def test_catalog_registration_batches_dataset_resources_into_three_merges() -> N
     assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
 
 
+def test_catalog_registration_logs_each_merge_statement_without_payloads(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Cursor:
+        sfqid = "safe-query-id"
+
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._registration_memory_context",
+        lambda: {
+            "cgroup_memory_mode": "unavailable",
+            "cgroup_memory_current_bytes": None,
+            "cgroup_memory_limit_bytes": None,
+            "cgroup_memory_events": {},
+            "process_rss_bytes": 100,
+            "process_peak_rss_bytes": 200,
+            "process_virtual_memory_bytes": 300,
+            "process_thread_count": 4,
+            "process_rusage_maxrss_bytes": 200,
+        },
+    )
+    progress = RegistrationProgress("run-id", artifact_id="artifact-id")
+    dataset = CatalogDataset(
+        "DATA_GOV",
+        "dataset-1",
+        "data_gov:dataset-1",
+        {"private_payload": "must-not-be-recorded"},
+        (CatalogResource("API", "https://example.gov/api?token=secret", None, None, {}),),
+    )
+
+    with caplog.at_level(logging.INFO, logger="lyme_gap_atlas_data.catalog_registration"):
+        _write_registration_dataset_batch(
+            Cursor(),
+            [RegistrationDataset(dataset, "artifact-id", "run-id", "request-id", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+            progress=progress,
+            catalog_id="DATA_GOV",
+            dataset_offset=7,
+        )
+
+    events = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("catalog_registration.merge_operation_")
+    ]
+    assert [record.getMessage() for record in events] == [
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+    ]
+    assert [record.context["operation"] for record in events[::2]] == [
+        "catalog_datasets",
+        "catalog_resources",
+        "catalog_discovery_observations",
+    ]
+    assert all(record.context["dataset_offset"] == 7 for record in events)
+    assert all(record.context["snowflake_query_id"] == "safe-query-id" for record in events[1::2])
+    assert "must-not-be-recorded" not in repr([record.context for record in events])
+    assert "token=secret" not in repr([record.context for record in events])
+
+
+def test_catalog_registration_merge_span_contains_only_safe_correlation_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Span:
+        def __init__(self) -> None:
+            self.attributes: dict[str, object] = {}
+
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def set_attribute(self, name: str, value: object) -> None:
+            self.attributes[name] = value
+
+        def set_status(self, _status: object) -> None:
+            return None
+
+    class Tracer:
+        def __init__(self) -> None:
+            self.span = Span()
+
+        def start_as_current_span(self, _name: str) -> Span:
+            return self.span
+
+    class Cursor:
+        sfqid = "safe-query-id"
+
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    tracer = Tracer()
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration._TRACER", tracer)
+    _execute_registration_merge(
+        Cursor(),
+        "private SQL text",
+        ("token=must-not-be-recorded",),
+        progress=RegistrationProgress("run-id", artifact_id="artifact-id"),
+        operation="catalog_resources",
+        catalog_id="DATA_GOV",
+        dataset_offset=7,
+        row_count=100,
+    )
+
+    assert {
+        key: value for key, value in tracer.span.attributes.items() if key != "atlas.duration_ms"
+    } == {
+        "atlas.registration.run_id": "run-id",
+        "atlas.registration.artifact_id": "artifact-id",
+        "atlas.registration.catalog_id": "DATA_GOV",
+        "atlas.registration.dataset_offset": 7,
+        "atlas.registration.row_count": 100,
+        "atlas.registration.merge_operation": "catalog_resources",
+        "db.snowflake.query_id": "safe-query-id",
+    }
+    assert isinstance(tracer.span.attributes["atlas.duration_ms"], int)
+    assert "must-not-be-recorded" not in repr(tracer.span.attributes)
+    assert "private SQL text" not in repr(tracer.span.attributes)
+
+
 def test_catalog_registration_chunks_large_resource_merges() -> None:
     class Cursor:
         def __init__(self) -> None:
@@ -573,13 +713,44 @@ def test_catalog_registration_chunks_large_resource_merges() -> None:
         )
         == 1_001
     )
-    assert len(cursor.calls) == 5
+    assert len(cursor.calls) == 23
     resource_payload_sizes = [
         len(json.loads(parameters[1]))
         for query, parameters in cursor.calls
         if "CATALOG_RESOURCES" in query or "CATALOG_DISCOVERY_OBSERVATIONS" in query
     ]
-    assert resource_payload_sizes == [1_000, 1_000, 1, 1]
+    assert resource_payload_sizes == [100] * 20 + [1, 1]
+
+
+def test_catalog_registration_checkpoints_each_resource_observation_slice() -> None:
+    class Cursor:
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    class Connection:
+        def __init__(self) -> None:
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    resources = tuple(
+        CatalogResource("DATA", f"https://example.gov/{index}", None, None, {})
+        for index in range(201)
+    )
+    connection = Connection()
+    dataset = CatalogDataset("DATA_GOV", "dataset-1", "key", {}, resources)
+
+    assert (
+        _write_registration_dataset_batch(
+            Cursor(),
+            [RegistrationDataset(dataset, "artifact", "run", "request", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+            connection=connection,
+        )
+        == 201
+    )
+    assert connection.commits == 3
 
 
 def test_catalog_registration_claims_an_eligible_batch_with_set_based_queries(
@@ -693,13 +864,9 @@ def test_catalog_registration_continues_after_one_artifact_read_failure(
     assert result["failed_artifacts"] == 1
     assert result["observed_artifacts"] == 1
     assert connection.rollbacks == 0
-    # Claim, artifact outcome, and durable invocation summary are committed independently.
-    assert connection.commits == 3
+    assert connection.commits == 2
     assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
     assert any("SET status = 'COMPLETED'" in query for query, _ in connection.cursor_instance.calls)
-    assert any(
-        "CATALOG_REGISTRATION_RUNS" in query for query, _ in connection.cursor_instance.calls
-    )
 
 
 def test_catalog_registration_releases_unread_artifacts_at_dataset_boundary(
@@ -822,7 +989,7 @@ def test_catalog_registration_commits_each_dataset_chunk_before_a_later_failure(
     datasets = [CatalogDataset("DATA_GOV", str(index), str(index), {}, ()) for index in range(51)]
     calls = 0
 
-    def write_chunk(*_args: object) -> int:
+    def write_chunk(*_args: object, **_kwargs: object) -> int:
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -974,6 +1141,181 @@ def test_registration_command_emits_safe_failure_diagnostics(
     }
 
 
+def test_registration_failure_emits_one_safe_terminal_event_after_a_claim(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail_after_claim(
+        _config_sha256: str, _maximum_artifacts: int, _maximum_datasets: int, progress: object
+    ) -> dict[str, int | str]:
+        progress.phase = "dataset_merge"  # type: ignore[attr-defined]
+        progress.artifact_id = "artifact-123"  # type: ignore[attr-defined]
+        progress.claimed_artifacts = 12  # type: ignore[attr-defined]
+        progress.available_artifacts = 4410  # type: ignore[attr-defined]
+        raise RuntimeError("token=must-not-be-recorded")
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._register_completed_discovery", fail_after_claim
+    )
+
+    with pytest.raises(RuntimeError, match="must-not-be-recorded"):
+        register_completed_discovery("a" * 64, maximum_artifacts=12, maximum_datasets=1500)
+
+    terminal_events = [
+        record for record in caplog.records if record.getMessage() == "catalog_registration.failed"
+    ]
+    assert len(terminal_events) == 1
+    context = terminal_events[0].context
+    assert context["phase"] == "dataset_merge"
+    assert context["artifact_id"] == "artifact-123"
+    assert context["claimed_artifacts"] == 12
+    assert context["available_artifacts"] == 4410
+    assert context["retryable"] is False
+    assert "must-not-be-recorded" not in repr(context)
+
+
+def test_registration_phase_boundary_records_safe_cgroup_memory(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    values = {
+        "memory.current": "419430400",
+        "memory.max": "536870912",
+        "memory.events": "low 0\nhigh 1\nmax 2\noom 3\noom_kill 4\nunknown 99",
+    }
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
+        lambda path: values.get(path.name),
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._process_memory_context",
+        lambda: {
+            "process_rss_bytes": 1,
+            "process_peak_rss_bytes": 2,
+            "process_virtual_memory_bytes": 3,
+            "process_thread_count": 4,
+            "process_rusage_maxrss_bytes": 5,
+        },
+    )
+    progress = RegistrationProgress(
+        registration_run_id="run-123",
+        artifact_id="artifact-123",
+        claimed_artifacts=12,
+        available_artifacts=4410,
+    )
+
+    with caplog.at_level(logging.INFO, logger="lyme_gap_atlas_data.catalog_registration"):
+        _log_registration_phase(progress, "artifact_read", catalog_id="DATA_GOV", dataset_offset=0)
+
+    event = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "catalog_registration.phase_started"
+    )
+    assert progress.phase == "artifact_read"
+    assert event.context == {
+        "registration_run_id": "run-123",
+        "phase": "artifact_read",
+        "artifact_id": "artifact-123",
+        "catalog_id": "DATA_GOV",
+        "dataset_offset": 0,
+        "dataset_count": None,
+        "claimed_artifacts": 12,
+        "available_artifacts": 4410,
+        "cgroup_memory_mode": "v2",
+        "cgroup_memory_current_bytes": 419430400,
+        "cgroup_memory_limit_bytes": 536870912,
+        "cgroup_memory_events": {"low": 0, "high": 1, "max": 2, "oom": 3, "oom_kill": 4},
+        "process_rss_bytes": 1,
+        "process_peak_rss_bytes": 2,
+        "process_virtual_memory_bytes": 3,
+        "process_thread_count": 4,
+        "process_rusage_maxrss_bytes": 5,
+    }
+
+
+def test_cgroup_memory_context_is_safe_when_files_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file", lambda _path: None
+    )
+
+    assert _cgroup_memory_context() == {
+        "cgroup_memory_mode": "unavailable",
+        "cgroup_memory_current_bytes": None,
+        "cgroup_memory_limit_bytes": None,
+        "cgroup_memory_events": {},
+    }
+
+
+def test_cgroup_memory_context_uses_v1_when_v2_files_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = {
+        "memory.usage_in_bytes": "419430400",
+        "memory.limit_in_bytes": "536870912",
+        "memory.failcnt": "2",
+    }
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
+        lambda path: values.get(path.name),
+    )
+
+    assert _cgroup_memory_context() == {
+        "cgroup_memory_mode": "v1",
+        "cgroup_memory_current_bytes": 419430400,
+        "cgroup_memory_limit_bytes": 536870912,
+        "cgroup_memory_events": {"failcnt": 2},
+    }
+
+
+def test_process_memory_context_reads_only_numeric_status_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_process_status",
+        lambda: (
+            "Name:\tprivate-command\nVmRSS:\t100 kB\nVmHWM:\t200 kB\nVmSize:\t300 kB\nThreads:\t4\n"
+        ),
+    )
+
+    context = _process_memory_context()
+
+    assert context["process_rss_bytes"] == 102400
+    assert context["process_peak_rss_bytes"] == 204800
+    assert context["process_virtual_memory_bytes"] == 307200
+    assert context["process_thread_count"] == 4
+    assert "private-command" not in repr(context)
+
+
+def test_registration_command_reuses_the_worker_terminal_event(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    emitted: list[str] = []
+    error = RuntimeError("private detail")
+    diagnostics = {
+        "operation": "catalog_registration",
+        "registration_run_id": "run-123",
+        "phase": "remaining_count",
+        "error_type": "RuntimeError",
+    }
+    setattr(error, "catalog_registration_diagnostics", diagnostics)  # noqa: B010
+    setattr(error, "catalog_registration_terminal_emitted", True)  # noqa: B010
+    monkeypatch.setattr(
+        cli,
+        "register_latest_completed_discovery",
+        lambda *_: (_ for _ in ()).throw(error),
+    )
+    monkeypatch.setattr(cli.typer, "echo", emitted.append)
+
+    with pytest.raises(RuntimeError, match="private detail"):
+        cli.register_latest_discovery()
+
+    assert json.loads(emitted[0]) == {"status": "FAILED", **diagnostics}
+    assert not [
+        record for record in caplog.records if record.getMessage() == "catalog_registration.failed"
+    ]
+
+
 def test_cdc_profile_requires_deterministic_ordering() -> None:
     profile = load_cdc_profile()
     assert profile["resource_key"] == "cdc_lyme_x5j9_wybp"
@@ -1035,6 +1377,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V032",
         "V033",
         "V034",
+        "V035",
+        "V036",
+        "V037",
+        "V038",
+        "V039",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1042,7 +1389,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 34
+    assert len(prod_plan) == 36
+    assert "V034" not in {item["version"] for item in prod_plan}
+    operations_console = next(item.source for item in migrations if item.version == "V039")
+    assert "CATALOG_REGISTRATION_RUNS" in operations_console
+    assert "V_PIPELINE_COMMAND_CENTER" in operations_console
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -1053,6 +1404,117 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "BEGIN TRANSACTION" in migrations[9].source
     assert "WHEN OTHER THEN" in migrations[9].source
     assert "RETIRED" in migrations[10].source
+
+
+def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() -> None:
+    migrations = load_migrations()
+    reconciliations = legacy_dev_reconciliation_plan(
+        dict(LEGACY_DEV_MIGRATION_CHECKSUMS), migrations
+    )
+    assert [migration.version for migration in reconciliations] == ["V028", "V029", "V033"]
+    assert all(
+        migration.sha256 != LEGACY_DEV_MIGRATION_CHECKSUMS[migration.version]
+        for migration in reconciliations
+    )
+    with pytest.raises(ValueError, match="Unexpected DEV ledger checksum"):
+        legacy_dev_reconciliation_plan({"V028": "not-authorized"}, migrations)
+    v028 = next(migration for migration in migrations if migration.version == "V028")
+    assert is_authorized_legacy_reconciliation(
+        DEV_DATABASE,
+        "V028",
+        LEGACY_DEV_MIGRATION_CHECKSUMS["V028"],
+        v028.sha256,
+        {"V028": (LEGACY_DEV_MIGRATION_CHECKSUMS["V028"], v028.sha256)},
+    )
+    assert not is_authorized_legacy_reconciliation(
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "V028",
+        LEGACY_DEV_MIGRATION_CHECKSUMS["V028"],
+        v028.sha256,
+        {"V028": (LEGACY_DEV_MIGRATION_CHECKSUMS["V028"], v028.sha256)},
+    )
+    assert not is_authorized_legacy_reconciliation(
+        DEV_DATABASE,
+        "V001",
+        "unapproved",
+        "unapproved",
+        {"V001": ("unapproved", "unapproved")},
+    )
+    assert DEV_DATABASE == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+
+
+def test_v034_reasserts_the_redacted_observability_contract_after_legacy_reconciliation() -> None:
+    source = next(
+        migration.source for migration in load_migrations() if migration.version == "V034"
+    )
+    for view_name in (
+        "V_PIPELINE_OBSERVABILITY_OVERVIEW",
+        "V_PIPELINE_ARTIFACT_BACKLOG",
+        "V_PIPELINE_DISCOVERY_RUNS",
+        "V_PIPELINE_CATALOG_COVERAGE",
+        "V_PIPELINE_REGISTRATION_OUTCOMES",
+        "V_PIPELINE_SOURCE_GOVERNANCE",
+    ):
+        assert f"CREATE OR REPLACE VIEW GOVERNANCE.{view_name}" in source
+    assert "object_key" not in source
+    assert "payload" not in source
+
+
+def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key() -> None:
+    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    assert "SNOWFLAKE_AUTH_METHOD=key_pair" in workflow
+    assert 'SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"' in workflow
+    assert 'SNOWFLAKE_PRIVATE_KEY_B64="$SNOWFLAKE_PRIVATE_KEY_B64"' not in workflow
+    assert (
+        "SELECT version, filename, sha256, applied_at FROM GOVERNANCE.SCHEMA_MIGRATIONS" in workflow
+    )
+    assert "reconcile-legacy-dev-migrations" in workflow
+    assert "atlas-data pipeline apply-migrations" in workflow
+    assert '--database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm' in workflow
+    assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
+
+
+def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_narrow() -> None:
+    migrations = load_migrations()
+    migration_sources = {item.version: item.source for item in migrations}
+    grants = migration_sources["V030"]
+    assert "REVOKE INSERT, UPDATE ON ALL TABLES IN SCHEMA KNOWLEDGE_GRAPH" in grants
+    assert "PAPERS" in grants
+    assert "PAPER_QUERY_MATCHES" in grants
+    assert "PMC_FULL_TEXT_ARTIFACTS" not in grants
+    history = migration_sources["V031"]
+    assert "EXECUTE AS OWNER" in history
+    assert "token_hash = :TOKEN_HASH" in history
+    assert "MAX_TURNS < 1 OR MAX_TURNS > 12" in history
+    assert "GRANT SELECT ON TABLE GOVERNANCE.KG_CONVERSATION" not in history
+    ledger = migration_sources["V032"]
+    for field in ("pmid", "pmcid", "artifact_id", "license_url", "jats_sha256", "text_sha256"):
+        assert field in ledger
+    extraction_lineage = migration_sources["V035"]
+    for field in ("lease_expires_at", "method_version", "extraction_attempt_id", "artifact_id"):
+        assert field in extraction_lineage
+    assert "ONE_HEALTH_LYME_GAP_ATLAS" not in extraction_lineage.replace("{{ DATABASE }}", "")
+    paper_review_owner = migration_sources["V036"]
+    assert "KG_PAPER_REVIEW_OWNER" in paper_review_owner
+    assert (
+        "GRANT OWNERSHIP ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" in paper_review_owner
+    )
+    assert "GRANT SELECT, UPDATE ON TABLE KNOWLEDGE_GRAPH.PAPERS" in paper_review_owner
+    assert "TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER" in paper_review_owner
+    recovery = migration_sources["V037"]
+    assert "GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery
+    assert "PAPER_QUERY_MATCHES" in recovery
+    assert "DECISION = 'rejected' AND p.state IN ('retry_pending','retry_exhausted')" in recovery
+    assert "COPY CURRENT GRANTS" in recovery
+    streamlit_app = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
+    assert "Recovery states can only be rejected" in streamlit_app
+    assert '["rejected"] if recovery_selected' in streamlit_app
+    recovery_procedure = migration_sources["V038"]
+    assert "SP_REJECT_PMC_RECOVERY_BATCH" in recovery_procedure
+    assert "p.state IN ('retry_pending','retry_exhausted')" in recovery_procedure
+    assert "pmc_oa_recovery_rejection" in recovery_procedure
+    assert "GRANT SELECT ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery_procedure
+    assert "SP_REJECT_PMC_RECOVERY_BATCH(PARSE_JSON(?)" in streamlit_app
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
@@ -1081,10 +1543,6 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "lease_expires_at" in resumable_registration
     dataset_checkpoint = migrations[28].source
     assert "next_dataset_offset" in dataset_checkpoint
-    operations_console = migrations[33].source
-    assert "CATALOG_REGISTRATION_RUNS" in operations_console
-    assert "V_PIPELINE_COMMAND_CENTER" in operations_console
-    assert "V_PIPELINE_SEARCH_COVERAGE" in operations_console
     dbt_grants = migrations[18].source
     assert "GRANT SELECT ON TABLE RAW.CDC_LYME_X5J9_WYBP" in dbt_grants
     assert "GRANT CREATE TABLE, CREATE VIEW ON SCHEMA STAGING" in dbt_grants
