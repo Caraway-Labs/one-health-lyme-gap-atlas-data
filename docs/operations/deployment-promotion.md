@@ -117,12 +117,16 @@ Completed production-runtime controls:
 
 Still required before a full-production ingestion can run:
 
-1. Complete the CDC steward decision, approved full-ingestion, and dbt
-   acceptance path. The DEV `SOURCE_APPROVAL_CONSOLE` is deployed under
-   `OH_LYME_DEV_STREAMLIT_OWNER` with the dedicated approval warehouse; the
-   `x5j9-wybp` evidence-only candidate is intentionally pending a human
-   decision.
-2. Exercise a DEV rollback by redeploying a previously approved digest.
+1. Run the protected `Capture PROD CDC evidence for steward review` workflow
+   from `main`. It uses the existing production runtime's encrypted settings to
+   create only the bounded `x5j9-wybp` evidence candidate, verifies the
+   one-shot job invocation, and restores the exact prior app specification.
+   It cannot approve, full-ingest, run dbt, or promote an image. See ADR 0015.
+2. Review and record the immutable PROD steward decision in the PROD
+   `SOURCE_APPROVAL_CONSOLE`.
+3. Run the approved full-ingestion and dbt acceptance path using the
+   DEV-tested image digest.
+4. Exercise a DEV rollback by redeploying a previously approved digest.
 
 The checked-in `.do/app.prod.yaml` is the production job specification. It
 runs the approved CDC source on its declared annual cadence and invokes dbt
