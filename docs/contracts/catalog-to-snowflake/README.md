@@ -10,8 +10,9 @@ This folder is the self-contained specification package for building the TOPx go
 4. [catalog-search-terms.json](catalog-search-terms.json) — runtime discovery input; preserve its schema and enabled/disabled term-group behavior.
 5. [SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md](SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md) — authoritative governance schema and provenance contract.
 6. [streamlit-snowflake-approval-app-requirements.md](streamlit-snowflake-approval-app-requirements.md) — Snowflake-hosted approval-console requirements.
-7. [catalog-to-snowflake-ingestion-diagrams.md](catalog-to-snowflake-ingestion-diagrams.md) — architecture diagrams and shared mental model.
-8. [.env.example](.env.example) — local-development environment-variable template; copy it to `.env` and keep values out of Git.
+7. [governed-data-explorer-requirements.md](governed-data-explorer-requirements.md) — read-only curated CONFORMED/ANALYTICS explorer requirements.
+8. [catalog-to-snowflake-ingestion-diagrams.md](catalog-to-snowflake-ingestion-diagrams.md) — architecture diagrams and shared mental model.
+9. [.env.example](.env.example) — local-development environment-variable template; copy it to `.env` and keep values out of Git.
 
 ## Codex instructions
 
