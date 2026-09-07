@@ -26,12 +26,23 @@ artifact locations, call external services, or write data. Both remain owned
 by the existing constrained Streamlit owner role and available only to the
 existing internal steward/viewer roles.
 
+V041 is executed by `OH_LYME_<ENV>_GOVERNED_VIEW_OWNER`, a separate
+deployment-only role. It owns the four views and has `SELECT` only on their
+named dependencies: the CDC RAW and CONFORMED relations, the three governance
+ledgers used for validation, and `SCHEMA_MIGRATIONS` for the checksum runner.
+The migration service identity may assume this role for V041 only; it is not
+granted to the Streamlit owner, steward, viewer, or pipeline runtime roles.
+
 ## Consequences
 
 Stewards can inspect whether a source version reached a materialized CONFORMED
 relation and browse bounded, paginated curated records with provenance and
 surveillance-era caveats. This does not create a public API, change the Alpha
 POC, add a disease-risk measure, or authorize cross-era comparisons.
+
+The standard migration role does not receive RAW or CONFORMED access. A later
+migration therefore cannot acquire source-data visibility merely because it
+runs through the default deployment path.
 
 ## Rollout, observability, and rollback
 

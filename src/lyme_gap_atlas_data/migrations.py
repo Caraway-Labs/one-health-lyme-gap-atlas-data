@@ -16,6 +16,10 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038"}
+# V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
+# needs those exact reads, but the normal migration role and Streamlit owner
+# must not inherit them.
+VIEW_OWNER_MIGRATION_VERSIONS = {"V041"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
 # They are an explicit, DEV-only recovery boundary—not a general checksum bypass.
@@ -87,6 +91,24 @@ def migration_plan(database: str) -> list[dict[str, str]]:
         if (database == DEV_DATABASE or item.version not in DEV_ONLY_MIGRATION_VERSIONS)
         and render_migration(item, database)
     ]
+
+
+def migration_execution_role(migration: Migration, database: str) -> str | None:
+    """Return a narrowly-scoped owner role for a migration that needs one."""
+    match = DATABASE_PATTERN.fullmatch(database)
+    if match is None:
+        raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if migration.version not in VIEW_OWNER_MIGRATION_VERSIONS:
+        return None
+    return f"OH_LYME_{match.group(1)}_GOVERNED_VIEW_OWNER"
+
+
+def _migration_settings(
+    settings: SnowflakeSettings, migration: Migration, database: str
+) -> SnowflakeSettings:
+    """Keep the default deployer role except for explicitly bounded migrations."""
+    role = migration_execution_role(migration, database)
+    return settings if role is None else settings.model_copy(update={"snowflake_role": role})
 
 
 def legacy_dev_reconciliation_plan(
@@ -228,30 +250,32 @@ def apply_migrations(
         for migration in load_migrations()
         if database == DEV_DATABASE or migration.version not in DEV_ONLY_MIGRATION_VERSIONS
     ]
-    with connect(settings, include_database=False) as connection:
-        with connection.cursor() as cursor:
-            try:
-                cursor.execute(f"USE DATABASE {database}")
-                cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
-                applied = dict(cursor.fetchall())
-            except ProgrammingError:
-                applied = {}
-            reconciled = _reconciled_legacy_migrations(cursor, database)
-        executed: list[str] = []
-        for migration in plan:
-            prior_checksum = applied.get(migration.version)
-            if prior_checksum == migration.sha256:
+    with connect(settings, include_database=False) as connection, connection.cursor() as cursor:
+        try:
+            cursor.execute(f"USE DATABASE {database}")
+            cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
+            applied = dict(cursor.fetchall())
+        except ProgrammingError:
+            applied = {}
+        reconciled = _reconciled_legacy_migrations(cursor, database)
+    executed: list[str] = []
+    for migration in plan:
+        prior_checksum = applied.get(migration.version)
+        if prior_checksum == migration.sha256:
+            continue
+        if prior_checksum is not None:
+            if is_authorized_legacy_reconciliation(
+                database,
+                migration.version,
+                prior_checksum,
+                migration.sha256,
+                reconciled,
+            ):
                 continue
-            if prior_checksum is not None:
-                if is_authorized_legacy_reconciliation(
-                    database,
-                    migration.version,
-                    prior_checksum,
-                    migration.sha256,
-                    reconciled,
-                ):
-                    continue
-                raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+            raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        with connect(
+            _migration_settings(settings, migration, database), include_database=False
+        ) as connection:
             connection.execute_string(render_migration(migration, database))
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -261,5 +285,5 @@ def apply_migrations(
                     (migration.version, migration.filename, migration.sha256, commit),
                 )
             connection.commit()
-            executed.append(migration.version)
+        executed.append(migration.version)
     return executed
