@@ -1408,6 +1408,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V039",
         "V040",
         "V041",
+        "V042",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1415,7 +1416,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 38
+    assert len(prod_plan) == 39
     assert "V034" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
@@ -1437,6 +1438,22 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
     )
     assert migration_execution_role(migrations[0], DEV_DATABASE) is None
+
+
+def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
+    evidence_grants = next(item.source for item in load_migrations() if item.version == "V042")
+    for table_name in (
+        "CATALOG_DATASETS",
+        "CATALOG_RESOURCES",
+        "SOURCE_ACCESS_PROFILES",
+        "SOURCE_DOCUMENT_SNAPSHOTS",
+        "SCHEMA_SNAPSHOTS",
+        "DATASET_QUALITY_ASSESSMENTS",
+    ):
+        assert f"GOVERNANCE.{table_name}" in evidence_grants
+    assert "MANUAL_REVIEW_DECISIONS" not in evidence_grants
+    assert "DATA_SOURCE_VERSIONS" not in evidence_grants
+    assert "RAW.CDC_LYME_X5J9_WYBP" not in evidence_grants
 
 
 def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() -> None:
