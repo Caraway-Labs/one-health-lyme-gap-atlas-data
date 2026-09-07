@@ -104,6 +104,15 @@ views using the Streamlit owner role before deploying either app. A rollback
 redeploys prior app source and revokes app usage if necessary; it does not
 delete ingestion or provenance records.
 
+### V042 CDC evidence-runtime grant repair
+
+V042 grants the pipeline runtime only the governance writes used by the
+evidence-only CDC onboarding command: catalog dataset/resource registration,
+the versioned access profile, document/schema snapshots, and the deterministic
+quality assessment. It does not grant approval, source-version, RAW, dbt, or
+Streamlit privileges. Apply and verify this migration before running the
+protected PROD evidence-capture workflow; otherwise the job must fail closed.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App
