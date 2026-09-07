@@ -116,6 +116,7 @@ The app reads from governed views rather than base tables wherever a view can li
 | `GOVERNANCE.V_SOURCE_APPROVAL_DETAIL` | Candidate metadata/resource/access/document/schema/quality evidence. |
 | `GOVERNANCE.V_SOURCE_REVIEW_HISTORY` | Immutable decisions and supersession history. |
 | `GOVERNANCE.V_SOURCE_PIPELINE_STATUS` | Latest run, source-version, and promotion eligibility status. |
+| `GOVERNANCE.V_SOURCE_INGESTION_VALIDATION` | Safe post-ingestion counts, timestamps, identifiers, quality-result summary, materialization state, and CDC caveat. |
 | `GOVERNANCE.V_PIPELINE_OBSERVABILITY_OVERVIEW` | Historical inventory, active-chain, completed, unresolved, failed, and expired-lease summary. |
 | `GOVERNANCE.V_PIPELINE_ARTIFACT_BACKLOG` | Redacted per-artifact backlog metadata; excludes payloads, request bodies, and artifact locations. |
 | `GOVERNANCE.V_PIPELINE_DISCOVERY_RUNS` | Discovery-run lineage and state. |

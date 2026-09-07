@@ -27,7 +27,7 @@ from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .settings import PipelineSettings
-from .streamlit_deploy import deploy_approval_console
+from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
 
@@ -286,6 +286,17 @@ def deploy_approval_console_command(
     if not confirm:
         raise typer.BadParameter("Pass --confirm to deploy the approval console")
     typer.echo(json.dumps({"streamlit": deploy_approval_console(_settings(), database)}))
+
+
+@pipeline_app.command("deploy-data-explorer")
+def deploy_data_explorer_command(
+    database: str = typer.Option(..., "--database"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Deploy the internal read-only governed data explorer from reviewed source files."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to deploy the data explorer")
+    typer.echo(json.dumps({"streamlit": deploy_data_explorer(_settings(), database)}))
 
 
 @pipeline_app.command("cdc-sample")

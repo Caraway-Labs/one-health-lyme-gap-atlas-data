@@ -102,6 +102,14 @@ def _pipeline_status() -> dict[str, object] | None:
     return _lower_keys(rows[0]) if rows else None
 
 
+def _post_ingestion_validation() -> list[dict[str, object]]:
+    return _rows(
+        """SELECT * FROM GOVERNANCE.V_SOURCE_INGESTION_VALIDATION
+           WHERE resource_key = ? ORDER BY ingestion_completed_at DESC NULLS LAST""",
+        [CDC_RESOURCE_KEY],
+    )
+
+
 def _paper_queue() -> list[dict[str, object]]:
     return _rows(
         """SELECT pmid, pmcid, title, journal, publication_date, publication_types,
@@ -310,6 +318,7 @@ try:
             "Candidate detail",
             "Decision form",
             "Decision history",
+            "Post-ingestion validation",
         ),
     )
     queue = _queue() if page == "Queue" else []
@@ -520,6 +529,27 @@ elif page == "Candidate detail":
             )
         }
     )
+
+elif page == "Post-ingestion validation":
+    st.subheader("Post-ingestion validation")
+    st.caption(
+        "Safe run evidence only: counts, timestamps, identifiers, and CDC caveats. "
+        "RAW payloads, artifact locations, request bodies, and credentials are excluded."
+    )
+    validation = _post_ingestion_validation()
+    if not validation:
+        st.info("No governed ingestion run is available for this source version yet.")
+    else:
+        st.dataframe(validation, use_container_width=True, hide_index=True)
+        latest = _lower_keys(validation[0])
+        if latest.get("conformed_materialization_status") == "MATERIALIZED":
+            st.success("The selected source version has materialized CONFORMED rows.")
+        else:
+            st.warning("No CONFORMED rows are materialized for the latest source version.")
+        st.warning(str(latest["caveat"]))
+        st.caption(
+            "Open GOVERNED_DATA_EXPLORER for curated CONFORMED and ANALYTICS record browsing."
+        )
 
 elif page == "Decision form":
     st.subheader("Record a governed decision")

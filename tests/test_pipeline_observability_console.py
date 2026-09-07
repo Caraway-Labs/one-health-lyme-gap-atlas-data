@@ -37,3 +37,25 @@ def test_operations_console_has_safe_durable_registration_views() -> None:
         assert f"CREATE OR REPLACE VIEW GOVERNANCE.{view}" in source
         assert view in app
     assert "artifact_uri" not in source
+
+
+def test_validation_and_explorer_are_view_only_and_exclude_raw_payloads() -> None:
+    migration = Path("migrations/V041__streamlit_validation_and_data_explorer.sql").read_text(
+        encoding="utf-8"
+    )
+    approval = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
+    explorer = Path("streamlit_explorer/streamlit_app.py").read_text(encoding="utf-8")
+    for view in (
+        "V_SOURCE_INGESTION_VALIDATION",
+        "V_DATA_EXPLORER_SOURCE_VERSIONS",
+        "V_DATA_EXPLORER_CONFORMED_CDC",
+        "V_DATA_EXPLORER_ANALYTICS_CDC",
+    ):
+        assert f"CREATE OR REPLACE VIEW GOVERNANCE.{view}" in migration
+        assert view in explorer or view in approval
+    assert "FROM RAW." not in explorer
+    assert "FROM CONFORMED." not in explorer
+    assert "FROM ANALYTICS." not in explorer
+    assert "artifact_uri" not in migration
+    assert "Post-ingestion validation" in approval
+    assert "LIMIT ? OFFSET ?" in explorer
