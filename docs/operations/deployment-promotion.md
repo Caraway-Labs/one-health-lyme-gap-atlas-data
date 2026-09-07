@@ -88,6 +88,22 @@ workflow. After its successful ledger entry, transfer ownership back to
 that `OH_LYME_DEV_STREAMLIT_OWNER` retains `USAGE`. Do not use this procedure
 or its DEV roles for production promotion.
 
+### V041 governed-view owner bootstrap
+
+V041 must run as `OH_LYME_<ENV>_GOVERNED_VIEW_OWNER`, not the default
+migration deployer and not the Streamlit owner. Before applying it, an
+AccountAdmin-approved bootstrap grants that role only `USAGE` on the target
+database, `GOVERNANCE`, `RAW`, and `CONFORMED` schemas; `CREATE VIEW` on
+`GOVERNANCE`; migration-ledger `SELECT`/`INSERT`; and `SELECT` on the exact
+CDC RAW, CDC CONFORMED, and validation-ledger dependencies. Grant the role to
+the environment's migration deployment service user. Do not grant it to an
+app owner, steward, viewer, pipeline runtime, or a cross-environment identity.
+
+The checksum runner selects this role only for V041. Verify the four resulting
+views using the Streamlit owner role before deploying either app. A rollback
+redeploys prior app source and revokes app usage if necessary; it does not
+delete ingestion or provenance records.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App

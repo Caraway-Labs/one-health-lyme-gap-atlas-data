@@ -45,6 +45,7 @@ from lyme_gap_atlas_data.migrations import (
     is_authorized_legacy_reconciliation,
     legacy_dev_reconciliation_plan,
     load_migrations,
+    migration_execution_role,
     migration_plan,
     render_migration,
 )
@@ -1408,6 +1409,12 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "BEGIN TRANSACTION" in migrations[9].source
     assert "WHEN OTHER THEN" in migrations[9].source
     assert "RETIRED" in migrations[10].source
+    v041 = next(item for item in migrations if item.version == "V041")
+    assert migration_execution_role(v041, DEV_DATABASE) == "OH_LYME_DEV_GOVERNED_VIEW_OWNER"
+    assert migration_execution_role(v041, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
+        "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
+    )
+    assert migration_execution_role(migrations[0], DEV_DATABASE) is None
 
 
 def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() -> None:

@@ -2,7 +2,8 @@ USE DATABASE {{ DATABASE }};
 
 -- These views expose bounded, provenance-bearing validation and exploration
 -- data.  They deliberately exclude RAW payloads, request details, artifact
--- locations, and credentials.
+-- locations, and credentials. The migration runner executes V041 as the
+-- dedicated OH_LYME_<ENV>_GOVERNED_VIEW_OWNER role, which owns these views.
 CREATE OR REPLACE VIEW GOVERNANCE.V_SOURCE_INGESTION_VALIDATION AS
 WITH raw_rollup AS (
   SELECT data_source_version_id, ingestion_run_id, COUNT(*) AS raw_row_count,

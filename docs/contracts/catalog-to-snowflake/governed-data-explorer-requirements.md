@@ -11,6 +11,10 @@ does not approve sources, start pipelines, or replace the Python public API.
 
 - The app runs with the existing `OH_LYME_<ENV>_STREAMLIT_OWNER` owner-rights
   role on the approval X-Small warehouse.
+- The allow-listed views are owned by the separate
+  `OH_LYME_<ENV>_GOVERNED_VIEW_OWNER` deployment-only role. That role has
+  source reads only for the named view dependencies; it is not an application
+  runtime role and is not granted to viewers, stewards, or the pipeline worker.
 - `DATA_STEWARD` and `APPROVAL_VIEWER` may use the app. Neither receives direct
   table, stage, write, or ownership privileges.
 - The app reads only `GOVERNANCE.V_DATA_EXPLORER_SOURCE_VERSIONS`,
