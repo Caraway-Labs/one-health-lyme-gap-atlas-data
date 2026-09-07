@@ -3,8 +3,8 @@
 ## Purpose and scope
 
 `GOVERNED_DATA_EXPLORER` is an internal, read-only Snowflake Streamlit app for
-curated CDC/Socrata `x5j9-wybp` records that have reached `CONFORMED` and the
-explicit `ANALYTICS` projection. It complements `SOURCE_APPROVAL_CONSOLE`; it
+curated CDC/Socrata `x5j9-wybp` records that have reached `CONFORMED` and an
+analytics-ready, non-aggregated projection. It complements `SOURCE_APPROVAL_CONSOLE`; it
 does not approve sources, start pipelines, or replace the Python public API.
 
 ## Access and data contract
@@ -24,7 +24,7 @@ does not approve sources, start pipelines, or replace the Python public API.
 ## User experience and acceptance criteria
 
 - A user can choose a source version, inspect its safe run summary, and page
-  through CONFORMED or ANALYTICS records with a bounded optional report-year
+  through CONFORMED or analytics-ready projection records with a bounded optional report-year
   filter.
 - Queries use parameter binding and fixed view allow-lists. Results are capped
   at 250 rows per page.
@@ -32,6 +32,9 @@ does not approve sources, start pipelines, or replace the Python public API.
   infer that an absent row means a source was never attempted.
 - It prominently presents the surveillance-era caveat and makes no diagnosis,
   risk, cross-era-trend, or causal claim.
+- The explorer must not label an unaggregated projection as a completed
+  analytical measure. Any aggregate, score, or cross-era comparison requires
+  its own reviewed methodology and governed model.
 
 ## Rollout and rollback
 
