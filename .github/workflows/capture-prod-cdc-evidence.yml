@@ -32,7 +32,6 @@ jobs:
 
           baseline_spec="$(mktemp)"
           evidence_spec="$(mktemp)"
-          phase_file="$(mktemp)"
           baseline_captured=false
 
           restore_baseline() {
@@ -48,7 +47,7 @@ jobs:
                 capture_status=1
               fi
             fi
-            rm -f "$baseline_spec" "$evidence_spec" "$phase_file"
+            rm -f "$baseline_spec" "$evidence_spec"
             trap - EXIT
             exit "$capture_status"
           }
@@ -77,11 +76,7 @@ jobs:
 
           doctl apps update "$PROD_APP_ID" --spec "$evidence_spec" --wait \
             --format ID,ActiveDeployment.ID --no-header
-          evidence_deployment="$(doctl apps get "$PROD_APP_ID" --format ActiveDeployment.ID --no-header)"
-          test -n "$evidence_deployment"
-          doctl apps list-job-invocations "$PROD_APP_ID" \
-            --deployment "$evidence_deployment" \
-            --job-name cdc-evidence-capture \
-            --format Phase --no-header > "$phase_file"
-          test "$(tail -n 1 "$phase_file")" = "SUCCEEDED"
+          # App Platform reports a PRE_DEPLOY job's exit through deployment
+          # success, rather than a job-invocation record. --wait therefore
+          # succeeds only after the evidence job has completed successfully.
           echo "CDC evidence capture succeeded. The temporary job will now be removed."

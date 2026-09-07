@@ -65,7 +65,9 @@ one-time onboarding action.
   temporary job.
 - Its only pipeline command is `cdc-sample`; it contains no approval,
   full-ingestion, dbt, or image-promotion command.
-- The job invocation must be `SUCCEEDED` before the workflow reports success.
+- The App Platform deployment must complete successfully after the temporary
+  `PRE_DEPLOY` job; the provider does not create a job-invocation record for
+  this job type.
 - The exact prior App Platform specification is restored on success and
   failure, without printing encrypted values.
 - The new candidate is visible in the PROD approval console and remains
