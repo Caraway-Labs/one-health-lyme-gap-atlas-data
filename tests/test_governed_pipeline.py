@@ -1383,6 +1383,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V037",
         "V038",
         "V039",
+        "V040",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1390,7 +1391,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 36
+    assert len(prod_plan) == 37
     assert "V034" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
@@ -1518,6 +1519,17 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     assert "pmc_oa_recovery_rejection" in recovery_procedure
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery_procedure
     assert "SP_REJECT_PMC_RECOVERY_BATCH(PARSE_JSON(?)" in streamlit_app
+    approval_exception_fix = migration_sources["V040"]
+    assert (
+        "CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION"
+        in approval_exception_fix
+    )
+    assert "invalid_resource EXCEPTION (-20007" in approval_exception_fix
+    assert "EXCEPTION (-20000" not in approval_exception_fix
+    assert (
+        "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION"
+        in approval_exception_fix
+    )
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
