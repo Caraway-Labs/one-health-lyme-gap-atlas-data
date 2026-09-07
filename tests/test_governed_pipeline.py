@@ -413,6 +413,28 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
     assert "exit 1" not in workflow
 
 
+def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology() -> None:
+    workflow = Path(".github/workflows/capture-prod-cdc-evidence.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "concurrency:" in workflow
+    assert "group: prod-cdc-evidence-capture" in workflow
+    assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"' in workflow
+    assert 'test "$(jq -r \'.name\' "$baseline_spec")" = "oh-lyme-data-prod"' in workflow
+    assert '"catalog-discovery"' in workflow
+    assert '"cdc-evidence-capture"' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "del(.schedule)" in workflow
+    assert '"uv run atlas-data pipeline cdc-sample"' in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "--job-name cdc-evidence-capture" in workflow
+    assert '"SUCCEEDED"' in workflow
+    assert "provider-encrypted secrets" in workflow
+    assert "ingest-approved-cdc" not in workflow
+    assert "run-production-schedule" not in workflow
+    assert "dbt " not in workflow
+
+
 def test_preflight_identifies_missing_required_configuration() -> None:
     settings = PipelineSettings(
         snowflake_account="",
