@@ -427,8 +427,8 @@ def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology(
     assert "del(.schedule)" in workflow
     assert '"uv run atlas-data pipeline cdc-sample"' in workflow
     assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
-    assert "--job-name cdc-evidence-capture" in workflow
-    assert '"SUCCEEDED"' in workflow
+    assert "PRE_DEPLOY job's exit through deployment" in workflow
+    assert "list-job-invocations" not in workflow
     assert "provider-encrypted secrets" in workflow
     assert "ingest-approved-cdc" not in workflow
     assert "run-production-schedule" not in workflow
