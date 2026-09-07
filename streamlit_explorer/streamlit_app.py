@@ -1,4 +1,4 @@
-"""Read-only governed CDC data explorer for curated CONFORMED and ANALYTICS views."""
+"""Read-only CDC explorer for curated CONFORMED and analytics-ready projection views."""
 
 from __future__ import annotations
 
@@ -56,7 +56,9 @@ def _records(
 
 st.set_page_config(page_title="Governed data explorer", layout="wide")
 st.title("GOVERNED_DATA_EXPLORER")
-st.caption("Internal read-only exploration of curated CDC/Socrata CONFORMED and ANALYTICS data.")
+st.caption(
+    "Internal read-only exploration of curated CDC/Socrata CONFORMED and analytics-ready data."
+)
 st.info(
     "This app never exposes RAW payloads, artifacts, request data, credentials, or write actions."
 )
@@ -75,7 +77,7 @@ if not versions:
 options = [str(row["DATA_SOURCE_VERSION_ID"]) for row in versions]
 selected = st.sidebar.selectbox("Source version", options)
 selected_summary = next(row for row in versions if str(row["DATA_SOURCE_VERSION_ID"]) == selected)
-page = st.sidebar.radio("View", ("Run summary", "CONFORMED records", "ANALYTICS records"))
+page = st.sidebar.radio("View", ("Run summary", "CONFORMED records", "Analytics-ready projection"))
 
 if page == "Run summary":
     st.subheader("Source and run summary")
@@ -96,6 +98,11 @@ else:
     page_number = int(st.sidebar.number_input("Result page", min_value=1, value=1, step=1))
     records = _records(view, selected, year, (page_number - 1) * PAGE_SIZE)
     st.subheader(page)
+    if page == "Analytics-ready projection":
+        st.info(
+            "No reviewed aggregate is defined yet. This projection preserves CONFORMED grain and "
+            "provenance; it does not create a disease-risk measure or cross-era comparison."
+        )
     st.caption(f"Showing up to {PAGE_SIZE} curated rows per page; no RAW payload is displayed.")
     if records:
         st.dataframe(records, use_container_width=True, hide_index=True)

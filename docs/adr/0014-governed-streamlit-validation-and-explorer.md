@@ -20,8 +20,8 @@ caveat.
 
 Create the separate `GOVERNED_DATA_EXPLORER` Streamlit application. It queries
 only allow-listed `GOVERNANCE.V_DATA_EXPLORER_*` views that project curated
-CDC/Socrata fields from `CONFORMED` and an explicitly non-aggregated
-`ANALYTICS` projection. Neither application can query `RAW`, show payloads or
+CDC/Socrata fields from `CONFORMED` and an explicitly non-aggregated,
+analytics-ready projection. Neither application can query `RAW`, show payloads or
 artifact locations, call external services, or write data. Both remain owned
 by the existing constrained Streamlit owner role and available only to the
 existing internal steward/viewer roles.

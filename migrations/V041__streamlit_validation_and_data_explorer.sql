@@ -3,13 +3,6 @@ USE DATABASE {{ DATABASE }};
 -- These views expose bounded, provenance-bearing validation and exploration
 -- data.  They deliberately exclude RAW payloads, request details, artifact
 -- locations, and credentials.
-CREATE OR REPLACE VIEW ANALYTICS.CDC_LYME_X5J9_WYBP_EXPLORER AS
-SELECT source_record_id, data_source_version_id, ingestion_run_id, artifact_id,
-       county_fips, report_year, case_status, sex, age_category_years, frequency,
-       source_value_status, geography_semantics, source_resolution, temporal_window,
-       caveat, retrieved_at
-FROM CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP;
-
 CREATE OR REPLACE VIEW GOVERNANCE.V_SOURCE_INGESTION_VALIDATION AS
 WITH raw_rollup AS (
   SELECT data_source_version_id, ingestion_run_id, COUNT(*) AS raw_row_count,
@@ -77,11 +70,14 @@ SELECT source_record_id, data_source_version_id, ingestion_run_id, artifact_id,
 FROM CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP;
 
 CREATE OR REPLACE VIEW GOVERNANCE.V_DATA_EXPLORER_ANALYTICS_CDC AS
+-- No reviewed aggregate has been defined for this surveillance source. This
+-- analytics-ready projection therefore preserves the CONFORMED grain and its
+-- provenance rather than inventing a metric or cross-era comparison.
 SELECT source_record_id, data_source_version_id, ingestion_run_id, artifact_id,
        county_fips, report_year, case_status, sex, age_category_years, frequency,
        source_value_status, geography_semantics, source_resolution, temporal_window,
        caveat, retrieved_at
-FROM ANALYTICS.CDC_LYME_X5J9_WYBP_EXPLORER;
+FROM CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP;
 
 -- Both apps run with the existing constrained owner role.  They query only
 -- the explicit views above, never their underlying RAW/STAGING/CONFORMED tables.
