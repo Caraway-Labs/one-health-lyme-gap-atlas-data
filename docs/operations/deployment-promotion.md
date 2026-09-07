@@ -133,8 +133,11 @@ Still required before a full-production ingestion can run:
    It cannot approve, full-ingest, run dbt, or promote an image. See ADR 0015.
 2. Review and record the immutable PROD steward decision in the PROD
    `SOURCE_APPROVAL_CONSOLE`.
-3. Run the approved full-ingestion and dbt acceptance path using the
-   DEV-tested image digest.
+3. Run the protected `Run approved governed ingestion in PROD` workflow from
+   `main`. It verifies that the active PROD digest appears in DEV deployment
+   history, runs the existing approved-source schedule once as a temporary
+   pre-deploy job, and restores the exact prior app specification. See ADR
+   0016.
 4. Exercise a DEV rollback by redeploying a previously approved digest.
 
 The checked-in `.do/app.prod.yaml` is the production job specification. It

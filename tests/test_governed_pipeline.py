@@ -435,6 +435,24 @@ def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology(
     assert "dbt " not in workflow
 
 
+def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
+    workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "group: prod-approved-ingestion" in workflow
+    assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
+    assert '"approved-source-ingestion"' in workflow
+    assert '"approved-source-ingestion-once"' in workflow
+    assert '"uv run atlas-data pipeline run-production-schedule"' in workflow
+    assert 'doctl apps list-deployments "$DEV_APP_ID"' in workflow
+    assert 'test "$dev_verified" = true' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "del(.schedule)" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "cdc-sample" not in workflow
+    assert "ingest-approved-cdc" not in workflow
+    assert "dbt run" not in workflow
+
+
 def test_preflight_identifies_missing_required_configuration() -> None:
     settings = PipelineSettings(
         snowflake_account="",
