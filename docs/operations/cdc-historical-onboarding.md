@@ -1,5 +1,8 @@
 # CDC 2008-2021 DEV onboarding
 
+The steward-review increment is complete. The separately approved next increment
+is documented in [DEV historical full ingestion](cdc-historical-ingestion.md).
+
 Owner-approved increment: onboard `qtbi-xd4i` for steward review. This is not
 authorization to ingest all rows, approve the candidate, or change PROD.
 Implements the source onboarding contract's explicit next-source sequence and

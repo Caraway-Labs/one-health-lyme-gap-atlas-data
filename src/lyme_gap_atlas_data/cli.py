@@ -326,6 +326,30 @@ def cdc_historical_sample(
     typer.echo(json.dumps(collect_cdc_evidence(sample_limit, dataset_id="qtbi-xd4i"), default=str))
 
 
+@pipeline_app.command("ingest-approved-cdc-historical")
+def ingest_historical_command(source_version_id: str = typer.Option(...)) -> None:
+    """Explicit DEV-only approved 2008-2021 acquisition, validation and publication."""
+    from .cdc_historical_ingestion import refresh_historical
+
+    typer.echo(json.dumps(refresh_historical(source_version_id), default=str))
+
+
+@pipeline_app.command("rollback-cdc-historical")
+def rollback_historical_command(
+    source_version_id: str = typer.Option(...),
+    ingestion_run_id: str = typer.Option(...),
+    expected_revision: int = typer.Option(..., min=1),
+) -> None:
+    """DEV-only audited rollback to a retained historical snapshot; no acquisition."""
+    from .cdc_historical_ingestion import rollback_historical
+
+    typer.echo(
+        json.dumps(
+            rollback_historical(source_version_id, ingestion_run_id, expected_revision), default=str
+        )
+    )
+
+
 @pipeline_app.command("ingest-approved-cdc")
 def ingest_approved_cdc_command(
     check_id: str = typer.Option(..., "--check-id"),

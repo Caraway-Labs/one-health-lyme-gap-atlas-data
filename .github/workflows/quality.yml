@@ -113,7 +113,7 @@ jobs:
             (.jobs[] | select(.name == "catalog-ingestion")) as $runtime
             | .jobs += [$runtime | .name = "cdc-policy-fixtures-once"
               | .kind = "PRE_DEPLOY" | del(.schedule)
-              | .run_command = "/app/.venv/bin/python /app/scripts/verify_cdc_policy_dev.py"]
+              | .run_command = "/bin/sh -c \"/app/.venv/bin/python /app/scripts/verify_cdc_policy_dev.py && /app/.venv/bin/python /app/scripts/verify_historical_cdc_dev.py\""]
           ' /tmp/dev-app-image.json > /tmp/dev-app-fixture.json
           # The actual DEV runtime identity executes session-temporary fixtures.
           # A failed proof prevents this image from becoming the active deployment.

@@ -373,6 +373,7 @@ def ingest_approved_cdc(
     trigger_type: str = "MANUAL",
     expected_metadata: str | None = None,
     expected_source_version_id: str | None = None,
+    dataset_id: str = "x5j9-wybp",
 ) -> dict[str, Any]:
     """Fully acquire the approved CDC source through immutable artifacts and COPY.
 
@@ -381,10 +382,30 @@ def ingest_approved_cdc(
     """
     if trigger_type not in {"MANUAL", "SCHEDULED", "BACKFILL", "RETRY"}:
         raise ValueError("Unsupported ingestion trigger type")
-    profile = load_cdc_profile()
+    settings = PipelineSettings()
+    if dataset_id == "qtbi-xd4i":
+        if settings.topx_env != "dev":
+            raise ValueError("Historical CDC ingestion is DEV-only")
+        if expected_source_version_id is None or expected_metadata is None:
+            raise ValueError("Historical ingestion requires explicit approval and metadata")
+        profile = yaml.safe_load(
+            SOURCE_CONFIG.with_name("cdc_qtbi_xd4i.yml").read_text(encoding="utf-8")
+        )
+        if (
+            profile.get("endpoint_template") != "https://data.cdc.gov/resource/qtbi-xd4i.json"
+            or profile.get("deterministic_order_clause") != ":id ASC"
+        ):
+            raise ValueError("Invalid historical access profile")
+        resource_key = "cdc_lyme_qtbi_xd4i"
+        raw_table = "RAW.CDC_LYME_QTBI_XD4I"
+    elif dataset_id == "x5j9-wybp":
+        profile = load_cdc_profile()
+        resource_key = CDC_RESOURCE_ID
+        raw_table = "RAW.CDC_LYME_X5J9_WYBP"
+    else:
+        raise ValueError("Unsupported CDC dataset")
     if page_size < 1 or page_size > 10_000:
         raise ValueError("page_size must be between 1 and 10,000")
-    settings = PipelineSettings()
     token = settings.socrata_app_token.get_secret_value() if settings.socrata_app_token else None
     run_id, now = str(uuid.uuid4()), datetime.now(UTC)
     s3 = _spaces_client(settings)
@@ -394,8 +415,8 @@ def ingest_approved_cdc(
             cursor.execute(
                 """INSERT INTO GOVERNANCE.INGESTION_RUNS
                 (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version, started_at)
-                VALUES (%s, %s, 'FULL_REFRESH', %s, 'RUNNING', 'cdc-x5j9-full-v2', %s)""",
-                (run_id, CDC_RESOURCE_ID, trigger_type, now),
+                VALUES (%s, %s, 'FULL_REFRESH', %s, 'RUNNING', %s, %s)""",
+                (run_id, resource_key, trigger_type, f"cdc-{dataset_id}-full-v3", now),
             )
         connection.commit()
         connection.autocommit(False)
@@ -405,7 +426,7 @@ def ingest_approved_cdc(
                     """SELECT data_source_version_id FROM GOVERNANCE.DATA_SOURCE_VERSIONS
                     WHERE resource_key = %s AND status IN ('APPROVED', 'CONDITIONAL')
                       AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1""",
-                    (CDC_RESOURCE_ID,),
+                    (resource_key,),
                 )
                 source_version = cursor.fetchone()
                 if source_version is None:
@@ -421,6 +442,8 @@ def ingest_approved_cdc(
                 with TemporaryDirectory(prefix="oh-lyme-cdc-") as directory:
                     offset, sequence = 0, 0
                     while True:
+                        if dataset_id == "qtbi-xd4i" and offset >= 1_000_000:
+                            raise ValueError("Historical acquisition exceeded its reviewed bound")
                         url = (
                             str(profile["endpoint_template"])
                             + "?"
@@ -437,11 +460,15 @@ def ingest_approved_cdc(
                             raise ValueError("CDC full-ingestion page was malformed")
                         if not page:
                             break
+                        if dataset_id == "qtbi-xd4i":
+                            from .cdc_historical_ingestion import validate_page
+
+                            validate_page(page, page_size)
                         sequence += 1
                         payload = "\n".join(
                             json.dumps(row, separators=(",", ":")) for row in page
                         ).encode()
-                        artifact = _save_artifact(s3, settings, CDC_RESOURCE_ID, run_id, payload)
+                        artifact = _save_artifact(s3, settings, resource_key, run_id, payload)
                         request_id, artifact_id = str(uuid.uuid4()), str(uuid.uuid4())
                         cursor.execute(
                             """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
@@ -489,7 +516,7 @@ def ingest_approved_cdc(
                             f"PUT {local_path.as_uri()} @RAW.INGESTION_TRANSIENT_STAGE/{stage_path} AUTO_COMPRESS=FALSE"
                         )
                         cursor.execute(
-                            f"""COPY INTO RAW.CDC_LYME_X5J9_WYBP
+                            f"""COPY INTO {raw_table}
                             (payload, data_source_version_id, ingestion_run_id, artifact_id, source_url,
                              redacted_source_query, source_record_id, source_row_hash, retrieved_at)
                             FROM (SELECT $1, %s, %s, %s, %s, %s, $1:":id"::VARCHAR,
@@ -511,7 +538,8 @@ def ingest_approved_cdc(
                         offset += page_size
                 if expected_metadata is not None:
                     after = metadata_fingerprint(
-                        _fetch_json(str(profile["metadata_endpoint_template"]), token)
+                        _fetch_json(str(profile["metadata_endpoint_template"]), token),
+                        dataset_id=dataset_id,
                     )
                     if after != expected_metadata:
                         raise ValueError("Publisher changed during CDC acquisition")
@@ -537,7 +565,7 @@ def ingest_approved_cdc(
             raise
     return {
         "ingestion_run_id": run_id,
-        "resource_key": CDC_RESOURCE_ID,
+        "resource_key": resource_key,
         "source_version_id": source_version_id,
         "rows_loaded": rows_loaded,
         "status": "COMPLETED",
@@ -554,6 +582,33 @@ def build_approved_cdc_models(
         with cdc_operation() as owner:
             return build_approved_cdc_models(source_version_id, lease_owner=owner)
     ingestion_run_id, revision = publication_context(source_version_id)
+    run_cdc_dbt("stg_cdc_lyme_x5j9_wybp+")
+    try:
+        quality = record_cdc_quality(
+            source_version_id, ingestion_run_id=ingestion_run_id, candidate=True
+        )
+    except CdcQualityError as error:
+        raise CdcDbtBuildError("DATA_QUALITY_FAILED") from error
+    publication = publish_snapshot(
+        source_version_id,
+        ingestion_run_id,
+        str(quality["validation_id"]),
+        lease_owner,
+        expected_revision=revision,
+    )
+    return {
+        "source_version_id": source_version_id,
+        "status": "COMPLETED",
+        "publication_status": str(publication["status"]),
+    }
+
+
+def run_cdc_dbt(selector: str) -> None:
+    """Build an allowlisted CDC path without exposing key material or dbt output."""
+    if selector not in {"stg_cdc_lyme_x5j9_wybp+", "stg_cdc_lyme_qtbi_xd4i+"}:
+        raise ValueError("Unsupported CDC model selector")
+    if "qtbi" in selector and PipelineSettings().topx_env != "dev":
+        raise ValueError("Historical CDC dbt is DEV-only")
     environment = os.environ.copy()
     key_b64 = environment.get("SNOWFLAKE_PRIVATE_KEY_B64")
     with TemporaryDirectory(prefix="oh-lyme-dbt-key-") as directory:
@@ -577,7 +632,7 @@ def build_approved_cdc_models(
                 "--profiles-dir",
                 "dbt",
                 "--select",
-                "stg_cdc_lyme_x5j9_wybp+",
+                selector,
             ],
             check=False,
             capture_output=True,
@@ -590,24 +645,6 @@ def build_approved_cdc_models(
         # workflow may retrieve from the transient provider log.
         logger.error("CDC_DBT_DIAGNOSTIC=%s", classification)
         raise CdcDbtBuildError(classification)
-    try:
-        quality = record_cdc_quality(
-            source_version_id, ingestion_run_id=ingestion_run_id, candidate=True
-        )
-    except CdcQualityError as error:
-        raise CdcDbtBuildError("DATA_QUALITY_FAILED") from error
-    publication = publish_snapshot(
-        source_version_id,
-        ingestion_run_id,
-        str(quality["validation_id"]),
-        lease_owner,
-        expected_revision=revision,
-    )
-    return {
-        "source_version_id": source_version_id,
-        "status": "COMPLETED",
-        "publication_status": str(publication["status"]),
-    }
 
 
 def confirm_approved_cdc_raw_load(source_version_id: str) -> dict[str, int | str]:

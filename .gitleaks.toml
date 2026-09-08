@@ -6,6 +6,9 @@ condition = "AND"
 paths = [
   '''^config/sources/cdc_qtbi_xd4i\.yml$''',
   '''^src/lyme_gap_atlas_data/cdc_historical\.py$''',
+  '''^src/lyme_gap_atlas_data/cdc\.py$''',
+  '''^migrations/V04[67]__dev_historical_cdc_(storage|explorer)\.sql$''',
+  '''^dbt/models/staging/stg_cdc_lyme_qtbi_xd4i\.sql$''',
   '''^streamlit_approval/streamlit_app\.py$''',
   '''^tests/test_cdc_historical\.py$''',
   '''^migrations/V04[45]__dev_historical_cdc_(review|decision)\.sql$''',

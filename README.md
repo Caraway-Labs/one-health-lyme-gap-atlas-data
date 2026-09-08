@@ -80,6 +80,11 @@ It creates a `PENDING_REVIEW` candidate in the internal Snowflake
 steward's immutable decision in that console is the prerequisite for a later
 full-ingestion command and dbt run.
 
+The separately reviewed historical CDC `qtbi-xd4i` source has a DEV-only
+[controlled full-ingestion path](docs/operations/cdc-historical-ingestion.md).
+It retains the 2008–2021 era separately and publishes only validated snapshots;
+it does not activate historical ingestion in PROD or add an unattended schedule.
+
 After the quality workflow verifies a `main` commit, it builds an immutable
 image and deploys that digest to DEV. Production promotion is a separate,
 protected, manual GitHub workflow: it requires the configured production
