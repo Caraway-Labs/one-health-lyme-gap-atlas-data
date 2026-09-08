@@ -3,6 +3,19 @@ name: Verify approved CDC dbt recovery in DEV
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Governed operation against existing DEV data; never acquires source rows
+        type: choice
+        default: dbt-recovery
+        options: [dbt-recovery, bootstrap, metadata, rollback]
+      ingestion_run_id:
+        description: Existing retained RAW run for bootstrap or validated snapshot for rollback
+        required: false
+        type: string
+      expected_revision:
+        description: Current publication revision required for rollback
+        required: false
+        type: string
       source_version_id:
         description: Approved DEV CDC source version with retained RAW rows
         required: true
@@ -24,6 +37,9 @@ jobs:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
       SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+      CDC_OPERATION: ${{ inputs.operation || 'dbt-recovery' }}
+      INGESTION_RUN_ID: ${{ inputs.ingestion_run_id }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
@@ -36,6 +52,24 @@ jobs:
           set -Eeuo pipefail
           test -n "$DEV_APP_ID"
           [[ "$SOURCE_VERSION_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+          case "$CDC_OPERATION" in
+            dbt-recovery)
+              command="uv run atlas-data pipeline run-cdc-dbt-recovery --source-version-id $SOURCE_VERSION_ID"
+              ;;
+            metadata)
+              command="uv run atlas-data pipeline check-cdc-metadata"
+              ;;
+            bootstrap|rollback)
+              [[ "$INGESTION_RUN_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+              if [ "$CDC_OPERATION" = bootstrap ]; then
+                command="uv run atlas-data pipeline bootstrap-cdc-publication --source-version-id $SOURCE_VERSION_ID --ingestion-run-id $INGESTION_RUN_ID"
+              else
+                [[ "$EXPECTED_REVISION" =~ ^[1-9][0-9]*$ ]]
+                command="uv run atlas-data pipeline rollback-cdc-publication --source-version-id $SOURCE_VERSION_ID --ingestion-run-id $INGESTION_RUN_ID --expected-revision $EXPECTED_REVISION"
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
 
           baseline_spec="$(mktemp)"
           recovery_spec="$(mktemp)"
@@ -66,13 +100,13 @@ jobs:
           test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-dev"
           test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$baseline_spec")" = "1"
           test "$(jq '[.jobs[] | select(.name == "cdc-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
-          jq --arg source_version_id "$SOURCE_VERSION_ID" '
+          jq --arg command "$command" '
             (.jobs[] | select(.name == "catalog-ingestion")) as $template
             | .jobs += [
                 $template
                 | .name = "cdc-dbt-recovery-once"
                 | .kind = "PRE_DEPLOY"
-                | .run_command = "uv run atlas-data pipeline run-cdc-dbt-recovery --source-version-id " + $source_version_id
+                | .run_command = $command
                 | del(.schedule)
               ]
           ' "$baseline_spec" > "$recovery_spec"

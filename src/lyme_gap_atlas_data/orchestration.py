@@ -22,8 +22,8 @@ from .cdc import (
     CdcDbtBuildError,
     build_approved_cdc_models,
     confirm_approved_cdc_raw_load,
-    ingest_approved_cdc,
 )
+from .cdc_operations import check_cdc_metadata
 from .discovery import (
     DiscoveryRequest,
     fetch_json,
@@ -560,18 +560,11 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
 
 
 def run_production_schedule() -> dict[str, Any]:
-    """Run the production-only CDC refresh path after steward approval.
-
-    The App Platform schedule is the caller.  Approval remains enforced inside
-    ``ingest_approved_cdc`` by the active source-version lookup; this command
-    never creates an approval or substitutes a DEV source version.
-    """
+    """Check CDC metadata only; scheduled execution never acquires source rows."""
     settings = PipelineSettings()
     if settings.topx_env != "prod":
         raise ValueError("The approved-source schedule may run only in production")
-    ingestion = ingest_approved_cdc(trigger_type="SCHEDULED")
-    promotion = build_approved_cdc_models(str(ingestion["source_version_id"]))
-    return {"ingestion": ingestion, "promotion": promotion, "status": "COMPLETED"}
+    return check_cdc_metadata()
 
 
 def run_cdc_dbt_recovery(source_version_id: str) -> dict[str, Any]:

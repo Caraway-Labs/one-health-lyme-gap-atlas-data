@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -22,7 +23,7 @@ def test_failed_checks_are_committed_before_raising(monkeypatch: pytest.MonkeyPa
         [("run-1", "row_reconciliation", 5045, 5044), ("run-1", "source_hash_integrity", 0, 0)],
     )
     with pytest.raises(cdc_quality.CdcQualityError, match="1 blocking"):
-        cdc_quality.record_cdc_quality("version-1")
+        cdc_quality.record_cdc_quality("version-1", ingestion_run_id="run-1")
     connection.commit.assert_called_once()
     connection.rollback.assert_not_called()
     cursor = connection.cursor.return_value.__enter__.return_value
@@ -39,7 +40,7 @@ def test_partial_evidence_write_rolls_back(monkeypatch: pytest.MonkeyPatch) -> N
     cursor = connection.cursor.return_value.__enter__.return_value
     cursor.execute.side_effect = [None, None, RuntimeError("write failed")]
     with pytest.raises(RuntimeError, match="write failed"):
-        cdc_quality.record_cdc_quality("version-1")
+        cdc_quality.record_cdc_quality("version-1", ingestion_run_id="run-1")
     connection.rollback.assert_called_once()
     connection.commit.assert_not_called()
 
@@ -47,14 +48,16 @@ def test_partial_evidence_write_rolls_back(monkeypatch: pytest.MonkeyPatch) -> N
 def test_empty_data_cannot_report_success(monkeypatch: pytest.MonkeyPatch) -> None:
     connection = quality_connection(monkeypatch, [])
     with pytest.raises(cdc_quality.CdcQualityError, match="retained source rows"):
-        cdc_quality.record_cdc_quality("version-1")
+        cdc_quality.record_cdc_quality("version-1", ingestion_run_id="run-1")
     connection.commit.assert_not_called()
 
 
 def test_dbt_success_still_fails_when_quality_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cdc, "cdc_operation", lambda: nullcontext("lease"))
+    monkeypatch.setattr(cdc, "publication_context", lambda _: ("run-1", 0))
     monkeypatch.setattr(cdc.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
 
-    def fail(_version: str) -> None:
+    def fail(_version: str, **kwargs: object) -> None:
         raise cdc_quality.CdcQualityError("evidence retained")
 
     monkeypatch.setattr(cdc, "record_cdc_quality", fail)

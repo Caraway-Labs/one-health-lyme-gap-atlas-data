@@ -61,8 +61,8 @@ jobs:
   - name: approved-source-ingestion
     kind: SCHEDULED
     schedule:
-      # CDC x5j9-wybp is declared as an annual full-refresh source.
-      cron: "0 9 15 1 *"
+      # Metadata-only change detection; full acquisition requires operator approval.
+      cron: "0 9 1 * *"
       time_zone: America/Denver
     image:
       registry_type: DOCR

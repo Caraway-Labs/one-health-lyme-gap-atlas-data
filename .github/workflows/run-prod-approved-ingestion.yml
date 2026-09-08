@@ -2,6 +2,11 @@ name: Run approved governed ingestion in PROD
 
 on:
   workflow_dispatch:
+    inputs:
+      check_id:
+        description: Successful metadata check authorizing this reviewed full refresh
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -19,6 +24,7 @@ jobs:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
       PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      CHECK_ID: ${{ inputs.check_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
@@ -29,6 +35,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          [[ "$CHECK_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
           test -n "$DEV_APP_ID"
           test -n "$PROD_APP_ID"
 
@@ -77,12 +84,13 @@ jobs:
           done < <(doctl apps list-deployments "$DEV_APP_ID" --format ID --no-header)
           test "$dev_verified" = true
 
-          jq '
+          jq --arg check_id "$CHECK_ID" '
             (.jobs[] | select(.name == "approved-source-ingestion")) as $template
             | .jobs += [
                 $template
                 | .name = "approved-source-ingestion-once"
                 | .kind = "PRE_DEPLOY"
+                | .run_command = ("uv run atlas-data pipeline promote-approved-cdc --check-id " + $check_id)
                 | del(.schedule)
               ]
           ' "$baseline_spec" > "$ingestion_spec"
