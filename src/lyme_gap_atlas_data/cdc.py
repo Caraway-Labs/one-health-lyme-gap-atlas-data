@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import os
 import subprocess
 import time
 import uuid
@@ -427,23 +429,36 @@ def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL")
 
 def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
     """Build only the CDC dbt path after a successful governed RAW load."""
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "dbt",
-            "build",
-            "--project-dir",
-            "dbt",
-            "--profiles-dir",
-            "dbt",
-            "--select",
-            "stg_cdc_lyme_x5j9_wybp+",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    environment = os.environ.copy()
+    key_b64 = environment.get("SNOWFLAKE_PRIVATE_KEY_B64")
+    with TemporaryDirectory(prefix="oh-lyme-dbt-key-") as directory:
+        if key_b64:
+            try:
+                key_bytes = base64.b64decode(key_b64, validate=True)
+            except ValueError as error:
+                raise RuntimeError("dbt private-key material is not valid base64") from error
+            key_path = Path(directory) / "snowflake-dbt-key.p8"
+            key_path.write_bytes(key_bytes)
+            key_path.chmod(0o600)
+            environment["SNOWFLAKE_PRIVATE_KEY_PATH"] = str(key_path)
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "dbt",
+                "build",
+                "--project-dir",
+                "dbt",
+                "--profiles-dir",
+                "dbt",
+                "--select",
+                "stg_cdc_lyme_x5j9_wybp+",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
     if result.returncode != 0:
         raise RuntimeError("CDC dbt build failed; inspect the governed dbt logs")
     return {"source_version_id": source_version_id, "status": "COMPLETED"}
