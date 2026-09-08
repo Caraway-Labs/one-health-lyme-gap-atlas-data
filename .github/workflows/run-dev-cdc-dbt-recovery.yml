@@ -39,6 +39,8 @@ jobs:
 
           baseline_spec="$(mktemp)"
           recovery_spec="$(mktemp)"
+          deployment_output="$(mktemp)"
+          recovery_logs="$(mktemp)"
           baseline_captured=false
           restore_baseline() {
             recovery_status=$?
@@ -53,7 +55,7 @@ jobs:
                 recovery_status=1
               fi
             fi
-            rm -f "$baseline_spec" "$recovery_spec"
+            rm -f "$baseline_spec" "$recovery_spec" "$deployment_output" "$recovery_logs"
             trap - EXIT
             exit "$recovery_status"
           }
@@ -74,6 +76,28 @@ jobs:
                 | del(.schedule)
               ]
           ' "$baseline_spec" > "$recovery_spec"
-          doctl apps update "$DEV_APP_ID" --spec "$recovery_spec" --wait \
-            --format ID,ActiveDeployment.ID --no-header
+          if ! doctl apps update "$DEV_APP_ID" --spec "$recovery_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header > "$deployment_output" 2>&1; then
+            cat "$deployment_output"
+            failed_deployment_id="$(sed -nE 's/.*deployment ID: ([0-9a-f-]+).*/\1/p' "$deployment_output" | tail -n 1)"
+            if [[ "$failed_deployment_id" =~ ^[0-9a-f-]{36}$ ]]; then
+              # Retrieve only the controlled marker. Never print provider logs,
+              # captured dbt output, connection configuration, or secrets.
+              if doctl apps logs "$DEV_APP_ID" cdc-dbt-recovery-once \
+                --deployment "$failed_deployment_id" --type run --tail 300 --no-prefix \
+                > "$recovery_logs" 2>&1; then
+                diagnostic="$(grep -oE 'CDC_DBT_DIAGNOSTIC=[A-Z_]+' "$recovery_logs" | tail -n 1 || true)"
+                if [ -n "$diagnostic" ]; then
+                  echo "$diagnostic"
+                else
+                  echo "CDC_DBT_DIAGNOSTIC=UNAVAILABLE"
+                fi
+              else
+                echo "CDC_DBT_DIAGNOSTIC=UNAVAILABLE"
+              fi
+            else
+              echo "CDC_DBT_DIAGNOSTIC=UNAVAILABLE"
+            fi
+            exit 1
+          fi
           echo "DEV CDC dbt recovery completed; restoring the baseline topology."
