@@ -318,6 +318,14 @@ def cdc_sample(sample_limit: int = typer.Option(25, "--sample-limit", min=1, max
     typer.echo(json.dumps(collect_cdc_evidence(sample_limit), default=str))
 
 
+@pipeline_app.command("cdc-historical-sample")
+def cdc_historical_sample(
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+) -> None:
+    """Capture DEV-only qtbi-xd4i evidence; never acquire the full dataset."""
+    typer.echo(json.dumps(collect_cdc_evidence(sample_limit, dataset_id="qtbi-xd4i"), default=str))
+
+
 @pipeline_app.command("ingest-approved-cdc")
 def ingest_approved_cdc_command(
     check_id: str = typer.Option(..., "--check-id"),

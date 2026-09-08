@@ -17,7 +17,7 @@ import streamlit as st
 from snowflake.snowpark.context import get_active_session
 
 APP_VERSION: Final = "1.0.0"
-CDC_RESOURCE_KEY: Final = "cdc_lyme_x5j9_wybp"
+CDC_RESOURCE_KEY = "cdc_lyme_x5j9_wybp"
 DECISIONS: Final = {"APPROVED", "APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 CONDITIONS_REQUIRED: Final = {"APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 BACKLOG_PAGE_SIZE: Final = 100
@@ -276,7 +276,24 @@ def _render_operations(page: str) -> None:
 
 st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("SOURCE_APPROVAL_CONSOLE")
-st.caption("DEV only | CDC/Socrata x5j9-wybp only | internal governed review")
+current_database = str(_rows("SELECT CURRENT_DATABASE() AS database_name")[0]["DATABASE_NAME"])
+if current_database == "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
+    source_labels = {
+        "cdc_lyme_x5j9_wybp": "CDC Lyme | 2022-current | x5j9-wybp",
+        "cdc_lyme_qtbi_xd4i": "CDC Lyme | 2008-2021 | qtbi-xd4i",
+    }
+    CDC_RESOURCE_KEY = st.sidebar.selectbox(
+        "Source to review", options=list(source_labels), format_func=lambda key: source_labels[key]
+    )
+    st.caption(f"DEV | {source_labels[CDC_RESOURCE_KEY]} | internal governed review")
+else:
+    st.caption("PROD | CDC/Socrata x5j9-wybp | internal governed review")
+if CDC_RESOURCE_KEY == "cdc_lyme_qtbi_xd4i":
+    st.warning(
+        "Historical 2008-2021 surveillance era. Do not directly compare with 2022 onward. "
+        "This onboarding contains a bounded sample, not validated full-dataset coverage. "
+        "Approval does not run ingestion; the historical full-ingestion path is a separate step."
+    )
 st.info("This console cannot run discovery, ingestion, retries, or transformations.")
 recorded_decision = st.session_state.pop("recorded_decision", None)
 if recorded_decision:
