@@ -16,7 +16,12 @@ from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
-from .cdc_operations import check_cdc_metadata, check_cdc_overdue, operator_refresh
+from .cdc_operations import (
+    check_cdc_metadata,
+    check_cdc_overdue,
+    operator_refresh,
+    verify_cdc_ready,
+)
 from .cdc_publication import bootstrap_publication, rollback_publication
 from .cdc_quality import record_cdc_quality
 from .database import load as load_release
@@ -348,6 +353,12 @@ def bootstrap_cdc_publication_command(
 def check_cdc_overdue_command() -> None:
     """Record a redacted incident when a monthly metadata check is overdue."""
     typer.echo(json.dumps(check_cdc_overdue()))
+
+
+@pipeline_app.command("verify-cdc-ready")
+def verify_cdc_ready_command(source_version_id: str = typer.Option(...)) -> None:
+    """Check publication and metadata evidence before routine scheduling."""
+    typer.echo(json.dumps(verify_cdc_ready(source_version_id)))
 
 
 @pipeline_app.command("validate-cdc-quality")

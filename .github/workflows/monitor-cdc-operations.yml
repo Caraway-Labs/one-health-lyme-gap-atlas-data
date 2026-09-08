@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: "30 17 * * *"
   workflow_dispatch:
+    inputs:
+      delivery_test:
+        description: Create a clearly marked notification delivery test issue
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -27,3 +32,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_MONITOR_READ_TOKEN }}
           CDC_MONITOR_ENABLED_AT: ${{ vars.CDC_MONITOR_ENABLED_AT }}
+          CDC_MONITOR_TEST_ID: ${{ inputs.delivery_test && github.run_id || '' }}

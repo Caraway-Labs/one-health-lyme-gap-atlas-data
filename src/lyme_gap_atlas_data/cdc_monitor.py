@@ -116,6 +116,11 @@ def main() -> None:
             or []
         )
     incidents = incident_candidates(invocations, now=now, enabled_at=enabled_at)
+    test_id = os.environ.get("CDC_MONITOR_TEST_ID", "")
+    if test_id:
+        if not test_id.isdigit():
+            raise ValueError("Notification test identifier must be a workflow run ID")
+        incidents[f"test:{test_id}"] = "[TEST] CDC notification delivery; no pipeline failure"
     # Full refreshes are protected manual workflows, not scheduled invocations.
     pages = run_json(
         [

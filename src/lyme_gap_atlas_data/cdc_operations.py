@@ -13,6 +13,7 @@ from .cdc import _fetch_json, build_approved_cdc_models, ingest_approved_cdc, lo
 from .cdc_incidents import record_incident
 from .cdc_policy import metadata_fingerprint, overdue_metadata_period
 from .cdc_publication import cdc_operation, require_publication_enabled
+from .cdc_quality import record_cdc_quality
 from .settings import PipelineSettings
 
 
@@ -112,3 +113,20 @@ def check_cdc_overdue() -> dict[str, str]:
             return {"status": "ON_TIME"}
         record_incident("OVERDUE", f"overdue:{period}")
         return {"status": "OVERDUE", "period": period}
+
+
+def verify_cdc_ready(source_version_id: str) -> dict[str, str]:
+    """Require current publication quality and a recent metadata baseline before scheduling."""
+    with cdc_operation():
+        require_publication_enabled()
+        record_cdc_quality(source_version_id)
+        with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT COUNT(*) FROM GOVERNANCE.CDC_METADATA_CHECKS
+                WHERE status IN ('BASELINE','CHANGED','UNCHANGED')
+                  AND checked_at >= DATEADD(day,-7,CURRENT_TIMESTAMP())"""
+            )
+            recent = cursor.fetchone()
+            if recent is None or recent[0] == 0:
+                raise ValueError("A successful metadata baseline within seven days is required")
+    return {"status": "READY", "source_version_id": source_version_id}

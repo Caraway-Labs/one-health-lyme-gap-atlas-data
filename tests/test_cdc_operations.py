@@ -14,6 +14,23 @@ def connection_fixture(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return connection
 
 
+@pytest.mark.parametrize("recent", [0, 1])
+def test_readiness_requires_quality_and_recent_metadata(
+    monkeypatch: pytest.MonkeyPatch, recent: int
+) -> None:
+    connection = connection_fixture(monkeypatch)
+    connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (recent,)
+    monkeypatch.setattr(cdc_operations, "require_publication_enabled", lambda: None)
+    quality = MagicMock()
+    monkeypatch.setattr(cdc_operations, "record_cdc_quality", quality)
+    if recent:
+        assert cdc_operations.verify_cdc_ready("source")["status"] == "READY"
+    else:
+        with pytest.raises(ValueError):
+            cdc_operations.verify_cdc_ready("source")
+    quality.assert_called_once_with("source")
+
+
 @pytest.mark.parametrize(
     "previous,expected", [(None, "BASELINE"), (("abc",), "UNCHANGED"), (("old",), "CHANGED")]
 )
