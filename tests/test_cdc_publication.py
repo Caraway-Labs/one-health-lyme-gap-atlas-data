@@ -14,7 +14,7 @@ def publication_connection(
     connection.__enter__.return_value = connection
     cursor = connection.cursor.return_value.__enter__.return_value
     cursor.rowcount = 1
-    cursor.fetchall.return_value = [("a" * 64,)]
+    cursor.fetchall.side_effect = [[("a" * 64,)], [("run", f"rule-{i}", 0, 0) for i in range(8)]]
     checksum = snapshot_checksum(["a" * 64]) if unchanged else "old"
     cursor.fetchone.side_effect = [(1,), (8, failed), (2, checksum, "old-run"), (0,)]
     monkeypatch.setattr(cdc_publication, "connect", lambda _: connection)
@@ -86,6 +86,25 @@ def test_stale_revision_cannot_publish(monkeypatch: pytest.MonkeyPatch) -> None:
         cdc_publication.publish_snapshot(
             "source", "new-run", "validation", "lease", expected_revision=1
         )
+    connection.rollback.assert_called_once()
+
+
+def test_candidate_changed_between_validation_and_copy_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = publication_connection(monkeypatch)
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchall.side_effect = [
+        [("a" * 64,)],
+        [("run", f"rule-{i}", 0, int(i == 7)) for i in range(8)],
+    ]
+    with pytest.raises(ValueError, match="transactional quality"):
+        cdc_publication.publish_snapshot(
+            "source", "new-run", "validation", "lease", expected_revision=2
+        )
+    assert not any(
+        "UPDATE GOVERNANCE.CDC_PUBLICATIONS" in c.args[0] for c in cursor.execute.call_args_list
+    )
     connection.rollback.assert_called_once()
 
 

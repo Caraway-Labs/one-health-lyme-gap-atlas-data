@@ -12,7 +12,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .cdc_policy import publication_decision, snapshot_checksum
-from .cdc_quality import record_cdc_quality
+from .cdc_quality import QUALITY_SQL, record_cdc_quality
 
 PUBLIC_VIEW_SQL = """CREATE OR REPLACE VIEW CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP
 COPY GRANTS AS SELECT snapshot.* FROM CONFORMED.CDC_VALIDATED_SNAPSHOTS snapshot
@@ -209,6 +209,26 @@ def publish_snapshot(
                     )
                     if cursor.rowcount != len(hashes):
                         raise ValueError("Candidate changed after validation")
+                # Validate the copied/retained rows inside the publication
+                # transaction, not only the earlier candidate view. A concurrent
+                # dbt replacement must not create a validation-to-copy race.
+                retained_query = QUALITY_SQL.replace(
+                    "CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP",
+                    "CONFORMED.CDC_VALIDATED_SNAPSHOTS",
+                ).replace(
+                    "WHERE data_source_version_id = %s",
+                    "WHERE data_source_version_id = %s AND ingestion_run_id = %s",
+                )
+                cursor.execute(
+                    retained_query, (source_version_id, run_id, source_version_id, run_id)
+                )
+                retained_checks = cursor.fetchall()
+                if len(retained_checks) != 8 or any(
+                    int(expected or 0) != int(observed or 0)
+                    for _, _, expected, observed in retained_checks
+                ):
+                    raise ValueError("Retained snapshot failed transactional quality validation")
+                if existing[0] == 0:
                     cursor.execute(
                         """INSERT INTO GOVERNANCE.CDC_SNAPSHOTS VALUES (%s,%s,%s,%s,%s,%s)""",
                         (
