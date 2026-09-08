@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import time
@@ -31,6 +32,23 @@ from .settings import PipelineSettings
 
 CDC_RESOURCE_ID = "cdc_lyme_x5j9_wybp"
 SOURCE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "sources" / "cdc_x5j9_wybp.yml"
+logger = logging.getLogger(__name__)
+
+
+def _dbt_failure_classification(result: subprocess.CompletedProcess[str]) -> str:
+    """Classify dbt output without retaining or emitting its sensitive text."""
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    if "private key" in output or "private_key" in output:
+        return "PRIVATE_KEY_AUTH"
+    if "not authorized" in output or "insufficient privileges" in output:
+        return "SNOWFLAKE_AUTHORIZATION"
+    if "database error" in output:
+        return "SNOWFLAKE_DATABASE"
+    if "compilation error" in output or "parsing error" in output:
+        return "DBT_COMPILATION"
+    if "could not connect" in output or "connection" in output:
+        return "SNOWFLAKE_CONNECTION"
+    return "DBT_BUILD_NONZERO"
 
 
 def load_cdc_profile(path: Path = SOURCE_CONFIG) -> dict[str, Any]:
@@ -460,7 +478,11 @@ def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
             env=environment,
         )
     if result.returncode != 0:
-        raise RuntimeError("CDC dbt build failed; inspect the governed dbt logs")
+        classification = _dbt_failure_classification(result)
+        # This marker is the only dbt-failure detail the controlled recovery
+        # workflow may retrieve from the transient provider log.
+        logger.error("CDC_DBT_DIAGNOSTIC=%s", classification)
+        raise RuntimeError(f"CDC dbt build failed [{classification}]")
     return {"source_version_id": source_version_id, "status": "COMPLETED"}
 
 

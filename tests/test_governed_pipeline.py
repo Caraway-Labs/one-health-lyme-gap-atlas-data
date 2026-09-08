@@ -1443,6 +1443,22 @@ def test_dbt_build_uses_an_ephemeral_key_file_for_base64_runtime_credentials(
     assert not Path(captured["key_path"]).exists()
 
 
+def test_dbt_failure_logs_only_a_controlled_private_key_classification(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(
+        cdc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="private key could not be parsed"
+        ),
+    )
+    with pytest.raises(RuntimeError, match=r"CDC dbt build failed \[PRIVATE_KEY_AUTH\]"):
+        build_approved_cdc_models("source-version-1")
+    assert "CDC_DBT_DIAGNOSTIC=PRIVATE_KEY_AUTH" in caplog.text
+    assert "private key could not be parsed" not in caplog.text
+
+
 def test_dbt_uses_only_migration_provisioned_governed_schemas() -> None:
     macros = Path("dbt/macros/governed_schemas.sql").read_text(encoding="utf-8")
     assert "generate_schema_name" in macros
