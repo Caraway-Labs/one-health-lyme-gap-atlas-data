@@ -6,3 +6,5 @@
 .ruff_cache
 seed
 docs
+dbt/target
+dbt/logs
