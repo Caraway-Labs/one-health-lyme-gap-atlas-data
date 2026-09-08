@@ -46,7 +46,17 @@ class CdcDbtBuildError(RuntimeError):
 def _dbt_failure_classification(result: subprocess.CompletedProcess[str]) -> str:
     """Classify dbt output without retaining or emitting its sensitive text."""
     output = f"{result.stdout}\n{result.stderr}".lower()
-    if "private key" in output or "private_key" in output:
+    if any(
+        marker in output
+        for marker in (
+            "private key",
+            "private_key",
+            "encrypted private key",
+            "bad decrypt",
+            "incorrect password",
+            "could not deserialize key data",
+        )
+    ):
         return "PRIVATE_KEY_AUTH"
     if "not authorized" in output or "insufficient privileges" in output:
         return "SNOWFLAKE_AUTHORIZATION"
