@@ -5,8 +5,6 @@ are redirected; transaction, validation and publication logic is the shipped cod
 This complements (does not replace) real-source bootstrap/dbt/unchanged proof.
 """
 
-import base64
-import os
 from contextlib import ExitStack, suppress
 from pathlib import Path
 from unittest.mock import patch
@@ -61,11 +59,6 @@ class FixtureCursor:
 
 
 def main():
-    key_body = os.environ.pop("CI_SNOWFLAKE_KEY_BODY", None)
-    if key_body:
-        pem_label = "ENCRYPTED PRIVATE KEY"
-        key = f"-----BEGIN {pem_label}-----\n" + key_body + f"\n-----END {pem_label}-----\n"
-        os.environ["SNOWFLAKE_PRIVATE_KEY_B64"] = base64.b64encode(key.encode()).decode()
     settings = SnowflakeSettings()
     if settings.snowflake_database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
         raise ValueError("DEV only")
@@ -240,4 +233,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        trace = error.__traceback__
+        while trace and trace.tb_next:
+            trace = trace.tb_next
+        print(
+            f"CDC_POLICY_DEV_FAILURE={type(error).__name__} "
+            f"ERRNO={getattr(error, 'errno', 'NA')} "
+            f"SFQID={getattr(error, 'sfqid', 'NA')} "
+            f"LINE={trace.tb_lineno if trace else 0}",
+            flush=True,
+        )
+        raise SystemExit(1) from None

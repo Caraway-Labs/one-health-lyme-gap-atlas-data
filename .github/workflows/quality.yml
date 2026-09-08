@@ -43,15 +43,9 @@ jobs:
           ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
           git /repo --config /repo/.gitleaks.toml --redact --no-banner
 
-  verify_cdc_policy_dev:
-    needs: checks
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy_dev
-    uses: ./.github/workflows/verify-cdc-policy-dev.yml
-    secrets: inherit
-
   deploy_dev:
     name: Build and deploy immutable DEV image
-    needs: [checks, verify_cdc_policy_dev]
+    needs: checks
     if: github.event_name == 'workflow_dispatch' && inputs.deploy_dev
     runs-on: ubuntu-latest
     environment: dev
@@ -89,7 +83,19 @@ jobs:
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
+          set -Eeuo pipefail
+          umask 077
           doctl apps spec get "$APP_ID" --format json > /tmp/dev-app.json
+          restore_baseline() {
+            code=$?
+            if [ "$code" -ne 0 ]; then
+              doctl apps update "$APP_ID" --spec /tmp/dev-app.json --wait \
+                --format ID,ActiveDeployment.ID --no-header || true
+            fi
+            rm -f /tmp/dev-app.json /tmp/dev-app-image.json /tmp/dev-app-fixture.json
+            exit "$code"
+          }
+          trap restore_baseline EXIT
           jq --arg digest "$IMAGE_DIGEST" '
             .jobs |= map(
               del(.github, .dockerfile_path, .source_dir)
@@ -101,8 +107,18 @@ jobs:
                 }
             )
           ' /tmp/dev-app.json > /tmp/dev-app-image.json
-          for attempt in $(seq 1 12); do
-            doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json && exit 0
-            sleep 5
-          done
-          exit 1
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' /tmp/dev-app-image.json)" = "1"
+          test "$(jq '[.jobs[] | select(.name == "cdc-policy-fixtures-once")] | length' /tmp/dev-app-image.json)" = "0"
+          jq '
+            (.jobs[] | select(.name == "catalog-ingestion")) as $runtime
+            | .jobs += [$runtime | .name = "cdc-policy-fixtures-once"
+              | .kind = "PRE_DEPLOY" | del(.schedule)
+              | .run_command = "/app/.venv/bin/python /app/scripts/verify_cdc_policy_dev.py"]
+          ' /tmp/dev-app-image.json > /tmp/dev-app-fixture.json
+          # The actual DEV runtime identity executes session-temporary fixtures.
+          # A failed proof prevents this image from becoming the active deployment.
+          doctl apps update "$APP_ID" --spec /tmp/dev-app-fixture.json --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          # Remove only the temporary proof job, retaining the tested digest.
+          doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json --wait \
+            --format ID,ActiveDeployment.ID --no-header

@@ -484,7 +484,11 @@ def test_dev_image_deployment_updates_every_scheduled_job() -> None:
     workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
     assert ".jobs |= map(" in workflow
     assert 'registry: "oh-lyme-data"' in workflow
-    assert 'doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json && exit 0' in workflow
+    fixture = 'doctl apps update "$APP_ID" --spec /tmp/dev-app-fixture.json --wait'
+    final = 'doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json --wait'
+    assert workflow.index(fixture) < workflow.index(final)
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "/app/scripts/verify_cdc_policy_dev.py" in workflow
     assert ".jobs[0]" not in workflow
 
 
