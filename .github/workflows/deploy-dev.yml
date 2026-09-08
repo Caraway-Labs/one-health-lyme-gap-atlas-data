@@ -43,7 +43,7 @@ jobs:
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_dev \
-            -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE()" --format JSON
+            -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
           # Migration versions, filenames, checksums, and timestamps are deployment
           # metadata. Emit them before a guarded apply so a mismatch is diagnosable
           # without revealing credentials, payloads, or connection configuration.
