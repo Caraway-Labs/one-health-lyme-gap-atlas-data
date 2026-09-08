@@ -1,6 +1,19 @@
 title = "One Health Lyme Gap Atlas data pipeline secret-scanning exceptions"
 
 [[allowlists]]
+description = "Public CDC historical resource identifier, not an authentication secret"
+condition = "AND"
+paths = [
+  '''^config/sources/cdc_qtbi_xd4i\.yml$''',
+  '''^src/lyme_gap_atlas_data/cdc_historical\.py$''',
+  '''^streamlit_approval/streamlit_app\.py$''',
+  '''^tests/test_cdc_historical\.py$''',
+  '''^migrations/V04[45]__dev_historical_cdc_(review|decision)\.sql$''',
+]
+regexTarget = "secret"
+regexes = ['''^cdc_lyme_qtbi_xd4i$''']
+
+[[allowlists]]
 description = "Reviewed PEM-formatting source code, not a private key; exact introducing commit and script"
 condition = "AND"
 commits = ["22691520f5cd9cdab3c30374eaff2ae4fd41f1c5"]
