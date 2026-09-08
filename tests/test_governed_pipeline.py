@@ -1469,6 +1469,7 @@ def test_dbt_build_uses_an_ephemeral_key_file_for_base64_runtime_credentials(
     monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_B64", base64.b64encode(key_bytes).decode())
     monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
     monkeypatch.setattr(cdc.subprocess, "run", run_dbt)
+    monkeypatch.setattr(cdc, "record_cdc_quality", lambda _version: {})
 
     assert build_approved_cdc_models("source-version-1") == {
         "source_version_id": "source-version-1",

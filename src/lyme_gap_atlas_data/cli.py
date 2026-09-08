@@ -16,6 +16,7 @@ from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
+from .cdc_quality import record_cdc_quality
 from .database import load as load_release
 from .database import provision as provision_database
 from .database import status as database_status
@@ -325,6 +326,12 @@ def promote_approved_cdc_command(
     """Run explicit CDC acquisition followed by its dbt promotion path."""
     ingestion = ingest_approved_cdc(page_size)
     typer.echo(json.dumps(build_approved_cdc_models(str(ingestion["source_version_id"]))))
+
+
+@pipeline_app.command("validate-cdc-quality")
+def validate_cdc_quality_command(source_version_id: str = typer.Option(...)) -> None:
+    """Validate retained RAW/CONFORMED rows and append aggregate quality evidence."""
+    typer.echo(json.dumps(record_cdc_quality(source_version_id)))
 
 
 @pipeline_app.command("run-production-schedule")
