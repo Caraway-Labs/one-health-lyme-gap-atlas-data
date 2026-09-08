@@ -15,7 +15,7 @@ from snowflake.connector.errors import ProgrammingError
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
-DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038", "V044"}
+DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038", "V044", "V045"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
@@ -75,7 +75,7 @@ def render_migration(migration: Migration, database: str) -> str:
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     environment = match.group(1)
-    if migration.version == "V044" and database != DEV_DATABASE:
+    if migration.version in {"V044", "V045"} and database != DEV_DATABASE:
         raise ValueError("Historical CDC review migration is DEV-only")
     rendered = migration.source.replace("{{ DATABASE }}", database).replace(
         "{{ ENV }}", environment

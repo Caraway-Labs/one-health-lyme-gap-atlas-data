@@ -29,7 +29,11 @@ def test_historical_review_migration_is_dev_only_and_preserves_steward_boundary(
     }
     with pytest.raises(ValueError, match="DEV-only"):
         render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    sql = migration.source
+    decision = next(item for item in load_migrations() if item.version == "V045")
+    assert migration_execution_role(decision, "ONE_HEALTH_LYME_GAP_ATLAS_DEV") is None
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(decision, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    sql = migration.source + decision.source
     assert "s.username = :REVIEWER_USERNAME AND s.is_active = TRUE" in sql
     assert "r.resource_key = 'cdc_lyme_qtbi_xd4i' AND r.api_dataset_id = 'qtbi-xd4i'" in sql
     assert "r.resource_key = 'cdc_lyme_x5j9_wybp' AND r.api_dataset_id = 'x5j9-wybp'" in sql
