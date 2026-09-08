@@ -113,7 +113,9 @@ GitHub token can create issues; it cannot deploy or query Snowflake. Configure
 `DIGITALOCEAN_MONITOR_READ_TOKEN` as a separate read-only repository secret, never
 copy the protected deployment credential into this monitor. Set
 `CDC_MONITOR_ENABLED_AT` to the verified successful initial metadata baseline's
-UTC timestamp, then set `CDC_MONITOR_ENABLED=true` after a delivery test.
+UTC timestamp, dispatch the workflow with `delivery_test=true`, then set
+`CDC_MONITOR_ENABLED=true` after its clearly marked test issue is delivered.
+The manual test is allowed while daily monitoring remains disabled.
 
 Each incident has a stable marker in its GitHub issue. The monitor checks all
 existing receipts, including closed issues, before creating another. An uncertain
