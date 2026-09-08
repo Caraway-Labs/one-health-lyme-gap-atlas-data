@@ -1493,6 +1493,29 @@ def test_dbt_failure_logs_only_a_controlled_private_key_classification(
     assert "private key could not be parsed" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    "adapter_error",
+    [
+        "Bad decrypt. Incorrect password?",
+        "Could not deserialize key data",
+    ],
+)
+def test_dbt_failure_classifies_encrypted_key_adapter_errors_without_logging_them(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, adapter_error: str
+) -> None:
+    monkeypatch.setattr(
+        cdc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr=adapter_error),
+    )
+
+    with pytest.raises(RuntimeError, match=r"CDC dbt build failed \[PRIVATE_KEY_AUTH\]"):
+        build_approved_cdc_models("source-version-1")
+
+    assert "CDC_DBT_DIAGNOSTIC=PRIVATE_KEY_AUTH" in caplog.text
+    assert adapter_error not in caplog.text
+
+
 def test_dbt_uses_only_migration_provisioned_governed_schemas() -> None:
     macros = Path("dbt/macros/governed_schemas.sql").read_text(encoding="utf-8")
     assert "generate_schema_name" in macros
