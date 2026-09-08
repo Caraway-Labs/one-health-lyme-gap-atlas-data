@@ -104,3 +104,20 @@ as an unattended job after bootstrap: that version can replace the public view
 with historical RAW serving. Disable CDC execution before any code rollback and
 restore the pointer-backed public view before resuming. Forward migrations and
 retained evidence are not reverted.
+
+### Notification activation
+
+The daily `Monitor CDC routine operation` workflow uses only DigitalOcean job
+invocation metadata and protected-refresh workflow status. Its repository-scoped
+GitHub token can create issues; it cannot deploy or query Snowflake. Configure
+`DIGITALOCEAN_MONITOR_READ_TOKEN` as a separate read-only repository secret, never
+copy the protected deployment credential into this monitor. Set
+`CDC_MONITOR_ENABLED_AT` to the verified successful initial metadata baseline's
+UTC timestamp, then set `CDC_MONITOR_ENABLED=true` after a delivery test.
+
+Each incident has a stable marker in its GitHub issue. The monitor checks all
+existing receipts, including closed issues, before creating another. An uncertain
+delivery is reconciled on the next run; receipt-lookup failures stop delivery
+rather than blindly creating duplicate issues. Overdue incidents are keyed by
+month. Snowflake retains the controlled failure ledger; GitHub retains the
+notification receipt. No source payload or private artifact location is sent.

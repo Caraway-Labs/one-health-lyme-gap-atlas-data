@@ -1,4 +1,4 @@
-"""Redacted CDC incident outbox; stable keys suppress duplicate notifications."""
+"""Redacted CDC incident ledger; notification receipts are retained in GitHub."""
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect

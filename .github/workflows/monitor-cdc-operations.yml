@@ -1,0 +1,29 @@
+name: Monitor CDC routine operation
+on:
+  schedule:
+    - cron: "30 17 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  issues: write
+concurrency:
+  group: cdc-incident-notifications
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: vars.CDC_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_MONITOR_READ_TOKEN }}
+          version: "1.160.1"
+      - run: uv sync --locked
+      - run: uv run python -m lyme_gap_atlas_data.cdc_monitor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_MONITOR_READ_TOKEN }}
+          CDC_MONITOR_ENABLED_AT: ${{ vars.CDC_MONITOR_ENABLED_AT }}
