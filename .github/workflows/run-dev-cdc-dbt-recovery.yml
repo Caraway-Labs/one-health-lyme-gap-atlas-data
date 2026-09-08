@@ -63,12 +63,12 @@ jobs:
           baseline_captured=true
           test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-dev"
           test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$baseline_spec")" = "1"
-          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
+          test "$(jq '[.jobs[] | select(.name == "cdc-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
           jq --arg source_version_id "$SOURCE_VERSION_ID" '
             (.jobs[] | select(.name == "catalog-ingestion")) as $template
             | .jobs += [
                 $template
-                | .name = "catalog-ingestion-dbt-recovery-once"
+                | .name = "cdc-dbt-recovery-once"
                 | .kind = "PRE_DEPLOY"
                 | .run_command = "uv run atlas-data pipeline run-cdc-dbt-recovery --source-version-id " + $source_version_id
                 | del(.schedule)
