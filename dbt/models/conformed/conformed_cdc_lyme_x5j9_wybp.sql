@@ -1,3 +1,8 @@
+{{ config(
+    copy_grants=true,
+    grants={'select': ['OH_LYME_' ~ target.database.split('_')[-1] ~ '_GOVERNED_VIEW_OWNER']}
+) }}
+
 select
   source_record_id,
   payload,

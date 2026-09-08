@@ -20,6 +20,9 @@ does not approve sources, start pipelines, or replace the Python public API.
 - The app reads only `GOVERNANCE.V_DATA_EXPLORER_SOURCE_VERSIONS`,
   `GOVERNANCE.V_DATA_EXPLORER_CONFORMED_CDC`, and
   `GOVERNANCE.V_DATA_EXPLORER_ANALYTICS_CDC`.
+- Rebuilding the CDC CONFORMED model preserves existing grants and reapplies
+  SELECT for the target environment's governed view owner. Validation and
+  explorer views must remain queryable after each successful dbt rebuild.
 - Rows retain source version, ingestion run, artifact identifier, retrieval
   timestamp, source grain, geography/time semantics, and the CDC reporting-era
   caveat. RAW payloads, artifact locations, request details, credentials, and
