@@ -1,6 +1,11 @@
 name: Verify DEV governed pipeline
 on:
   workflow_dispatch:
+    inputs:
+      diagnose_query_id:
+        description: Optional failed GRANT query ID; inspect only, without applying migrations
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -44,6 +49,12 @@ jobs:
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
+          if [ -n "$DIAGNOSE_QUERY_ID" ]; then
+            [[ "$DIAGNOSE_QUERY_ID" =~ ^[0-9a-f-]{36}$ ]]
+            snow --config-file "$config_file" sql -c oh_lyme_dev \
+              -q "SELECT QUERY_ID,QUERY_TEXT,ERROR_CODE,ERROR_MESSAGE,ROLE_NAME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT=>10000)) WHERE QUERY_ID='$DIAGNOSE_QUERY_ID' AND STARTSWITH(UPPER(TRIM(QUERY_TEXT)),'GRANT ')" --format JSON
+            exit 0
+          fi
           # Migration versions, filenames, checksums, and timestamps are deployment
           # metadata. Emit them before a guarded apply so a mismatch is diagnosable
           # without revealing credentials, payloads, or connection configuration.
@@ -60,6 +71,7 @@ jobs:
           uv run atlas-data pipeline apply-migrations \
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
         env:
+          DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
