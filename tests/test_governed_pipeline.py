@@ -369,6 +369,51 @@ def test_production_schedule_requires_approved_ingestion_before_dbt(
     assert result["promotion"]["status"] == "COMPLETED"
 
 
+def test_production_dbt_recovery_rejects_dev_before_any_dbt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="dev"))
+    with pytest.raises(ValueError, match="only in production"):
+        orchestration.run_production_cdc_dbt_recovery("version-1")
+
+
+def test_production_dbt_recovery_uses_retained_raw_without_ingestion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    monkeypatch.setattr(
+        orchestration,
+        "confirm_approved_cdc_raw_load",
+        lambda source_version_id: {"source_version_id": source_version_id, "raw_rows": 5_045},
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "build_approved_cdc_models",
+        lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
+    )
+    assert orchestration.run_production_cdc_dbt_recovery("version-1") == {
+        "raw_load": {"source_version_id": "version-1", "raw_rows": 5_045},
+        "promotion": {"source_version_id": "version-1", "status": "COMPLETED"},
+        "status": "COMPLETED",
+    }
+
+
+def test_cdc_dbt_recovery_uses_retained_raw_in_dev_or_prod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        orchestration,
+        "confirm_approved_cdc_raw_load",
+        lambda source_version_id: {"source_version_id": source_version_id, "raw_rows": 5_045},
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "build_approved_cdc_models",
+        lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
+    )
+    assert orchestration.run_cdc_dbt_recovery("version-1")["raw_load"]["raw_rows"] == 5_045
+
+
 def test_production_app_spec_has_separate_gated_jobs() -> None:
     spec = yaml.safe_load(Path(".do/app.prod.yaml").read_text(encoding="utf-8"))
     jobs = {job["name"]: job for job in spec["jobs"]}

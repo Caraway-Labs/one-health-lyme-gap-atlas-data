@@ -22,7 +22,12 @@ from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
 from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
-from .orchestration import run_discovery, run_production_schedule
+from .orchestration import (
+    run_cdc_dbt_recovery,
+    run_discovery,
+    run_production_cdc_dbt_recovery,
+    run_production_schedule,
+)
 from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
@@ -326,3 +331,19 @@ def promote_approved_cdc_command(
 def run_production_schedule_command() -> None:
     """Run the production scheduled approved-source ingestion and dbt path."""
     typer.echo(json.dumps(run_production_schedule(), default=str))
+
+
+@pipeline_app.command("run-production-cdc-dbt-recovery")
+def run_production_cdc_dbt_recovery_command(
+    source_version_id: str = typer.Option(..., "--source-version-id"),
+) -> None:
+    """Recover the CDC dbt path for verified PROD RAW data without re-ingestion."""
+    typer.echo(json.dumps(run_production_cdc_dbt_recovery(source_version_id), default=str))
+
+
+@pipeline_app.command("run-cdc-dbt-recovery")
+def run_cdc_dbt_recovery_command(
+    source_version_id: str = typer.Option(..., "--source-version-id"),
+) -> None:
+    """Run dbt for an approved source version with retained governed RAW data."""
+    typer.echo(json.dumps(run_cdc_dbt_recovery(source_version_id), default=str))

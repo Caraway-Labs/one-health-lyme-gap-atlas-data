@@ -121,6 +121,16 @@ value into a mode-`0600` file inside a process `TemporaryDirectory`, passes
 only that temporary path to dbt, and removes it when dbt exits. Neither the key
 nor dbt's captured stdout/stderr is emitted to workflow logs.
 
+### Controlled CDC dbt-only recovery
+
+When a completed approved CDC RAW ingestion needs only its dbt path retried,
+use the protected `Recover approved CDC dbt path in PROD` workflow rather than
+the full-ingestion workflow. It promotes the active DEV-tested digest, verifies
+the named PROD source version is approved and has retained RAW rows, runs dbt
+through a temporary non-routable pre-deploy job, and removes that temporary
+topology afterward. It must never be used to re-ingest the source. See ADR
+0017 for the exact guardrails and required post-run validation.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App

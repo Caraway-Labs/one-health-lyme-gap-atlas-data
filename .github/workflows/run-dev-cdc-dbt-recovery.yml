@@ -1,0 +1,79 @@
+name: Verify approved CDC dbt recovery in DEV
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_version_id:
+        description: Approved DEV CDC source version with retained RAW rows
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-cdc-dbt-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Run CDC dbt only once against retained DEV RAW data
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Run dbt recovery once and restore the DEV app specification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEV_APP_ID"
+          [[ "$SOURCE_VERSION_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+
+          baseline_spec="$(mktemp)"
+          recovery_spec="$(mktemp)"
+          baseline_captured=false
+          restore_baseline() {
+            recovery_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              # The specification can contain provider-encrypted secrets. Never print it.
+              doctl apps update "$DEV_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              restore_status=$?
+              if [ "$restore_status" -ne 0 ]; then
+                echo "::error::The temporary DEV recovery topology could not be removed. Stop before promotion."
+                recovery_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$recovery_spec"
+            trap - EXIT
+            exit "$recovery_status"
+          }
+          trap restore_baseline EXIT
+
+          doctl apps spec get "$DEV_APP_ID" --format json > "$baseline_spec"
+          baseline_captured=true
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-dev"
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$baseline_spec")" = "1"
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
+          jq --arg source_version_id "$SOURCE_VERSION_ID" '
+            (.jobs[] | select(.name == "catalog-ingestion")) as $template
+            | .jobs += [
+                $template
+                | .name = "catalog-ingestion-dbt-recovery-once"
+                | .kind = "PRE_DEPLOY"
+                | .run_command = "uv run atlas-data pipeline run-cdc-dbt-recovery --source-version-id " + $source_version_id
+                | del(.schedule)
+              ]
+          ' "$baseline_spec" > "$recovery_spec"
+          doctl apps update "$DEV_APP_ID" --spec "$recovery_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "DEV CDC dbt recovery completed; restoring the baseline topology."
