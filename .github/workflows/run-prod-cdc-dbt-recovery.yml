@@ -71,7 +71,9 @@ jobs:
           test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion")] | length' "$baseline_spec")" = "1"
           test "$(jq '[.jobs[] | select(.name == "cdc-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
           test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .run_command' "$baseline_spec")" = "uv run atlas-data pipeline run-production-schedule"
-          dev_digest="$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .image.digest' "$dev_spec")"
+          test "$(jq -r '.name' "$dev_spec")" = "oh-lyme-data-dev"
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$dev_spec")" = "1"
+          dev_digest="$(jq -r '.jobs[] | select(.name == "catalog-ingestion") | .image.digest' "$dev_spec")"
           test -n "$dev_digest"
           test "$dev_digest" != "null"
 
