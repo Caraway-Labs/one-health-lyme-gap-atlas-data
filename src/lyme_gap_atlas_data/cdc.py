@@ -27,6 +27,7 @@ from lyme_gap_atlas_shared.snowflake import connect
 
 from .artifacts import Artifact, create_artifact
 from .assessment import Assessment
+from .cdc_quality import CdcQualityError, record_cdc_quality
 from .redaction import redact_mapping
 from .settings import PipelineSettings
 
@@ -501,6 +502,10 @@ def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
         # workflow may retrieve from the transient provider log.
         logger.error("CDC_DBT_DIAGNOSTIC=%s", classification)
         raise CdcDbtBuildError(classification)
+    try:
+        record_cdc_quality(source_version_id)
+    except CdcQualityError as error:
+        raise CdcDbtBuildError("DATA_QUALITY_FAILED") from error
     return {"source_version_id": source_version_id, "status": "COMPLETED"}
 
 
