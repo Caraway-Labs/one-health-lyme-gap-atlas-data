@@ -21,9 +21,9 @@ def snapshot_checksum(row_hashes: Iterable[str]) -> str:
     return hashlib.sha256(payload.encode("ascii")).hexdigest()
 
 
-def metadata_fingerprint(metadata: Mapping[str, Any]) -> str:
+def metadata_fingerprint(metadata: Mapping[str, Any], *, dataset_id: str = "x5j9-wybp") -> str:
     """Use publisher change markers and schema, excluding popularity counters."""
-    if metadata.get("id") != "x5j9-wybp":
+    if dataset_id not in {"x5j9-wybp", "qtbi-xd4i"} or metadata.get("id") != dataset_id:
         raise ValueError("Unexpected CDC metadata identity")
     if not metadata.get("rowsUpdatedAt") or not metadata.get("columns"):
         raise ValueError("CDC metadata lacks update or schema evidence")
