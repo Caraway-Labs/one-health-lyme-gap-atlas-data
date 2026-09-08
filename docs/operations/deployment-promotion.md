@@ -153,14 +153,15 @@ Still required before a full-production ingestion can run:
    `SOURCE_APPROVAL_CONSOLE`.
 3. Run the protected `Run approved governed ingestion in PROD` workflow from
    `main`. It verifies that the active PROD digest appears in DEV deployment
-   history, runs the existing approved-source schedule once as a temporary
+   history, requires a recorded metadata-check ID, runs the explicitly authorized
+   full refresh once as a temporary
    pre-deploy job, and restores the exact prior app specification. See ADR
    0016.
 4. Exercise a DEV rollback by redeploying a previously approved digest.
 
 The checked-in `.do/app.prod.yaml` is the production job specification. It
-runs the approved CDC source on its declared annual cadence and invokes dbt
-only after a full RAW load succeeds. It requires an active steward-approved
+runs metadata-only CDC checks monthly. An operator-authorized full refresh invokes
+dbt and quality checks before atomically publishing a snapshot. It requires an active steward-approved
 PROD source version and `ENABLE_PRODUCTION_EXECUTION=true`; it cannot consume
 a DEV approval, create an approval, or run against the Alpha POC database.
 

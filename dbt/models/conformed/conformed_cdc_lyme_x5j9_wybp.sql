@@ -1,6 +1,7 @@
 {{ config(
-    copy_grants=true,
-    grants={'select': ['OH_LYME_' ~ target.database.split('_')[-1] ~ '_GOVERNED_VIEW_OWNER']}
+    alias='CDC_LYME_CANDIDATE',
+    schema='STAGING',
+    copy_grants=true
 ) }}
 
 select

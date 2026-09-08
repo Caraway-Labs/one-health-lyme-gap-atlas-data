@@ -1,4 +1,4 @@
-# CDC quality evidence and proposed routine operation
+# CDC quality evidence and approved routine operation
 
 ## Implemented quality evidence
 
@@ -22,10 +22,11 @@ a key. Numeric zero, null and explicit unknown/suppressed/not-reported strings
 must remain distinguishable. Payload equality verifies unchanged original
 states; null-safe projection comparisons and status checks verify curated data.
 
-These checks run after dbt: failure reports bad data but does not atomically
-roll back publication. Atomic promotion is a separate proposed operating change.
+In the operating-policy release, dbt builds a candidate relation, not the public
+CONFORMED relation. Passing checks authorize copying an immutable snapshot and
+atomically switching its publication pointer. A failed candidate remains invisible.
 
-## Recommendations awaiting owner decision
+## Approved operating policy (ADR 0018)
 
 Observed on 2026-09-08 UTC: the PROD approved-source job is scheduled at 09:00
 America/Denver every January 15. No job or app alerts are configured in its app
@@ -51,4 +52,55 @@ full acquisition failures.
    snapshot, a forced failure, and restoration of the prior published snapshot
    in DEV. Add a source-identity investigation for missing publisher IDs.
 
-These operating-policy recommendations are not implemented by this increment.
+The owner approved these recommendations in the ingestion task. Deployment is
+not proven by this document: record the release digest, migration checksum,
+bootstrap run, DEV scenario results, protected PROD workflow, and live pointer
+verification before marking the rollout complete.
+
+## Controlled rollout and commands
+
+1. Apply forward-only migration V043 in DEV. Do not rebuild dbt first: the old
+   public view is the bootstrap input. Deploy the tested operating-policy image.
+2. Run `pipeline bootstrap-cdc-publication --source-version-id <id>
+   --ingestion-run-id <existing-raw-run>` under the environment runtime role.
+   It validates the existing public rows, copies them, creates the pointer, and
+   replaces the public view with snapshot serving. Confirm the original 5,045
+   records and provenance are still visible in Streamlit.
+3. Run `pipeline check-cdc-metadata`. Retain its `check_id` and change status.
+   This command does not download source rows. A fingerprint is an update signal,
+   not proof of byte-identical publisher data.
+4. An operator may authorize `pipeline promote-approved-cdc --check-id <id>`.
+   PROD uses the protected manual workflow with this ID. Approval and metadata
+   are checked again before acquisition; metadata is checked after acquisition.
+   A source-version change or unstable publisher snapshot fails closed.
+5. The promotion result distinguishes `PUBLISHED` from `UNCHANGED`. An unchanged
+   content checksum leaves the visible pointer and row count unchanged; RAW
+   attempts and source artifacts remain retained for audit.
+6. To restore retained data, run `pipeline rollback-cdc-publication
+   --source-version-id <id> --ingestion-run-id <retained-run>
+   --expected-revision <current-revision>`. It requires original passing quality
+   evidence, a complete retained snapshot, active approval, and the current
+   revision. It appends a rollback event without deleting evidence. A concurrent
+   publication requires a fresh operator decision, not a blind retry.
+7. Prove unchanged/change/failure/rollback scenarios in isolated DEV fixtures and
+   the real unchanged snapshot path before promoting the exact digest to PROD.
+   Repeat bootstrap in PROD using its own approved source version and RAW run.
+8. Enable monthly checks at 09:00 America/Denver on day 1 only after bootstrap
+   and notification delivery are verified. Run `pipeline check-cdc-overdue` daily;
+   a missed successful check after seven days generates one monthly incident key.
+
+### Failure handling and rollback boundaries
+
+Full-acquisition failures retain a FAILED run even when row loading rolls back.
+Validation failures retain quality evidence and the last good publication.
+Runtime crashes may leave RUNNING attempts; provider failure/overdue monitoring
+must catch these rather than treating missing terminal records as success.
+Source HTTP/network retries are bounded; approval, schema, permissions and
+validation failures require an operator. Alerts contain identifiers and controlled
+classifications only, never payloads, private artifact locations or credentials.
+
+Data rollback uses retained snapshots. Do not deploy the pre-policy dbt digest
+as an unattended job after bootstrap: that version can replace the public view
+with historical RAW serving. Disable CDC execution before any code rollback and
+restore the pointer-backed public view before resuming. Forward migrations and
+retained evidence are not reverted.

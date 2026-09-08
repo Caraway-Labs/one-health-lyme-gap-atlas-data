@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,6 +55,13 @@ from lyme_gap_atlas_data.orchestration import _resource_key
 from lyme_gap_atlas_data.preflight import _required_settings
 from lyme_gap_atlas_data.redaction import redact_mapping
 from lyme_gap_atlas_data.settings import PipelineSettings
+
+
+@pytest.fixture(autouse=True)
+def isolate_publication_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cdc, "cdc_operation", lambda: nullcontext("lease"))
+    monkeypatch.setattr(cdc, "publication_context", lambda _: ("run-1", 0))
+    monkeypatch.setattr(cdc, "publish_snapshot", lambda *args, **kwargs: {"status": "PUBLISHED"})
 
 
 def test_artifact_identity_is_content_addressed() -> None:
@@ -350,23 +358,22 @@ def test_production_schedule_rejects_dev_before_any_ingestion(
         orchestration.run_production_schedule()
 
 
-def test_production_schedule_requires_approved_ingestion_before_dbt(
+def test_production_schedule_checks_metadata_without_acquisition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
     monkeypatch.setattr(
         orchestration,
-        "ingest_approved_cdc",
-        lambda **kwargs: {"source_version_id": "version-1", "status": "COMPLETED"},
+        "check_cdc_metadata",
+        lambda: {"status": "UNCHANGED"},
     )
     monkeypatch.setattr(
         orchestration,
         "build_approved_cdc_models",
-        lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
+        lambda _: pytest.fail("Monthly checks must not run dbt"),
     )
     result = orchestration.run_production_schedule()
-    assert result["ingestion"]["source_version_id"] == "version-1"
-    assert result["promotion"]["status"] == "COMPLETED"
+    assert result["status"] == "UNCHANGED"
 
 
 def test_production_dbt_recovery_rejects_dev_before_any_dbt(
@@ -1469,11 +1476,12 @@ def test_dbt_build_uses_an_ephemeral_key_file_for_base64_runtime_credentials(
     monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_B64", base64.b64encode(key_bytes).decode())
     monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
     monkeypatch.setattr(cdc.subprocess, "run", run_dbt)
-    monkeypatch.setattr(cdc, "record_cdc_quality", lambda _version: {})
+    monkeypatch.setattr(cdc, "record_cdc_quality", lambda *args, **kwargs: {"validation_id": "v"})
 
     assert build_approved_cdc_models("source-version-1") == {
         "source_version_id": "source-version-1",
         "status": "COMPLETED",
+        "publication_status": "PUBLISHED",
     }
     assert not Path(captured["key_path"]).exists()
 
@@ -1570,6 +1578,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V040",
         "V041",
         "V042",
+        "V043",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1577,7 +1586,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 39
+    assert len(prod_plan) == 40
     assert "V034" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console

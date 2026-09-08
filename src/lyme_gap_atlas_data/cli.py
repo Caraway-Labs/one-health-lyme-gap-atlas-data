@@ -15,7 +15,9 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
-from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
+from .cdc import collect_cdc_evidence
+from .cdc_operations import check_cdc_metadata, check_cdc_overdue, operator_refresh
+from .cdc_publication import bootstrap_publication, rollback_publication
 from .cdc_quality import record_cdc_quality
 from .database import load as load_release
 from .database import provision as provision_database
@@ -313,25 +315,61 @@ def cdc_sample(sample_limit: int = typer.Option(25, "--sample-limit", min=1, max
 
 @pipeline_app.command("ingest-approved-cdc")
 def ingest_approved_cdc_command(
-    page_size: int = typer.Option(5000, "--page-size", min=1, max=10000),
+    check_id: str = typer.Option(..., "--check-id"),
 ) -> None:
     """Load CDC x5j9-wybp only when a steward-approved source version is active."""
-    typer.echo(json.dumps(ingest_approved_cdc(page_size), default=str))
+    typer.echo(json.dumps(operator_refresh(check_id), default=str))
 
 
 @pipeline_app.command("promote-approved-cdc")
 def promote_approved_cdc_command(
-    page_size: int = typer.Option(5000, "--page-size", min=1, max=10000),
+    check_id: str = typer.Option(..., "--check-id"),
 ) -> None:
     """Run explicit CDC acquisition followed by its dbt promotion path."""
-    ingestion = ingest_approved_cdc(page_size)
-    typer.echo(json.dumps(build_approved_cdc_models(str(ingestion["source_version_id"]))))
+    typer.echo(json.dumps(operator_refresh(check_id), default=str))
+
+
+@pipeline_app.command("check-cdc-metadata")
+def check_cdc_metadata_command() -> None:
+    """Check CDC publisher metadata only; never acquire source rows."""
+    typer.echo(json.dumps(check_cdc_metadata()))
+
+
+@pipeline_app.command("bootstrap-cdc-publication")
+def bootstrap_cdc_publication_command(
+    source_version_id: str = typer.Option(...),
+    ingestion_run_id: str = typer.Option(...),
+) -> None:
+    """Validate the existing snapshot and activate pointer-based publication."""
+    typer.echo(json.dumps(bootstrap_publication(source_version_id, ingestion_run_id)))
+
+
+@pipeline_app.command("check-cdc-overdue")
+def check_cdc_overdue_command() -> None:
+    """Record a redacted incident when a monthly metadata check is overdue."""
+    typer.echo(json.dumps(check_cdc_overdue()))
 
 
 @pipeline_app.command("validate-cdc-quality")
 def validate_cdc_quality_command(source_version_id: str = typer.Option(...)) -> None:
     """Validate retained RAW/CONFORMED rows and append aggregate quality evidence."""
     typer.echo(json.dumps(record_cdc_quality(source_version_id)))
+
+
+@pipeline_app.command("rollback-cdc-publication")
+def rollback_cdc_publication_command(
+    source_version_id: str = typer.Option(...),
+    ingestion_run_id: str = typer.Option(...),
+    expected_revision: int = typer.Option(..., min=1),
+) -> None:
+    """Restore a retained validated snapshot; preserve acquisition evidence."""
+    typer.echo(
+        json.dumps(
+            rollback_publication(
+                source_version_id, ingestion_run_id, expected_revision=expected_revision
+            )
+        )
+    )
 
 
 @pipeline_app.command("run-production-schedule")

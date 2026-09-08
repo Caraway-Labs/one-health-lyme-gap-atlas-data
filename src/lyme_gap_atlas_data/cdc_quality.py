@@ -91,7 +91,12 @@ FROM conformed GROUP BY ingestion_run_id
 """
 
 
-def record_cdc_quality(source_version_id: str) -> dict[str, int | str]:
+def record_cdc_quality(
+    source_version_id: str,
+    *,
+    ingestion_run_id: str | None = None,
+    candidate: bool = False,
+) -> dict[str, int | str]:
     """Persist aggregate checks atomically, then fail on any blocking result.
 
     A repeat creates new evidence with a shared validation_id and timestamp;
@@ -110,7 +115,27 @@ def record_cdc_quality(source_version_id: str) -> dict[str, int | str]:
         approval = cursor.fetchone()
         if approval is None or int(approval[0]) != 1:
             raise CdcQualityError("CDC quality requires one active approved source version")
-        cursor.execute(QUALITY_SQL, (source_version_id, source_version_id))
+        if ingestion_run_id is None:
+            cursor.execute(
+                """SELECT ingestion_run_id FROM GOVERNANCE.CDC_PUBLICATIONS
+                WHERE data_source_version_id=%s""",
+                (source_version_id,),
+            )
+            published = cursor.fetchone()
+            if published is None or published[0] is None:
+                raise CdcQualityError("No published snapshot; specify a candidate ingestion run")
+            ingestion_run_id = str(published[0])
+        query = QUALITY_SQL.replace(
+            "WHERE data_source_version_id = %s",
+            "WHERE data_source_version_id = %s AND ingestion_run_id = %s",
+        )
+        if candidate:
+            query = query.replace(
+                "CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP", "STAGING.CDC_LYME_CANDIDATE"
+            )
+        cursor.execute(
+            query, (source_version_id, ingestion_run_id, source_version_id, ingestion_run_id)
+        )
         checks = cursor.fetchall()
         if not checks:
             raise CdcQualityError("CDC quality requires retained source rows")

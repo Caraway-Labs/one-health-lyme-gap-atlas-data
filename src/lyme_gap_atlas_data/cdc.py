@@ -27,6 +27,9 @@ from lyme_gap_atlas_shared.snowflake import connect
 
 from .artifacts import Artifact, create_artifact
 from .assessment import Assessment
+from .cdc_incidents import record_incident
+from .cdc_policy import metadata_fingerprint, transient_source_error
+from .cdc_publication import cdc_operation, publication_context, publish_snapshot
 from .cdc_quality import CdcQualityError, record_cdc_quality
 from .redaction import redact_mapping
 from .settings import PipelineSettings
@@ -88,8 +91,8 @@ def _fetch_json(url: str, token: str | None = None, retries: int = 3) -> Any:
         try:
             with urlopen(Request(url, headers=headers), timeout=30) as response:  # nosec B310: CDC HTTPS endpoint
                 return json.loads(response.read().decode("utf-8"))
-        except Exception:
-            if attempt == retries - 1:
+        except Exception as error:
+            if not transient_source_error(error) or attempt == retries - 1:
                 raise
             time.sleep(2**attempt)
     raise AssertionError("unreachable")
@@ -317,7 +320,13 @@ def collect_cdc_evidence(sample_limit: int = 25) -> dict[str, Any]:
     }
 
 
-def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL") -> dict[str, Any]:
+def ingest_approved_cdc(
+    page_size: int = 5_000,
+    *,
+    trigger_type: str = "MANUAL",
+    expected_metadata: str | None = None,
+    expected_source_version_id: str | None = None,
+) -> dict[str, Any]:
     """Fully acquire the approved CDC source through immutable artifacts and COPY.
 
     This command is intentionally explicit: Streamlit approval enables it, but
@@ -334,6 +343,14 @@ def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL")
     s3 = _spaces_client(settings)
     rows_loaded = 0
     with connect(SnowflakeSettings()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version, started_at)
+                VALUES (%s, %s, 'FULL_REFRESH', %s, 'RUNNING', 'cdc-x5j9-full-v2', %s)""",
+                (run_id, CDC_RESOURCE_ID, trigger_type, now),
+            )
+        connection.commit()
         connection.autocommit(False)
         try:
             with connection.cursor() as cursor:
@@ -349,12 +366,11 @@ def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL")
                         "CDC full ingestion requires an active steward-approved source version"
                     )
                 source_version_id = str(source_version[0])
-                cursor.execute(
-                    """INSERT INTO GOVERNANCE.INGESTION_RUNS
-                    (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version, started_at)
-                    VALUES (%s, %s, 'FULL_REFRESH', %s, 'RUNNING', 'cdc-x5j9-full-v1', %s)""",
-                    (run_id, CDC_RESOURCE_ID, trigger_type, now),
-                )
+                if (
+                    expected_source_version_id is not None
+                    and source_version_id != expected_source_version_id
+                ):
+                    raise ValueError("Source approval changed; authorize a new refresh")
                 with TemporaryDirectory(prefix="oh-lyme-cdc-") as directory:
                     offset, sequence = 0, 0
                     while True:
@@ -446,6 +462,12 @@ def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL")
                         if len(page) < page_size:
                             break
                         offset += page_size
+                if expected_metadata is not None:
+                    after = metadata_fingerprint(
+                        _fetch_json(str(profile["metadata_endpoint_template"]), token)
+                    )
+                    if after != expected_metadata:
+                        raise ValueError("Publisher changed during CDC acquisition")
                 cursor.execute(
                     """UPDATE GOVERNANCE.INGESTION_RUNS SET status = 'COMPLETED', completed_at = %s
                     WHERE ingestion_run_id = %s""",
@@ -454,6 +476,17 @@ def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL")
             connection.commit()
         except Exception:
             connection.rollback()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status='FAILED', completed_at=%s,
+                        error_classification='CDC_ACQUISITION_FAILED',
+                        redacted_error='CDC acquisition failed; prior publication retained'
+                    WHERE ingestion_run_id=%s""",
+                    (datetime.now(UTC), run_id),
+                )
+            connection.commit()
+            record_incident("ACQUISITION_FAILED", f"acquisition:{run_id}", run_id)
             raise
     return {
         "ingestion_run_id": run_id,
@@ -464,8 +497,16 @@ def ingest_approved_cdc(page_size: int = 5_000, *, trigger_type: str = "MANUAL")
     }
 
 
-def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
+def build_approved_cdc_models(
+    source_version_id: str,
+    *,
+    lease_owner: str | None = None,
+) -> dict[str, str]:
     """Build only the CDC dbt path after a successful governed RAW load."""
+    if lease_owner is None:
+        with cdc_operation() as owner:
+            return build_approved_cdc_models(source_version_id, lease_owner=owner)
+    ingestion_run_id, revision = publication_context(source_version_id)
     environment = os.environ.copy()
     key_b64 = environment.get("SNOWFLAKE_PRIVATE_KEY_B64")
     with TemporaryDirectory(prefix="oh-lyme-dbt-key-") as directory:
@@ -503,10 +544,23 @@ def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
         logger.error("CDC_DBT_DIAGNOSTIC=%s", classification)
         raise CdcDbtBuildError(classification)
     try:
-        record_cdc_quality(source_version_id)
+        quality = record_cdc_quality(
+            source_version_id, ingestion_run_id=ingestion_run_id, candidate=True
+        )
     except CdcQualityError as error:
         raise CdcDbtBuildError("DATA_QUALITY_FAILED") from error
-    return {"source_version_id": source_version_id, "status": "COMPLETED"}
+    publication = publish_snapshot(
+        source_version_id,
+        ingestion_run_id,
+        str(quality["validation_id"]),
+        lease_owner,
+        expected_revision=revision,
+    )
+    return {
+        "source_version_id": source_version_id,
+        "status": "COMPLETED",
+        "publication_status": str(publication["status"]),
+    }
 
 
 def confirm_approved_cdc_raw_load(source_version_id: str) -> dict[str, int | str]:
