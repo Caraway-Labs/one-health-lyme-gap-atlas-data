@@ -59,14 +59,26 @@ def test_historical_collector_rejects_prod_before_any_io(monkeypatch: pytest.Mon
     connection.assert_not_called()
 
 
-def test_historical_collector_keeps_evidence_and_current_source_separate(
+@pytest.mark.parametrize("dataset_id", ["qtbi-xd4i", "x5j9-wybp"])
+def test_collector_keeps_publisher_identity_separate_from_internal_catalog_identity(
     monkeypatch: pytest.MonkeyPatch,
+    dataset_id: str,
 ) -> None:
     settings = SimpleNamespace(
         topx_env="dev", socrata_app_token=None, spaces_bucket="fixture-dev", spaces_prefix="dev"
     )
     monkeypatch.setattr(cdc, "PipelineSettings", lambda: settings)
-    fetch = MagicMock(side_effect=[metadata(), [{"year": "2008", "frequency": 0}]])
+    source_metadata = metadata()
+    source_metadata["id"] = dataset_id
+    sample = [
+        {
+            "year": "2008" if dataset_id == "qtbi-xd4i" else "2022",
+            "frequency": 0,
+            "fips": "01001",
+            "case_status": "Confirmed",
+        }
+    ]
+    fetch = MagicMock(side_effect=[source_metadata, sample])
     monkeypatch.setattr(cdc, "_fetch_json", fetch)
     monkeypatch.setattr(cdc, "_spaces_client", lambda _: object())
     artifact = SimpleNamespace(sha256="a" * 64, object_key="fixture", byte_count=10)
@@ -75,16 +87,28 @@ def test_historical_collector_keeps_evidence_and_current_source_separate(
     connection = MagicMock()
     connection.__enter__.return_value = connection
     monkeypatch.setattr(cdc, "connect", lambda _: connection)
-    result = cdc.collect_cdc_evidence(dataset_id="qtbi-xd4i")
-    assert result["resource_key"] == "cdc_lyme_qtbi_xd4i"
+    resource_key = "cdc_lyme_" + dataset_id.replace("-", "_")
+    result = cdc.collect_cdc_evidence(dataset_id=dataset_id)
+    assert result["resource_key"] == resource_key
     assert result["status"] == "PENDING_STEWARD_REVIEW"
     assert fetch.call_count == 2
     assert "%24limit=25" in fetch.call_args_list[1].args[0]
     assert "%3Aid+ASC" in fetch.call_args_list[1].args[0]
-    assert all(call.args[2] == "cdc_lyme_qtbi_xd4i" for call in save.call_args_list)
+    assert all(call.args[2] == resource_key for call in save.call_args_list)
     calls = connection.cursor.return_value.__enter__.return_value.execute.call_args_list
+    dataset_insert = next(
+        call for call in calls if "INSERT INTO GOVERNANCE.CATALOG_DATASETS" in call.args[0]
+    )
+    resource_insert = next(
+        call for call in calls if "INSERT INTO GOVERNANCE.CATALOG_RESOURCES" in call.args[0]
+    )
+    assert dataset_insert.args[1][2] == dataset_id
+    assert resource_insert.args[1][5] == dataset_id
+    assert resource_insert.args[1][1] == dataset_insert.args[1][0]
+    assert resource_insert.args[1][1] != resource_insert.args[1][5]
     for call in calls:
-        assert "x5j9" not in str(call)
+        other_source = "x5j9" if dataset_id == "qtbi-xd4i" else "qtbi"
+        assert other_source not in str(call)
         assert "DATA_SOURCE_VERSIONS" not in call.args[0]
         assert "MANUAL_REVIEW_DECISIONS" not in call.args[0]
         assert "COPY INTO" not in call.args[0]

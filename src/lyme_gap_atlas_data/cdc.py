@@ -217,14 +217,14 @@ def collect_cdc_evidence(
                         now,
                     ),
                 )
-                dataset_id = str(uuid.uuid4())
+                catalog_dataset_id = str(uuid.uuid4())
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.CATALOG_DATASETS
                     (catalog_dataset_id, dataset_key, catalog_name, catalog_record_id, metadata_payload,
                      metadata_sha256, discovered_at, is_current)
                     SELECT %s, %s, 'CDC_SOCRATA', %s, PARSE_JSON(%s), %s, %s, TRUE""",
                     (
-                        dataset_id,
+                        catalog_dataset_id,
                         resource_key,
                         dataset_id,
                         json.dumps(metadata),
@@ -239,7 +239,7 @@ def collect_cdc_evidence(
                     SELECT %s, %s, %s, 'API', %s, %s, %s, PARSE_JSON(%s), %s, TRUE""",
                     (
                         str(uuid.uuid4()),
-                        dataset_id,
+                        catalog_dataset_id,
                         resource_key,
                         str(profile["endpoint_template"]),
                         str(profile["endpoint_template"]),
