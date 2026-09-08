@@ -1,0 +1,25 @@
+resource_key: cdc_lyme_qtbi_xd4i
+api_dataset_id: qtbi-xd4i
+profile_version: 1
+platform_type: SOCRATA_SODA2
+endpoint_template: https://data.cdc.gov/resource/qtbi-xd4i.json
+metadata_endpoint_template: https://data.cdc.gov/api/views/qtbi-xd4i
+deterministic_order_clause: ":id ASC"
+incremental_strategy: FULL_REFRESH
+onboarding_environment: dev
+onboarding_mode: EVIDENCE_ONLY
+sample_limit: 25
+maximum_sample_limit: 100
+surveillance_era: "2008-2021"
+minimum_year: 2008
+maximum_year: 2021
+geography_semantics: COUNTY_OF_RESIDENCE
+temporal_semantics: surveillance_year
+required_columns: [year, state, fips, case_status, sex, age_cat_yrs, frequency]
+restrictions:
+  - No full acquisition or PROD activation in this onboarding increment.
+  - Preserve the 2008-2021 surveillance era separately from 2022 onward.
+  - Reported cases are not infection incidence or county-of-exposure measurements.
+  - Preserve zero, null, unknown, suppressed, and not-reported states.
+  - Do not infer a unique natural key from demographic dimensions.
+  - A bounded sample does not establish complete coverage or full-dataset quality.
