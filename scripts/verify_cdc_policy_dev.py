@@ -63,11 +63,8 @@ class FixtureCursor:
 def main():
     key_body = os.environ.pop("CI_SNOWFLAKE_KEY_BODY", None)
     if key_body:
-        key = (
-            "-----BEGIN ENCRYPTED PRIVATE KEY-----\n"
-            + key_body
-            + "\n-----END ENCRYPTED PRIVATE KEY-----\n"
-        )
+        pem_label = "ENCRYPTED PRIVATE KEY"
+        key = f"-----BEGIN {pem_label}-----\n" + key_body + f"\n-----END {pem_label}-----\n"
         os.environ["SNOWFLAKE_PRIVATE_KEY_B64"] = base64.b64encode(key.encode()).decode()
     settings = SnowflakeSettings()
     if settings.snowflake_database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":

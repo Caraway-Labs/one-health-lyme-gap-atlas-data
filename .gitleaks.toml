@@ -1,5 +1,13 @@
 title = "One Health Lyme Gap Atlas data pipeline secret-scanning exceptions"
 
+[[allowlists]]
+description = "Reviewed PEM-formatting source code, not a private key; exact introducing commit and script"
+condition = "AND"
+commits = ["22691520f5cd9cdab3c30374eaff2ae4fd41f1c5"]
+paths = ['''^scripts/verify_cdc_policy_dev\.py$''']
+regexTarget = "match"
+regexes = ['''key_body''']
+
 [extend]
 useDefault = true
 
