@@ -69,7 +69,7 @@ jobs:
           doctl apps spec get "$DEV_APP_ID" --format json > "$dev_spec"
           test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
           test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion")] | length' "$baseline_spec")" = "1"
-          test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
+          test "$(jq '[.jobs[] | select(.name == "cdc-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
           test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .run_command' "$baseline_spec")" = "uv run atlas-data pipeline run-production-schedule"
           dev_digest="$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .image.digest' "$dev_spec")"
           test -n "$dev_digest"
@@ -103,7 +103,7 @@ jobs:
             (.jobs[] | select(.name == "approved-source-ingestion")) as $template
             | .jobs += [
                 $template
-                | .name = "approved-source-ingestion-dbt-recovery-once"
+                | .name = "cdc-dbt-recovery-once"
                 | .kind = "PRE_DEPLOY"
                 | .run_command = "uv run atlas-data pipeline run-production-cdc-dbt-recovery --source-version-id " + $source_version_id
                 | del(.schedule)
