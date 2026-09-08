@@ -50,6 +50,12 @@ distinct. FIPS remains text. The explorer labels county of residence and the
 
 ## Rollback and recovery
 
+The scoped V046 recovery initially created the historical published view under
+AccountAdmin. DEV-only V048 grants the dedicated governed-view owner only the
+three underlying reads needed by that view, transfers its ownership while
+preserving current grants, and removes AccountAdmin's temporary source-version
+read. It does not change data, publication pointers, runtime writes, or PROD.
+
 Use `pipeline rollback-cdc-historical --source-version-id <approved-uuid>
 --ingestion-run-id <retained-run> --expected-revision <current-revision>` only for
 an explicitly selected retained historical snapshot. It revalidates retained rows
