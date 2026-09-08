@@ -18,7 +18,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .artifacts import create_artifact
-from .cdc import build_approved_cdc_models, ingest_approved_cdc
+from .cdc import build_approved_cdc_models, confirm_approved_cdc_raw_load, ingest_approved_cdc
 from .discovery import (
     DiscoveryRequest,
     fetch_json,
@@ -567,3 +567,18 @@ def run_production_schedule() -> dict[str, Any]:
     ingestion = ingest_approved_cdc(trigger_type="SCHEDULED")
     promotion = build_approved_cdc_models(str(ingestion["source_version_id"]))
     return {"ingestion": ingestion, "promotion": promotion, "status": "COMPLETED"}
+
+
+def run_cdc_dbt_recovery(source_version_id: str) -> dict[str, Any]:
+    """Run the CDC dbt path for retained governed RAW data, without re-ingestion."""
+    raw_load = confirm_approved_cdc_raw_load(source_version_id)
+    promotion = build_approved_cdc_models(source_version_id)
+    return {"raw_load": raw_load, "promotion": promotion, "status": "COMPLETED"}
+
+
+def run_production_cdc_dbt_recovery(source_version_id: str) -> dict[str, Any]:
+    """Run the CDC dbt recovery only from the production runtime."""
+    settings = PipelineSettings()
+    if settings.topx_env != "prod":
+        raise ValueError("The CDC dbt recovery may run only in production")
+    return run_cdc_dbt_recovery(source_version_id)

@@ -462,3 +462,35 @@ def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
     if result.returncode != 0:
         raise RuntimeError("CDC dbt build failed; inspect the governed dbt logs")
     return {"source_version_id": source_version_id, "status": "COMPLETED"}
+
+
+def confirm_approved_cdc_raw_load(source_version_id: str) -> dict[str, int | str]:
+    """Confirm that a specific active source version has retained CDC RAW data.
+
+    This is the guard for a dbt-only recovery.  It deliberately performs no
+    source request, artifact write, or RAW-table mutation.
+    """
+    with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT status FROM GOVERNANCE.DATA_SOURCE_VERSIONS
+            WHERE data_source_version_id = %s AND resource_key = %s
+              AND retired_at IS NULL""",
+            (source_version_id, CDC_RESOURCE_ID),
+        )
+        source_version = cursor.fetchone()
+        if source_version is None or str(source_version[0]) not in {"APPROVED", "CONDITIONAL"}:
+            raise ValueError(
+                "CDC dbt recovery requires the specified active steward-approved source version"
+            )
+        cursor.execute(
+            """SELECT COUNT(*) FROM RAW.CDC_LYME_X5J9_WYBP
+            WHERE data_source_version_id = %s""",
+            (source_version_id,),
+        )
+        raw_count = cursor.fetchone()
+        if raw_count is None:
+            raise RuntimeError("CDC dbt recovery could not read the RAW row count")
+        raw_rows = int(raw_count[0])
+        if raw_rows == 0:
+            raise ValueError("CDC dbt recovery requires retained RAW rows for the source version")
+    return {"source_version_id": source_version_id, "raw_rows": raw_rows}
