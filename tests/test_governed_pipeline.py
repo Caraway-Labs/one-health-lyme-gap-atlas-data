@@ -383,13 +383,12 @@ def test_production_dbt_recovery_uses_retained_raw_without_ingestion(
     monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
     monkeypatch.setattr(
         orchestration,
-        "confirm_approved_cdc_raw_load",
-        lambda source_version_id: {"source_version_id": source_version_id, "raw_rows": 5_045},
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "build_approved_cdc_models",
-        lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
+        "run_cdc_dbt_recovery",
+        lambda source_version_id: {
+            "raw_load": {"source_version_id": source_version_id, "raw_rows": 5_045},
+            "promotion": {"source_version_id": source_version_id, "status": "COMPLETED"},
+            "status": "COMPLETED",
+        },
     )
     assert orchestration.run_production_cdc_dbt_recovery("version-1") == {
         "raw_load": {"source_version_id": "version-1", "raw_rows": 5_045},
@@ -401,6 +400,29 @@ def test_production_dbt_recovery_uses_retained_raw_without_ingestion(
 def test_cdc_dbt_recovery_uses_retained_raw_in_dev_or_prod(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    class Cursor:
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def execute(self, *_: object) -> None:
+            return None
+
+    class Connection:
+        def __enter__(self) -> "Connection":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
     monkeypatch.setattr(
         orchestration,
         "confirm_approved_cdc_raw_load",
@@ -411,7 +433,19 @@ def test_cdc_dbt_recovery_uses_retained_raw_in_dev_or_prod(
         "build_approved_cdc_models",
         lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
     )
-    assert orchestration.run_cdc_dbt_recovery("version-1")["raw_load"]["raw_rows"] == 5_045
+    completed: list[tuple[str, str, str | None]] = []
+    monkeypatch.setattr(orchestration, "uuid", SimpleNamespace(uuid4=lambda: "recovery-1"))
+    monkeypatch.setattr(orchestration, "datetime", SimpleNamespace(now=lambda *_: "now"))
+    monkeypatch.setattr(
+        orchestration,
+        "_complete_cdc_dbt_recovery",
+        lambda run_id, status, classification: completed.append((run_id, status, classification)),
+    )
+    monkeypatch.setattr(orchestration, "connect", lambda *_: Connection())
+    result = orchestration.run_cdc_dbt_recovery("version-1")
+    assert result["raw_load"]["raw_rows"] == 5_045
+    assert result["recovery_run_id"] == "recovery-1"
+    assert completed == [("recovery-1", "COMPLETED", None)]
 
 
 def test_production_app_spec_has_separate_gated_jobs() -> None:

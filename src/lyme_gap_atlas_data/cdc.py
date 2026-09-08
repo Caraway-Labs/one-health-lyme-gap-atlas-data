@@ -35,6 +35,14 @@ SOURCE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "sources" / "cd
 logger = logging.getLogger(__name__)
 
 
+class CdcDbtBuildError(RuntimeError):
+    """A dbt failure represented only by a controlled, non-secret category."""
+
+    def __init__(self, classification: str) -> None:
+        self.classification = classification
+        super().__init__(f"CDC dbt build failed [{classification}]")
+
+
 def _dbt_failure_classification(result: subprocess.CompletedProcess[str]) -> str:
     """Classify dbt output without retaining or emitting its sensitive text."""
     output = f"{result.stdout}\n{result.stderr}".lower()
@@ -482,7 +490,7 @@ def build_approved_cdc_models(source_version_id: str) -> dict[str, str]:
         # This marker is the only dbt-failure detail the controlled recovery
         # workflow may retrieve from the transient provider log.
         logger.error("CDC_DBT_DIAGNOSTIC=%s", classification)
-        raise RuntimeError(f"CDC dbt build failed [{classification}]")
+        raise CdcDbtBuildError(classification)
     return {"source_version_id": source_version_id, "status": "COMPLETED"}
 
 
