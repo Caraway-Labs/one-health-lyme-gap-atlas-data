@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 from copy import deepcopy
@@ -10,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 import yaml
 
-from lyme_gap_atlas_data import cli, orchestration
+from lyme_gap_atlas_data import cdc, cli, orchestration
 from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
@@ -31,7 +32,7 @@ from lyme_gap_atlas_data.catalog_registration import (
     normalize_catalog_payload,
     register_completed_discovery,
 )
-from lyme_gap_atlas_data.cdc import load_cdc_profile
+from lyme_gap_atlas_data.cdc import build_approved_cdc_models, load_cdc_profile
 from lyme_gap_atlas_data.discovery import (
     DiscoveryRequest,
     _retryable_catalog_error,
@@ -1372,6 +1373,29 @@ def test_cdc_raw_load_quotes_the_socrata_system_identifier() -> None:
 def test_dbt_profile_supports_an_encrypted_pipeline_key() -> None:
     profile = Path("dbt/profiles.yml").read_text(encoding="utf-8")
     assert "private_key_passphrase" in profile
+
+
+def test_dbt_build_uses_an_ephemeral_key_file_for_base64_runtime_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key_bytes = b"test-private-key"
+    captured: dict[str, str] = {}
+
+    def run_dbt(*_: object, env: dict[str, str], **__: object) -> SimpleNamespace:
+        key_path = Path(env["SNOWFLAKE_PRIVATE_KEY_PATH"])
+        assert key_path.read_bytes() == key_bytes
+        captured["key_path"] = str(key_path)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_B64", base64.b64encode(key_bytes).decode())
+    monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
+    monkeypatch.setattr(cdc.subprocess, "run", run_dbt)
+
+    assert build_approved_cdc_models("source-version-1") == {
+        "source_version_id": "source-version-1",
+        "status": "COMPLETED",
+    }
+    assert not Path(captured["key_path"]).exists()
 
 
 def test_dbt_uses_only_migration_provisioned_governed_schemas() -> None:

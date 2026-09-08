@@ -113,6 +113,14 @@ quality assessment. It does not grant approval, source-version, RAW, dbt, or
 Streamlit privileges. Apply and verify this migration before running the
 protected PROD evidence-capture workflow; otherwise the job must fail closed.
 
+### dbt runtime key handling
+
+The App Platform runtime stores the Snowflake key only as encrypted
+`SNOWFLAKE_PRIVATE_KEY_B64`. Before invoking dbt, the pipeline decodes that
+value into a mode-`0600` file inside a process `TemporaryDirectory`, passes
+only that temporary path to dbt, and removes it when dbt exits. Neither the key
+nor dbt's captured stdout/stderr is emitted to workflow logs.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App
