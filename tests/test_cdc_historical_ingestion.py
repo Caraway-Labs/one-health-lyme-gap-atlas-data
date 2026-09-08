@@ -190,3 +190,23 @@ def test_storage_and_explorer_are_dev_only() -> None:
     assert not {"V046", "V047"} & {
         row["version"] for row in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
+
+
+def test_historical_view_ownership_cleanup_is_exact_and_dev_only() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V048")
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "GRANT OWNERSHIP ON VIEW CONFORMED.CONFORMED_CDC_LYME_QTBI_XD4I" in migration.source
+    assert "TO ROLE OH_LYME_DEV_GOVERNED_VIEW_OWNER COPY CURRENT GRANTS" in migration.source
+    assert "GRANT SELECT ON TABLE GOVERNANCE.CDC_PUBLICATIONS" in migration.source
+    assert "GRANT SELECT ON TABLE CONFORMED.CDC_HISTORICAL_VALIDATED_SNAPSHOTS" in migration.source
+    assert (
+        "REVOKE SELECT ON TABLE GOVERNANCE.DATA_SOURCE_VERSIONS FROM ROLE ACCOUNTADMIN"
+        in migration.source
+    )
+    assert "RAW.CDC_LYME_QTBI_XD4I" not in migration.source
+    assert "OH_LYME_DEV_PIPELINE_RUNTIME" not in migration.source
+    assert "PROD" not in migration.source
+    assert "V048" not in {
+        row["version"] for row in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
