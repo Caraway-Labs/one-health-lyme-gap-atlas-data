@@ -95,6 +95,14 @@ def test_historical_dbt_models_are_enabled_only_in_isolated_databases() -> None:
         assert "ONE_HEALTH_LYME_GAP_ATLAS_PROD" in source
         assert "ONE_HEALTH_LYME_GAP_ATLAS'" not in source
 
+    sources = Path("dbt/models/sources.yml").read_text(encoding="utf-8")
+    historical_source = sources.split("- name: cdc_lyme_qtbi_xd4i", maxsplit=1)[1].split(
+        "- name: cdc_lyme_x5j9_wybp", maxsplit=1
+    )[0]
+    assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in historical_source
+    assert "ONE_HEALTH_LYME_GAP_ATLAS_PROD" in historical_source
+    assert "ONE_HEALTH_LYME_GAP_ATLAS'" not in historical_source
+
 
 def test_historical_collector_rejects_unisolated_environment_before_any_io(
     monkeypatch: pytest.MonkeyPatch,
