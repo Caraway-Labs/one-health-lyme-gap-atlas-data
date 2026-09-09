@@ -1,4 +1,4 @@
-{{ config(enabled=(target.database == 'ONE_HEALTH_LYME_GAP_ATLAS_DEV'),
+{{ config(enabled=(target.database in ['ONE_HEALTH_LYME_GAP_ATLAS_DEV', 'ONE_HEALTH_LYME_GAP_ATLAS_PROD']),
           alias='CDC_LYME_HISTORICAL_CANDIDATE', schema='STAGING', copy_grants=true) }}
 select source_record_id, payload, data_source_version_id, ingestion_run_id, artifact_id,
   county_fips, report_year, case_status, sex, age_category_years, frequency,

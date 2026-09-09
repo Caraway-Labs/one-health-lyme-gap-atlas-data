@@ -87,6 +87,13 @@ It retains the 2008–2021 era separately and publishes only validated snapshots
 PROD onboarding captures evidence for a new steward decision; it does not run
 full ingestion or add an unattended schedule.
 
+After that independent PROD decision, the
+[protected PROD full-ingestion path](docs/operations/cdc-historical-prod-ingestion.md)
+uses the exact DEV-tested image and approved PROD source-version UUID for one
+bounded acquisition. It persists eleven blocking checks, restores the prior
+six-job topology, and has a separate retained-snapshot rollback workflow. It
+does not add an unattended historical refresh schedule.
+
 After the quality workflow verifies a `main` commit, it builds an immutable
 image and deploys that digest to DEV. Production promotion is a separate,
 protected, manual GitHub workflow: it requires the configured production

@@ -22,13 +22,15 @@ def connection_fixture(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, Magi
 
 
 @pytest.mark.parametrize("action", ["refresh", "publish", "rollback", "quality"])
-def test_prod_rejected_before_io(monkeypatch: pytest.MonkeyPatch, action: str) -> None:
-    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+def test_unisolated_environment_rejected_before_io(
+    monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="alpha"))
     connect = MagicMock()
     fetch = MagicMock()
     monkeypatch.setattr(historical, "connect", connect)
     monkeypatch.setattr(historical, "_fetch_json", fetch)
-    with pytest.raises(ValueError, match="DEV-only"):
+    with pytest.raises(ValueError, match="isolated DEV or PROD"):
         if action == "refresh":
             historical.refresh_historical("source")
         elif action == "publish":
@@ -41,10 +43,40 @@ def test_prod_rejected_before_io(monkeypatch: pytest.MonkeyPatch, action: str) -
     fetch.assert_not_called()
 
 
-def test_direct_loader_cannot_bypass_dev_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cdc, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
-    with pytest.raises(ValueError, match="DEV-only"):
+def test_direct_loader_cannot_bypass_environment_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cdc, "PipelineSettings", lambda: SimpleNamespace(topx_env="alpha"))
+    with pytest.raises(ValueError, match="isolated DEV or PROD"):
         cdc.ingest_approved_cdc(dataset_id="qtbi-xd4i")
+
+
+def test_prod_historical_operation_requires_exact_prod_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    connection, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.return_value = (
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "OH_LYME_PROD_PIPELINE_RUNTIME",
+    )
+    with historical.historical_operation():
+        pass
+    assert any("CURRENT_DATABASE" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_prod_historical_operation_rejects_dev_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    _, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.return_value = (
+        "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        "OH_LYME_DEV_PIPELINE_RUNTIME",
+    )
+    with (
+        pytest.raises(ValueError, match="isolated environment runtime"),
+        historical.historical_operation(),
+    ):
+        pass
 
 
 @pytest.mark.parametrize("page", [[{"year": "2022"}], [{"year": None}], [1], [], [{}]])
@@ -189,6 +221,30 @@ def test_storage_and_explorer_are_dev_only() -> None:
         assert "ACCOUNTADMIN" not in migration.source
     assert not {"V046", "V047"} & {
         row["version"] for row in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+
+
+def test_prod_storage_and_explorer_are_prod_only_and_least_privilege() -> None:
+    storage = next(item for item in load_migrations() if item.version == "V051")
+    explorer = next(item for item in load_migrations() if item.version == "V052")
+    for migration in (storage, explorer):
+        with pytest.raises(ValueError, match="PROD-only"):
+            render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    sql = storage.source + explorer.source
+    assert "OH_LYME_PROD_PIPELINE_RUNTIME" in sql
+    assert "OH_LYME_PROD_GOVERNED_VIEW_OWNER" in sql
+    assert "OH_LYME_PROD_STREAMLIT_OWNER" in sql
+    assert "ACCOUNTADMIN" not in sql
+    assert "MANUAL_REVIEW_DECISIONS" not in sql
+    assert "DELETE" not in sql
+    assert "RAW.CDC_LYME_QTBI_XD4I" in sql
+    assert "CONFORMED.CDC_HISTORICAL_VALIDATED_SNAPSHOTS" in sql
+    assert "SELECT, INSERT ON TABLE GOVERNANCE.SCHEMA_MIGRATIONS" in storage.source
+    assert {"V051", "V052"} <= {
+        row["version"] for row in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert not {"V051", "V052"} & {
+        row["version"] for row in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")
     }
 
 

@@ -384,8 +384,10 @@ def ingest_approved_cdc(
         raise ValueError("Unsupported ingestion trigger type")
     settings = PipelineSettings()
     if dataset_id == "qtbi-xd4i":
-        if settings.topx_env != "dev":
-            raise ValueError("Historical CDC ingestion is DEV-only")
+        if settings.topx_env not in {"dev", "prod"}:
+            raise ValueError(
+                "Historical CDC ingestion requires an isolated DEV or PROD environment"
+            )
         if expected_source_version_id is None or expected_metadata is None:
             raise ValueError("Historical ingestion requires explicit approval and metadata")
         profile = yaml.safe_load(
@@ -607,8 +609,8 @@ def run_cdc_dbt(selector: str) -> None:
     """Build an allowlisted CDC path without exposing key material or dbt output."""
     if selector not in {"stg_cdc_lyme_x5j9_wybp+", "stg_cdc_lyme_qtbi_xd4i+"}:
         raise ValueError("Unsupported CDC model selector")
-    if "qtbi" in selector and PipelineSettings().topx_env != "dev":
-        raise ValueError("Historical CDC dbt is DEV-only")
+    if "qtbi" in selector and PipelineSettings().topx_env not in {"dev", "prod"}:
+        raise ValueError("Historical CDC dbt requires an isolated DEV or PROD environment")
     environment = os.environ.copy()
     key_b64 = environment.get("SNOWFLAKE_PRIVATE_KEY_B64")
     with TemporaryDirectory(prefix="oh-lyme-dbt-key-") as directory:
