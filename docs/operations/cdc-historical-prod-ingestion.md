@@ -59,6 +59,14 @@ Using read-only PROD queries, record:
 
 Do not infer success from CI, deployment status, or row count alone.
 
+If acquisition completed and retained its immutable RAW rows but a later dbt
+step failed, use the protected `run-prod-cdc-dbt-recovery.yml` workflow with
+`operation=historical-dbt-recovery`, the exact approved source-version UUID,
+the exact retained ingestion-run UUID, and the same DEV-tested digest. The
+recovery reconciles successful request-page row counts to that run's RAW rows,
+then runs only the historical dbt, quality, and publication stages. It never
+contacts the publisher or writes new RAW rows or artifacts.
+
 ## Failure and rollback
 
 A failed acquisition or quality gate retains its append-only evidence and must

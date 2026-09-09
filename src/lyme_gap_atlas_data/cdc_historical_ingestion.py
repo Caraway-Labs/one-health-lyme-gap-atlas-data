@@ -350,6 +350,71 @@ def refresh_historical(source_version_id: str) -> dict[str, Any]:
     return {"ingestion": ingestion, "publication": result, "quality_checks": 11}
 
 
+def recover_historical(source_version_id: str, ingestion_run_id: str) -> dict[str, Any]:
+    """Validate and publish one retained historical RAW run without acquisition."""
+    require_governed_environment()
+    source_version_id = str(uuid.UUID(source_version_id))
+    ingestion_run_id = str(uuid.UUID(ingestion_run_id))
+    with historical_operation() as owner:
+        with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            require_approval(cursor, source_version_id)
+            cursor.execute(
+                """SELECT status FROM GOVERNANCE.INGESTION_RUNS
+                WHERE ingestion_run_id=%s AND resource_key=%s
+                AND run_mode='FULL_REFRESH'""",
+                (ingestion_run_id, RESOURCE_KEY),
+            )
+            run = cursor.fetchone()
+            if run != ("COMPLETED",):
+                raise ValueError("Historical recovery requires the exact completed acquisition run")
+            cursor.execute(
+                """SELECT COALESCE(SUM(retrieved_row_count),0),COUNT(*)
+                FROM GOVERNANCE.INGESTION_REQUESTS
+                WHERE ingestion_run_id=%s AND request_purpose='FULL_DATA_PAGE'
+                AND status_code=200""",
+                (ingestion_run_id,),
+            )
+            request_evidence = cursor.fetchone()
+            cursor.execute(
+                """SELECT COUNT(*) FROM RAW.CDC_LYME_QTBI_XD4I
+                WHERE data_source_version_id=%s AND ingestion_run_id=%s""",
+                (source_version_id, ingestion_run_id),
+            )
+            raw_count = cursor.fetchone()
+            if request_evidence is None or raw_count is None:
+                raise RuntimeError(
+                    "Historical recovery could not read retained acquisition evidence"
+                )
+            expected_rows, request_count = int(request_evidence[0]), int(request_evidence[1])
+            retained_rows = int(raw_count[0])
+            if request_count == 0 or expected_rows == 0 or retained_rows != expected_rows:
+                raise ValueError("Historical recovery requires reconciled retained RAW evidence")
+            cursor.execute(
+                "SELECT revision FROM GOVERNANCE.CDC_PUBLICATIONS WHERE data_source_version_id=%s",
+                (source_version_id,),
+            )
+            pointer = cursor.fetchone()
+            revision = int(pointer[0]) if pointer else 0
+        run_cdc_dbt("stg_cdc_lyme_qtbi_xd4i+")
+        validation = record_quality(source_version_id, ingestion_run_id, expected_rows)
+        publication = publish(
+            source_version_id,
+            ingestion_run_id,
+            validation,
+            owner,
+            revision,
+        )
+    return {
+        "source_version_id": source_version_id,
+        "ingestion_run_id": ingestion_run_id,
+        "raw_rows": retained_rows,
+        "request_pages": request_count,
+        "quality_checks": 11,
+        "publication": publication,
+        "status": "COMPLETED",
+    }
+
+
 def rollback_historical(source: str, run: str, revision: int) -> dict[str, Any]:
     require_governed_environment()
     with historical_operation() as owner:
