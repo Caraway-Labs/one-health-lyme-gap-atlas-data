@@ -9,13 +9,18 @@ schedule or authorize a different source version.
 1. Confirm the immutable PROD decision and exact active source-version UUID.
 2. Merge a green implementation and record the immutable image digest deployed
    to DEV. Promote that same digest through the protected production workflow.
-3. Obtain explicit authorization for the one-time V051 AccountAdmin DDL session;
+3. Verify the migration ledger is checksum-clean. If it contains the exact
+   owner-approved PROD V022/V028 legacy conditions, separately authorize and
+   run `pipeline reconcile-legacy-prod-migrations --confirm`; require the
+   pinned row counts, filenames, and checksums and retain every original row.
+4. Obtain explicit authorization for the one-time V051 AccountAdmin DDL session;
    the account currently has no permanent PROD migration-deployer role. Apply
-   only V051, then end that admin scope. Apply V052 as
+   only V051, then end that admin scope. Apply V052 through a separate PAT
+   restricted to
    `OH_LYME_PROD_GOVERNED_VIEW_OWNER`. Verify both exact checksums in
    `GOVERNANCE.SCHEMA_MIGRATIONS`; do not bypass earlier checksum drift or use
    AccountAdmin as a runtime identity.
-4. Verify `GOVERNED_DATA_EXPLORER` remains owned by the Streamlit owner and its
+5. Verify `GOVERNED_DATA_EXPLORER` remains owned by the Streamlit owner and its
    four allowlisted views remain owned by the governed-view owner.
 
 ## One-shot ingestion

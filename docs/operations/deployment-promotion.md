@@ -75,6 +75,31 @@ reconciliation command; no ledger history is rewritten. To disable the
 operational views after V034, revoke the Streamlit owner role's view usage as
 a separately reviewed, append-only grant change while retaining audit evidence.
 
+### PROD legacy migration-ledger recovery
+
+The protected historical CDC rollout found two bounded PROD conditions before
+V051: earlier Windows execution recorded eleven otherwise identical migration
+sources with CRLF hashes, and the applied PROD V022 variant reconciles duplicate
+V020 rows while the current DEV-oriented V022 source reconciles V019. PROD also
+contains exactly two identical V028 ledger rows. The runner treats LF and CRLF
+as equivalent only when both hashes can be derived from the same normalized SQL;
+any content change still fails closed.
+
+Before applying V051, run the separately approved
+`pipeline reconcile-legacy-prod-migrations --confirm` command. It accepts only
+the pinned V022 filename/checksum with one row and the pinned V028
+filename/checksum with two rows, then appends PROD-scoped evidence to
+`GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS`. It never updates or deletes the
+original ledger. Any different filename, checksum, row count, database, or
+existing reconciliation record stops the operation.
+
+This reconciliation is an AccountAdmin-governed bootstrap and is not included
+in the normal DEV deployment. Use a separately authorized session, verify its
+role/database/warehouse first, run only the reconciliation, and end that scope.
+V051 requires its own explicit one-time AccountAdmin authorization. V052 must
+use a separate PAT restricted to `OH_LYME_PROD_GOVERNED_VIEW_OWNER`; never
+switch to that role inside an AccountAdmin-restricted PAT session.
+
 ### DEV V037 paper-review procedure ownership handoff
 
 V037 replaces an owner-rights paper-review procedure. The GitHub DEV migration

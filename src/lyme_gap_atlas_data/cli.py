@@ -29,7 +29,12 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
-from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
+from .migrations import (
+    apply_migrations,
+    migration_plan,
+    reconcile_legacy_dev_migrations,
+    reconcile_legacy_prod_migrations,
+)
 from .orchestration import (
     run_cdc_dbt_recovery,
     run_discovery,
@@ -287,6 +292,20 @@ def reconcile_legacy_dev_migrations_command(
         raise typer.BadParameter("Pass --confirm to reconcile legacy DEV migrations")
     typer.echo(
         json.dumps({"reconciled": reconcile_legacy_dev_migrations(_settings(), database, commit)})
+    )
+
+
+@pipeline_app.command("reconcile-legacy-prod-migrations")
+def reconcile_legacy_prod_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Append the separately approved PROD legacy-ledger reconciliation evidence."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to reconcile legacy PROD migrations")
+    typer.echo(
+        json.dumps({"reconciled": reconcile_legacy_prod_migrations(_settings(), database, commit)})
     )
 
 
