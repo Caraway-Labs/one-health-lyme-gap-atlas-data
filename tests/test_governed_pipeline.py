@@ -501,6 +501,12 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
     assert '"SCHEDULED"' in workflow
     assert "register-latest-discovery" in workflow
     assert "provider-encrypted secret values" in workflow
+    assert '"cdc-operations-watchdog"' in workflow
+    assert '"approved-source-ingestion"' in workflow
+    assert "approved six-job baseline" in workflow
+    assert 'select(.kind == "SCHEDULED")' in workflow
+    assert "pubmed-discovery-surveillance" not in workflow
+    assert "approved-paper-extraction" not in workflow
     assert "exit 1" not in workflow
 
 
