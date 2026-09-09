@@ -582,6 +582,12 @@ def test_protected_prod_historical_rollback_is_retained_revision_guarded() -> No
     assert "DELETE" not in workflow
 
 
+def test_deployment_fixture_uses_current_historical_environment_guard() -> None:
+    fixture = Path("scripts/verify_historical_cdc_dev.py").read_text(encoding="utf-8")
+    assert "historical.require_governed_environment()" in fixture
+    assert "historical.require_dev()" not in fixture
+
+
 def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
     workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
     assert "environment: production" in workflow

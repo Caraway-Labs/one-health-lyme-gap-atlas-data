@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    historical.require_dev()
+    historical.require_governed_environment()
     with connect(SnowflakeSettings()) as base:
         with base.cursor() as cursor:
             cursor.execute(
