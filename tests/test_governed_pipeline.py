@@ -574,6 +574,17 @@ def test_protected_prod_historical_ingestion_is_exact_and_restores_topology() ->
     assert "run-production-schedule" in workflow
 
 
+def test_protected_prod_historical_recovery_reuses_exact_retained_run() -> None:
+    workflow = Path(".github/workflows/run-prod-cdc-dbt-recovery.yml").read_text(encoding="utf-8")
+    assert "historical-dbt-recovery" in workflow
+    assert "recover-approved-cdc-historical --source-version-id" in workflow
+    assert "--ingestion-run-id $INGESTION_RUN_ID" in workflow
+    assert '[[ "$INGESTION_RUN_ID" =~' in workflow
+    assert '.name = "cdc-dbt-recovery-once"' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow and "del(.schedule)" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$promoted_spec" --wait' in workflow
+
+
 def test_protected_prod_historical_rollback_is_retained_revision_guarded() -> None:
     workflow = Path(".github/workflows/rollback-prod-cdc-historical.yml").read_text(
         encoding="utf-8"

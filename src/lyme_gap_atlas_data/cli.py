@@ -369,6 +369,17 @@ def rollback_historical_command(
     )
 
 
+@pipeline_app.command("recover-approved-cdc-historical")
+def recover_historical_command(
+    source_version_id: str = typer.Option(..., "--source-version-id"),
+    ingestion_run_id: str = typer.Option(..., "--ingestion-run-id"),
+) -> None:
+    """Validate and publish retained historical RAW data without acquisition."""
+    from .cdc_historical_ingestion import recover_historical
+
+    typer.echo(json.dumps(recover_historical(source_version_id, ingestion_run_id), default=str))
+
+
 @pipeline_app.command("ingest-approved-cdc")
 def ingest_approved_cdc_command(
     check_id: str = typer.Option(..., "--check-id"),

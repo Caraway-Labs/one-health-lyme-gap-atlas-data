@@ -21,7 +21,7 @@ def connection_fixture(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, Magi
     return connection, cursor
 
 
-@pytest.mark.parametrize("action", ["refresh", "publish", "rollback", "quality"])
+@pytest.mark.parametrize("action", ["refresh", "recover", "publish", "rollback", "quality"])
 def test_unisolated_environment_rejected_before_io(
     monkeypatch: pytest.MonkeyPatch, action: str
 ) -> None:
@@ -33,6 +33,8 @@ def test_unisolated_environment_rejected_before_io(
     with pytest.raises(ValueError, match="isolated DEV or PROD"):
         if action == "refresh":
             historical.refresh_historical("source")
+        elif action == "recover":
+            historical.recover_historical("source", "run")
         elif action == "publish":
             historical.publish("source", "run", "validation", "lease", 0)
         elif action == "quality":
@@ -172,6 +174,66 @@ def test_approval_missing_prevents_publisher_request(monkeypatch: pytest.MonkeyP
     with pytest.raises(ValueError, match="approved"):
         historical.refresh_historical("bae8827a-d5cd-4451-acd0-e5ae2f8c7bb3")
     fetch.assert_not_called()
+
+
+def test_historical_recovery_uses_exact_retained_run_without_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = "5f8d78de-90f0-477e-aea4-a438e9a4ab66"
+    run = "349c1710-e48b-4733-87ad-bbd9a7401bb7"
+    _, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.side_effect = [(1,), ("COMPLETED",), (40_468, 9), (40_468,), None]
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    monkeypatch.setattr(historical, "historical_operation", lambda: nullcontext("lease"))
+    fetch = MagicMock()
+    acquire = MagicMock()
+    dbt = MagicMock()
+    quality = MagicMock(return_value="validation")
+    publish = MagicMock(return_value={"status": "PUBLISHED", "ingestion_run_id": run})
+    monkeypatch.setattr(historical, "_fetch_json", fetch)
+    monkeypatch.setattr(historical, "ingest_approved_cdc", acquire)
+    monkeypatch.setattr(historical, "run_cdc_dbt", dbt)
+    monkeypatch.setattr(historical, "record_quality", quality)
+    monkeypatch.setattr(historical, "publish", publish)
+
+    result = historical.recover_historical(source, run)
+
+    assert result == {
+        "source_version_id": source,
+        "ingestion_run_id": run,
+        "raw_rows": 40_468,
+        "request_pages": 9,
+        "quality_checks": 11,
+        "publication": {"status": "PUBLISHED", "ingestion_run_id": run},
+        "status": "COMPLETED",
+    }
+    dbt.assert_called_once_with("stg_cdc_lyme_qtbi_xd4i+")
+    quality.assert_called_once_with(source, run, 40_468)
+    publish.assert_called_once_with(source, run, "validation", "lease", 0)
+    fetch.assert_not_called()
+    acquire.assert_not_called()
+    assert any(
+        "resource_key=%s" in call.args[0] and call.args[1] == (run, historical.RESOURCE_KEY)
+        for call in cursor.execute.call_args_list
+    )
+
+
+def test_historical_recovery_rejects_unreconciled_raw_before_dbt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.side_effect = [(1,), ("COMPLETED",), (40_468, 9), (40_467,)]
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    monkeypatch.setattr(historical, "historical_operation", lambda: nullcontext("lease"))
+    dbt = MagicMock()
+    monkeypatch.setattr(historical, "run_cdc_dbt", dbt)
+
+    with pytest.raises(ValueError, match="reconciled retained RAW"):
+        historical.recover_historical(
+            "5f8d78de-90f0-477e-aea4-a438e9a4ab66",
+            "349c1710-e48b-4733-87ad-bbd9a7401bb7",
+        )
+    dbt.assert_not_called()
 
 
 def test_metadata_fingerprint_requires_exact_publisher_identity() -> None:
