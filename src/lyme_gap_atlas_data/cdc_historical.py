@@ -1,4 +1,4 @@
-"""Fail-closed admission checks for the DEV historical CDC evidence candidate."""
+"""Fail-closed admission checks for historical CDC evidence candidates."""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ def validate_historical_evidence(
     Schema fields can be present even when individual records omit suppressed or
     unknown values. Missing fields in a row must not be treated as numeric zero.
     """
-    if environment != "dev":
-        raise ValueError("Historical CDC onboarding is DEV-only")
+    if environment not in {"dev", "prod"}:
+        raise ValueError("Historical CDC onboarding requires isolated DEV or PROD")
     if not 1 <= sample_limit <= 100:
         raise ValueError("Historical CDC sample limit must be between 1 and 100")
     if not isinstance(metadata, dict) or metadata.get("id") != DATASET_ID:

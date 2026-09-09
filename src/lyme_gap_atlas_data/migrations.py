@@ -15,7 +15,9 @@ from snowflake.connector.errors import ProgrammingError
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+PROD_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
 DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038", "V044", "V045", "V046", "V047", "V048"}
+PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
@@ -77,6 +79,8 @@ def render_migration(migration: Migration, database: str) -> str:
     environment = match.group(1)
     if migration.version in {"V044", "V045", "V046", "V047", "V048"} and database != DEV_DATABASE:
         raise ValueError("Historical CDC review migration is DEV-only")
+    if migration.version in PROD_ONLY_MIGRATION_VERSIONS and database != PROD_DATABASE:
+        raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
     rendered = migration.source.replace("{{ DATABASE }}", database).replace(
         "{{ ENV }}", environment
     )
@@ -91,6 +95,7 @@ def migration_plan(database: str) -> list[dict[str, str]]:
         {"version": item.version, "filename": item.filename, "sha256": item.sha256}
         for item in load_migrations()
         if (database == DEV_DATABASE or item.version not in DEV_ONLY_MIGRATION_VERSIONS)
+        and (database == PROD_DATABASE or item.version not in PROD_ONLY_MIGRATION_VERSIONS)
         and render_migration(item, database)
     ]
 
@@ -104,6 +109,10 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != DEV_DATABASE:
             raise ValueError("Historical CDC review migration is DEV-only")
         return "OH_LYME_DEV_STREAMLIT_OWNER"
+    if migration.version in {"V049", "V050"}:
+        if database != PROD_DATABASE:
+            raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
+        return "OH_LYME_PROD_STREAMLIT_OWNER"
     if migration.version not in VIEW_OWNER_MIGRATION_VERSIONS:
         return None
     return f"OH_LYME_{match.group(1)}_GOVERNED_VIEW_OWNER"
@@ -255,6 +264,7 @@ def apply_migrations(
         migration
         for migration in load_migrations()
         if database == DEV_DATABASE or migration.version not in DEV_ONLY_MIGRATION_VERSIONS
+        if database == PROD_DATABASE or migration.version not in PROD_ONLY_MIGRATION_VERSIONS
     ]
     with connect(settings, include_database=False) as connection, connection.cursor() as cursor:
         try:

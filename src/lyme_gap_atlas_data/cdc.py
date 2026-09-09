@@ -137,8 +137,8 @@ def collect_cdc_evidence(
     if dataset_id not in {"x5j9-wybp", "qtbi-xd4i"}:
         raise ValueError("Unsupported CDC evidence dataset")
     historical = dataset_id == "qtbi-xd4i"
-    if historical and settings.topx_env != "dev":
-        raise ValueError("Historical CDC onboarding is DEV-only")
+    if historical and settings.topx_env not in {"dev", "prod"}:
+        raise ValueError("Historical CDC onboarding requires isolated DEV or PROD")
     if historical:
         profile = yaml.safe_load(
             SOURCE_CONFIG.with_name("cdc_qtbi_xd4i.yml").read_text(encoding="utf-8")

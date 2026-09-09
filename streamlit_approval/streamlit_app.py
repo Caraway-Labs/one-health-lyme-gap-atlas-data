@@ -1,7 +1,7 @@
 """Internal-only Snowflake Streamlit SOURCE_APPROVAL_CONSOLE.
 
-This first governed release is restricted to the DEV CDC/Socrata x5j9-wybp
-candidate. It makes no network calls and writes only via the controlled procedure.
+This internal governed release supports the two allowlisted CDC surveillance eras.
+It makes no network calls and writes only via the controlled procedure.
 """
 
 # ruff: noqa: E501
@@ -277,7 +277,10 @@ def _render_operations(page: str) -> None:
 st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("SOURCE_APPROVAL_CONSOLE")
 current_database = str(_rows("SELECT CURRENT_DATABASE() AS database_name")[0]["DATABASE_NAME"])
-if current_database == "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
+if current_database in {
+    "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+}:
     source_labels = {
         "cdc_lyme_x5j9_wybp": "CDC Lyme | 2022-current | x5j9-wybp",
         "cdc_lyme_qtbi_xd4i": "CDC Lyme | 2008-2021 | qtbi-xd4i",
@@ -285,9 +288,13 @@ if current_database == "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
     CDC_RESOURCE_KEY = st.sidebar.selectbox(
         "Source to review", options=list(source_labels), format_func=lambda key: source_labels[key]
     )
-    st.caption(f"DEV | {source_labels[CDC_RESOURCE_KEY]} | internal governed review")
+    environment_label = "DEV" if current_database.endswith("_DEV") else "PROD"
+    st.caption(
+        f"{environment_label} | {source_labels[CDC_RESOURCE_KEY]} | internal governed review"
+    )
 else:
-    st.caption("PROD | CDC/Socrata x5j9-wybp | internal governed review")
+    st.error("This console is available only in the isolated governed DEV or PROD database.")
+    st.stop()
 if CDC_RESOURCE_KEY == "cdc_lyme_qtbi_xd4i":
     st.warning(
         "Historical 2008-2021 surveillance era. Do not directly compare with 2022 onward. "

@@ -526,6 +526,25 @@ def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology(
     assert "dbt " not in workflow
 
 
+def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology() -> None:
+    workflow = Path(".github/workflows/capture-prod-cdc-historical.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "group: prod-cdc-historical-evidence-capture" in workflow
+    assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
+    assert 'select(.name == "catalog-ingestion")' in workflow
+    assert 'select(.name == "catalog-discovery")' in workflow
+    assert 'select(.name == "catalog-ingestion") | .image.digest' in workflow
+    assert 'select(.name == "catalog-discovery") | .image.digest' in workflow
+    assert workflow.count('= "$IMAGE_DIGEST"') >= 2
+    assert '"cdc-historical-evidence-once"' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "del(.schedule)" in workflow
+    assert "cdc-historical-sample --sample-limit 25" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "ingest-approved-cdc-historical" not in workflow
+    assert "dbt " not in workflow
+
+
 def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
     workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
     assert "environment: production" in workflow
@@ -1588,6 +1607,8 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V046",
         "V047",
         "V048",
+        "V049",
+        "V050",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1595,7 +1616,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 40
+    assert len(prod_plan) == 42
     assert "V034" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
@@ -1823,3 +1844,5 @@ def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
     assert 'st.code(_safe_snowflake_error(exc), language="text")' in source
     assert "INSERT INTO GOVERNANCE" not in source
     assert "UPDATE GOVERNANCE" not in source
+    assert '"ONE_HEALTH_LYME_GAP_ATLAS_PROD"' in source
+    assert '"cdc_lyme_qtbi_xd4i": "CDC Lyme | 2008-2021 | qtbi-xd4i"' in source

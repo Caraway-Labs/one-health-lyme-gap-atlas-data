@@ -130,6 +130,14 @@ The first approved source family shall be CDC’s public-use Lyme surveillance d
 
 The first complete end-to-end implementation shall start with `x5j9-wybp`, the current geographic dataset. It shall then add `qtbi-xd4i` as a separate historical source version. The older and line-listed datasets remain registered candidates until their source-specific mappings and review decisions are complete.
 
+Promotion of `qtbi-xd4i` to PROD starts with a new environment-isolated evidence
+capture and steward decision. The capture is limited to metadata and at most 25
+deterministically ordered sample rows, preserves the 2008–2021 limitations, and
+does not reuse the DEV decision or source-version UUID. Only the exact immutable
+image active in DEV and PROD may perform the capture. Full PROD acquisition,
+publication, rollback validation, and any schedule require later, separately
+authorized controls.
+
 ### CDC/Socrata access profile requirements
 
 - Use a source-verified CDC Socrata endpoint. The connector may use SODA query or documented export endpoints, but it must record the actual endpoint/version used.

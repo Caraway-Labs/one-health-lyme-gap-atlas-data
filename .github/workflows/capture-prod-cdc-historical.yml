@@ -1,0 +1,89 @@
+name: Capture PROD historical CDC evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact historical-onboarding image active in DEV and PROD
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cdc-historical-evidence-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Create CDC qtbi-xd4i review candidate
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Capture 25 ordered historical rows and restore PROD topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$PROD_APP_ID"
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          baseline_spec="$(mktemp)"
+          evidence_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          baseline_captured=false
+
+          restore_baseline() {
+            capture_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              # The fetched specification contains provider-encrypted secrets. Never print it.
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              restore_status=$?
+              if [ "$restore_status" -ne 0 ]; then
+                echo "::error::Historical evidence finished, but PROD topology restoration failed. Restore the prior app specification before any further production action."
+                capture_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$evidence_spec" "$dev_spec"
+            trap - EXIT
+            exit "$capture_status"
+          }
+          trap restore_baseline EXIT
+
+          # Both environments must identify the same immutable DEV-tested image.
+          doctl apps spec get "$DEV_APP_ID" --format json > "$dev_spec"
+          test "$(jq -r '.jobs[] | select(.name == "catalog-ingestion") | .image.digest' "$dev_spec")" = "$IMAGE_DIGEST"
+
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
+          test "$(jq '[.jobs[] | select(.name == "catalog-discovery")] | length' "$baseline_spec")" = "1"
+          test "$(jq '[.jobs[] | select(.name == "cdc-historical-evidence-once")] | length' "$baseline_spec")" = "0"
+          test "$(jq -r '.jobs[] | select(.name == "catalog-discovery") | .image.digest' "$baseline_spec")" = "$IMAGE_DIGEST"
+          baseline_captured=true
+
+          jq '
+            (.jobs[] | select(.name == "catalog-discovery")) as $template
+            | .jobs += [
+                $template
+                | .name = "cdc-historical-evidence-once"
+                | .kind = "PRE_DEPLOY"
+                | del(.schedule)
+                | .run_command = "uv run atlas-data pipeline cdc-historical-sample --sample-limit 25"
+              ]
+          ' "$baseline_spec" > "$evidence_spec"
+
+          doctl apps update "$PROD_APP_ID" --spec "$evidence_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "Historical CDC evidence capture succeeded. The temporary job will now be removed."

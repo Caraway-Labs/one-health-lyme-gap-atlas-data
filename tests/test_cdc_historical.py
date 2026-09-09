@@ -44,15 +44,42 @@ def test_historical_review_migration_is_dev_only_and_preserves_steward_boundary(
     assert "TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" not in sql
 
 
-def test_historical_collector_rejects_prod_before_any_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cdc, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+def test_prod_historical_review_migrations_are_prod_only_and_preserve_steward_boundary() -> None:
+    review = next(item for item in load_migrations() if item.version == "V049")
+    decision = next(item for item in load_migrations() if item.version == "V050")
+    with pytest.raises(ValueError, match="PROD-only"):
+        render_migration(review, "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    with pytest.raises(ValueError, match="PROD-only"):
+        render_migration(decision, "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    assert migration_execution_role(review, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
+        "OH_LYME_PROD_STREAMLIT_OWNER"
+    )
+    assert migration_execution_role(decision, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
+        "OH_LYME_PROD_STREAMLIT_OWNER"
+    )
+    prod_versions = {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")}
+    assert {"V049", "V050"} <= prod_versions
+    assert not {"V049", "V050"} & {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    }
+    sql = review.source + decision.source
+    assert "qtbi-xd4i" in sql and "x5j9-wybp" in sql
+    assert "BEGIN TRANSACTION" in sql and "EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;" in sql
+    assert "COPY INTO" not in sql
+    assert "TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" not in sql
+
+
+def test_historical_collector_rejects_unisolated_environment_before_any_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cdc, "PipelineSettings", lambda: SimpleNamespace(topx_env="alpha"))
     fetch = MagicMock()
     storage = MagicMock()
     connection = MagicMock()
     monkeypatch.setattr(cdc, "_fetch_json", fetch)
     monkeypatch.setattr(cdc, "_spaces_client", storage)
     monkeypatch.setattr(cdc, "connect", connection)
-    with pytest.raises(ValueError, match="DEV-only"):
+    with pytest.raises(ValueError, match="isolated DEV or PROD"):
         cdc.collect_cdc_evidence(dataset_id="qtbi-xd4i")
     fetch.assert_not_called()
     storage.assert_not_called()
@@ -134,11 +161,18 @@ def test_historical_sample_rejects_wrong_era(year: object) -> None:
         )
 
 
-def test_historical_candidate_cannot_enter_prod_or_exceed_sample_bound() -> None:
-    with pytest.raises(ValueError, match="DEV-only"):
+def test_historical_candidate_accepts_prod_evidence_but_rejects_unisolated_environment() -> None:
+    result = validate_historical_evidence(
+        metadata(), [{"year": "2008"}], environment="prod", sample_limit=25
+    )
+    assert result["full_dataset_validated"] is False
+    with pytest.raises(ValueError, match="isolated DEV or PROD"):
         validate_historical_evidence(
-            metadata(), [{"year": "2008"}], environment="prod", sample_limit=25
+            metadata(), [{"year": "2008"}], environment="alpha", sample_limit=25
         )
+
+
+def test_historical_candidate_rejects_sample_over_bound() -> None:
     with pytest.raises(ValueError, match="bound"):
         validate_historical_evidence(
             metadata(), [{"year": "2008"}] * 2, environment="dev", sample_limit=1
