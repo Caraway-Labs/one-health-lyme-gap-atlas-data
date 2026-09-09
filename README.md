@@ -80,10 +80,12 @@ It creates a `PENDING_REVIEW` candidate in the internal Snowflake
 steward's immutable decision in that console is the prerequisite for a later
 full-ingestion command and dbt run.
 
-The separately reviewed historical CDC `qtbi-xd4i` source has a DEV-only
-[controlled full-ingestion path](docs/operations/cdc-historical-ingestion.md).
-It retains the 2008–2021 era separately and publishes only validated snapshots;
-it does not activate historical ingestion in PROD or add an unattended schedule.
+The separately reviewed historical CDC `qtbi-xd4i` source has a
+[controlled DEV full-ingestion path](docs/operations/cdc-historical-ingestion.md)
+and a separate [bounded PROD onboarding path](docs/operations/cdc-historical-prod-onboarding.md).
+It retains the 2008–2021 era separately and publishes only validated snapshots.
+PROD onboarding captures evidence for a new steward decision; it does not run
+full ingestion or add an unattended schedule.
 
 After the quality workflow verifies a `main` commit, it builds an immutable
 image and deploys that digest to DEV. Production promotion is a separate,

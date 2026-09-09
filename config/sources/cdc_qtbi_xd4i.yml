@@ -6,7 +6,7 @@ endpoint_template: https://data.cdc.gov/resource/qtbi-xd4i.json
 metadata_endpoint_template: https://data.cdc.gov/api/views/qtbi-xd4i
 deterministic_order_clause: ":id ASC"
 incremental_strategy: FULL_REFRESH
-onboarding_environment: dev
+onboarding_environments: [dev, prod]
 onboarding_mode: EVIDENCE_ONLY
 sample_limit: 25
 maximum_sample_limit: 100
@@ -17,7 +17,7 @@ geography_semantics: COUNTY_OF_RESIDENCE
 temporal_semantics: surveillance_year
 required_columns: [year, state, fips, case_status, sex, age_cat_yrs, frequency]
 restrictions:
-  - No full acquisition or PROD activation in this onboarding increment.
+  - Evidence capture is bounded and environment-isolated; approval never starts acquisition.
   - Preserve the 2008-2021 surveillance era separately from 2022 onward.
   - Reported cases are not infection incidence or county-of-exposure measurements.
   - Preserve zero, null, unknown, suppressed, and not-reported states.
