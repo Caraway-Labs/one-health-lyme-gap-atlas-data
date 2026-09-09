@@ -6,7 +6,7 @@ sources:
     tables:
       - name: cdc_lyme_qtbi_xd4i
         config:
-          enabled: "{{ target.database == 'ONE_HEALTH_LYME_GAP_ATLAS_DEV' }}"
+          enabled: "{{ target.database in ['ONE_HEALTH_LYME_GAP_ATLAS_DEV', 'ONE_HEALTH_LYME_GAP_ATLAS_PROD'] }}"
       - name: cdc_lyme_x5j9_wybp
         columns:
           - name: data_source_version_id
