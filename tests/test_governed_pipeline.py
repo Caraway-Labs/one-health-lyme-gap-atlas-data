@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import logging
 from contextlib import nullcontext
@@ -44,8 +45,14 @@ from lyme_gap_atlas_data.discovery import (
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
     LEGACY_DEV_MIGRATION_CHECKSUMS,
+    LEGACY_PROD_MIGRATION_CHECKSUMS,
+    LEGACY_PROD_MIGRATION_FILENAMES,
+    LEGACY_PROD_MIGRATION_ROW_COUNTS,
+    PROD_DATABASE,
     is_authorized_legacy_reconciliation,
+    is_line_ending_equivalent_checksum,
     legacy_dev_reconciliation_plan,
+    legacy_prod_reconciliation_plan,
     load_migrations,
     migration_execution_role,
     migration_plan,
@@ -1723,10 +1730,15 @@ def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() ->
     )
     assert not is_authorized_legacy_reconciliation(
         "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
-        "V028",
-        LEGACY_DEV_MIGRATION_CHECKSUMS["V028"],
-        v028.sha256,
-        {"V028": (LEGACY_DEV_MIGRATION_CHECKSUMS["V028"], v028.sha256)},
+        "V029",
+        LEGACY_DEV_MIGRATION_CHECKSUMS["V029"],
+        next(migration for migration in migrations if migration.version == "V029").sha256,
+        {
+            "V029": (
+                LEGACY_DEV_MIGRATION_CHECKSUMS["V029"],
+                next(migration for migration in migrations if migration.version == "V029").sha256,
+            )
+        },
     )
     assert not is_authorized_legacy_reconciliation(
         DEV_DATABASE,
@@ -1736,6 +1748,73 @@ def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() ->
         {"V001": ("unapproved", "unapproved")},
     )
     assert DEV_DATABASE == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+
+
+def test_line_ending_equivalence_accepts_only_lf_or_crlf_serialization() -> None:
+    source = "SELECT 1;\nSELECT 2;\n"
+    lf_checksum = hashlib.sha256(source.encode()).hexdigest()
+    crlf_checksum = hashlib.sha256(source.replace("\n", "\r\n").encode()).hexdigest()
+    carriage_return_checksum = hashlib.sha256(source.replace("\n", "\r").encode()).hexdigest()
+    changed_checksum = hashlib.sha256(b"SELECT 3;\n").hexdigest()
+
+    assert is_line_ending_equivalent_checksum(source, lf_checksum)
+    assert is_line_ending_equivalent_checksum(source, crlf_checksum)
+    assert not is_line_ending_equivalent_checksum(source, carriage_return_checksum)
+    assert not is_line_ending_equivalent_checksum(source, changed_checksum)
+
+
+def test_prod_reconciliation_is_pinned_to_exact_variant_and_duplicate_rows() -> None:
+    migrations = load_migrations()
+    applied_rows = [
+        (version, LEGACY_PROD_MIGRATION_FILENAMES[version], checksum)
+        for version, checksum in LEGACY_PROD_MIGRATION_CHECKSUMS.items()
+        for _ in range(LEGACY_PROD_MIGRATION_ROW_COUNTS[version])
+    ]
+
+    reconciliations = legacy_prod_reconciliation_plan(applied_rows, migrations)
+    assert [migration.version for migration in reconciliations] == ["V022", "V028"]
+    assert is_authorized_legacy_reconciliation(
+        PROD_DATABASE,
+        "V022",
+        LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+        reconciliations[0].sha256,
+        {
+            "V022": (
+                LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+                reconciliations[0].sha256,
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="Unexpected PROD ledger shape for V028"):
+        legacy_prod_reconciliation_plan(applied_rows[:-1], migrations)
+    with pytest.raises(ValueError, match="Unexpected PROD ledger shape for V022"):
+        legacy_prod_reconciliation_plan(
+            [("V022", LEGACY_PROD_MIGRATION_FILENAMES["V022"], "not-authorized")]
+            + applied_rows[1:],
+            migrations,
+        )
+
+    assert not is_authorized_legacy_reconciliation(
+        DEV_DATABASE,
+        "V022",
+        LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+        reconciliations[0].sha256,
+        {
+            "V022": (
+                LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+                reconciliations[0].sha256,
+            )
+        },
+    )
+
+
+def test_prod_reconciliation_command_is_explicit_and_not_in_dev_deploy() -> None:
+    cli_source = Path("src/lyme_gap_atlas_data/cli.py").read_text(encoding="utf-8")
+    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    assert '@pipeline_app.command("reconcile-legacy-prod-migrations")' in cli_source
+    assert "Pass --confirm to reconcile legacy PROD migrations" in cli_source
+    assert "reconcile-legacy-prod-migrations" not in workflow
 
 
 def test_v034_reasserts_the_redacted_observability_contract_after_legacy_reconciliation() -> None:
