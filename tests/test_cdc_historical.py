@@ -52,7 +52,7 @@ def test_prod_historical_review_migrations_are_prod_only_and_preserve_steward_bo
     with pytest.raises(ValueError, match="PROD-only"):
         render_migration(decision, "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
     assert migration_execution_role(review, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
-        "OH_LYME_PROD_STREAMLIT_OWNER"
+        "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
     )
     assert migration_execution_role(decision, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
         "OH_LYME_PROD_STREAMLIT_OWNER"

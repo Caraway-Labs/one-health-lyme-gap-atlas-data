@@ -7,8 +7,12 @@ historical ingestion.
 1. Merge a green change and record the immutable image digest deployed to DEV.
 2. Dispatch `promote-prod.yml` with that exact digest and obtain the protected
    production deployment approval.
-3. Apply V049 and V050 to PROD with the scoped migration/Streamlit-owner
-   identities. Verify their immutable checksums in `SCHEMA_MIGRATIONS`.
+3. Verify the four existing source-review views are owned by
+   `OH_LYME_PROD_GOVERNED_VIEW_OWNER`. If legacy deployment left them under
+   `ACCOUNTADMIN`, perform a separately authorized one-time ownership handoff
+   with `COPY CURRENT GRANTS`; do not broaden the Streamlit owner. Apply V049
+   as the governed-view owner and V050 as the Streamlit owner. Verify both
+   immutable checksums in `SCHEMA_MIGRATIONS`.
 4. Deploy `SOURCE_APPROVAL_CONSOLE` under `OH_LYME_PROD_STREAMLIT_OWNER` and
    verify its owner, warehouse, source files, and steward/viewer usage grants.
 5. Dispatch `capture-prod-cdc-historical.yml` with the same digest and obtain the
