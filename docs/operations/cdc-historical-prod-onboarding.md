@@ -23,6 +23,10 @@ historical ingestion.
    material changes.
 7. Stop. A human steward reviews and records the PROD decision in Streamlit.
 
+After the decision is recorded, continue only through
+[`cdc-historical-prod-ingestion.md`](cdc-historical-prod-ingestion.md). The
+onboarding workflow itself remains evidence-only.
+
 Do not invoke `ingest-approved-cdc-historical`, dbt, snapshot publication, or a
 schedule in this onboarding step. A failure leaves append-only evidence intact;
 restore the prior app specification before retrying. Never print a fetched app

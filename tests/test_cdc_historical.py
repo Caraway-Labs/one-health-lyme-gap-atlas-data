@@ -1,4 +1,5 @@
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -67,6 +68,32 @@ def test_prod_historical_review_migrations_are_prod_only_and_preserve_steward_bo
     assert "BEGIN TRANSACTION" in sql and "EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;" in sql
     assert "COPY INTO" not in sql
     assert "TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" not in sql
+
+
+def test_prod_historical_storage_transfers_only_historical_view_ownership() -> None:
+    storage = next(item for item in load_migrations() if item.version == "V051")
+    explorer = next(item for item in load_migrations() if item.version == "V052")
+    assert migration_execution_role(storage, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") is None
+    assert migration_execution_role(explorer, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
+        "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
+    )
+    assert "CREATE TABLE" in storage.source and "CREATE VIEW IF NOT EXISTS" in storage.source
+    assert "GRANT OWNERSHIP ON VIEW CONFORMED.CONFORMED_CDC_LYME_QTBI_XD4I" in storage.source
+    assert "COPY CURRENT GRANTS" in storage.source
+    assert "CREATE OR REPLACE VIEW GOVERNANCE" in explorer.source
+    assert "CREATE TABLE" not in explorer.source
+    assert "GRANT OWNERSHIP" not in explorer.source
+
+
+def test_historical_dbt_models_are_enabled_only_in_isolated_databases() -> None:
+    for path in (
+        Path("dbt/models/staging/stg_cdc_lyme_qtbi_xd4i.sql"),
+        Path("dbt/models/conformed/conformed_cdc_lyme_qtbi_xd4i.sql"),
+    ):
+        source = path.read_text(encoding="utf-8")
+        assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in source
+        assert "ONE_HEALTH_LYME_GAP_ATLAS_PROD" in source
+        assert "ONE_HEALTH_LYME_GAP_ATLAS'" not in source
 
 
 def test_historical_collector_rejects_unisolated_environment_before_any_io(

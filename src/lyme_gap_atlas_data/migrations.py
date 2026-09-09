@@ -17,11 +17,11 @@ DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 PROD_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
 DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038", "V044", "V045", "V046", "V047", "V048"}
-PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050"}
+PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
-VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047"}
+VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047", "V052"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
 # They are an explicit, DEV-only recovery boundary—not a general checksum bypass.
@@ -80,7 +80,7 @@ def render_migration(migration: Migration, database: str) -> str:
     if migration.version in {"V044", "V045", "V046", "V047", "V048"} and database != DEV_DATABASE:
         raise ValueError("Historical CDC review migration is DEV-only")
     if migration.version in PROD_ONLY_MIGRATION_VERSIONS and database != PROD_DATABASE:
-        raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
+        raise ValueError("Historical CDC PROD migration is PROD-only")
     rendered = migration.source.replace("{{ DATABASE }}", database).replace(
         "{{ ENV }}", environment
     )

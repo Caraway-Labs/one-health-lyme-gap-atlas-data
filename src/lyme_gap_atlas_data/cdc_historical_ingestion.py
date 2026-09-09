@@ -1,6 +1,8 @@
-"""Explicit DEV-only historical acquisition, validation and snapshot publication.
+"""Explicit environment-isolated historical acquisition and publication.
 
-No schedule, source approval, current-era publication, or PROD writes live here.
+No schedule, source approval, or current-era publication lives here. PROD is
+permitted only through the existing production-execution setting and exact
+database/runtime-role checks.
 """
 
 from __future__ import annotations
@@ -29,10 +31,10 @@ CANDIDATE = "STAGING.CDC_LYME_HISTORICAL_CANDIDATE"
 RETAINED = "CONFORMED.CDC_HISTORICAL_VALIDATED_SNAPSHOTS"
 
 
-def require_dev() -> PipelineSettings:
+def require_governed_environment() -> PipelineSettings:
     settings = PipelineSettings()
-    if settings.topx_env != "dev":
-        raise ValueError("Historical ingestion is DEV-only")
+    if settings.topx_env not in {"dev", "prod"}:
+        raise ValueError("Historical ingestion requires an isolated DEV or PROD environment")
     return settings
 
 
@@ -106,13 +108,18 @@ SELECT ingestion_run_id, 'historical_source', 0,
 
 @contextmanager
 def historical_operation() -> Iterator[str]:
-    require_dev()
+    settings = require_governed_environment()
     owner = str(uuid.uuid4())
     with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
         cursor.execute("SELECT CURRENT_DATABASE(),CURRENT_ROLE()")
         context = cursor.fetchone()
-        if context != ("ONE_HEALTH_LYME_GAP_ATLAS_DEV", "OH_LYME_DEV_PIPELINE_RUNTIME"):
-            raise ValueError("Historical operations require the isolated DEV runtime")
+        environment = settings.topx_env.upper()
+        expected = (
+            f"ONE_HEALTH_LYME_GAP_ATLAS_{environment}",
+            f"OH_LYME_{environment}_PIPELINE_RUNTIME",
+        )
+        if context != expected:
+            raise ValueError("Historical operations require the isolated environment runtime")
         cursor.execute(
             """UPDATE GOVERNANCE.CDC_OPERATION_LEASE SET lease_owner=%s,
             expires_at=DATEADD(minute,30,CURRENT_TIMESTAMP()) WHERE resource_key=%s
@@ -147,7 +154,7 @@ def require_approval(cursor: Any, source_version_id: str) -> None:
 
 
 def record_quality(source: str, run: str, expected_rows: int) -> str:
-    require_dev()
+    require_governed_environment()
     validation = str(uuid.uuid4())
     with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
         require_approval(cursor, source)
@@ -200,7 +207,7 @@ def publish(
     source: str, run: str, validation: str, owner: str, revision: int, *, rollback: bool = False
 ) -> dict[str, Any]:
     """Recheck retained data and approval while holding the source lease through commit."""
-    require_dev()
+    require_governed_environment()
     relation = RETAINED if rollback else CANDIDATE
     with connect(SnowflakeSettings()) as connection:
         connection.autocommit(False)
@@ -305,7 +312,7 @@ def publish(
 
 
 def refresh_historical(source_version_id: str) -> dict[str, Any]:
-    settings = require_dev()
+    settings = require_governed_environment()
     source_version_id = str(uuid.UUID(source_version_id))
     token = settings.socrata_app_token.get_secret_value() if settings.socrata_app_token else None
     with historical_operation() as owner:
@@ -344,7 +351,7 @@ def refresh_historical(source_version_id: str) -> dict[str, Any]:
 
 
 def rollback_historical(source: str, run: str, revision: int) -> dict[str, Any]:
-    require_dev()
+    require_governed_environment()
     with historical_operation() as owner:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
             require_approval(cursor, source)

@@ -551,6 +551,37 @@ def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology(
     assert "dbt " not in workflow
 
 
+def test_protected_prod_historical_ingestion_is_exact_and_restores_topology() -> None:
+    workflow = Path(".github/workflows/ingest-prod-cdc-historical.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "group: prod-cdc-historical-ingestion" in workflow
+    assert 'select(.name == "approved-source-ingestion")' in workflow
+    assert '"cdc-historical-ingest-once"' in workflow
+    assert "ingest-approved-cdc-historical --source-version-id" in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow and "del(.schedule)" in workflow
+    assert "list-deployments" in workflow and 'test "$dev_verified" = true' in workflow
+    assert "test \"$(jq '[.jobs[].image.digest] | unique | length'" in workflow
+    assert "catalog-registration-03" in workflow and "cdc-operations-watchdog" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "cdc-historical-sample" not in workflow
+    assert "run-production-schedule" in workflow
+
+
+def test_protected_prod_historical_rollback_is_retained_revision_guarded() -> None:
+    workflow = Path(".github/workflows/rollback-prod-cdc-historical.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "environment: production" in workflow
+    assert "group: prod-cdc-historical-ingestion" in workflow
+    assert '"cdc-historical-rollback-once"' in workflow
+    assert "rollback-cdc-historical --source-version-id" in workflow
+    assert "--ingestion-run-id" in workflow and "--expected-revision" in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow and "del(.schedule)" in workflow
+    assert "list-deployments" in workflow and 'test "$dev_verified" = true' in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "DELETE" not in workflow
+
+
 def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
     workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
     assert "environment: production" in workflow
@@ -1615,6 +1646,8 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V048",
         "V049",
         "V050",
+        "V051",
+        "V052",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1622,7 +1655,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 42
+    assert len(prod_plan) == 44
     assert "V034" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console

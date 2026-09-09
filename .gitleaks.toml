@@ -13,6 +13,7 @@ paths = [
   '''^tests/test_cdc_historical\.py$''',
   '''^migrations/V04[45]__dev_historical_cdc_(review|decision)\.sql$''',
   '''^migrations/V0(49__prod_historical_cdc_review|50__prod_historical_cdc_decision)\.sql$''',
+  '''^migrations/V05[12]__prod_historical_cdc_(storage|explorer)\.sql$''',
 ]
 regexTarget = "secret"
 regexes = ['''^cdc_lyme_qtbi_xd4i$''']
