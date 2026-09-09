@@ -142,6 +142,16 @@ Completed production-runtime controls:
    their immutable image digest. This preserves provider-encrypted secrets and
    all other production job settings.
 
+The approved live PROD operational topology contains exactly six scheduled
+jobs: `catalog-discovery`, `approved-source-ingestion`,
+`catalog-registration-01`, `catalog-registration-02`,
+`catalog-registration-03`, and `cdc-operations-watchdog`. The promotion
+workflow fails closed if a job is missing, an unexpected or temporary job is
+present, or any job is not using the private `pipeline` image. Literature jobs
+in the provisioning template are not part of the current live PROD topology;
+an image promotion must not create them implicitly. Adding those jobs requires
+a separately reviewed topology change and live provisioning evidence.
+
 Still required before a full-production ingestion can run:
 
 1. Run the protected `Capture PROD CDC evidence for steward review` workflow
