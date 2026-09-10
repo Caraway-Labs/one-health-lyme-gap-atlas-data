@@ -1,0 +1,80 @@
+name: Capture DEV CDC tick-surveillance evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact tick-evidence image already active in DEV
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-cdc-tick-surveillance-evidence
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Create the bounded CDC Ixodes review candidate
+    environment: dev
+    runs-on: ubuntu-latest
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Capture bounded workbook evidence and restore DEV topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          baseline="$(mktemp)"
+          capture="$(mktemp)"
+          baseline_captured=false
+
+          restore() {
+            status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              # Provider-encrypted values remain redirected and are never logged.
+              doctl apps update "$DEV_APP_ID" --spec "$baseline" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then
+                echo "::error::DEV topology restoration failed; stop before further pipeline work."
+                status=1
+              fi
+            fi
+            rm -f "$baseline" "$capture"
+            trap - EXIT
+            exit "$status"
+          }
+          trap restore EXIT
+
+          doctl apps spec get "$DEV_APP_ID" --format json > "$baseline"
+          test "$(jq -r '.name' "$baseline")" = "oh-lyme-data-dev"
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$baseline")" = "1"
+          test "$(jq -r '.jobs[] | select(.name == "catalog-ingestion") | .image.digest' "$baseline")" = "$IMAGE_DIGEST"
+          test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline")" = "0"
+          baseline_captured=true
+
+          jq '
+            (.jobs[] | select(.name == "catalog-ingestion")) as $template
+            | .jobs += [
+                $template
+                | .name = "cdc-tick-evidence-once"
+                | .kind = "PRE_DEPLOY"
+                | .run_command = "uv run atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25"
+                | del(.schedule)
+              ]
+          ' "$baseline" > "$capture"
+
+          doctl apps update "$DEV_APP_ID" --spec "$capture" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "Tick-surveillance evidence capture completed; restoring DEV topology."

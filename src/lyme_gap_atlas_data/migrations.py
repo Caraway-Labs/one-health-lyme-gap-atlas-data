@@ -16,7 +16,18 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 PROD_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
-DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038", "V044", "V045", "V046", "V047", "V048"}
+DEV_ONLY_MIGRATION_VERSIONS = {
+    "V034",
+    "V037",
+    "V038",
+    "V044",
+    "V045",
+    "V046",
+    "V047",
+    "V048",
+    "V053",
+    "V054",
+}
 PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -101,8 +112,8 @@ def render_migration(migration: Migration, database: str) -> str:
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     environment = match.group(1)
-    if migration.version in {"V044", "V045", "V046", "V047", "V048"} and database != DEV_DATABASE:
-        raise ValueError("Historical CDC review migration is DEV-only")
+    if migration.version in DEV_ONLY_MIGRATION_VERSIONS and database != DEV_DATABASE:
+        raise ValueError("This migration is DEV-only")
     if migration.version in PROD_ONLY_MIGRATION_VERSIONS and database != PROD_DATABASE:
         raise ValueError("Historical CDC PROD migration is PROD-only")
     rendered = migration.source.replace("{{ DATABASE }}", database).replace(
@@ -129,9 +140,9 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
     match = DATABASE_PATTERN.fullmatch(database)
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
-    if migration.version == "V044":
+    if migration.version in {"V044", "V053"}:
         if database != DEV_DATABASE:
-            raise ValueError("Historical CDC review migration is DEV-only")
+            raise ValueError("DEV source-review view migration is DEV-only")
         return "OH_LYME_DEV_STREAMLIT_OWNER"
     if migration.version == "V049":
         if database != PROD_DATABASE:

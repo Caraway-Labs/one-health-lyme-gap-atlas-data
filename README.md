@@ -94,6 +94,16 @@ bounded acquisition. It persists eleven blocking checks, restores the prior
 six-job topology, and has a separate retained-snapshot rollback workflow. It
 does not add an unattended historical refresh schedule.
 
+The next DEV-only evidence candidate is the CDC county-status workbook for
+*Ixodes scapularis* and *Ixodes pacificus*. Run
+`pipeline cdc-tick-surveillance-sample` only through the protected DEV evidence
+workflow. The command retains the first-party landing page, the byte-bounded
+publisher workbook, and a 25-row deterministic review sample as private
+artifacts. It creates a `PENDING_REVIEW` candidate but writes no RAW rows, runs
+no dbt models, records no steward decision, and has no PROD or scheduled path.
+The canonical mapping contract is
+[`canonical-tick-surveillance-v1.md`](docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.md).
+
 After the quality workflow verifies a `main` commit, it builds an immutable
 image and deploys that digest to DEV. Production promotion is a separate,
 protected, manual GitHub workflow: it requires the configured production

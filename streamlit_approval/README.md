@@ -4,6 +4,13 @@ This Snowflake-native application reads only governed views and records a
 decision only through `GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION`. It makes
 no external network requests and has no secrets or App Platform credentials.
 
+The DEV source selector includes the two geographic CDC human-surveillance eras
+and the evidence-only CDC Ixodes county-status candidate. For the tick source,
+the console must display that cumulative status is not abundance or annual
+incidence and that `No records` is not evidence of tick absence. Approval can
+create a governed source version, but the console never downloads the workbook,
+loads RAW data, runs transformations, or creates a schedule.
+
 ## Pipeline observability
 
 The console includes a read-only operational dashboard in addition to the
