@@ -1,6 +1,6 @@
 # 0023: DEV operator-captured restricted evidence
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-09
 Decision owner: One Health Lyme Gap Atlas product and engineering leads
 
