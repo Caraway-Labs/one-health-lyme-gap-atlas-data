@@ -73,6 +73,8 @@ class AcquisitionBundle:
 
 
 EVIDENCE_ROUTE = "GITHUB_ACTIONS_CDC_EVIDENCE_V1"
+OPERATOR_EVIDENCE_ROUTE = "OPERATOR_BROWSER_EXPORT_V1"
+PDF_MEDIA_TYPE = "application/pdf"
 IMAGE_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -190,8 +192,16 @@ def _validate_landing_page(result: FetchResult) -> None:
         raise ValueError("CDC tick-surveillance landing-page semantics changed")
 
 
+def _validate_landing_page_pdf(result: FetchResult) -> None:
+    """Validate an opaque operator print without executing or rendering it."""
+    if result.media_type != PDF_MEDIA_TYPE:
+        raise ValueError("CDC tick-surveillance landing-page print is not a PDF")
+    if not result.payload.startswith(b"%PDF-") or b"%%EOF" not in result.payload[-4096:]:
+        raise ValueError("CDC tick-surveillance landing-page print is malformed")
+
+
 def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> AcquisitionBundle:
-    """Load and independently verify the sealed public-source evidence envelope."""
+    """Load and independently verify the sealed source-evidence envelope."""
     manifest_path = bundle_dir / "acquisition-manifest.json"
     manifest_payload = manifest_path.read_bytes()
     if len(manifest_payload) > 100_000:
@@ -199,17 +209,23 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
     manifest = json.loads(manifest_payload, object_pairs_hook=_manifest_object)
     if not isinstance(manifest, dict):
         raise ValueError("CDC evidence manifest must be a JSON object")
+    route = manifest.get("acquisition_route")
+    version = manifest.get("manifest_version")
+    if (version, route) not in {
+        (1, EVIDENCE_ROUTE),
+        (2, OPERATOR_EVIDENCE_ROUTE),
+    }:
+        raise ValueError("CDC evidence manifest version or acquisition route is not approved")
+    provenance_key = "github" if route == EVIDENCE_ROUTE else "operator"
     if set(manifest) != {
         "manifest_version",
         "acquisition_route",
         "retrieved_at",
-        "github",
+        provenance_key,
         "base_image_digest",
         "resources",
     }:
         raise ValueError("CDC evidence manifest fields do not match the approved contract")
-    if manifest.get("manifest_version") != 1 or manifest.get("acquisition_route") != EVIDENCE_ROUTE:
-        raise ValueError("CDC evidence manifest version or acquisition route is not approved")
     retrieved_at = manifest.get("retrieved_at")
     if not isinstance(retrieved_at, str):
         raise ValueError("CDC evidence manifest is missing its retrieval timestamp")
@@ -220,32 +236,56 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
     if parsed_retrieved_at.tzinfo is None:
         raise ValueError("CDC evidence manifest retrieval timestamp must include a timezone")
     age = datetime.now(UTC) - parsed_retrieved_at.astimezone(UTC)
-    if age.total_seconds() < -300 or age.total_seconds() > 21_600:
+    maximum_age_seconds = 21_600 if route == EVIDENCE_ROUTE else 259_200
+    if age.total_seconds() < -300 or age.total_seconds() > maximum_age_seconds:
         raise ValueError("CDC evidence manifest retrieval timestamp is outside the run window")
 
-    github = manifest.get("github")
-    if not isinstance(github, dict) or set(github) != {
-        "repository",
-        "run_id",
-        "run_attempt",
-        "sha",
-    }:
-        raise ValueError("CDC evidence manifest GitHub provenance is incomplete")
-    if github.get("repository") != "Caraway-Labs/one-health-lyme-gap-atlas-data":
-        raise ValueError("CDC evidence manifest repository is not approved")
-    if not all(isinstance(github.get(key), str) and github[key] for key in github):
-        raise ValueError("CDC evidence manifest GitHub provenance values are invalid")
-    if re.fullmatch(r"[0-9]+", str(github["run_id"])) is None:
-        raise ValueError("CDC evidence manifest GitHub run ID is invalid")
-    if re.fullmatch(r"[0-9]+", str(github["run_attempt"])) is None:
-        raise ValueError("CDC evidence manifest GitHub run attempt is invalid")
-    if re.fullmatch(r"[0-9a-f]{40}", str(github["sha"])) is None:
-        raise ValueError("CDC evidence manifest GitHub commit is invalid")
+    github: dict[str, object] | None = None
+    operator: dict[str, object] | None = None
+    if route == EVIDENCE_ROUTE:
+        github_value = manifest.get("github")
+        if not isinstance(github_value, dict) or set(github_value) != {
+            "repository",
+            "run_id",
+            "run_attempt",
+            "sha",
+        }:
+            raise ValueError("CDC evidence manifest GitHub provenance is incomplete")
+        github = github_value
+        if github.get("repository") != "Caraway-Labs/one-health-lyme-gap-atlas-data":
+            raise ValueError("CDC evidence manifest repository is not approved")
+        if not all(isinstance(github.get(key), str) and github[key] for key in github):
+            raise ValueError("CDC evidence manifest GitHub provenance values are invalid")
+        if re.fullmatch(r"[0-9]+", str(github["run_id"])) is None:
+            raise ValueError("CDC evidence manifest GitHub run ID is invalid")
+        if re.fullmatch(r"[0-9]+", str(github["run_attempt"])) is None:
+            raise ValueError("CDC evidence manifest GitHub run attempt is invalid")
+        if re.fullmatch(r"[0-9a-f]{40}", str(github["sha"])) is None:
+            raise ValueError("CDC evidence manifest GitHub commit is invalid")
+    else:
+        operator_value = manifest.get("operator")
+        if not isinstance(operator_value, dict) or set(operator_value) != {
+            "retrieval_id",
+            "acquisition_method",
+            "attestation",
+        }:
+            raise ValueError("CDC evidence manifest operator provenance is incomplete")
+        operator = operator_value
+        try:
+            uuid.UUID(str(operator["retrieval_id"]))
+        except (ValueError, TypeError) as error:
+            raise ValueError("CDC evidence operator retrieval ID is invalid") from error
+        if (
+            operator.get("acquisition_method") != "BROWSER_DOWNLOAD_AND_PRINT"
+            or operator.get("attestation") != "FILES_SAVED_FROM_PINNED_FIRST_PARTY_CDC_PAGE"
+        ):
+            raise ValueError("CDC evidence operator acquisition attestation is not approved")
 
     base_digest = manifest.get("base_image_digest")
     envelope_digest = os.getenv("TICK_EVIDENCE_ENVELOPE_DIGEST", "")
     runtime_base_digest = os.getenv("TICK_EVIDENCE_BASE_IMAGE_DIGEST", "")
     runtime_run_id = os.getenv("TICK_EVIDENCE_GITHUB_RUN_ID", "")
+    runtime_retrieval_id = os.getenv("TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID", "")
     if (
         not isinstance(base_digest, str)
         or IMAGE_DIGEST_PATTERN.fullmatch(base_digest) is None
@@ -254,14 +294,23 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
         raise ValueError("CDC evidence base image digest is missing or does not match")
     if IMAGE_DIGEST_PATTERN.fullmatch(envelope_digest) is None:
         raise ValueError("CDC evidence envelope image digest is missing or invalid")
-    if runtime_run_id != github["run_id"]:
+    if route == EVIDENCE_ROUTE and github is not None and runtime_run_id != github["run_id"]:
         raise ValueError("CDC evidence GitHub run provenance does not match the runtime")
+    if (
+        route == OPERATOR_EVIDENCE_ROUTE
+        and operator is not None
+        and runtime_retrieval_id != operator["retrieval_id"]
+    ):
+        raise ValueError("CDC evidence operator provenance does not match the runtime")
 
+    landing_purpose = (
+        "SOURCE_LANDING_PAGE" if route == EVIDENCE_ROUTE else "SOURCE_LANDING_PAGE_PRINT"
+    )
     expected = {
-        "SOURCE_LANDING_PAGE": (
-            "landing.html",
+        landing_purpose: (
+            "landing.html" if route == EVIDENCE_ROUTE else "landing.pdf",
             str(profile["landing_page_url"]),
-            "text/html",
+            "text/html" if route == EVIDENCE_ROUTE else PDF_MEDIA_TYPE,
             2_000_000,
         ),
         "SOURCE_WORKBOOK_EVIDENCE": (
@@ -278,7 +327,7 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
     for resource in resources:
         if not isinstance(resource, dict):
             raise ValueError("CDC evidence manifest resource is invalid")
-        if set(resource) != {
+        required_resource_fields = {
             "purpose",
             "filename",
             "requested_url",
@@ -289,7 +338,14 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
             "sha256",
             "etag",
             "last_modified",
-        }:
+        }
+        if route == OPERATOR_EVIDENCE_ROUTE:
+            required_resource_fields |= {
+                "transport",
+                "http_status_observed",
+                "source_file_modified_at",
+            }
+        if set(resource) != required_resource_fields:
             raise ValueError("CDC evidence manifest resource fields do not match the contract")
         purpose = resource.get("purpose")
         if not isinstance(purpose, str) or purpose not in expected or purpose in verified:
@@ -303,8 +359,34 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
         parsed_final = urlparse(final_url)
         if parsed_final.scheme != "https" or parsed_final.hostname != "www.cdc.gov":
             raise ValueError("CDC evidence manifest redirected outside the approved publisher")
-        if resource.get("status_code") != 200 or resource.get("media_type") != media_type:
-            raise ValueError("CDC evidence manifest response status or media type changed")
+        if route == EVIDENCE_ROUTE:
+            if resource.get("status_code") != 200 or resource.get("media_type") != media_type:
+                raise ValueError("CDC evidence manifest response status or media type changed")
+        else:
+            expected_transport = (
+                "BROWSER_PRINT_TO_PDF"
+                if purpose == "SOURCE_LANDING_PAGE_PRINT"
+                else "BROWSER_DOWNLOAD"
+            )
+            if (
+                resource.get("status_code") is not None
+                or resource.get("http_status_observed") is not False
+                or resource.get("media_type") != media_type
+                or resource.get("transport") != expected_transport
+            ):
+                raise ValueError("CDC operator evidence transport metadata is invalid")
+            modified_at = resource.get("source_file_modified_at")
+            if not isinstance(modified_at, str):
+                raise ValueError("CDC operator evidence file timestamp is invalid")
+            try:
+                parsed_modified_at = datetime.fromisoformat(modified_at.replace("Z", "+00:00"))
+            except ValueError as error:
+                raise ValueError("CDC operator evidence file timestamp is invalid") from error
+            if (
+                parsed_modified_at.tzinfo is None
+                or abs((parsed_retrieved_at - parsed_modified_at).total_seconds()) > 3600
+            ):
+                raise ValueError("CDC operator evidence file timestamp is outside the capture")
         payload = (bundle_dir / filename).read_bytes()
         if not payload or len(payload) > maximum_bytes:
             raise ValueError("CDC evidence bundle resource is outside its byte bound")
@@ -319,7 +401,7 @@ def _load_evidence_bundle(bundle_dir: Path, profile: dict[str, Any]) -> Acquisit
             raise ValueError("CDC evidence manifest Last-Modified value is invalid")
         verified[purpose] = FetchResult(payload, media_type, etag, last_modified)
     return AcquisitionBundle(
-        landing=verified["SOURCE_LANDING_PAGE"],
+        landing=verified[landing_purpose],
         workbook=verified["SOURCE_WORKBOOK_EVIDENCE"],
         manifest=manifest,
         manifest_payload=manifest_payload,
@@ -340,8 +422,42 @@ def _parse_workbook(payload: bytes, profile: dict[str, Any], sample_limit: int) 
         ):
             raise ValueError("CDC workbook contains an invalid package member")
     workbook = load_workbook(BytesIO(payload), read_only=True, data_only=True)
-    if len(workbook.sheetnames) > 10 or str(profile["workbook_sheet"]) not in workbook.sheetnames:
+    required_sheets = {
+        "Data Use Agreement",
+        "Classification Terms",
+        str(profile["workbook_sheet"]),
+    }
+    if len(workbook.sheetnames) > 10 or not required_sheets.issubset(workbook.sheetnames):
         raise ValueError("CDC workbook sheet structure changed")
+    agreement_text = " ".join(
+        str(value)
+        for row in workbook["Data Use Agreement"].iter_rows(values_only=True)
+        for value in row
+        if value is not None
+    ).lower()
+    classification_text = " ".join(
+        str(value)
+        for row in workbook["Classification Terms"].iter_rows(values_only=True)
+        for value in row
+        if value is not None
+    ).lower()
+    required_agreement_terms = (
+        "access to arbonet tick module data is limited",
+        "should not be provided to other persons",
+        "appropriately referenced",
+        "final copy",
+        "passive surveillance system",
+    )
+    required_classification_terms = (
+        "established",
+        "reported",
+        "no records",
+        "should not be interpreted as ticks being absent",
+    )
+    if any(term not in agreement_text for term in required_agreement_terms) or any(
+        term not in classification_text for term in required_classification_terms
+    ):
+        raise ValueError("CDC workbook data-use or classification semantics changed")
     sheet = workbook[str(profile["workbook_sheet"])]
     if sheet.max_row is None or sheet.max_column is None or not 3 <= sheet.max_row <= 10_000:
         raise ValueError("CDC workbook row shape is outside the reviewed evidence bound")
@@ -356,6 +472,7 @@ def _parse_workbook(payload: bytes, profile: dict[str, Any], sample_limit: int) 
         raise ValueError("CDC workbook schema changed; steward review is required")
     sample: list[dict[str, object]] = []
     prior_fips = ""
+    row_count = 0
     allowed = set(str(value) for value in profile["allowed_status_values"])
     for values in sheet.iter_rows(min_row=header_row + 1, values_only=True):
         if not any(value is not None for value in values):
@@ -370,9 +487,9 @@ def _parse_workbook(payload: bytes, profile: dict[str, Any], sample_limit: int) 
         for field in ("Ixodes_scapularis_County_Status", "Ixodes_pacificus_county_status"):
             if row[field] not in allowed:
                 raise ValueError("CDC workbook contains an unreviewed county-status value")
-        sample.append(row)
-        if len(sample) == sample_limit:
-            break
+        row_count += 1
+        if len(sample) < sample_limit:
+            sample.append(row)
     if len(sample) != sample_limit:
         raise ValueError("CDC workbook does not contain the requested bounded sample")
     schema = {
@@ -385,9 +502,11 @@ def _parse_workbook(payload: bytes, profile: dict[str, Any], sample_limit: int) 
         "dataset_as_of": str(profile["dataset_as_of"]),
         "temporal_semantics": str(profile["temporal_semantics"]),
         "allowed_status_values": list(profile["allowed_status_values"]),
+        "embedded_data_use_agreement_validated": True,
+        "embedded_classification_terms_validated": True,
         "full_dataset_quality_validated": False,
     }
-    return WorkbookEvidence(sample, sheet.max_row - header_row, schema)
+    return WorkbookEvidence(sample, row_count, schema)
 
 
 def _save_artifact(
@@ -452,7 +571,10 @@ def collect_tick_surveillance_evidence(
                 if bundle is not None
                 else _fetch_bytes(landing_url, accept="text/html", maximum_bytes=2_000_000)
             )
-            _validate_landing_page(landing)
+            if landing.media_type == "text/html":
+                _validate_landing_page(landing)
+            else:
+                _validate_landing_page_pdf(landing)
             workbook = (
                 bundle.workbook
                 if bundle is not None
@@ -487,7 +609,9 @@ def collect_tick_surveillance_evidence(
                     "Reported": "Publisher cumulative reported classification",
                     "No records": "No reported surveillance evidence; not evidence of absence",
                 },
-                "license_or_terms_status": "REVIEW_REQUIRED_EMBEDDED_DATA_USE_AGREEMENT",
+                "license_or_terms_status": (
+                    "RESTRICTED_REVIEW_REQUIRED_EMBEDDED_DATA_USE_AGREEMENT"
+                ),
                 "full_dataset_quality_validated": False,
                 "acquisition_route": (
                     str(bundle.manifest["acquisition_route"])
@@ -500,11 +624,14 @@ def collect_tick_surveillance_evidence(
                 "envelope_image_digest": (
                     os.getenv("TICK_EVIDENCE_ENVELOPE_DIGEST") if bundle is not None else None
                 ),
-                "github": bundle.manifest["github"] if bundle is not None else None,
+                "github": (bundle.manifest.get("github") if bundle is not None else None),
+                "operator": (bundle.manifest.get("operator") if bundle is not None else None),
             }
             metadata_payload = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
             s3 = _spaces_client(settings)
-            landing_artifact = _save_artifact(s3, settings, run_id, landing.payload, "text/html")
+            landing_artifact = _save_artifact(
+                s3, settings, run_id, landing.payload, landing.media_type
+            )
             workbook_artifact = _save_artifact(
                 s3, settings, run_id, workbook.payload, XLSX_MEDIA_TYPE
             )
@@ -530,9 +657,12 @@ def collect_tick_surveillance_evidence(
                 "Cumulative county status through 2025-12-31; No records is not tick absence. "
                 "The workbook does not provide collection effort, abundance, life stage, or "
                 "pathogen testing. Evidence capture retained the byte-bounded publisher workbook "
-                "because no row API exists, but inspected only a bounded sample and did not load "
-                "RAW or validate full-dataset quality. The embedded data-use agreement and source "
-                "citations require steward review."
+                "because no row API exists. It validated schema, keys, ordering, and status "
+                "domains across the worksheet but serialized only a bounded sample; it did not "
+                "load RAW or "
+                "run the complete post-ingestion quality suite. The embedded agreement and source "
+                "citations restrict raw redistribution, require ArboNET attribution, and require "
+                "delivery of a final publication copy to CDC; the steward must review these terms."
             )
             artifact_ids = {
                 name: str(uuid.uuid4())
@@ -602,18 +732,31 @@ def collect_tick_surveillance_evidence(
                         now,
                     ),
                 )
+                operator_route = metadata["acquisition_route"] == OPERATOR_EVIDENCE_ROUTE
+                landing_purpose = (
+                    "SOURCE_LANDING_PAGE_PRINT" if operator_route else "SOURCE_LANDING_PAGE"
+                )
+                request_status = None if operator_route else 200
                 requests = (
-                    (1, "SOURCE_LANDING_PAGE", landing_url, landing_artifact, 1),
+                    (
+                        1,
+                        landing_purpose,
+                        landing_url,
+                        landing_artifact,
+                        1,
+                        request_status,
+                    ),
                     (
                         2,
                         "SOURCE_WORKBOOK_EVIDENCE",
                         workbook_url,
                         workbook_artifact,
                         evidence.row_count,
+                        request_status,
                     ),
                 )
                 request_ids: dict[str, str] = {}
-                for sequence, purpose, endpoint, artifact, row_count in requests:
+                for sequence, purpose, endpoint, artifact, row_count, status_code in requests:
                     request_id = str(uuid.uuid4())
                     request_ids[purpose] = request_id
                     cursor.execute(
@@ -621,7 +764,7 @@ def collect_tick_surveillance_evidence(
                         (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
                          endpoint, redacted_request, status_code, response_sha256,
                          retrieved_row_count, created_at)
-                        SELECT %s, %s, %s, %s, %s, PARSE_JSON(%s), 200, %s, %s, %s""",
+                        SELECT %s, %s, %s, %s, %s, PARSE_JSON(%s), %s, %s, %s, %s""",
                         (
                             request_id,
                             run_id,
@@ -641,9 +784,15 @@ def collect_tick_surveillance_evidence(
                                             if isinstance(metadata["github"], dict)
                                             else None
                                         ),
+                                        "operator_retrieval_id": (
+                                            metadata["operator"].get("retrieval_id")
+                                            if isinstance(metadata["operator"], dict)
+                                            else None
+                                        ),
                                     }
                                 )
                             ),
+                            status_code,
                             artifact.sha256,
                             row_count,
                             now,
@@ -652,10 +801,10 @@ def collect_tick_surveillance_evidence(
                 raw_artifacts: tuple[tuple[str, str, Artifact, str, str], ...] = (
                     (
                         "landing",
-                        "SOURCE_LANDING_PAGE",
+                        landing_purpose,
                         landing_artifact,
-                        "text/html",
-                        request_ids["SOURCE_LANDING_PAGE"],
+                        landing.media_type,
+                        request_ids[landing_purpose],
                     ),
                     (
                         "workbook",
@@ -669,7 +818,7 @@ def collect_tick_surveillance_evidence(
                         "NORMALIZED_SOURCE_METADATA",
                         metadata_artifact,
                         "application/json",
-                        request_ids["SOURCE_LANDING_PAGE"],
+                        request_ids[landing_purpose],
                     ),
                     (
                         "sample",
@@ -686,7 +835,7 @@ def collect_tick_surveillance_evidence(
                             "ACQUISITION_MANIFEST",
                             manifest_artifact,
                             "application/json",
-                            request_ids["SOURCE_LANDING_PAGE"],
+                            request_ids[landing_purpose],
                         ),
                     )
                 for name, artifact_type, artifact, media_type, request_id in raw_artifacts:

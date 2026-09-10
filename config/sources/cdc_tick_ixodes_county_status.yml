@@ -33,4 +33,6 @@ restrictions:
   - County status is cumulative through the stated as-of date and is not an annual abundance measure.
   - Reported and established are publisher classifications, not infection prevalence or human disease risk.
   - The embedded data-use agreement and source citations require steward review before approval.
+  - Raw workbook access is restricted to the requestor and governed service identities; raw bytes must not be exposed through Streamlit, APIs, public web pages, GitHub artifacts, or logs.
+  - Derived publications require ArboNET attribution and delivery of a final copy to the CDC contact identified in the workbook.
   - Collection effort, sampling method, life stage, abundance, and pathogen testing are not supplied by this county-status workbook.

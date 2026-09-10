@@ -97,13 +97,17 @@ does not add an unattended historical refresh schedule.
 The next DEV-only evidence candidate is the CDC county-status workbook for
 *Ixodes scapularis* and *Ixodes pacificus*. Run
 `pipeline cdc-tick-surveillance-sample` only through the protected DEV evidence
-workflow. Under ADR 0022, GitHub transports only the two pinned public CDC files
-in a checksum-bound, short-lived private OCI envelope; it receives no Snowflake
-or Spaces credentials. The DEV runtime independently verifies and retains the
-first-party landing page, acquisition manifest, byte-bounded publisher workbook,
-and a 25-row deterministic review sample as private artifacts. It creates a
+workflow. Under ADR 0023, a repository-owned local CLI validates the operator's
+browser print and county-status workbook, then transports them in a checksum-bound,
+short-lived private OCI envelope; raw bytes never enter GitHub and GitHub receives
+no Snowflake or Spaces credentials. The DEV runtime independently verifies and
+retains the operator landing-page print, acquisition manifest, byte-bounded
+publisher workbook, embedded terms, and a 25-row deterministic review sample as
+private artifacts. It creates a
 `PENDING_REVIEW` candidate but writes no RAW rows, runs no dbt models, records
 no steward decision, and has no PROD or scheduled path.
+The separately supplied pathogen-status workbook is not part of this candidate;
+it requires its own canonical mapping and governed decision.
 The canonical mapping contract is
 [`canonical-tick-surveillance-v1.md`](docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.md).
 
