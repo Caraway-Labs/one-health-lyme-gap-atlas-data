@@ -33,6 +33,10 @@ PROFILE_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "sources" / "cdc_tick_ixodes_county_status.yml"
 )
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
 EXPECTED_HEADERS = (
     "FIPSCode",
     "State",
@@ -93,7 +97,13 @@ def _fetch_bytes(
     """Fetch one exact public CDC resource with a strict response bound."""
     if urlparse(url).scheme != "https" or urlparse(url).hostname != "www.cdc.gov":
         raise ValueError("Tick-surveillance evidence allows only first-party CDC HTTPS resources")
-    headers = {"Accept": accept, "User-Agent": "AtlasGovernedEvidence/1.0"}
+    headers = {
+        "Accept": accept,
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "User-Agent": BROWSER_USER_AGENT,
+    }
     if referer:
         headers["Referer"] = referer
     for attempt in range(retries):
@@ -133,6 +143,15 @@ def _fetch_bytes(
                 raise
             time.sleep(2**attempt)
     raise AssertionError("unreachable")
+
+
+def _failure_classification(error: Exception) -> str:
+    """Return a bounded, non-secret classification for retained failure evidence."""
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"HTTP_{error.response.status_code}"
+    if isinstance(error, ValueError):
+        return "SOURCE_VALIDATION_FAILED"
+    return "EVIDENCE_CAPTURE_FAILED"
 
 
 def _validate_landing_page(result: FetchResult) -> None:
@@ -245,77 +264,85 @@ def collect_tick_surveillance_evidence(sample_limit: int = 25) -> dict[str, obje
     profile = load_tick_profile()
     landing_url = str(profile["landing_page_url"])
     workbook_url = str(profile["endpoint_template"])
-    landing = _fetch_bytes(landing_url, accept="text/html", maximum_bytes=2_000_000)
-    _validate_landing_page(landing)
-    workbook = _fetch_bytes(
-        workbook_url,
-        accept=XLSX_MEDIA_TYPE,
-        maximum_bytes=int(profile["maximum_workbook_bytes"]),
-        referer=landing_url,
-    )
-    if workbook.media_type != XLSX_MEDIA_TYPE:
-        raise ValueError("CDC tick-surveillance workbook media type changed")
-    evidence = _parse_workbook(workbook.payload, profile, sample_limit)
-
     run_id = str(uuid.uuid4())
     now = datetime.now(UTC)
     profile_sha256 = hashlib.sha256(
         yaml.safe_dump(profile, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    schema_payload = json.dumps(evidence.schema, sort_keys=True, separators=(",", ":"))
-    schema_sha256 = hashlib.sha256(schema_payload.encode()).hexdigest()
-    sample_payload = json.dumps(evidence.sample, sort_keys=True, separators=(",", ":")).encode()
-    metadata = {
-        "title": "Blacklegged and western blacklegged tick county status",
-        "publisher": "CDC National Center for Emerging and Zoonotic Infectious Diseases",
-        "source_dataset_id": SOURCE_DATASET_ID,
-        "landing_page_url": landing_url,
-        "workbook_url": workbook_url,
-        "dataset_as_of": str(profile["dataset_as_of"]),
-        "workbook_etag": workbook.etag,
-        "workbook_last_modified": workbook.last_modified,
-        "workbook_rows": evidence.row_count,
-        "sample_rows": len(evidence.sample),
-        "county_status_semantics": {
-            "Established": "Publisher cumulative established classification",
-            "Reported": "Publisher cumulative reported classification",
-            "No records": "No reported surveillance evidence; not evidence of absence",
-        },
-        "license_or_terms_status": "REVIEW_REQUIRED_EMBEDDED_DATA_USE_AGREEMENT",
-        "full_dataset_quality_validated": False,
-    }
-    metadata_payload = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
-    s3 = _spaces_client(settings)
-    landing_artifact = _save_artifact(s3, settings, run_id, landing.payload, "text/html")
-    workbook_artifact = _save_artifact(s3, settings, run_id, workbook.payload, XLSX_MEDIA_TYPE)
-    metadata_artifact = _save_artifact(s3, settings, run_id, metadata_payload, "application/json")
-    sample_artifact = _save_artifact(s3, settings, run_id, sample_payload, "application/json")
-    assessment = Assessment(95, 95, 65, 90, 65)
-    limitations = (
-        "Cumulative county status through 2025-12-31; No records is not tick absence. "
-        "The workbook does not provide collection effort, abundance, life stage, or pathogen "
-        "testing. "
-        "Evidence capture retained the byte-bounded publisher workbook because no row API exists, "
-        "but inspected only a bounded sample and did not load RAW or validate full-dataset "
-        "quality. "
-        "The embedded data-use agreement and source citations require steward review."
-    )
-    artifact_ids = {
-        name: str(uuid.uuid4()) for name in ("landing", "workbook", "metadata", "sample")
-    }
 
     with connect(SnowflakeSettings()) as connection:
-        connection.autocommit(False)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version,
+                 config_sha256, started_at)
+                VALUES (%s, %s, 'EVIDENCE_ONLY', 'MANUAL', 'RUNNING',
+                        'cdc-tick-ixodes-evidence-v1', %s, %s)""",
+                (run_id, RESOURCE_KEY, profile_sha256, now),
+            )
+        connection.commit()
         try:
+            landing = _fetch_bytes(landing_url, accept="text/html", maximum_bytes=2_000_000)
+            _validate_landing_page(landing)
+            workbook = _fetch_bytes(
+                workbook_url,
+                accept=XLSX_MEDIA_TYPE,
+                maximum_bytes=int(profile["maximum_workbook_bytes"]),
+                referer=landing_url,
+            )
+            if workbook.media_type != XLSX_MEDIA_TYPE:
+                raise ValueError("CDC tick-surveillance workbook media type changed")
+            evidence = _parse_workbook(workbook.payload, profile, sample_limit)
+            schema_payload = json.dumps(evidence.schema, sort_keys=True, separators=(",", ":"))
+            schema_sha256 = hashlib.sha256(schema_payload.encode()).hexdigest()
+            sample_payload = json.dumps(
+                evidence.sample, sort_keys=True, separators=(",", ":")
+            ).encode()
+            metadata = {
+                "title": "Blacklegged and western blacklegged tick county status",
+                "publisher": "CDC National Center for Emerging and Zoonotic Infectious Diseases",
+                "source_dataset_id": SOURCE_DATASET_ID,
+                "landing_page_url": landing_url,
+                "workbook_url": workbook_url,
+                "dataset_as_of": str(profile["dataset_as_of"]),
+                "workbook_etag": workbook.etag,
+                "workbook_last_modified": workbook.last_modified,
+                "workbook_rows": evidence.row_count,
+                "sample_rows": len(evidence.sample),
+                "county_status_semantics": {
+                    "Established": "Publisher cumulative established classification",
+                    "Reported": "Publisher cumulative reported classification",
+                    "No records": "No reported surveillance evidence; not evidence of absence",
+                },
+                "license_or_terms_status": "REVIEW_REQUIRED_EMBEDDED_DATA_USE_AGREEMENT",
+                "full_dataset_quality_validated": False,
+            }
+            metadata_payload = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+            s3 = _spaces_client(settings)
+            landing_artifact = _save_artifact(s3, settings, run_id, landing.payload, "text/html")
+            workbook_artifact = _save_artifact(
+                s3, settings, run_id, workbook.payload, XLSX_MEDIA_TYPE
+            )
+            metadata_artifact = _save_artifact(
+                s3, settings, run_id, metadata_payload, "application/json"
+            )
+            sample_artifact = _save_artifact(
+                s3, settings, run_id, sample_payload, "application/json"
+            )
+            assessment = Assessment(95, 95, 65, 90, 65)
+            limitations = (
+                "Cumulative county status through 2025-12-31; No records is not tick absence. "
+                "The workbook does not provide collection effort, abundance, life stage, or "
+                "pathogen testing. Evidence capture retained the byte-bounded publisher workbook "
+                "because no row API exists, but inspected only a bounded sample and did not load "
+                "RAW or validate full-dataset quality. The embedded data-use agreement and source "
+                "citations require steward review."
+            )
+            artifact_ids = {
+                name: str(uuid.uuid4()) for name in ("landing", "workbook", "metadata", "sample")
+            }
+            connection.autocommit(False)
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """INSERT INTO GOVERNANCE.INGESTION_RUNS
-                    (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version,
-                     config_sha256, started_at, completed_at)
-                    VALUES (%s, %s, 'EVIDENCE_ONLY', 'MANUAL', 'COMPLETED',
-                            'cdc-tick-ixodes-evidence-v1', %s, %s, %s)""",
-                    (run_id, RESOURCE_KEY, profile_sha256, now, now),
-                )
                 catalog_dataset_id = str(uuid.uuid4())
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.CATALOG_DATASETS
@@ -506,9 +533,29 @@ def collect_tick_surveillance_evidence(sample_limit: int = 25) -> dict[str, obje
                         now,
                     ),
                 )
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status='COMPLETED', completed_at=%s
+                    WHERE ingestion_run_id=%s""",
+                    (datetime.now(UTC), run_id),
+                )
             connection.commit()
-        except Exception:
+        except Exception as error:
             connection.rollback()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status='FAILED', completed_at=%s, error_classification=%s,
+                        redacted_error=%s
+                    WHERE ingestion_run_id=%s""",
+                    (
+                        datetime.now(UTC),
+                        _failure_classification(error),
+                        "CDC tick-surveillance evidence capture failed; review protected logs",
+                        run_id,
+                    ),
+                )
+            connection.commit()
             raise
     return {
         "ingestion_run_id": run_id,

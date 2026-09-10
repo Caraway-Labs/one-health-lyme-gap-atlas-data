@@ -30,6 +30,12 @@ evidence but inspects and serializes only the first 25 FIPS-ordered rows as the
 review sample. It also snapshots the landing page, embedded data-use agreement,
 schema, response checksums, assessment, and source limitations.
 
+The connector sends browser-compatible request headers because the CDC web
+front door rejects generic cloud-client traffic. Redirects remain restricted
+to first-party CDC HTTPS URLs. A non-retryable HTTP response such as 403 is
+retained as a failed `EVIDENCE_ONLY` run with only a bounded error
+classification; it is not blindly retried and does not create a candidate.
+
 ## Required verification
 
 - the temporary job completed and the exact prior DEV topology was restored;

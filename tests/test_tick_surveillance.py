@@ -143,6 +143,64 @@ def test_tick_evidence_rejects_non_dev_before_network_or_storage(
     fetch.assert_not_called()
 
 
+def test_cdc_fetch_uses_browser_compatible_first_party_request_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.status_code = 200
+    response.url = "https://www.cdc.gov/ticks/example.html"
+    response.headers = {"content-type": "text/html", "content-length": "2"}
+    response.iter_bytes.return_value = iter([b"ok"])
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.stream.return_value = response
+    monkeypatch.setattr(tick.httpx, "Client", lambda **_kwargs: client)
+
+    result = tick._fetch_bytes(
+        "https://www.cdc.gov/ticks/example.html",
+        accept="text/html",
+        maximum_bytes=100,
+    )
+
+    assert result.payload == b"ok"
+    headers = client.stream.call_args.kwargs["headers"]
+    assert headers["User-Agent"] == tick.BROWSER_USER_AGENT
+    assert headers["Accept-Language"] == "en-US,en;q=0.9"
+    assert headers["Cache-Control"] == "no-cache"
+
+
+def test_tick_evidence_retains_non_retryable_http_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = SimpleNamespace(topx_env="dev")
+    monkeypatch.setattr(tick, "PipelineSettings", lambda: settings)
+    request = tick.httpx.Request("GET", str(profile()["landing_page_url"]))
+    response = tick.httpx.Response(403, request=request)
+    monkeypatch.setattr(
+        tick,
+        "_fetch_bytes",
+        MagicMock(
+            side_effect=tick.httpx.HTTPStatusError("forbidden", request=request, response=response)
+        ),
+    )
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    monkeypatch.setattr(tick, "connect", lambda _: connection)
+
+    with pytest.raises(tick.httpx.HTTPStatusError):
+        tick.collect_tick_surveillance_evidence()
+
+    cursor = connection.cursor.return_value.__enter__.return_value
+    statements = [call.args[0] for call in cursor.execute.call_args_list]
+    assert "'RUNNING'" in statements[0]
+    assert "status='FAILED'" in statements[-1]
+    assert cursor.execute.call_args_list[-1].args[1][1] == "HTTP_403"
+    assert "forbidden" not in statements[-1]
+    connection.rollback.assert_called_once()
+    assert connection.commit.call_count == 2
+
+
 def test_tick_evidence_creates_only_pending_review_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -227,7 +285,7 @@ def test_tick_evidence_creates_only_pending_review_evidence(
         "COPY INTO",
     ):
         assert forbidden not in rendered
-    connection.commit.assert_called_once()
+    assert connection.commit.call_count == 2
     connection.rollback.assert_not_called()
 
 
