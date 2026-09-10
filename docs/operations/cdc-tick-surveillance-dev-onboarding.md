@@ -17,33 +17,38 @@ schedule, or make a PROD change.
 ## Evidence capture
 
 Dispatch `capture-dev-cdc-tick-surveillance.yml` with the active DEV digest.
+The workflow first retrieves exactly the pinned public landing page and workbook
+on its GitHub-hosted runner. It enforces first-party HTTPS redirects, status, media
+type, byte bounds, and checksums, then builds a short-lived private OCI evidence
+envelope from the exact active DEV digest. GitHub never receives the DEV
+Snowflake or Spaces credentials.
+
 The temporary non-routable PRE_DEPLOY job runs only:
 
 ```text
-uv run atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25
+/app/.venv/bin/atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence
 ```
 
-Because CDC supplies a workbook rather than a row API, the command downloads
-the complete publisher file under a one-megabyte compressed and ten-megabyte
-uncompressed bound. It retains that unchanged file privately for reproducible
-evidence but inspects and serializes only the first 25 FIPS-ordered rows as the
-review sample. It also snapshots the landing page, embedded data-use agreement,
-schema, response checksums, assessment, and source limitations.
-
-The connector sends browser-compatible request headers because the CDC web
-front door rejects generic cloud-client traffic. Redirects remain restricted
-to first-party CDC HTTPS URLs. A non-retryable HTTP response such as 403 is
-retained as a failed `EVIDENCE_ONLY` run with only a bounded error
-classification; it is not blindly retried and does not create a candidate.
+Because CDC supplies a workbook rather than a row API, the envelope includes the
+complete publisher file under a one-megabyte compressed bound. The DEV runtime
+independently recomputes both payload checksums and validates the acquisition
+manifest, GitHub run identity, active base digest, short-lived envelope digest,
+URLs, media types, ten-megabyte uncompressed bound, workbook schema, and source
+semantics. Only then does it persist the unchanged source bytes and manifest to
+private Spaces and append Snowflake evidence. It serializes only the first 25
+FIPS-ordered rows as the review sample. Any mismatch is retained as a failed
+`EVIDENCE_ONLY` run and creates no candidate.
 
 ## Required verification
 
 - the temporary job completed and the exact prior DEV topology was restored;
+- the temporary private-registry tag was removed and both base and envelope
+  digests appear in retained evidence;
 - one completed `EVIDENCE_ONLY` run exists for
   `cdc_tick_ixodes_county_status`;
 - the request ledger contains the landing page and workbook checksums;
-- private artifacts contain the landing page, normalized metadata, unchanged
-  workbook, and derived ordered sample;
+- private artifacts contain the landing page, acquisition manifest, normalized
+  metadata, unchanged workbook, and derived ordered sample;
 - the schema lists the seven reviewed workbook columns;
 - the assessment is `PENDING_REVIEW` and explicitly says `No records` is not
   evidence of absence;

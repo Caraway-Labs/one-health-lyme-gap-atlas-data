@@ -35,6 +35,7 @@ An implementation agent must follow these decisions. It may propose alternatives
 | Python tooling | `uv`, committed `uv.lock`, Ruff, mypy, pytest. |
 | Test strategy | Fixture-based unit/CI tests plus separate read-only live catalog/API smoke tests. |
 | Operational visibility | Snowflake governance ledger and DigitalOcean App Platform logs only in the MVP. No external alert integration. |
+| Bounded public-source transport | ADR 0022 permits one DEV-only CDC evidence envelope: GitHub retrieves exactly two pinned public files without data-platform credentials; the isolated runtime independently verifies and persists them. This is not a general or PROD connector. |
 | Snowflake change management | Ordered, idempotent, numbered SQL migrations run by the deployment pipeline, with applied versions/checksums recorded in Snowflake. |
 
 ## Target architecture

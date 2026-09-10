@@ -23,21 +23,29 @@ jobs:
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
       IMAGE_DIGEST: ${{ inputs.image_digest }}
+      LANDING_URL: https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html
+      WORKBOOK_URL: https://www.cdc.gov/ticks/media/files/2026/04/Public_Use_Ixodes_County_Table_2026_03252026.xlsx
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           version: "1.160.1"
-      - name: Capture bounded workbook evidence and restore DEV topology
+      - name: Capture, seal, validate, and restore DEV topology
         shell: bash
         run: |
           set -Eeuo pipefail
+          umask 077
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           baseline="$(mktemp)"
           capture="$(mktemp)"
+          bundle="$(mktemp -d)"
           baseline_captured=false
+          envelope_tag="tick-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          envelope_digest=""
+          tag_pushed=false
 
           restore() {
             status=$?
@@ -51,7 +59,14 @@ jobs:
                 status=1
               fi
             fi
-            rm -f "$baseline" "$capture"
+            if [ "$tag_pushed" = true ]; then
+              doctl registry repository delete-tag pipeline "$envelope_tag" --force
+              if [ "$?" -ne 0 ]; then
+                echo "::error::Temporary evidence-envelope tag removal failed."
+                status=1
+              fi
+            fi
+            rm -rf "$baseline" "$capture" "$bundle"
             trap - EXIT
             exit "$status"
           }
@@ -64,14 +79,153 @@ jobs:
           test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline")" = "0"
           baseline_captured=true
 
-          jq '
+          fetch_public_resource() {
+            url="$1"
+            accept="$2"
+            output="$3"
+            metadata="$4"
+            maximum_bytes="$5"
+            referer="${6:-}"
+            args=(
+              --silent --show-error --fail --location --max-redirs 3
+              --proto '=https' --proto-redir '=https'
+              --connect-timeout 15 --max-time 60 --max-filesize "$maximum_bytes"
+              --header "Accept: $accept"
+              --header 'Accept-Language: en-US,en;q=0.9'
+              --header 'Cache-Control: no-cache'
+              --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36'
+            )
+            if [ -n "$referer" ]; then
+              args+=(--referer "$referer")
+            fi
+            curl "${args[@]}" --output "$output" \
+              --write-out '%{url_effective}\n%{http_code}\n%{content_type}\n' "$url" > "$metadata"
+            mapfile -t response < "$metadata"
+            test "${response[1]}" = "200"
+            test -s "$output"
+            test "$(stat --format=%s "$output")" -le "$maximum_bytes"
+            python - "${response[0]}" <<'PY'
+          import sys
+          from urllib.parse import urlparse
+
+          parsed = urlparse(sys.argv[1])
+          if parsed.scheme != "https" or parsed.hostname != "www.cdc.gov":
+              raise SystemExit("CDC evidence redirect left the approved first-party HTTPS host")
+          PY
+          }
+
+          fetch_public_resource "$LANDING_URL" text/html \
+            "$bundle/landing.html" "$bundle/landing.response" 2000000
+          fetch_public_resource "$WORKBOOK_URL" \
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet \
+            "$bundle/workbook.xlsx" "$bundle/workbook.response" 1048576 "$LANDING_URL"
+          mapfile -t landing_response < "$bundle/landing.response"
+          mapfile -t workbook_response < "$bundle/workbook.response"
+          test "${landing_response[2]%%;*}" = "text/html"
+          test "${workbook_response[2]%%;*}" = \
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+          landing_bytes="$(stat --format=%s "$bundle/landing.html")"
+          workbook_bytes="$(stat --format=%s "$bundle/workbook.xlsx")"
+          landing_sha="$(sha256sum "$bundle/landing.html" | cut -d' ' -f1)"
+          workbook_sha="$(sha256sum "$bundle/workbook.xlsx" | cut -d' ' -f1)"
+          retrieved_at="$(date --utc +'%Y-%m-%dT%H:%M:%SZ')"
+          jq -n \
+            --arg route "GITHUB_ACTIONS_CDC_EVIDENCE_V1" \
+            --arg retrieved_at "$retrieved_at" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg sha "$GITHUB_SHA" \
+            --arg base_digest "$IMAGE_DIGEST" \
+            --arg landing_url "$LANDING_URL" \
+            --arg landing_final "${landing_response[0]}" \
+            --arg landing_sha "$landing_sha" \
+            --argjson landing_bytes "$landing_bytes" \
+            --arg workbook_url "$WORKBOOK_URL" \
+            --arg workbook_final "${workbook_response[0]}" \
+            --arg workbook_sha "$workbook_sha" \
+            --argjson workbook_bytes "$workbook_bytes" \
+            '{
+              manifest_version: 1,
+              acquisition_route: $route,
+              retrieved_at: $retrieved_at,
+              github: {
+                repository: $repository,
+                run_id: $run_id,
+                run_attempt: $run_attempt,
+                sha: $sha
+              },
+              base_image_digest: $base_digest,
+              resources: [
+                {
+                  purpose: "SOURCE_LANDING_PAGE",
+                  filename: "landing.html",
+                  requested_url: $landing_url,
+                  final_url: $landing_final,
+                  status_code: 200,
+                  media_type: "text/html",
+                  byte_count: $landing_bytes,
+                  sha256: $landing_sha,
+                  etag: null,
+                  last_modified: null
+                },
+                {
+                  purpose: "SOURCE_WORKBOOK_EVIDENCE",
+                  filename: "workbook.xlsx",
+                  requested_url: $workbook_url,
+                  final_url: $workbook_final,
+                  status_code: 200,
+                  media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  byte_count: $workbook_bytes,
+                  sha256: $workbook_sha,
+                  etag: null,
+                  last_modified: null
+                }
+              ]
+            }' > "$bundle/acquisition-manifest.json"
+          rm -f "$bundle/landing.response" "$bundle/workbook.response"
+
+          printf '%s\n' \
+            'ARG BASE_IMAGE' \
+            'FROM ${BASE_IMAGE}' \
+            'COPY --chmod=0444 landing.html workbook.xlsx acquisition-manifest.json /run/atlas-tick-evidence/' \
+            > "$bundle/Dockerfile"
+          doctl registry login --expiry-seconds 1200
+          docker build --platform linux/amd64 \
+            --build-arg "BASE_IMAGE=${IMAGE}@${IMAGE_DIGEST}" \
+            --tag "${IMAGE}:${envelope_tag}" "$bundle"
+          docker push "${IMAGE}:${envelope_tag}"
+          tag_pushed=true
+          for attempt in $(seq 1 12); do
+            envelope_digest="$(doctl registry repository list-manifests pipeline --output json \
+              | jq -r --arg tag "$envelope_tag" '.[] | select(.tags | index($tag)) | .digest')"
+            test -n "$envelope_digest" && break
+            sleep 5
+          done
+          [[ "$envelope_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          jq \
+            --arg envelope_digest "$envelope_digest" \
+            --arg base_digest "$IMAGE_DIGEST" \
+            --arg github_run_id "$GITHUB_RUN_ID" '
             (.jobs[] | select(.name == "catalog-ingestion")) as $template
             | .jobs += [
                 $template
                 | .name = "cdc-tick-evidence-once"
                 | .kind = "PRE_DEPLOY"
-                | .run_command = "uv run atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25"
+                | .image.digest = $envelope_digest
+                | .run_command = "/app/.venv/bin/atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
                 | del(.schedule)
+                | .envs = ((.envs // [])
+                    | map(select(.key != "TICK_EVIDENCE_BASE_IMAGE_DIGEST"
+                        and .key != "TICK_EVIDENCE_ENVELOPE_DIGEST"
+                        and .key != "TICK_EVIDENCE_GITHUB_RUN_ID"))
+                    + [
+                        {key: "TICK_EVIDENCE_BASE_IMAGE_DIGEST", scope: "RUN_TIME", value: $base_digest},
+                        {key: "TICK_EVIDENCE_ENVELOPE_DIGEST", scope: "RUN_TIME", value: $envelope_digest},
+                        {key: "TICK_EVIDENCE_GITHUB_RUN_ID", scope: "RUN_TIME", value: $github_run_id}
+                      ])
               ]
           ' "$baseline" > "$capture"
 
