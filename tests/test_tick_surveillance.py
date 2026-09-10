@@ -544,6 +544,9 @@ def test_dev_tick_review_migrations_and_workflow_preserve_scope() -> None:
     assert "TICK_EVIDENCE_BASE_IMAGE_DIGEST" in operator_workflow
     assert "TICK_EVIDENCE_ENVELOPE_DIGEST" in operator_workflow
     assert "PRE_DEPLOY" in operator_workflow
+    assert ".jobs |= map(.image.digest = $envelope_digest)" in operator_workflow
+    assert "[.jobs[].image.digest] | unique | length" in operator_workflow
+    assert 'sort -u)" = "$ENVELOPE_DIGEST"' in operator_workflow
     assert "SNOWFLAKE_" not in operator_workflow
     assert "SPACES_" not in operator_workflow
     for forbidden in ("ingest-approved", "dbt", "PROD_APP_ID", "production"):
