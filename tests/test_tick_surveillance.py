@@ -29,10 +29,16 @@ def workbook_bytes(
     workbook = Workbook()
     agreement = workbook.active
     agreement.title = "Data Use Agreement"
-    agreement.append(["Tick surveillance data release guidelines"])
+    agreement.append(["Access to ArboNET Tick Module data is limited to the Requestor."])
+    agreement.append(["These data should not be provided to other persons."])
+    agreement.append(["ArboNET will be appropriately referenced."])
+    agreement.append(["A final copy of publications will be provided to CDC."])
+    agreement.append(["ArboNET is a passive surveillance system."])
     terms = workbook.create_sheet("Classification Terms")
     terms.append(["County Classification", "Definition"])
-    terms.append(["No records", "No reported surveillance evidence"])
+    terms.append(["Established", "Reviewed publisher definition"])
+    terms.append(["Reported", "Reviewed publisher definition"])
+    terms.append(["No records", "No records should not be interpreted as ticks being absent."])
     data = workbook.create_sheet("Ixodes records 2025")
     data.append(["Ixodes status through Dec. 31, 2025"])
     data.append(list(headers))
@@ -114,6 +120,65 @@ def write_evidence_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     return tmp_path
 
 
+def write_operator_evidence_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    landing = b"%PDF-1.7\nfixture operator print\n%%EOF\n"
+    workbook = workbook_bytes()
+    (tmp_path / "landing.pdf").write_bytes(landing)
+    (tmp_path / "workbook.xlsx").write_bytes(workbook)
+    base_digest = "sha256:" + "a" * 64
+    envelope_digest = "sha256:" + "b" * 64
+    retrieval_id = "12345678-1234-4234-8234-123456789abc"
+    retrieved_at = tick.datetime.now(tick.UTC).isoformat()
+    manifest = {
+        "manifest_version": 2,
+        "acquisition_route": tick.OPERATOR_EVIDENCE_ROUTE,
+        "retrieved_at": retrieved_at,
+        "operator": {
+            "retrieval_id": retrieval_id,
+            "acquisition_method": "BROWSER_DOWNLOAD_AND_PRINT",
+            "attestation": "FILES_SAVED_FROM_PINNED_FIRST_PARTY_CDC_PAGE",
+        },
+        "base_image_digest": base_digest,
+        "resources": [
+            {
+                "purpose": "SOURCE_LANDING_PAGE_PRINT",
+                "filename": "landing.pdf",
+                "requested_url": profile()["landing_page_url"],
+                "final_url": profile()["landing_page_url"],
+                "status_code": None,
+                "http_status_observed": False,
+                "media_type": tick.PDF_MEDIA_TYPE,
+                "byte_count": len(landing),
+                "sha256": hashlib.sha256(landing).hexdigest(),
+                "etag": None,
+                "last_modified": None,
+                "transport": "BROWSER_PRINT_TO_PDF",
+                "source_file_modified_at": retrieved_at,
+            },
+            {
+                "purpose": "SOURCE_WORKBOOK_EVIDENCE",
+                "filename": "workbook.xlsx",
+                "requested_url": profile()["endpoint_template"],
+                "final_url": profile()["endpoint_template"],
+                "status_code": None,
+                "http_status_observed": False,
+                "media_type": tick.XLSX_MEDIA_TYPE,
+                "byte_count": len(workbook),
+                "sha256": hashlib.sha256(workbook).hexdigest(),
+                "etag": None,
+                "last_modified": None,
+                "transport": "BROWSER_DOWNLOAD",
+                "source_file_modified_at": retrieved_at,
+            },
+        ],
+    }
+    (tmp_path / "acquisition-manifest.json").write_text(json.dumps(manifest))
+    monkeypatch.setenv("TICK_EVIDENCE_BASE_IMAGE_DIGEST", base_digest)
+    monkeypatch.setenv("TICK_EVIDENCE_ENVELOPE_DIGEST", envelope_digest)
+    monkeypatch.setenv("TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID", retrieval_id)
+    return tmp_path
+
+
 def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     schema = json.loads(
         Path(
@@ -153,6 +218,26 @@ def test_workbook_parser_preserves_status_and_bounded_fips_order() -> None:
     assert evidence.sample[1]["Ixodes_scapularis_County_Status"] == "No records"
     assert evidence.schema["full_dataset_quality_validated"] is False
     assert evidence.schema["headers"] == list(tick.EXPECTED_HEADERS)
+    assert evidence.schema["embedded_data_use_agreement_validated"] is True
+    assert evidence.schema["embedded_classification_terms_validated"] is True
+
+
+def test_workbook_parser_validates_rows_beyond_serialized_sample() -> None:
+    rows = [
+        (
+            f"{1000 + index:05d}",
+            "Fixture State",
+            f"Fixture County {index}",
+            "Reported",
+            "Fixture citation",
+            "Reported" if index < 30 else "Absent",
+            "Fixture citation",
+        )
+        for index in range(1, 31)
+    ]
+
+    with pytest.raises(ValueError, match="unreviewed county-status"):
+        tick._parse_workbook(workbook_bytes(rows=rows), profile(), 25)
 
 
 @pytest.mark.parametrize(
@@ -265,6 +350,61 @@ def test_evidence_bundle_verifies_checksums_and_runtime_provenance(
     assert bundle.landing.media_type == "text/html"
     assert bundle.workbook.media_type == tick.XLSX_MEDIA_TYPE
     assert bundle.manifest["acquisition_route"] == tick.EVIDENCE_ROUTE
+
+
+def test_operator_evidence_bundle_preserves_unobserved_http_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tick._load_evidence_bundle(
+        write_operator_evidence_bundle(tmp_path, monkeypatch), profile()
+    )
+
+    assert bundle.landing.media_type == tick.PDF_MEDIA_TYPE
+    assert bundle.manifest["acquisition_route"] == tick.OPERATOR_EVIDENCE_ROUTE
+    assert bundle.manifest["resources"][0]["status_code"] is None
+
+
+def test_operator_evidence_bundle_fails_on_retrieval_identity_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle_dir = write_operator_evidence_bundle(tmp_path, monkeypatch)
+    monkeypatch.setenv("TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID", str(tick.uuid.uuid4()))
+
+    with pytest.raises(ValueError, match="operator provenance"):
+        tick._load_evidence_bundle(bundle_dir, profile())
+
+
+def test_operator_evidence_records_unknown_http_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = SimpleNamespace(
+        topx_env="dev",
+        spaces_bucket="fixture-dev",
+        spaces_prefix="dev",
+    )
+    monkeypatch.setattr(tick, "PipelineSettings", lambda: settings)
+    bundle_dir = write_operator_evidence_bundle(tmp_path, monkeypatch)
+    s3 = MagicMock()
+    monkeypatch.setattr(tick, "_spaces_client", lambda _: s3)
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    monkeypatch.setattr(tick, "connect", lambda _: connection)
+
+    result = tick.collect_tick_surveillance_evidence(25, evidence_bundle_dir=bundle_dir)
+
+    assert result["status"] == "PENDING_STEWARD_REVIEW"
+    cursor = connection.cursor.return_value.__enter__.return_value
+    request_calls = [
+        call
+        for call in cursor.execute.call_args_list
+        if "GOVERNANCE.INGESTION_REQUESTS" in call.args[0]
+    ]
+    assert len(request_calls) == 2
+    assert all(call.args[1][6] is None for call in request_calls)
+    assert any(
+        call.kwargs.get("ContentType") == tick.PDF_MEDIA_TYPE
+        for call in s3.put_object.call_args_list
+    )
 
 
 def test_evidence_bundle_fails_closed_after_payload_tampering(
@@ -392,24 +532,22 @@ def test_dev_tick_review_migrations_and_workflow_preserve_scope() -> None:
     assert "V053" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
-    workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "cdc-tick-surveillance-sample --sample-limit 25" in workflow
-    assert "--evidence-bundle-dir /run/atlas-tick-evidence" in workflow
-    assert "GITHUB_ACTIONS_CDC_EVIDENCE_V1" in workflow
-    assert "FROM ${BASE_IMAGE}" in workflow
-    assert "TICK_EVIDENCE_BASE_IMAGE_DIGEST" in workflow
-    assert "TICK_EVIDENCE_ENVELOPE_DIGEST" in workflow
-    assert "delete-tag pipeline" in workflow
-    assert "--proto '=https' --proto-redir '=https'" in workflow
-    assert "SNOWFLAKE_" not in workflow
-    assert "SPACES_" not in workflow
-    assert "cdc-tick-evidence-once" in workflow
-    assert "PRE_DEPLOY" in workflow
-    assert "restore" in workflow
+    assert not Path(".github/workflows/capture-dev-cdc-tick-surveillance.yml").exists()
+
+    operator_workflow = Path(
+        ".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml"
+    ).read_text(encoding="utf-8")
+    assert "TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID" in operator_workflow
+    assert "delete-tag pipeline" in operator_workflow
+    assert "cdc-tick-surveillance-sample --sample-limit 25" in operator_workflow
+    assert "--evidence-bundle-dir /run/atlas-tick-evidence" in operator_workflow
+    assert "TICK_EVIDENCE_BASE_IMAGE_DIGEST" in operator_workflow
+    assert "TICK_EVIDENCE_ENVELOPE_DIGEST" in operator_workflow
+    assert "PRE_DEPLOY" in operator_workflow
+    assert "SNOWFLAKE_" not in operator_workflow
+    assert "SPACES_" not in operator_workflow
     for forbidden in ("ingest-approved", "dbt", "PROD_APP_ID", "production"):
-        assert forbidden not in workflow
+        assert forbidden not in operator_workflow
 
 
 def test_approval_console_exposes_tick_candidate_only_in_dev() -> None:

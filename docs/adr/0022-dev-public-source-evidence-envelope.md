@@ -1,6 +1,6 @@
 # 0022: DEV public-source evidence envelope
 
-Status: Accepted
+Status: Superseded by 0023
 Date: 2026-09-09
 Decision owner: One Health Lyme Gap Atlas product and engineering leads
 

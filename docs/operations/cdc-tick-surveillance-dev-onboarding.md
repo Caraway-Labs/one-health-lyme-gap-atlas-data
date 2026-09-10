@@ -16,12 +16,18 @@ schedule, or make a PROD change.
 
 ## Evidence capture
 
-Dispatch `capture-dev-cdc-tick-surveillance.yml` with the active DEV digest.
-The workflow first retrieves exactly the pinned public landing page and workbook
-on its GitHub-hosted runner. It enforces first-party HTTPS redirects, status, media
-type, byte bounds, and checksums, then builds a short-lived private OCI evidence
-envelope from the exact active DEV digest. GitHub never receives the DEV
-Snowflake or Spaces credentials.
+On a trusted operator workstation, run `scripts/publish_tick_operator_evidence.py`
+with the active DEV digest, the browser-printed landing-page PDF, the exact
+county-status workbook, and `--publish-and-dispatch`. The CLI validates the
+complete workbook package, embedded agreement and classification terms, exact
+schema, FIPS order, statuses, PDF container, byte bounds, and checksums. It builds
+a short-lived private OCI envelope from the active digest and dispatches
+`capture-dev-cdc-tick-surveillance-operator.yml`. Raw bytes never enter GitHub;
+the workflow receives only immutable digests, a temporary tag, and a retrieval
+UUID. GitHub never receives DEV Snowflake or Spaces credentials.
+
+Do not pass the pathogen-status workbook to this command. That workbook has a
+different schema and semantics and requires a separate governed source design.
 
 The temporary non-routable PRE_DEPLOY job runs only:
 
@@ -32,12 +38,15 @@ The temporary non-routable PRE_DEPLOY job runs only:
 Because CDC supplies a workbook rather than a row API, the envelope includes the
 complete publisher file under a one-megabyte compressed bound. The DEV runtime
 independently recomputes both payload checksums and validates the acquisition
-manifest, GitHub run identity, active base digest, short-lived envelope digest,
-URLs, media types, ten-megabyte uncompressed bound, workbook schema, and source
-semantics. Only then does it persist the unchanged source bytes and manifest to
-private Spaces and append Snowflake evidence. It serializes only the first 25
-FIPS-ordered rows as the review sample. Any mismatch is retained as a failed
-`EVIDENCE_ONLY` run and creates no candidate.
+manifest, operator retrieval UUID, active base digest, short-lived envelope
+digest, pinned URLs, media types, ten-megabyte uncompressed bound, workbook
+schema, embedded terms, ordering, and source semantics. The PDF is retained as
+an opaque operator print and is never rendered or executed by the runtime. Only
+then does it persist unchanged source bytes and the manifest to private Spaces
+and append Snowflake evidence. It validates keys, order, and status domains
+across the worksheet but serializes only the first 25 FIPS-ordered rows as the
+review sample; this is not the complete post-ingestion quality suite. Any
+mismatch is retained as a failed `EVIDENCE_ONLY` run and creates no candidate.
 
 ## Required verification
 
@@ -46,12 +55,15 @@ FIPS-ordered rows as the review sample. Any mismatch is retained as a failed
   digests appear in retained evidence;
 - one completed `EVIDENCE_ONLY` run exists for
   `cdc_tick_ixodes_county_status`;
-- the request ledger contains the landing page and workbook checksums;
-- private artifacts contain the landing page, acquisition manifest, normalized
+- the request ledger contains the landing-page print and workbook checksums and
+  does not claim an unobserved HTTP status;
+- private artifacts contain the landing-page print, acquisition manifest, normalized
   metadata, unchanged workbook, and derived ordered sample;
 - the schema lists the seven reviewed workbook columns;
 - the assessment is `PENDING_REVIEW` and explicitly says `No records` is not
   evidence of absence;
+- the candidate exposes the raw-access restriction, ArboNET attribution, and
+  final-publication-copy obligation for the steward's decision;
 - there is no tick-surveillance RAW, STAGING, CONFORMED, ANALYTICS, or
   FEATURE_STORE write; and
 - the candidate appears in the DEV approval console with zero unresolved
