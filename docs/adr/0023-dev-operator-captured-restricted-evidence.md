@@ -62,6 +62,16 @@ The PDF supports human review but cannot prove the publisher HTML byte-for-byte.
 That limitation remains visible in the candidate. The workbook provides the
 authoritative machine-checked terms and classification definitions.
 
+DigitalOcean App Platform rejects an app spec that mixes a newly pushed DOCR
+digest with the app's already configured digest for components using the same
+repository. During the bounded capture deployment, every DEV job definition
+therefore references the immutable evidence-envelope digest. The envelope is
+the exact reviewed DEV image plus read-only evidence files, so routine commands
+remain byte-for-byte the reviewed runtime; only the temporary `PRE_DEPLOY` job
+reads the evidence path. The workflow verifies this single-digest invariant and
+restores every job, schedule, command, environment value, and image digest from
+the exact prior app spec on success or failure.
+
 ## Alternatives considered
 
 - Repeating the DigitalOcean or GitHub fetch was rejected after equivalent HTTP

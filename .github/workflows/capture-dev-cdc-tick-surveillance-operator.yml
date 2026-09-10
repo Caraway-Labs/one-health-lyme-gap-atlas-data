@@ -98,6 +98,7 @@ jobs:
             --arg base_digest "$IMAGE_DIGEST" \
             --arg retrieval_id "$RETRIEVAL_ID" '
             (.jobs[] | select(.name == "catalog-ingestion")) as $template
+            | .jobs |= map(.image.digest = $envelope_digest)
             | .jobs += [
                 $template
                 | .name = "cdc-tick-evidence-once"
@@ -116,6 +117,9 @@ jobs:
                       ])
               ]
           ' "$baseline" > "$capture"
+
+          test "$(jq '[.jobs[].image.digest] | unique | length' "$capture")" = "1"
+          test "$(jq -r '.jobs[].image.digest' "$capture" | sort -u)" = "$ENVELOPE_DIGEST"
 
           doctl apps update "$DEV_APP_ID" --spec "$capture" --wait \
             --format ID,ActiveDeployment.ID --no-header
