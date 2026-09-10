@@ -1,6 +1,6 @@
 """Internal-only Snowflake Streamlit SOURCE_APPROVAL_CONSOLE.
 
-This internal governed release supports the two allowlisted CDC surveillance eras.
+This internal governed release supports the allowlisted CDC human and tick sources.
 It makes no network calls and writes only via the controlled procedure.
 """
 
@@ -285,6 +285,8 @@ if current_database in {
         "cdc_lyme_x5j9_wybp": "CDC Lyme | 2022-current | x5j9-wybp",
         "cdc_lyme_qtbi_xd4i": "CDC Lyme | 2008-2021 | qtbi-xd4i",
     }
+    if current_database.endswith("_DEV"):
+        source_labels["cdc_tick_ixodes_county_status"] = "CDC ticks | county status through 2025"
     CDC_RESOURCE_KEY = st.sidebar.selectbox(
         "Source to review", options=list(source_labels), format_func=lambda key: source_labels[key]
     )
@@ -300,6 +302,12 @@ if CDC_RESOURCE_KEY == "cdc_lyme_qtbi_xd4i":
         "Historical 2008-2021 surveillance era. Do not directly compare with 2022 onward. "
         "This onboarding contains a bounded sample, not validated full-dataset coverage. "
         "Approval does not run ingestion; the historical full-ingestion path is a separate step."
+    )
+elif CDC_RESOURCE_KEY == "cdc_tick_ixodes_county_status":
+    st.warning(
+        "Cumulative county tick-surveillance status through December 31, 2025. "
+        "No records means no reported surveillance evidence; it is not evidence of absence. "
+        "This evidence capture contains a bounded review sample and cannot run ingestion."
     )
 st.info("This console cannot run discovery, ingestion, retries, or transformations.")
 recorded_decision = st.session_state.pop("recorded_decision", None)
@@ -487,7 +495,7 @@ elif page == "Queue":
     st.download_button(
         "Download filtered queue JSON",
         json.dumps(displayed, default=str, indent=2),
-        "cdc_x5j9_wybp_approval_queue.json",
+        f"{CDC_RESOURCE_KEY}_approval_queue.json",
         "application/json",
     )
     st.caption(
@@ -505,7 +513,8 @@ elif page == "Candidate detail":
     if pipeline:
         if bool(pipeline.get("eligible_for_full_ingestion")):
             st.success(
-                "Pipeline eligibility: eligible for scheduled full ingestion; this app cannot start it."
+                "Pipeline eligibility: the source version may proceed only through a separately "
+                "implemented and authorized acquisition path; this app cannot start it."
             )
         else:
             st.warning("Pipeline eligibility: blocked or awaiting steward action.")
@@ -595,8 +604,8 @@ elif page == "Decision form":
         )
         decision = st.selectbox("Decision", available_decisions)
         consequence = {
-            "APPROVED": "Allows scheduled full ingestion after a governed source version is activated.",
-            "APPROVED_WITH_CONDITIONS": "Allows scheduled ingestion only with the recorded conditions.",
+            "APPROVED": "Creates a governed source version eligible for a separate acquisition step.",
+            "APPROVED_WITH_CONDITIONS": "Creates eligibility subject to every recorded condition.",
             "REJECTED": "Blocks full ingestion and preserves the evidence and decision history.",
             "RETIRED": "Retires any active source version and blocks future full ingestion.",
             "DEFERRED": "Leaves the candidate pending and blocks full ingestion until later review.",
@@ -654,6 +663,6 @@ else:
         st.download_button(
             "Download decision history JSON",
             json.dumps(history, default=str, indent=2),
-            "cdc_x5j9_wybp_review_history.json",
+            f"{CDC_RESOURCE_KEY}_review_history.json",
             "application/json",
         )

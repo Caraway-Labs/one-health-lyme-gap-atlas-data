@@ -46,6 +46,7 @@ from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
+from .tick_surveillance import collect_tick_surveillance_evidence
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
 
@@ -343,6 +344,14 @@ def cdc_historical_sample(
 ) -> None:
     """Capture bounded qtbi-xd4i evidence; never acquire the full dataset."""
     typer.echo(json.dumps(collect_cdc_evidence(sample_limit, dataset_id="qtbi-xd4i"), default=str))
+
+
+@pipeline_app.command("cdc-tick-surveillance-sample")
+def cdc_tick_surveillance_sample(
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+) -> None:
+    """Capture bounded CDC Ixodes workbook evidence in DEV; never load RAW data."""
+    typer.echo(json.dumps(collect_tick_surveillance_evidence(sample_limit), default=str))
 
 
 @pipeline_app.command("ingest-approved-cdc-historical")
