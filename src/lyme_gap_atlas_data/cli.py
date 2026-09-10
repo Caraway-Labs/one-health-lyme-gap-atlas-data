@@ -349,9 +349,17 @@ def cdc_historical_sample(
 @pipeline_app.command("cdc-tick-surveillance-sample")
 def cdc_tick_surveillance_sample(
     sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
 ) -> None:
     """Capture bounded CDC Ixodes workbook evidence in DEV; never load RAW data."""
-    typer.echo(json.dumps(collect_tick_surveillance_evidence(sample_limit), default=str))
+    typer.echo(
+        json.dumps(
+            collect_tick_surveillance_evidence(
+                sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+            ),
+            default=str,
+        )
+    )
 
 
 @pipeline_app.command("ingest-approved-cdc-historical")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from io import BytesIO
 from pathlib import Path
@@ -56,6 +57,61 @@ def workbook_bytes(
 
 def profile() -> dict[str, object]:
     return tick.load_tick_profile()
+
+
+def write_evidence_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    landing = (
+        b"Tick Surveillance Data Sets No records Established "
+        b"Public_Use_Ixodes_County_Table_2026_03252026.xlsx"
+    )
+    workbook = workbook_bytes()
+    (tmp_path / "landing.html").write_bytes(landing)
+    (tmp_path / "workbook.xlsx").write_bytes(workbook)
+    base_digest = "sha256:" + "a" * 64
+    envelope_digest = "sha256:" + "b" * 64
+    manifest = {
+        "manifest_version": 1,
+        "acquisition_route": tick.EVIDENCE_ROUTE,
+        "retrieved_at": tick.datetime.now(tick.UTC).isoformat(),
+        "github": {
+            "repository": "Caraway-Labs/one-health-lyme-gap-atlas-data",
+            "run_id": "123456789",
+            "run_attempt": "1",
+            "sha": "c" * 40,
+        },
+        "base_image_digest": base_digest,
+        "resources": [
+            {
+                "purpose": "SOURCE_LANDING_PAGE",
+                "filename": "landing.html",
+                "requested_url": profile()["landing_page_url"],
+                "final_url": profile()["landing_page_url"],
+                "status_code": 200,
+                "media_type": "text/html",
+                "byte_count": len(landing),
+                "sha256": hashlib.sha256(landing).hexdigest(),
+                "etag": None,
+                "last_modified": None,
+            },
+            {
+                "purpose": "SOURCE_WORKBOOK_EVIDENCE",
+                "filename": "workbook.xlsx",
+                "requested_url": profile()["endpoint_template"],
+                "final_url": profile()["endpoint_template"],
+                "status_code": 200,
+                "media_type": tick.XLSX_MEDIA_TYPE,
+                "byte_count": len(workbook),
+                "sha256": hashlib.sha256(workbook).hexdigest(),
+                "etag": None,
+                "last_modified": None,
+            },
+        ],
+    }
+    (tmp_path / "acquisition-manifest.json").write_text(json.dumps(manifest))
+    monkeypatch.setenv("TICK_EVIDENCE_BASE_IMAGE_DIGEST", base_digest)
+    monkeypatch.setenv("TICK_EVIDENCE_ENVELOPE_DIGEST", envelope_digest)
+    monkeypatch.setenv("TICK_EVIDENCE_GITHUB_RUN_ID", "123456789")
+    return tmp_path
 
 
 def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
@@ -201,7 +257,51 @@ def test_tick_evidence_retains_non_retryable_http_failure(
     assert connection.commit.call_count == 2
 
 
+def test_evidence_bundle_verifies_checksums_and_runtime_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tick._load_evidence_bundle(write_evidence_bundle(tmp_path, monkeypatch), profile())
+
+    assert bundle.landing.media_type == "text/html"
+    assert bundle.workbook.media_type == tick.XLSX_MEDIA_TYPE
+    assert bundle.manifest["acquisition_route"] == tick.EVIDENCE_ROUTE
+
+
+def test_evidence_bundle_fails_closed_after_payload_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle_dir = write_evidence_bundle(tmp_path, monkeypatch)
+    (bundle_dir / "workbook.xlsx").write_bytes(b"tampered")
+
+    with pytest.raises(ValueError, match="checksum or byte count"):
+        tick._load_evidence_bundle(bundle_dir, profile())
+
+
+def test_evidence_bundle_fails_closed_on_runtime_digest_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle_dir = write_evidence_bundle(tmp_path, monkeypatch)
+    monkeypatch.setenv("TICK_EVIDENCE_BASE_IMAGE_DIGEST", "sha256:" + "d" * 64)
+
+    with pytest.raises(ValueError, match="base image digest"):
+        tick._load_evidence_bundle(bundle_dir, profile())
+
+
+def test_evidence_bundle_rejects_duplicate_manifest_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle_dir = write_evidence_bundle(tmp_path, monkeypatch)
+    payload = (bundle_dir / "acquisition-manifest.json").read_text()
+    (bundle_dir / "acquisition-manifest.json").write_text(
+        payload.replace('{"manifest_version": 1,', '{"manifest_version": 1, "manifest_version": 1,')
+    )
+
+    with pytest.raises(ValueError, match="duplicate key"):
+        tick._load_evidence_bundle(bundle_dir, profile())
+
+
 def test_tick_evidence_creates_only_pending_review_evidence(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = SimpleNamespace(
@@ -210,26 +310,9 @@ def test_tick_evidence_creates_only_pending_review_evidence(
         spaces_prefix="dev",
     )
     monkeypatch.setattr(tick, "PipelineSettings", lambda: settings)
-    landing_payload = (
-        b"Tick Surveillance Data Sets No records Established "
-        b"Public_Use_Ixodes_County_Table_2026_03252026.xlsx"
-    )
-    source_workbook = workbook_bytes()
-    monkeypatch.setattr(
-        tick,
-        "_fetch_bytes",
-        MagicMock(
-            side_effect=[
-                tick.FetchResult(landing_payload, "text/html", None, None),
-                tick.FetchResult(
-                    source_workbook,
-                    tick.XLSX_MEDIA_TYPE,
-                    '"fixture-etag"',
-                    "Fri, 15 May 2026 13:38:49 GMT",
-                ),
-            ]
-        ),
-    )
+    bundle_dir = write_evidence_bundle(tmp_path, monkeypatch)
+    fetch = MagicMock()
+    monkeypatch.setattr(tick, "_fetch_bytes", fetch)
     monkeypatch.setattr(tick, "_spaces_client", lambda _: object())
 
     def save_artifact(
@@ -251,12 +334,14 @@ def test_tick_evidence_creates_only_pending_review_evidence(
     connection.__enter__.return_value = connection
     monkeypatch.setattr(tick, "connect", lambda _: connection)
 
-    result = tick.collect_tick_surveillance_evidence(25)
+    result = tick.collect_tick_surveillance_evidence(25, evidence_bundle_dir=bundle_dir)
 
     assert result["status"] == "PENDING_STEWARD_REVIEW"
     assert result["sample_rows"] == 25
     assert result["workbook_rows"] == 30
     assert result["full_dataset_quality_validated"] is False
+    assert result["acquisition_manifest_sha256"] is not None
+    fetch.assert_not_called()
     statements = [
         call.args[0]
         for call in connection.cursor.return_value.__enter__.return_value.execute.call_args_list
@@ -274,6 +359,11 @@ def test_tick_evidence_creates_only_pending_review_evidence(
         "GOVERNANCE.DATASET_QUALITY_ASSESSMENTS",
     ):
         assert required in rendered
+    assert any(
+        "ACQUISITION_MANIFEST" in call.args[1]
+        for call in connection.cursor.return_value.__enter__.return_value.execute.call_args_list
+        if len(call.args) > 1 and isinstance(call.args[1], tuple)
+    )
     for forbidden in (
         "DATA_SOURCE_VERSIONS",
         "MANUAL_REVIEW_DECISIONS",
@@ -306,6 +396,15 @@ def test_dev_tick_review_migrations_and_workflow_preserve_scope() -> None:
         encoding="utf-8"
     )
     assert "cdc-tick-surveillance-sample --sample-limit 25" in workflow
+    assert "--evidence-bundle-dir /run/atlas-tick-evidence" in workflow
+    assert "GITHUB_ACTIONS_CDC_EVIDENCE_V1" in workflow
+    assert "FROM ${BASE_IMAGE}" in workflow
+    assert "TICK_EVIDENCE_BASE_IMAGE_DIGEST" in workflow
+    assert "TICK_EVIDENCE_ENVELOPE_DIGEST" in workflow
+    assert "delete-tag pipeline" in workflow
+    assert "--proto '=https' --proto-redir '=https'" in workflow
+    assert "SNOWFLAKE_" not in workflow
+    assert "SPACES_" not in workflow
     assert "cdc-tick-evidence-once" in workflow
     assert "PRE_DEPLOY" in workflow
     assert "restore" in workflow
