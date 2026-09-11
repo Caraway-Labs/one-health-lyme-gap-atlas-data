@@ -1718,6 +1718,7 @@ def test_dev_pmc_budget_repair_preserves_the_fail_closed_runtime_boundary() -> N
     assert "GOVERNANCE.LLM_BUDGET_USAGE" in repair.source
     assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET" in repair.source
     assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in repair.source
+    assert "OH_LYME_{{ ENV }}_API_RUNTIME" in repair.source
     assert "GRANT SELECT ON TABLE GOVERNANCE.LLM_BUDGET_USAGE" not in repair.source
 
 
