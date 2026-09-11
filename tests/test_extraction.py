@@ -99,10 +99,41 @@ def test_groq_strict_schema_closes_dynamic_maps_and_removes_defaults() -> None:
         "additionalProperties": False,
     }
 
-    strict_schema = extraction._groq_strict_schema(schema)
+    strict_schema = extraction._strict_response_schema(schema)
 
     external_ids = strict_schema["properties"]["external_ids"]
     assert strict_schema["required"] == ["external_ids"]
     assert external_ids["additionalProperties"] is False
     assert "default" not in external_ids
     assert schema["properties"]["external_ids"]["additionalProperties"] == {"type": "string"}
+
+
+def test_openai_responses_uses_the_closed_strict_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"output": [{"content": [{"type": "output_text", "text": "{}"}]}]}
+
+    def post(*_args: object, **kwargs: object) -> Response:
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr(extraction.httpx, "post", post)
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"optional_field": {"type": "string", "default": ""}},
+        "additionalProperties": False,
+    }
+    extraction.OpenAIResponsesExtractor("test-key").extract("request", schema)
+
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    strict_schema = payload["text"]["format"]["schema"]
+    assert strict_schema["required"] == ["optional_field"]
+    assert "default" not in strict_schema["properties"]["optional_field"]

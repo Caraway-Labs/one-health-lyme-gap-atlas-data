@@ -29,8 +29,8 @@ class PassageEmbedder(Protocol):
     def embed(self, summaries: list[str], dimensions: int) -> list[list[float]]: ...
 
 
-def _groq_strict_schema(schema: dict[str, object]) -> dict[str, object]:
-    """Adapt the validated contract to Groq's closed, strict JSON Schema subset.
+def _strict_response_schema(schema: dict[str, object]) -> dict[str, object]:
+    """Adapt the validated contract to the providers' closed strict-schema subset.
 
     This affects only the provider transport schema.  The returned payload is
     still validated against the unmodified :class:`GraphContribution` schema.
@@ -76,7 +76,7 @@ class GroqStructuredExtractor:
                     "json_schema": {
                         "name": "graph_contribution",
                         "strict": True,
-                        "schema": _groq_strict_schema(schema),
+                        "schema": _strict_response_schema(schema),
                     },
                 },
             },
@@ -104,7 +104,7 @@ class OpenAIResponsesExtractor:
                         "type": "json_schema",
                         "name": "graph_contribution",
                         "strict": True,
-                        "schema": schema,
+                        "schema": _strict_response_schema(schema),
                     }
                 },
             },
