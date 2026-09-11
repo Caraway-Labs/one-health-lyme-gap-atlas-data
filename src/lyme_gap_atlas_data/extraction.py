@@ -30,21 +30,33 @@ class PassageEmbedder(Protocol):
 
 
 def _groq_strict_schema(schema: dict[str, object]) -> dict[str, object]:
-    """Make Pydantic's defaulted fields explicit for Groq strict JSON Schema mode."""
+    """Adapt the validated contract to Groq's closed, strict JSON Schema subset.
+
+    This affects only the provider transport schema.  The returned payload is
+    still validated against the unmodified :class:`GraphContribution` schema.
+    """
     normalized = copy.deepcopy(schema)
 
-    def require_declared_properties(node: object) -> None:
+    def normalize_node(node: object) -> None:
         if isinstance(node, dict):
             properties = node.get("properties")
             if isinstance(properties, dict):
                 node["required"] = list(properties)
+                node["additionalProperties"] = False
+            # Pydantic emits open-ended maps for optional identifier metadata.
+            # Groq strict mode permits only closed objects; an empty identifier
+            # map remains valid and the canonical identity is separately
+            # enforced by the guarded worker.
+            elif "additionalProperties" in node:
+                node["additionalProperties"] = False
+            node.pop("default", None)
             for value in node.values():
-                require_declared_properties(value)
+                normalize_node(value)
         elif isinstance(node, list):
             for item in node:
-                require_declared_properties(item)
+                normalize_node(item)
 
-    require_declared_properties(normalized)
+    normalize_node(normalized)
     return normalized
 
 
