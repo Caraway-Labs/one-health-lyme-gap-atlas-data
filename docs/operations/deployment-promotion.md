@@ -126,6 +126,9 @@ role to `OH_LYME_DEV_MIGRATION_DEPLOY_SVC`, then transfer ownership of
 workflow applies V056 under that role and re-grants only procedure `USAGE` to
 the DEV pipeline and API runtime roles. Do not grant either runtime role direct
 access to the budget table, and do not apply this bootstrap or migration to PROD.
+V057 is a follow-on DEV-only correction that uses `INSERT ... SELECT` for the
+generated reservation identifier; Snowflake rejects `UUID_STRING()` directly
+inside the equivalent `VALUES` clause.
 
 ### V041 governed-view owner bootstrap
 

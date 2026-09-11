@@ -1676,6 +1676,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V054",
         "V055",
         "V056",
+        "V057",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1738,6 +1739,17 @@ def test_dev_pmc_budget_owner_is_dedicated_and_fail_closed() -> None:
     assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in owner_migration.source
     assert "OH_LYME_{{ ENV }}_API_RUNTIME" in owner_migration.source
     assert "GRANT SELECT ON TABLE GOVERNANCE.LLM_BUDGET_USAGE" not in owner_migration.source
+
+
+def test_dev_pmc_budget_reservation_uses_select_for_generated_identifier() -> None:
+    repair = next(item for item in load_migrations() if item.version == "V057")
+    assert migration_execution_role(repair, DEV_DATABASE) == "OH_LYME_DEV_KG_LLM_BUDGET_OWNER"
+    assert "INSERT INTO GOVERNANCE.LLM_BUDGET_USAGE (" in repair.source
+    assert ") SELECT UUID_STRING()" in repair.source
+    assert "INSERT INTO GOVERNANCE.LLM_BUDGET_USAGE VALUES" not in repair.source
+    assert "V057" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
