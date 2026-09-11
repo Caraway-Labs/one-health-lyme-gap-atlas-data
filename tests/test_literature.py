@@ -5,6 +5,7 @@ import pytest
 
 from lyme_gap_atlas_data.literature import (
     GROQ_MAX_INPUT_TOKENS,
+    GROQ_TRANSPORT_SAFE_INPUT_TOKENS,
     EntrezHistoryClient,
     PaperState,
     build_pubmed_query,
@@ -38,6 +39,12 @@ def test_state_machine_is_forward_only() -> None:
 )
 def test_complete_request_routing(tokens: int, expected: str) -> None:
     assert extraction_provider(tokens) == expected
+
+
+def test_groq_transport_ceiling_is_below_live_provider_rejections() -> None:
+    """A 6,201-token PMC request received a pre-inference Groq HTTP 413."""
+    assert GROQ_TRANSPORT_SAFE_INPUT_TOKENS < 6_201
+    assert extraction_provider(6_201) == "openai:gpt-5.6-luna"
 
 
 def test_entrez_client_suppresses_provider_request_urls() -> None:

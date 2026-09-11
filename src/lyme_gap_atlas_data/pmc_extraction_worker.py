@@ -321,10 +321,18 @@ class SnowflakePMCExtractionLedger:
                      AND NOT EXISTS (SELECT 1 FROM KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS r
                                      WHERE r.pmid = p.pmid)
                      AND (SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
-                          WHERE a.pmid = p.pmid) < 3
+                          WHERE a.pmid = p.pmid
+                            AND a.status = 'failed'
+                            AND NOT EXISTS (
+                              SELECT 1
+                              FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS c
+                              WHERE c.extraction_attempt_id = a.extraction_attempt_id
+                                AND c.classification = 'provider_rejected_pre_inference'
+                            )) < 3
                    GROUP BY p.pmid, p.pmcid, p.title, p.journal, p.publication_date,
                             p.publication_types, p.language, p.state
-                   ORDER BY p.pmid LIMIT 1"""
+                   ORDER BY CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END, p.pmid
+                   LIMIT 1"""
             )
             row = cursor.fetchone()
             if row is None:
