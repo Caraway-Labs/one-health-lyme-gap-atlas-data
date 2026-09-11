@@ -1,0 +1,50 @@
+# Requirements: Governed Data Explorer
+
+## Purpose and scope
+
+`GOVERNED_DATA_EXPLORER` is an internal, read-only Snowflake Streamlit app for
+curated CDC/Socrata `x5j9-wybp` records that have reached `CONFORMED` and an
+analytics-ready, non-aggregated projection. It complements `SOURCE_APPROVAL_CONSOLE`; it
+does not approve sources, start pipelines, or replace the Python public API.
+
+## Access and data contract
+
+- The app runs with the existing `OH_LYME_<ENV>_STREAMLIT_OWNER` owner-rights
+  role on the approval X-Small warehouse.
+- The allow-listed views are owned by the separate
+  `OH_LYME_<ENV>_GOVERNED_VIEW_OWNER` deployment-only role. That role has
+  source reads only for the named view dependencies; it is not an application
+  runtime role and is not granted to viewers, stewards, or the pipeline worker.
+- `DATA_STEWARD` and `APPROVAL_VIEWER` may use the app. Neither receives direct
+  table, stage, write, or ownership privileges.
+- The app reads only `GOVERNANCE.V_DATA_EXPLORER_SOURCE_VERSIONS`,
+  `GOVERNANCE.V_DATA_EXPLORER_CONFORMED_CDC`, and
+  `GOVERNANCE.V_DATA_EXPLORER_ANALYTICS_CDC`.
+- Rebuilding the CDC CONFORMED model preserves existing grants and reapplies
+  SELECT for the target environment's governed view owner. Validation and
+  explorer views must remain queryable after each successful dbt rebuild.
+- Rows retain source version, ingestion run, artifact identifier, retrieval
+  timestamp, source grain, geography/time semantics, and the CDC reporting-era
+  caveat. RAW payloads, artifact locations, request details, credentials, and
+  external network calls are prohibited.
+
+## User experience and acceptance criteria
+
+- A user can choose a source version, inspect its safe run summary, and page
+  through CONFORMED or analytics-ready projection records with a bounded optional report-year
+  filter.
+- Queries use parameter binding and fixed view allow-lists. Results are capped
+  at 250 rows per page.
+- The app says when no source version or no matching rows exist; it must not
+  infer that an absent row means a source was never attempted.
+- It prominently presents the surveillance-era caveat and makes no diagnosis,
+  risk, cross-era-trend, or causal claim.
+- The explorer must not label an unaggregated projection as a completed
+  analytical measure. Any aggregate, score, or cross-era comparison requires
+  its own reviewed methodology and governed model.
+
+## Rollout and rollback
+
+Apply the view/grant migration and deploy both Streamlit apps to DEV first.
+Validate with the owner role, then promote the same reviewed source to PROD.
+Rollback redeploys the prior app source and leaves provenance records intact.

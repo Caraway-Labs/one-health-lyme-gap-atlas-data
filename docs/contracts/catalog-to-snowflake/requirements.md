@@ -89,6 +89,21 @@ The pipelines must solve the following problems:
 
 **FR-3.5 — Failure retention.** Failed and partial runs shall remain queryable with their available request history and error classification. A later successful rerun must not overwrite prior evidence.
 
+**FR-3.6 — Delegated source-evidence transport.** When an approved publisher blocks
+the isolated runtime's egress, a separately accepted ADR may authorize a bounded
+DEV-only transport of specifically pinned source bytes. If embedded terms
+restrict redistribution, raw bytes must remain outside source control, workflow
+artifacts, public registries, and public interfaces, with access and publication
+obligations made explicit in steward evidence. The transport
+shall not receive Snowflake, object-storage, or approval credentials. It shall
+emit a checksummed acquisition manifest with retrieval and immutable base-image
+provenance. The governed runtime shall independently verify the manifest,
+resource identity, available transport evidence, byte count, checksum, schema,
+embedded terms, and source semantics before storing artifacts or creating a
+review candidate. It must not claim an HTTP status or response header that the
+transport did not observe. This
+exception does not authorize scheduled or PROD acquisition.
+
 ### 4. Immutable landing and RAW data
 
 **FR-4.1 — Artifact storage.** The pipeline shall store each downloaded response, file, export, and governing document unchanged in immutable object storage or a governed Snowflake stage. It shall create a manifest when an acquisition contains multiple pages/files.

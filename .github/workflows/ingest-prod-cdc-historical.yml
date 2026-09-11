@@ -1,0 +1,107 @@
+name: Ingest approved PROD historical CDC
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact historical-ingestion image active in DEV and PROD
+        required: true
+        type: string
+      source_version_id:
+        description: Exact active PROD steward-approved historical source version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cdc-historical-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Acquire, validate, and publish CDC qtbi-xd4i once
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Run historical ingestion and restore the exact PROD topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SOURCE_VERSION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+          test -n "$PROD_APP_ID"
+
+          baseline_spec="$(mktemp)"
+          ingestion_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          baseline_captured=false
+
+          restore_baseline() {
+            ingestion_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              # The fetched specification contains provider-encrypted secrets. Never print it.
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then
+                echo "::error::Historical ingestion finished, but PROD topology restoration failed. Restore the captured specification before any further production action."
+                ingestion_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$ingestion_spec" "$dev_spec"
+            trap - EXIT
+            exit "$ingestion_status"
+          }
+          trap restore_baseline EXIT
+
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
+          expected_jobs='["approved-source-ingestion","catalog-discovery","catalog-registration-01","catalog-registration-02","catalog-registration-03","cdc-operations-watchdog"]'
+          test "$(jq -c '[.jobs[].name] | sort' "$baseline_spec")" = "$(jq -c 'sort' <<< "$expected_jobs")"
+          test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline_spec")" = "0"
+          test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion")] | length' "$baseline_spec")" = "1"
+          test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .run_command' "$baseline_spec")" = "uv run atlas-data pipeline run-production-schedule"
+          test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .image.digest' "$baseline_spec")" = "$IMAGE_DIGEST"
+          test "$(jq '[.jobs[].image.digest] | unique | length' "$baseline_spec")" = "1"
+          baseline_captured=true
+
+          # The same immutable digest must have run in DEV before PROD execution.
+          dev_verified=false
+          while read -r deployment_id; do
+            doctl apps spec get "$DEV_APP_ID" --deployment "$deployment_id" --format json > "$dev_spec"
+            if jq -e --arg digest "$IMAGE_DIGEST" '[.jobs[] | .image.digest] | index($digest)' "$dev_spec" > /dev/null; then
+              dev_verified=true
+              break
+            fi
+          done < <(doctl apps list-deployments "$DEV_APP_ID" --format ID --no-header)
+          test "$dev_verified" = true
+
+          jq --arg source "$SOURCE_VERSION_ID" '
+            (.jobs[] | select(.name == "approved-source-ingestion")) as $template
+            | .jobs += [
+                $template
+                | .name = "cdc-historical-ingest-once"
+                | .kind = "PRE_DEPLOY"
+                | .run_command = ("uv run atlas-data pipeline ingest-approved-cdc-historical --source-version-id " + $source)
+                | del(.schedule)
+              ]
+          ' "$baseline_spec" > "$ingestion_spec"
+
+          # Deployment success is the bounded job's execution proof. Validation
+          # failure exits nonzero and leaves the prior publication pointer intact.
+          doctl apps update "$PROD_APP_ID" --spec "$ingestion_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "Historical PROD ingestion and validated publication succeeded. Restoring the six-job topology."

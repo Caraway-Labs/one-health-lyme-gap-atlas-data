@@ -1,0 +1,108 @@
+name: Roll back PROD historical CDC publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact historical-ingestion image active in DEV and PROD
+        required: true
+        type: string
+      source_version_id:
+        description: Exact active PROD historical source version
+        required: true
+        type: string
+      ingestion_run_id:
+        description: Explicit retained historical snapshot run to republish
+        required: true
+        type: string
+      expected_revision:
+        description: Current publication revision used for concurrency protection
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cdc-historical-ingestion
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Revalidate and republish one retained historical snapshot
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+      INGESTION_RUN_ID: ${{ inputs.ingestion_run_id }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Republish the retained snapshot and restore the exact PROD topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SOURCE_VERSION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+          [[ "$INGESTION_RUN_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+          [[ "$EXPECTED_REVISION" =~ ^[0-9]+$ ]]
+          test -n "$PROD_APP_ID"
+
+          baseline_spec="$(mktemp)"
+          rollback_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          baseline_captured=false
+          restore_baseline() {
+            rollback_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then rollback_status=1; fi
+            fi
+            rm -f "$baseline_spec" "$rollback_spec" "$dev_spec"
+            trap - EXIT
+            exit "$rollback_status"
+          }
+          trap restore_baseline EXIT
+
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
+          expected_jobs='["approved-source-ingestion","catalog-discovery","catalog-registration-01","catalog-registration-02","catalog-registration-03","cdc-operations-watchdog"]'
+          test "$(jq -c '[.jobs[].name] | sort' "$baseline_spec")" = "$(jq -c 'sort' <<< "$expected_jobs")"
+          test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline_spec")" = "0"
+          test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .image.digest' "$baseline_spec")" = "$IMAGE_DIGEST"
+          test "$(jq '[.jobs[].image.digest] | unique | length' "$baseline_spec")" = "1"
+          baseline_captured=true
+
+          dev_verified=false
+          while read -r deployment_id; do
+            doctl apps spec get "$DEV_APP_ID" --deployment "$deployment_id" --format json > "$dev_spec"
+            if jq -e --arg digest "$IMAGE_DIGEST" '[.jobs[] | .image.digest] | index($digest)' "$dev_spec" > /dev/null; then
+              dev_verified=true
+              break
+            fi
+          done < <(doctl apps list-deployments "$DEV_APP_ID" --format ID --no-header)
+          test "$dev_verified" = true
+
+          jq --arg source "$SOURCE_VERSION_ID" --arg run "$INGESTION_RUN_ID" --arg revision "$EXPECTED_REVISION" '
+            (.jobs[] | select(.name == "approved-source-ingestion")) as $template
+            | .jobs += [
+                $template
+                | .name = "cdc-historical-rollback-once"
+                | .kind = "PRE_DEPLOY"
+                | .run_command = ("uv run atlas-data pipeline rollback-cdc-historical --source-version-id " + $source + " --ingestion-run-id " + $run + " --expected-revision " + $revision)
+                | del(.schedule)
+              ]
+          ' "$baseline_spec" > "$rollback_spec"
+          doctl apps update "$PROD_APP_ID" --spec "$rollback_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "Retained historical snapshot republished; restoring the six-job topology."

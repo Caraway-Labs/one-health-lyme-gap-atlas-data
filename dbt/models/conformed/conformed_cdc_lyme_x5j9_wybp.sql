@@ -1,3 +1,9 @@
+{{ config(
+    alias='CDC_LYME_CANDIDATE',
+    schema='STAGING',
+    copy_grants=true
+) }}
+
 select
   source_record_id,
   payload,

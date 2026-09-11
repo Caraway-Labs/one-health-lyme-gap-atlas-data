@@ -1,0 +1,63 @@
+name: Capture DEV historical CDC evidence
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact historical-onboarding image already active in DEV
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: dev-cdc-dbt-recovery
+  cancel-in-progress: false
+jobs:
+  capture:
+    environment: dev
+    runs-on: ubuntu-latest
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Capture 25 ordered sample rows and restore DEV topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          baseline="$(mktemp)"
+          capture="$(mktemp)"
+          baseline_captured=false
+          restore() {
+            status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              doctl apps update "$DEV_APP_ID" --spec "$baseline" --wait --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then status=1; fi
+            fi
+            rm -f "$baseline" "$capture"
+            trap - EXIT
+            exit "$status"
+          }
+          trap restore EXIT
+          # Provider-encrypted configuration is redirected, never printed.
+          doctl apps spec get "$DEV_APP_ID" --format json > "$baseline"
+          test "$(jq -r '.name' "$baseline")" = oh-lyme-data-dev
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$baseline")" = 1
+          test "$(jq -r '.jobs[] | select(.name == "catalog-ingestion") | .image.digest' "$baseline")" = "$IMAGE_DIGEST"
+          test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline")" = 0
+          baseline_captured=true
+          jq '
+            (.jobs[] | select(.name == "catalog-ingestion")) as $template
+            | .jobs += [$template | .name = "cdc-historical-evidence-once"
+              | .kind = "PRE_DEPLOY"
+              | .run_command = "uv run atlas-data pipeline cdc-historical-sample --sample-limit 25"
+              | del(.schedule)]
+          ' "$baseline" > "$capture"
+          doctl apps update "$DEV_APP_ID" --spec "$capture" --wait --format ID,ActiveDeployment.ID --no-header
+          echo "Historical evidence capture completed; restoring DEV topology."

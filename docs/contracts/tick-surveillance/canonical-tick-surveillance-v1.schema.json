@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://one-health-lyme-gap-atlas.example/contracts/tick-surveillance/v1",
+  "title": "Atlas canonical tick-surveillance observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "canonical_observation_id",
+    "observation_type",
+    "county_fips",
+    "tick_species",
+    "source_agency",
+    "source_dataset_id",
+    "source_record_id",
+    "data_source_version_id",
+    "ingestion_run_id",
+    "artifact_id",
+    "retrieved_at",
+    "method_version",
+    "quality_flags"
+  ],
+  "properties": {
+    "canonical_observation_id": {"type": "string", "minLength": 1},
+    "observation_type": {
+      "enum": ["VECTOR_PRESENCE_STATUS", "COLLECTION_ABUNDANCE", "PATHOGEN_TESTING"]
+    },
+    "county_fips": {"type": "string", "pattern": "^[0-9]{5}$"},
+    "state_fips": {"type": ["string", "null"], "pattern": "^[0-9]{2}$"},
+    "source_location_id": {"type": ["string", "null"]},
+    "observation_date": {"type": ["string", "null"], "format": "date"},
+    "observation_year": {"type": ["integer", "null"], "minimum": 1900, "maximum": 2200},
+    "season": {
+      "type": ["string", "null"],
+      "enum": ["WINTER", "SPRING", "SUMMER", "FALL", "NYMPH", "ADULT", "ANNUAL", null]
+    },
+    "surveillance_period_start": {"type": ["string", "null"], "format": "date"},
+    "surveillance_period_end": {"type": ["string", "null"], "format": "date"},
+    "temporal_semantics": {
+      "enum": ["POINT_IN_TIME", "PERIOD", "ANNUAL", "CUMULATIVE_THROUGH_DATE"]
+    },
+    "tick_species": {"type": "string", "minLength": 1},
+    "life_stage": {
+      "type": ["string", "null"],
+      "enum": ["LARVA", "NYMPH", "ADULT", "MIXED", "NOT_REPORTED", null]
+    },
+    "sex": {
+      "type": ["string", "null"],
+      "enum": ["FEMALE", "MALE", "MIXED", "NOT_REPORTED", "NOT_APPLICABLE", null]
+    },
+    "presence_status": {
+      "type": ["string", "null"],
+      "enum": ["ESTABLISHED", "REPORTED", "PRESENT", "NO_RECORDS", null]
+    },
+    "collection_method": {"type": ["string", "null"]},
+    "collection_effort_value": {"type": ["number", "null"], "minimum": 0},
+    "collection_effort_unit": {"type": ["string", "null"]},
+    "area_sampled_hectares": {"type": ["number", "null"], "minimum": 0},
+    "distance_sampled_meters": {"type": ["number", "null"], "minimum": 0},
+    "duration_sampled_minutes": {"type": ["number", "null"], "minimum": 0},
+    "site_count": {"type": ["integer", "null"], "minimum": 0},
+    "replicate_count": {"type": ["integer", "null"], "minimum": 0},
+    "ticks_collected": {"type": ["integer", "null"], "minimum": 0},
+    "abundance_value": {"type": ["number", "null"], "minimum": 0},
+    "abundance_unit": {"type": ["string", "null"]},
+    "pathogen_name": {"type": ["string", "null"]},
+    "ticks_tested": {"type": ["integer", "null"], "minimum": 0},
+    "ticks_positive": {"type": ["integer", "null"], "minimum": 0},
+    "prevalence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "source_agency": {"type": "string", "minLength": 1},
+    "source_dataset_id": {"type": "string", "minLength": 1},
+    "source_record_id": {"type": "string", "minLength": 1},
+    "data_source_version_id": {"type": "string", "minLength": 1},
+    "ingestion_run_id": {"type": "string", "minLength": 1},
+    "artifact_id": {"type": "string", "minLength": 1},
+    "retrieved_at": {"type": "string", "format": "date-time"},
+    "method_version": {"const": "tick-surveillance-v1"},
+    "reported_or_derived": {"enum": ["REPORTED", "HARMONIZED", "DERIVED"]},
+    "harmonization_method": {"type": ["string", "null"]},
+    "missingness": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": ["PRESENT", "NULL", "UNKNOWN", "SUPPRESSED", "NOT_REPORTED", "NOT_APPLICABLE"]
+      }
+    },
+    "quality_flags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"observation_type": {"const": "VECTOR_PRESENCE_STATUS"}}},
+      "then": {"required": ["presence_status", "temporal_semantics", "reported_or_derived"]}
+    },
+    {
+      "if": {"properties": {"observation_type": {"const": "COLLECTION_ABUNDANCE"}}},
+      "then": {"required": ["ticks_collected", "reported_or_derived"]}
+    },
+    {
+      "if": {"properties": {"observation_type": {"const": "PATHOGEN_TESTING"}}},
+      "then": {"required": ["pathogen_name", "ticks_tested", "ticks_positive", "reported_or_derived"]}
+    }
+  ]
+}

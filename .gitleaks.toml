@@ -1,5 +1,32 @@
 title = "One Health Lyme Gap Atlas data pipeline secret-scanning exceptions"
 
+[[allowlists]]
+description = "Public CDC historical resource identifier, not an authentication secret"
+condition = "AND"
+paths = [
+  '''^config/sources/cdc_qtbi_xd4i\.yml$''',
+  '''^src/lyme_gap_atlas_data/cdc_historical\.py$''',
+  '''^src/lyme_gap_atlas_data/cdc\.py$''',
+  '''^migrations/V04[678]__dev_historical_cdc_(storage|explorer|view_ownership)\.sql$''',
+  '''^dbt/models/staging/stg_cdc_lyme_qtbi_xd4i\.sql$''',
+  '''^streamlit_approval/streamlit_app\.py$''',
+  '''^tests/test_cdc_historical\.py$''',
+  '''^migrations/V04[45]__dev_historical_cdc_(review|decision)\.sql$''',
+  '''^migrations/V0(49__prod_historical_cdc_review|50__prod_historical_cdc_decision)\.sql$''',
+  '''^migrations/V05[12]__prod_historical_cdc_(storage|explorer)\.sql$''',
+  '''^migrations/V054__dev_tick_surveillance_decision\.sql$''',
+]
+regexTarget = "secret"
+regexes = ['''^cdc_lyme_qtbi_xd4i$''']
+
+[[allowlists]]
+description = "Reviewed PEM-formatting source code, not a private key; exact introducing commit and script"
+condition = "AND"
+commits = ["22691520f5cd9cdab3c30374eaff2ae4fd41f1c5"]
+paths = ['''^scripts/verify_cdc_policy_dev\.py$''']
+regexTarget = "match"
+regexes = ['''key_body''']
+
 [extend]
 useDefault = true
 

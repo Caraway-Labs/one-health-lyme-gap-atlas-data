@@ -7,11 +7,15 @@ publisher URL, collects a sample, scores a candidate, or authorizes ingestion.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import TextIOWrapper
+from itertools import count, islice
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -22,6 +26,8 @@ import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from .settings import PipelineSettings
 
@@ -41,7 +47,9 @@ _SENSITIVE_QUERY_PARAMETERS = {
 # immutable discovery artifact. These limits protect the X-Small runtime from
 # a single unusually large catalog response while retaining resumable offsets.
 REGISTRATION_DATASET_CHUNK_SIZE = 50
-REGISTRATION_RESOURCE_CHUNK_SIZE = 1_000
+REGISTRATION_RESOURCE_CHUNK_SIZE = 100
+
+_TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.catalog-registration")
 
 
 @dataclass(frozen=True)
@@ -88,6 +96,23 @@ class RegistrationProgress:
     available_artifacts: int | None = None
 
 
+@contextmanager
+def _registration_span(
+    name: str, attributes: dict[str, str | int | float | bool | None]
+) -> Generator[Any, None, None]:
+    """Create a privacy-safe child span without recording exception text or payloads."""
+    with _TRACER.start_as_current_span(name) as span:
+        for key, value in attributes.items():
+            if value is not None:
+                span.set_attribute(key, value)
+        try:
+            yield span
+        except Exception as error:
+            span.set_attribute("error.type", type(error).__name__)
+            span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+            raise
+
+
 def _safe_failure_diagnostics(
     error: Exception, progress: RegistrationProgress, started: float
 ) -> dict[str, object | None]:
@@ -116,7 +141,7 @@ def _read_cgroup_file(path: Path) -> str | None:
 
 
 def _cgroup_memory_context() -> dict[str, object]:
-    """Return safe Linux cgroup memory values; local and non-cgroup runs degrade cleanly."""
+    """Return safe Linux cgroup v2 or v1 memory values without raising."""
     root = Path("/sys/fs/cgroup")
     current = _read_cgroup_file(root / "memory.current")
     maximum = _read_cgroup_file(root / "memory.max")
@@ -127,7 +152,28 @@ def _cgroup_memory_context() -> dict[str, object]:
             key, _, value = line.partition(" ")
             if key in {"low", "high", "max", "oom", "oom_kill"} and value.isdigit():
                 events[key] = int(value)
+    if current is not None or maximum is not None or event_lines is not None:
+        return {
+            "cgroup_memory_mode": "v2",
+            "cgroup_memory_current_bytes": int(current)
+            if current is not None and current.isdigit()
+            else None,
+            "cgroup_memory_limit_bytes": int(maximum)
+            if maximum is not None and maximum.isdigit()
+            else None,
+            "cgroup_memory_events": events,
+        }
+
+    v1_root = root / "memory"
+    current = _read_cgroup_file(v1_root / "memory.usage_in_bytes")
+    maximum = _read_cgroup_file(v1_root / "memory.limit_in_bytes")
+    fail_count = _read_cgroup_file(v1_root / "memory.failcnt")
+    if fail_count is not None and fail_count.isdigit():
+        events["failcnt"] = int(fail_count)
     return {
+        "cgroup_memory_mode": "v1"
+        if current is not None or maximum is not None or fail_count is not None
+        else "unavailable",
         "cgroup_memory_current_bytes": int(current)
         if current is not None and current.isdigit()
         else None,
@@ -136,6 +182,52 @@ def _cgroup_memory_context() -> dict[str, object]:
         else None,
         "cgroup_memory_events": events,
     }
+
+
+def _read_process_status() -> str | None:
+    """Read a bounded Linux process-status snapshot without raising."""
+    try:
+        return Path("/proc/self/status").read_text(encoding="utf-8")[:4096]
+    except OSError:
+        return None
+
+
+def _process_memory_context() -> dict[str, object | None]:
+    """Return bounded, data-free process memory telemetry across supported runtimes."""
+    status = _read_process_status()
+    values: dict[str, int] = {}
+    if status is not None:
+        for line in status.splitlines():
+            key, _, value = line.partition(":")
+            amount = value.strip().split(maxsplit=1)
+            if key in {"VmRSS", "VmHWM", "VmSize", "Threads"} and amount and amount[0].isdigit():
+                multiplier = 1024 if key != "Threads" else 1
+                values[key] = int(amount[0]) * multiplier
+    rusage_maxrss_bytes: int | None = None
+    try:
+        resource_module = importlib.import_module("resource")
+        getrusage = getattr(resource_module, "getrusage", None)
+        rusage_self = getattr(resource_module, "RUSAGE_SELF", None)
+        if callable(getrusage) and rusage_self is not None:
+            rusage_maxrss_bytes = int(getrusage(rusage_self).ru_maxrss)
+        # Linux reports KiB while macOS reports bytes.  The production App Platform
+        # runtime is Linux; keep this fallback conservative on non-Linux hosts.
+        if rusage_maxrss_bytes is not None and Path("/proc").is_dir():
+            rusage_maxrss_bytes *= 1024
+    except (ImportError, AttributeError, OSError):
+        rusage_maxrss_bytes = None
+    return {
+        "process_rss_bytes": values.get("VmRSS"),
+        "process_peak_rss_bytes": values.get("VmHWM"),
+        "process_virtual_memory_bytes": values.get("VmSize"),
+        "process_thread_count": values.get("Threads"),
+        "process_rusage_maxrss_bytes": rusage_maxrss_bytes,
+    }
+
+
+def _registration_memory_context() -> dict[str, object | None]:
+    """Combine safe container and process memory evidence for a log record."""
+    return {**_cgroup_memory_context(), **_process_memory_context()}
 
 
 def _log_registration_phase(
@@ -160,10 +252,92 @@ def _log_registration_phase(
                 "dataset_count": dataset_count,
                 "claimed_artifacts": progress.claimed_artifacts,
                 "available_artifacts": progress.available_artifacts,
-                **_cgroup_memory_context(),
+                **_registration_memory_context(),
             }
         },
     )
+
+
+def _log_registration_merge_operation(
+    progress: RegistrationProgress,
+    *,
+    event: str,
+    operation: str,
+    catalog_id: str,
+    dataset_offset: int,
+    row_count: int,
+    started: float | None = None,
+    cursor: Any | None = None,
+) -> None:
+    """Record a redacted boundary around one Snowflake merge statement."""
+    if event == "started":
+        progress.phase = f"dataset_merge:{operation}"
+    logger.info(
+        f"catalog_registration.merge_operation_{event}",
+        extra={
+            "context": {
+                "registration_run_id": progress.registration_run_id,
+                "phase": progress.phase,
+                "operation": operation,
+                "artifact_id": progress.artifact_id,
+                "catalog_id": catalog_id,
+                "dataset_offset": dataset_offset,
+                "row_count": row_count,
+                "duration_ms": int((monotonic() - started) * 1000) if started is not None else None,
+                "snowflake_query_id": getattr(cursor, "sfqid", None) if cursor else None,
+                **_registration_memory_context(),
+            }
+        },
+    )
+
+
+def _execute_registration_merge(
+    cursor: Any,
+    statement: str,
+    parameters: tuple[object, ...],
+    *,
+    progress: RegistrationProgress | None,
+    operation: str,
+    catalog_id: str | None,
+    dataset_offset: int,
+    row_count: int,
+) -> None:
+    """Execute one bounded merge with a durable, redacted before/after log pair."""
+    started = monotonic()
+    span_attributes: dict[str, str | int | float | bool | None] = {
+        "atlas.registration.run_id": progress.registration_run_id if progress else None,
+        "atlas.registration.artifact_id": progress.artifact_id if progress else None,
+        "atlas.registration.catalog_id": catalog_id,
+        "atlas.registration.dataset_offset": dataset_offset,
+        "atlas.registration.row_count": row_count,
+        "atlas.registration.merge_operation": operation,
+    }
+    with _registration_span("catalog_registration.merge", span_attributes) as span:
+        if progress is not None and catalog_id is not None:
+            _log_registration_merge_operation(
+                progress,
+                event="started",
+                operation=operation,
+                catalog_id=catalog_id,
+                dataset_offset=dataset_offset,
+                row_count=row_count,
+            )
+        cursor.execute(statement, parameters)
+        query_id = getattr(cursor, "sfqid", None)
+        if isinstance(query_id, str):
+            span.set_attribute("db.snowflake.query_id", query_id)
+        span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
+        if progress is not None and catalog_id is not None:
+            _log_registration_merge_operation(
+                progress,
+                event="completed",
+                operation=operation,
+                catalog_id=catalog_id,
+                dataset_offset=dataset_offset,
+                row_count=row_count,
+                started=started,
+                cursor=cursor,
+            )
 
 
 def _stable_id(*values: str) -> str:
@@ -470,16 +644,24 @@ def latest_completed_discovery_config_sha256() -> str:
 
 
 def _write_registration_dataset_batch(
-    cursor: Any, datasets: list[RegistrationDataset], observed_at: datetime
+    cursor: Any,
+    datasets: list[RegistrationDataset],
+    observed_at: datetime,
+    *,
+    connection: Any | None = None,
+    progress: RegistrationProgress | None = None,
+    catalog_id: str | None = None,
+    dataset_offset: int = 0,
 ) -> int:
     """Write a bounded dataset slice in three set-based merges before checkpointing it."""
     dataset_rows: list[dict[str, object]] = []
-    resource_rows: list[dict[str, object]] = []
+    dataset_ids: dict[str, str] = {}
     for item in datasets:
         dataset = item.dataset
         dataset_payload = json.dumps(dataset.payload, sort_keys=True, separators=(",", ":"))
         dataset_sha256 = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
         dataset_id = _stable_id(dataset.catalog_id, dataset.catalog_record_id, dataset_sha256)
+        dataset_ids[dataset.dataset_key] = dataset_id
         dataset_rows.append(
             {
                 "catalog_dataset_id": dataset_id,
@@ -490,35 +672,14 @@ def _write_registration_dataset_batch(
                 "metadata_sha256": dataset_sha256,
             }
         )
-        for resource in dataset.resources:
-            canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
-            resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
-            resource_rows.append(
-                {
-                    "catalog_resource_id": resource_id,
-                    "catalog_dataset_id": dataset_id,
-                    "resource_key": f"candidate:{_stable_id(canonical)[:32]}",
-                    "resource_type": resource.resource_type,
-                    "resource_url": resource.resource_url,
-                    "canonical_source_url": resource.canonical_source_url,
-                    "api_dataset_id": resource.api_dataset_id,
-                    "resource_payload": resource.payload,
-                    "observation_id": _stable_id(item.artifact_id, resource_id),
-                    "ingestion_run_id": item.ingestion_run_id,
-                    "ingestion_request_id": item.ingestion_request_id,
-                    "artifact_id": item.artifact_id,
-                    "catalog_id": dataset.catalog_id,
-                    "catalog_record_id": dataset.catalog_record_id,
-                    "matched_term": item.term,
-                }
-            )
     for start in range(0, len(dataset_rows), REGISTRATION_DATASET_CHUNK_SIZE):
         dataset_json = json.dumps(
             dataset_rows[start : start + REGISTRATION_DATASET_CHUNK_SIZE],
             sort_keys=True,
             separators=(",", ":"),
         )
-        cursor.execute(
+        _execute_registration_merge(
+            cursor,
             """MERGE INTO GOVERNANCE.CATALOG_DATASETS target
            USING (
              SELECT value:catalog_dataset_id::VARCHAR AS catalog_dataset_id,
@@ -537,16 +698,52 @@ def _write_registration_dataset_batch(
                source.catalog_record_id, source.metadata_payload, source.metadata_sha256,
                source.discovered_at, TRUE)""",
             (observed_at, dataset_json),
+            progress=progress,
+            operation="catalog_datasets",
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset + start,
+            row_count=len(dataset_rows[start : start + REGISTRATION_DATASET_CHUNK_SIZE]),
         )
-    if not resource_rows:
-        return 0
-    for start in range(0, len(resource_rows), REGISTRATION_RESOURCE_CHUNK_SIZE):
+
+    def resource_rows() -> Generator[dict[str, object], None, None]:
+        for item in datasets:
+            dataset = item.dataset
+            dataset_id = dataset_ids[dataset.dataset_key]
+            for resource in dataset.resources:
+                canonical = resource.canonical_source_url or f"catalog-record:{dataset.dataset_key}"
+                resource_id = _stable_id(dataset_id, resource.resource_type, canonical)
+                yield {
+                    "catalog_resource_id": resource_id,
+                    "catalog_dataset_id": dataset_id,
+                    "resource_key": f"candidate:{_stable_id(canonical)[:32]}",
+                    "resource_type": resource.resource_type,
+                    "resource_url": resource.resource_url,
+                    "canonical_source_url": resource.canonical_source_url,
+                    "api_dataset_id": resource.api_dataset_id,
+                    "resource_payload": resource.payload,
+                    "observation_id": _stable_id(item.artifact_id, resource_id),
+                    "ingestion_run_id": item.ingestion_run_id,
+                    "ingestion_request_id": item.ingestion_request_id,
+                    "artifact_id": item.artifact_id,
+                    "catalog_id": dataset.catalog_id,
+                    "catalog_record_id": dataset.catalog_record_id,
+                    "matched_term": item.term,
+                }
+
+    resource_count = 0
+    row_iterator = resource_rows()
+    for start in count(0, REGISTRATION_RESOURCE_CHUNK_SIZE):
+        resource_slice = list(islice(row_iterator, REGISTRATION_RESOURCE_CHUNK_SIZE))
+        if not resource_slice:
+            break
+        resource_count += len(resource_slice)
         source_json = json.dumps(
-            resource_rows[start : start + REGISTRATION_RESOURCE_CHUNK_SIZE],
+            resource_slice,
             sort_keys=True,
             separators=(",", ":"),
         )
-        cursor.execute(
+        _execute_registration_merge(
+            cursor,
             """MERGE INTO GOVERNANCE.CATALOG_RESOURCES target
            USING (
              SELECT value:catalog_resource_id::VARCHAR AS catalog_resource_id,
@@ -569,8 +766,14 @@ def _write_registration_dataset_batch(
              source.canonical_source_url, source.api_dataset_id, source.resource_payload,
              source.registered_at, TRUE)""",
             (observed_at, source_json),
+            progress=progress,
+            operation="catalog_resources",
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset,
+            row_count=len(resource_slice),
         )
-        cursor.execute(
+        _execute_registration_merge(
+            cursor,
             """MERGE INTO GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS target
            USING (
              SELECT value:observation_id::VARCHAR AS observation_id,
@@ -595,8 +798,31 @@ def _write_registration_dataset_batch(
                source.catalog_dataset_id, source.catalog_resource_id, source.canonical_resource_key,
                source.observed_at)""",
             (observed_at, source_json),
+            progress=progress,
+            operation="catalog_discovery_observations",
+            catalog_id=catalog_id,
+            dataset_offset=dataset_offset,
+            row_count=len(resource_slice),
         )
-    return len(resource_rows)
+        if connection is not None:
+            # This commits the idempotent resource/observation pair before the
+            # next JSON payload is constructed. The durable dataset ledger is
+            # advanced only after its enclosing dataset chunk is complete.
+            connection.commit()
+            logger.info(
+                "catalog_registration.resource_slice_checkpointed",
+                extra={
+                    "context": {
+                        "registration_run_id": progress.registration_run_id if progress else None,
+                        "artifact_id": progress.artifact_id if progress else None,
+                        "catalog_id": catalog_id,
+                        "dataset_offset": dataset_offset,
+                        "resource_offset": start,
+                        "row_count": len(resource_slice),
+                    }
+                },
+            )
+    return resource_count
 
 
 def _claim_registration_batch(
@@ -724,6 +950,58 @@ def _remaining_registration_artifacts(cursor: Any, config_sha256: str, total_art
     return max(total_artifacts - int(completed_artifacts or 0), 0)
 
 
+def _start_registration_run(
+    cursor: Any,
+    registration_run_id: str,
+    config_sha256: str,
+    maximum_artifacts: int,
+    maximum_datasets: int,
+    claimed_artifacts: int,
+    available_artifacts: int,
+) -> None:
+    cursor.execute(
+        """INSERT INTO GOVERNANCE.CATALOG_REGISTRATION_RUNS (
+             registration_run_id, config_sha256, status, started_at, maximum_artifacts,
+             maximum_datasets, claimed_artifacts, available_artifacts
+           ) SELECT %s, %s, 'RUNNING', CURRENT_TIMESTAMP(), %s, %s, %s, %s""",
+        (
+            registration_run_id,
+            config_sha256,
+            maximum_artifacts,
+            maximum_datasets,
+            claimed_artifacts,
+            available_artifacts,
+        ),
+    )
+
+
+def _complete_registration_run(
+    cursor: Any,
+    registration_run_id: str,
+    status: str,
+    processed_datasets: int,
+    registered_resources: int,
+    completed_artifacts: int,
+    failed_artifacts: int,
+    remaining_artifacts: int,
+) -> None:
+    cursor.execute(
+        """UPDATE GOVERNANCE.CATALOG_REGISTRATION_RUNS SET status = %s,
+             completed_at = CURRENT_TIMESTAMP(), processed_datasets = %s,
+             registered_resources = %s, completed_artifacts = %s, failed_artifacts = %s,
+             remaining_artifacts = %s WHERE registration_run_id = %s""",
+        (
+            status,
+            processed_datasets,
+            registered_resources,
+            completed_artifacts,
+            failed_artifacts,
+            remaining_artifacts,
+            registration_run_id,
+        ),
+    )
+
+
 def register_completed_discovery(
     config_sha256: str, maximum_artifacts: int = 100, maximum_datasets: int = 10_000
 ) -> dict[str, int | str]:
@@ -739,9 +1017,25 @@ def register_completed_discovery(
     progress = RegistrationProgress(registration_run_id=str(uuid4()))
     started = monotonic()
     try:
-        return _register_completed_discovery(
-            config_sha256, maximum_artifacts, maximum_datasets, progress
-        )
+        with _registration_span(
+            "catalog_registration.run",
+            {
+                "atlas.registration.run_id": progress.registration_run_id,
+                "atlas.registration.maximum_artifacts": maximum_artifacts,
+                "atlas.registration.maximum_datasets": maximum_datasets,
+            },
+        ) as span:
+            result = _register_completed_discovery(
+                config_sha256, maximum_artifacts, maximum_datasets, progress
+            )
+            span.set_attribute("atlas.registration.status", str(result["status"]))
+            span.set_attribute(
+                "atlas.registration.processed_datasets", int(result["processed_datasets"])
+            )
+            span.set_attribute(
+                "atlas.registration.registered_resources", int(result["registered_resources"])
+            )
+            return result
     except Exception as error:
         diagnostics = {
             "operation": "catalog_registration",
@@ -780,6 +1074,15 @@ def _register_completed_discovery(
             )
             progress.claimed_artifacts = len(artifacts)
             progress.available_artifacts = available_artifacts
+            _start_registration_run(
+                cursor,
+                registration_run_id,
+                config_sha256,
+                maximum_artifacts,
+                maximum_datasets,
+                len(artifacts),
+                available_artifacts,
+            )
             connection.commit()
             logger.info(
                 "catalog_registration.claimed",
@@ -821,9 +1124,19 @@ def _register_completed_discovery(
                         catalog_id=catalog_id,
                         dataset_offset=dataset_offset,
                     )
-                    datasets = normalize_catalog_payload(
-                        catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
-                    )
+                    with _registration_span(
+                        "catalog_registration.artifact_normalize",
+                        {
+                            "atlas.registration.run_id": registration_run_id,
+                            "atlas.registration.artifact_id": artifact_id,
+                            "atlas.registration.catalog_id": catalog_id,
+                            "atlas.registration.dataset_offset": dataset_offset,
+                        },
+                    ) as span:
+                        datasets = normalize_catalog_payload(
+                            catalog_id, _read_artifact_payload(s3, settings, artifact_uri)
+                        )
+                        span.set_attribute("atlas.registration.dataset_count", len(datasets))
                     logger.info(
                         "catalog_registration.artifact_normalized",
                         extra={
@@ -833,7 +1146,7 @@ def _register_completed_discovery(
                                 "catalog_id": catalog_id,
                                 "dataset_offset": dataset_offset,
                                 "dataset_count": len(datasets),
-                                **_cgroup_memory_context(),
+                                **_registration_memory_context(),
                             }
                         },
                     )
@@ -884,7 +1197,13 @@ def _register_completed_discovery(
                             dataset_count=len(artifact_datasets),
                         )
                         registered_resources += _write_registration_dataset_batch(
-                            cursor, artifact_datasets, datetime.now(UTC)
+                            cursor,
+                            artifact_datasets,
+                            datetime.now(UTC),
+                            connection=connection,
+                            progress=progress,
+                            catalog_id=catalog_id,
+                            dataset_offset=next_offset,
                         )
                         registered_datasets += len(artifact_datasets)
                         next_offset += len(artifact_datasets)
@@ -952,6 +1271,17 @@ def _register_completed_discovery(
             remaining_artifacts = _remaining_registration_artifacts(
                 cursor, config_sha256, available_artifacts
             )
+            _complete_registration_run(
+                cursor,
+                registration_run_id,
+                "COMPLETED" if remaining_artifacts == 0 else "PARTIAL",
+                processed_datasets,
+                registered_resources,
+                observed_artifacts,
+                failed_artifacts,
+                remaining_artifacts,
+            )
+            connection.commit()
     progress.phase = "completed"
     logger.info(
         "catalog_registration.completed",

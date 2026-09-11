@@ -1,0 +1,6 @@
+name: data_explorer
+channels:
+  - snowflake
+dependencies:
+  - streamlit
+  - snowflake-snowpark-python

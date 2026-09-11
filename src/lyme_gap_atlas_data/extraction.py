@@ -177,3 +177,21 @@ class ExtractionCoordinator:
                 }
             )
         return contribution
+
+    def publish_contribution(self, contribution: GraphContribution) -> dict[str, object]:
+        """Publish a contribution that a workflow has validated against its admission record."""
+        return self._publisher.publish(contribution)
+
+    def process_validated(
+        self,
+        request_id: str,
+        full_request: str,
+        validate: Callable[[GraphContribution], None],
+        attempt_started: Callable[[str, int, str], None],
+    ) -> dict[str, object]:
+        """Record attempt provenance, validate admission identity, then publish atomically."""
+        route = self.route_for_request(full_request)
+        attempt_started(route, self.estimate_input_tokens(full_request), request_id)
+        contribution = self.build_contribution(request_id, full_request)
+        validate(contribution)
+        return self.publish_contribution(contribution)

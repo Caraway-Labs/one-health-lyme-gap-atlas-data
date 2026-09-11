@@ -1,0 +1,82 @@
+name: Capture PROD CDC evidence for steward review
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cdc-evidence-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Create CDC x5j9-wybp review candidate
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Capture bounded evidence and restore the production app specification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$PROD_APP_ID"
+
+          baseline_spec="$(mktemp)"
+          evidence_spec="$(mktemp)"
+          baseline_captured=false
+
+          restore_baseline() {
+            capture_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              # The fetched specification contains provider-encrypted secrets. Never print it.
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              restore_status=$?
+              if [ "$restore_status" -ne 0 ]; then
+                echo "::error::The evidence job finished, but automatic topology restoration failed. Stop here and restore the prior App Platform specification before any further production action."
+                capture_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$evidence_spec"
+            trap - EXIT
+            exit "$capture_status"
+          }
+          trap restore_baseline EXIT
+
+          # Clone only the existing, non-routable discovery job so its production
+          # runtime secrets stay opaque. The temporary PRE_DEPLOY job runs once;
+          # it is removed by the EXIT trap on both success and failure.
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          baseline_captured=true
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
+          test "$(jq '[.jobs[] | select(.name == "catalog-discovery")] | length' "$baseline_spec")" = "1"
+          test "$(jq '[.jobs[] | select(.name == "cdc-evidence-capture")] | length' "$baseline_spec")" = "0"
+          test "$(jq -r '.jobs[] | select(.name == "catalog-discovery") | .image.digest' "$baseline_spec")" != "null"
+
+          jq '
+            (.jobs[] | select(.name == "catalog-discovery")) as $template
+            | .jobs += [
+                $template
+                | .name = "cdc-evidence-capture"
+                | .kind = "PRE_DEPLOY"
+                | del(.schedule)
+                | .run_command = "uv run atlas-data pipeline cdc-sample"
+              ]
+          ' "$baseline_spec" > "$evidence_spec"
+
+          doctl apps update "$PROD_APP_ID" --spec "$evidence_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          # App Platform reports a PRE_DEPLOY job's exit through deployment
+          # success, rather than a job-invocation record. --wait therefore
+          # succeeds only after the evidence job has completed successfully.
+          echo "CDC evidence capture succeeded. The temporary job will now be removed."

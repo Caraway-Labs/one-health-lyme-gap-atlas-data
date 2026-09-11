@@ -8,7 +8,9 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any
 
-from lyme_gap_atlas_kg import EvidencePassageNode, GraphNode, PaperNode, SemanticEdge
+from lyme_gap_atlas_kg import (
+    GraphContribution,
+)
 from neo4j import Driver
 
 _SPACE = re.compile(r"\s+")
@@ -72,21 +74,13 @@ def admit_pmc_open_access(jats: bytes) -> AdmittedFullText:
     )
 
 
-@dataclass(frozen=True)
-class GraphContribution:
-    paper: PaperNode
-    nodes: list[GraphNode]
-    passages: list[EvidencePassageNode]
-    edges: list[SemanticEdge]
-
-
 class Neo4jPaperPublisher:
     """Replace one paper's deterministic contribution in a single write transaction."""
 
     def __init__(self, driver: Driver) -> None:
         self._driver = driver
 
-    def publish(self, contribution: GraphContribution) -> dict[str, Any]:
+    def publish(self, contribution: GraphContribution) -> dict[str, object]:
         payload = {
             "paper": contribution.paper.model_dump(mode="json"),
             "nodes": [node.model_dump(mode="json") for node in contribution.nodes],

@@ -1,5 +1,8 @@
+import base64
+import hashlib
 import json
 import logging
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 import yaml
 
-from lyme_gap_atlas_data import cli, orchestration
+from lyme_gap_atlas_data import cdc, cli, orchestration
 from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
 from lyme_gap_atlas_data.artifacts import create_artifact
 from lyme_gap_atlas_data.assessment import Assessment
@@ -22,14 +25,16 @@ from lyme_gap_atlas_data.catalog_registration import (
     _cgroup_memory_context,
     _claim_registration_batch,
     _completed_artifacts,
+    _execute_registration_merge,
     _log_registration_phase,
+    _process_memory_context,
     _write_registration_dataset_batch,
     canonicalize_public_url,
     latest_completed_discovery_config_sha256,
     normalize_catalog_payload,
     register_completed_discovery,
 )
-from lyme_gap_atlas_data.cdc import load_cdc_profile
+from lyme_gap_atlas_data.cdc import build_approved_cdc_models, load_cdc_profile
 from lyme_gap_atlas_data.discovery import (
     DiscoveryRequest,
     _retryable_catalog_error,
@@ -40,9 +45,16 @@ from lyme_gap_atlas_data.discovery import (
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
     LEGACY_DEV_MIGRATION_CHECKSUMS,
+    LEGACY_PROD_MIGRATION_CHECKSUMS,
+    LEGACY_PROD_MIGRATION_FILENAMES,
+    LEGACY_PROD_MIGRATION_ROW_COUNTS,
+    PROD_DATABASE,
     is_authorized_legacy_reconciliation,
+    is_line_ending_equivalent_checksum,
     legacy_dev_reconciliation_plan,
+    legacy_prod_reconciliation_plan,
     load_migrations,
+    migration_execution_role,
     migration_plan,
     render_migration,
 )
@@ -50,6 +62,13 @@ from lyme_gap_atlas_data.orchestration import _resource_key
 from lyme_gap_atlas_data.preflight import _required_settings
 from lyme_gap_atlas_data.redaction import redact_mapping
 from lyme_gap_atlas_data.settings import PipelineSettings
+
+
+@pytest.fixture(autouse=True)
+def isolate_publication_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cdc, "cdc_operation", lambda: nullcontext("lease"))
+    monkeypatch.setattr(cdc, "publication_context", lambda _: ("run-1", 0))
+    monkeypatch.setattr(cdc, "publish_snapshot", lambda *args, **kwargs: {"status": "PUBLISHED"})
 
 
 def test_artifact_identity_is_content_addressed() -> None:
@@ -346,23 +365,101 @@ def test_production_schedule_rejects_dev_before_any_ingestion(
         orchestration.run_production_schedule()
 
 
-def test_production_schedule_requires_approved_ingestion_before_dbt(
+def test_production_schedule_checks_metadata_without_acquisition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
     monkeypatch.setattr(
         orchestration,
-        "ingest_approved_cdc",
-        lambda **kwargs: {"source_version_id": "version-1", "status": "COMPLETED"},
+        "check_cdc_metadata",
+        lambda: {"status": "UNCHANGED"},
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "build_approved_cdc_models",
+        lambda _: pytest.fail("Monthly checks must not run dbt"),
+    )
+    result = orchestration.run_production_schedule()
+    assert result["status"] == "UNCHANGED"
+
+
+def test_production_dbt_recovery_rejects_dev_before_any_dbt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="dev"))
+    with pytest.raises(ValueError, match="only in production"):
+        orchestration.run_production_cdc_dbt_recovery("version-1")
+
+
+def test_production_dbt_recovery_uses_retained_raw_without_ingestion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orchestration, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    monkeypatch.setattr(
+        orchestration,
+        "run_cdc_dbt_recovery",
+        lambda source_version_id: {
+            "raw_load": {"source_version_id": source_version_id, "raw_rows": 5_045},
+            "promotion": {"source_version_id": source_version_id, "status": "COMPLETED"},
+            "status": "COMPLETED",
+        },
+    )
+    assert orchestration.run_production_cdc_dbt_recovery("version-1") == {
+        "raw_load": {"source_version_id": "version-1", "raw_rows": 5_045},
+        "promotion": {"source_version_id": "version-1", "status": "COMPLETED"},
+        "status": "COMPLETED",
+    }
+
+
+def test_cdc_dbt_recovery_uses_retained_raw_in_dev_or_prod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def execute(self, *_: object) -> None:
+            return None
+
+    class Connection:
+        def __enter__(self) -> "Connection":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        orchestration,
+        "confirm_approved_cdc_raw_load",
+        lambda source_version_id: {"source_version_id": source_version_id, "raw_rows": 5_045},
     )
     monkeypatch.setattr(
         orchestration,
         "build_approved_cdc_models",
         lambda source_version_id: {"source_version_id": source_version_id, "status": "COMPLETED"},
     )
-    result = orchestration.run_production_schedule()
-    assert result["ingestion"]["source_version_id"] == "version-1"
-    assert result["promotion"]["status"] == "COMPLETED"
+    completed: list[tuple[str, str, str | None]] = []
+    monkeypatch.setattr(orchestration, "uuid", SimpleNamespace(uuid4=lambda: "recovery-1"))
+    monkeypatch.setattr(orchestration, "datetime", SimpleNamespace(now=lambda *_: "now"))
+    monkeypatch.setattr(
+        orchestration,
+        "_complete_cdc_dbt_recovery",
+        lambda run_id, status, classification: completed.append((run_id, status, classification)),
+    )
+    monkeypatch.setattr(orchestration, "connect", lambda *_: Connection())
+    result = orchestration.run_cdc_dbt_recovery("version-1")
+    assert result["raw_load"]["raw_rows"] == 5_045
+    assert result["recovery_run_id"] == "recovery-1"
+    assert completed == [("recovery-1", "COMPLETED", None)]
 
 
 def test_production_app_spec_has_separate_gated_jobs() -> None:
@@ -394,7 +491,11 @@ def test_dev_image_deployment_updates_every_scheduled_job() -> None:
     workflow = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
     assert ".jobs |= map(" in workflow
     assert 'registry: "oh-lyme-data"' in workflow
-    assert 'doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json && exit 0' in workflow
+    fixture = 'doctl apps update "$APP_ID" --spec /tmp/dev-app-fixture.json --wait'
+    final = 'doctl apps update "$APP_ID" --spec /tmp/dev-app-image.json --wait'
+    assert workflow.index(fixture) < workflow.index(final)
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "/app/scripts/verify_cdc_policy_dev.py" in workflow
     assert ".jobs[0]" not in workflow
 
 
@@ -407,7 +508,120 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
     assert '"SCHEDULED"' in workflow
     assert "register-latest-discovery" in workflow
     assert "provider-encrypted secret values" in workflow
+    assert '"cdc-operations-watchdog"' in workflow
+    assert '"approved-source-ingestion"' in workflow
+    assert "approved six-job baseline" in workflow
+    assert 'select(.kind == "SCHEDULED")' in workflow
+    assert "pubmed-discovery-surveillance" not in workflow
+    assert "approved-paper-extraction" not in workflow
     assert "exit 1" not in workflow
+
+
+def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology() -> None:
+    workflow = Path(".github/workflows/capture-prod-cdc-evidence.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "concurrency:" in workflow
+    assert "group: prod-cdc-evidence-capture" in workflow
+    assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"' in workflow
+    assert 'test "$(jq -r \'.name\' "$baseline_spec")" = "oh-lyme-data-prod"' in workflow
+    assert '"catalog-discovery"' in workflow
+    assert '"cdc-evidence-capture"' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "del(.schedule)" in workflow
+    assert '"uv run atlas-data pipeline cdc-sample"' in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "PRE_DEPLOY job's exit through deployment" in workflow
+    assert "list-job-invocations" not in workflow
+    assert "provider-encrypted secrets" in workflow
+    assert "ingest-approved-cdc" not in workflow
+    assert "run-production-schedule" not in workflow
+    assert "dbt " not in workflow
+
+
+def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology() -> None:
+    workflow = Path(".github/workflows/capture-prod-cdc-historical.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "group: prod-cdc-historical-evidence-capture" in workflow
+    assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
+    assert 'select(.name == "catalog-ingestion")' in workflow
+    assert 'select(.name == "catalog-discovery")' in workflow
+    assert 'select(.name == "catalog-ingestion") | .image.digest' in workflow
+    assert 'select(.name == "catalog-discovery") | .image.digest' in workflow
+    assert workflow.count('= "$IMAGE_DIGEST"') >= 2
+    assert '"cdc-historical-evidence-once"' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "del(.schedule)" in workflow
+    assert "cdc-historical-sample --sample-limit 25" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "ingest-approved-cdc-historical" not in workflow
+    assert "dbt " not in workflow
+
+
+def test_protected_prod_historical_ingestion_is_exact_and_restores_topology() -> None:
+    workflow = Path(".github/workflows/ingest-prod-cdc-historical.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "group: prod-cdc-historical-ingestion" in workflow
+    assert 'select(.name == "approved-source-ingestion")' in workflow
+    assert '"cdc-historical-ingest-once"' in workflow
+    assert "ingest-approved-cdc-historical --source-version-id" in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow and "del(.schedule)" in workflow
+    assert "list-deployments" in workflow and 'test "$dev_verified" = true' in workflow
+    assert "test \"$(jq '[.jobs[].image.digest] | unique | length'" in workflow
+    assert "catalog-registration-03" in workflow and "cdc-operations-watchdog" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "cdc-historical-sample" not in workflow
+    assert "run-production-schedule" in workflow
+
+
+def test_protected_prod_historical_recovery_reuses_exact_retained_run() -> None:
+    workflow = Path(".github/workflows/run-prod-cdc-dbt-recovery.yml").read_text(encoding="utf-8")
+    assert "historical-dbt-recovery" in workflow
+    assert "recover-approved-cdc-historical --source-version-id" in workflow
+    assert "--ingestion-run-id $INGESTION_RUN_ID" in workflow
+    assert '[[ "$INGESTION_RUN_ID" =~' in workflow
+    assert '.name = "cdc-dbt-recovery-once"' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow and "del(.schedule)" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$promoted_spec" --wait' in workflow
+
+
+def test_protected_prod_historical_rollback_is_retained_revision_guarded() -> None:
+    workflow = Path(".github/workflows/rollback-prod-cdc-historical.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "environment: production" in workflow
+    assert "group: prod-cdc-historical-ingestion" in workflow
+    assert '"cdc-historical-rollback-once"' in workflow
+    assert "rollback-cdc-historical --source-version-id" in workflow
+    assert "--ingestion-run-id" in workflow and "--expected-revision" in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow and "del(.schedule)" in workflow
+    assert "list-deployments" in workflow and 'test "$dev_verified" = true' in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "DELETE" not in workflow
+
+
+def test_deployment_fixture_uses_current_historical_environment_guard() -> None:
+    fixture = Path("scripts/verify_historical_cdc_dev.py").read_text(encoding="utf-8")
+    assert "historical.require_governed_environment()" in fixture
+    assert "historical.require_dev()" not in fixture
+
+
+def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
+    workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
+    assert "environment: production" in workflow
+    assert "group: prod-approved-ingestion" in workflow
+    assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
+    assert '"approved-source-ingestion"' in workflow
+    assert '"approved-source-ingestion-once"' in workflow
+    assert '"uv run atlas-data pipeline run-production-schedule"' in workflow
+    assert 'doctl apps list-deployments "$DEV_APP_ID"' in workflow
+    assert 'test "$dev_verified" = true' in workflow
+    assert '.kind = "PRE_DEPLOY"' in workflow
+    assert "del(.schedule)" in workflow
+    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+    assert "cdc-sample" not in workflow
+    assert "ingest-approved-cdc" not in workflow
+    assert "dbt run" not in workflow
 
 
 def test_preflight_identifies_missing_required_configuration() -> None:
@@ -561,6 +775,133 @@ def test_catalog_registration_batches_dataset_resources_into_three_merges() -> N
     assert all('"catalog_resource_id"' in str(parameters[1]) for _, parameters in cursor.calls[1:])
 
 
+def test_catalog_registration_logs_each_merge_statement_without_payloads(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Cursor:
+        sfqid = "safe-query-id"
+
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._registration_memory_context",
+        lambda: {
+            "cgroup_memory_mode": "unavailable",
+            "cgroup_memory_current_bytes": None,
+            "cgroup_memory_limit_bytes": None,
+            "cgroup_memory_events": {},
+            "process_rss_bytes": 100,
+            "process_peak_rss_bytes": 200,
+            "process_virtual_memory_bytes": 300,
+            "process_thread_count": 4,
+            "process_rusage_maxrss_bytes": 200,
+        },
+    )
+    progress = RegistrationProgress("run-id", artifact_id="artifact-id")
+    dataset = CatalogDataset(
+        "DATA_GOV",
+        "dataset-1",
+        "data_gov:dataset-1",
+        {"private_payload": "must-not-be-recorded"},
+        (CatalogResource("API", "https://example.gov/api?token=secret", None, None, {}),),
+    )
+
+    with caplog.at_level(logging.INFO, logger="lyme_gap_atlas_data.catalog_registration"):
+        _write_registration_dataset_batch(
+            Cursor(),
+            [RegistrationDataset(dataset, "artifact-id", "run-id", "request-id", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+            progress=progress,
+            catalog_id="DATA_GOV",
+            dataset_offset=7,
+        )
+
+    events = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("catalog_registration.merge_operation_")
+    ]
+    assert [record.getMessage() for record in events] == [
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+        "catalog_registration.merge_operation_started",
+        "catalog_registration.merge_operation_completed",
+    ]
+    assert [record.context["operation"] for record in events[::2]] == [
+        "catalog_datasets",
+        "catalog_resources",
+        "catalog_discovery_observations",
+    ]
+    assert all(record.context["dataset_offset"] == 7 for record in events)
+    assert all(record.context["snowflake_query_id"] == "safe-query-id" for record in events[1::2])
+    assert "must-not-be-recorded" not in repr([record.context for record in events])
+    assert "token=secret" not in repr([record.context for record in events])
+
+
+def test_catalog_registration_merge_span_contains_only_safe_correlation_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Span:
+        def __init__(self) -> None:
+            self.attributes: dict[str, object] = {}
+
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def set_attribute(self, name: str, value: object) -> None:
+            self.attributes[name] = value
+
+        def set_status(self, _status: object) -> None:
+            return None
+
+    class Tracer:
+        def __init__(self) -> None:
+            self.span = Span()
+
+        def start_as_current_span(self, _name: str) -> Span:
+            return self.span
+
+    class Cursor:
+        sfqid = "safe-query-id"
+
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    tracer = Tracer()
+    monkeypatch.setattr("lyme_gap_atlas_data.catalog_registration._TRACER", tracer)
+    _execute_registration_merge(
+        Cursor(),
+        "private SQL text",
+        ("token=must-not-be-recorded",),
+        progress=RegistrationProgress("run-id", artifact_id="artifact-id"),
+        operation="catalog_resources",
+        catalog_id="DATA_GOV",
+        dataset_offset=7,
+        row_count=100,
+    )
+
+    assert {
+        key: value for key, value in tracer.span.attributes.items() if key != "atlas.duration_ms"
+    } == {
+        "atlas.registration.run_id": "run-id",
+        "atlas.registration.artifact_id": "artifact-id",
+        "atlas.registration.catalog_id": "DATA_GOV",
+        "atlas.registration.dataset_offset": 7,
+        "atlas.registration.row_count": 100,
+        "atlas.registration.merge_operation": "catalog_resources",
+        "db.snowflake.query_id": "safe-query-id",
+    }
+    assert isinstance(tracer.span.attributes["atlas.duration_ms"], int)
+    assert "must-not-be-recorded" not in repr(tracer.span.attributes)
+    assert "private SQL text" not in repr(tracer.span.attributes)
+
+
 def test_catalog_registration_chunks_large_resource_merges() -> None:
     class Cursor:
         def __init__(self) -> None:
@@ -584,13 +925,44 @@ def test_catalog_registration_chunks_large_resource_merges() -> None:
         )
         == 1_001
     )
-    assert len(cursor.calls) == 5
+    assert len(cursor.calls) == 23
     resource_payload_sizes = [
         len(json.loads(parameters[1]))
         for query, parameters in cursor.calls
         if "CATALOG_RESOURCES" in query or "CATALOG_DISCOVERY_OBSERVATIONS" in query
     ]
-    assert resource_payload_sizes == [1_000, 1_000, 1, 1]
+    assert resource_payload_sizes == [100] * 20 + [1, 1]
+
+
+def test_catalog_registration_checkpoints_each_resource_observation_slice() -> None:
+    class Cursor:
+        def execute(self, _query: str, _parameters: tuple[object, ...]) -> None:
+            return None
+
+    class Connection:
+        def __init__(self) -> None:
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    resources = tuple(
+        CatalogResource("DATA", f"https://example.gov/{index}", None, None, {})
+        for index in range(201)
+    )
+    connection = Connection()
+    dataset = CatalogDataset("DATA_GOV", "dataset-1", "key", {}, resources)
+
+    assert (
+        _write_registration_dataset_batch(
+            Cursor(),
+            [RegistrationDataset(dataset, "artifact", "run", "request", "lyme")],
+            observed_at=datetime(2026, 8, 26, tzinfo=UTC),
+            connection=connection,
+        )
+        == 201
+    )
+    assert connection.commits == 3
 
 
 def test_catalog_registration_claims_an_eligible_batch_with_set_based_queries(
@@ -704,7 +1076,8 @@ def test_catalog_registration_continues_after_one_artifact_read_failure(
     assert result["failed_artifacts"] == 1
     assert result["observed_artifacts"] == 1
     assert connection.rollbacks == 0
-    assert connection.commits == 2
+    # Claim, artifact outcome, and durable invocation summary commit separately.
+    assert connection.commits == 3
     assert any("SET status = 'FAILED'" in query for query, _ in connection.cursor_instance.calls)
     assert any("SET status = 'COMPLETED'" in query for query, _ in connection.cursor_instance.calls)
 
@@ -829,7 +1202,7 @@ def test_catalog_registration_commits_each_dataset_chunk_before_a_later_failure(
     datasets = [CatalogDataset("DATA_GOV", str(index), str(index), {}, ()) for index in range(51)]
     calls = 0
 
-    def write_chunk(*_args: object) -> int:
+    def write_chunk(*_args: object, **_kwargs: object) -> int:
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -1025,6 +1398,16 @@ def test_registration_phase_boundary_records_safe_cgroup_memory(
         "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
         lambda path: values.get(path.name),
     )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._process_memory_context",
+        lambda: {
+            "process_rss_bytes": 1,
+            "process_peak_rss_bytes": 2,
+            "process_virtual_memory_bytes": 3,
+            "process_thread_count": 4,
+            "process_rusage_maxrss_bytes": 5,
+        },
+    )
     progress = RegistrationProgress(
         registration_run_id="run-123",
         artifact_id="artifact-123",
@@ -1050,9 +1433,15 @@ def test_registration_phase_boundary_records_safe_cgroup_memory(
         "dataset_count": None,
         "claimed_artifacts": 12,
         "available_artifacts": 4410,
+        "cgroup_memory_mode": "v2",
         "cgroup_memory_current_bytes": 419430400,
         "cgroup_memory_limit_bytes": 536870912,
         "cgroup_memory_events": {"low": 0, "high": 1, "max": 2, "oom": 3, "oom_kill": 4},
+        "process_rss_bytes": 1,
+        "process_peak_rss_bytes": 2,
+        "process_virtual_memory_bytes": 3,
+        "process_thread_count": 4,
+        "process_rusage_maxrss_bytes": 5,
     }
 
 
@@ -1064,10 +1453,51 @@ def test_cgroup_memory_context_is_safe_when_files_are_unavailable(
     )
 
     assert _cgroup_memory_context() == {
+        "cgroup_memory_mode": "unavailable",
         "cgroup_memory_current_bytes": None,
         "cgroup_memory_limit_bytes": None,
         "cgroup_memory_events": {},
     }
+
+
+def test_cgroup_memory_context_uses_v1_when_v2_files_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = {
+        "memory.usage_in_bytes": "419430400",
+        "memory.limit_in_bytes": "536870912",
+        "memory.failcnt": "2",
+    }
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_cgroup_file",
+        lambda path: values.get(path.name),
+    )
+
+    assert _cgroup_memory_context() == {
+        "cgroup_memory_mode": "v1",
+        "cgroup_memory_current_bytes": 419430400,
+        "cgroup_memory_limit_bytes": 536870912,
+        "cgroup_memory_events": {"failcnt": 2},
+    }
+
+
+def test_process_memory_context_reads_only_numeric_status_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.catalog_registration._read_process_status",
+        lambda: (
+            "Name:\tprivate-command\nVmRSS:\t100 kB\nVmHWM:\t200 kB\nVmSize:\t300 kB\nThreads:\t4\n"
+        ),
+    )
+
+    context = _process_memory_context()
+
+    assert context["process_rss_bytes"] == 102400
+    assert context["process_peak_rss_bytes"] == 204800
+    assert context["process_virtual_memory_bytes"] == 307200
+    assert context["process_thread_count"] == 4
+    assert "private-command" not in repr(context)
 
 
 def test_registration_command_reuses_the_worker_terminal_event(
@@ -1113,6 +1543,70 @@ def test_cdc_raw_load_quotes_the_socrata_system_identifier() -> None:
 def test_dbt_profile_supports_an_encrypted_pipeline_key() -> None:
     profile = Path("dbt/profiles.yml").read_text(encoding="utf-8")
     assert "private_key_passphrase" in profile
+
+
+def test_dbt_build_uses_an_ephemeral_key_file_for_base64_runtime_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key_bytes = b"test-private-key"
+    captured: dict[str, str] = {}
+
+    def run_dbt(*_: object, env: dict[str, str], **__: object) -> SimpleNamespace:
+        key_path = Path(env["SNOWFLAKE_PRIVATE_KEY_PATH"])
+        assert key_path.read_bytes() == key_bytes
+        captured["key_path"] = str(key_path)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_B64", base64.b64encode(key_bytes).decode())
+    monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
+    monkeypatch.setattr(cdc.subprocess, "run", run_dbt)
+    monkeypatch.setattr(cdc, "record_cdc_quality", lambda *args, **kwargs: {"validation_id": "v"})
+
+    assert build_approved_cdc_models("source-version-1") == {
+        "source_version_id": "source-version-1",
+        "status": "COMPLETED",
+        "publication_status": "PUBLISHED",
+    }
+    assert not Path(captured["key_path"]).exists()
+
+
+def test_dbt_failure_logs_only_a_controlled_private_key_classification(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(
+        cdc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="private key could not be parsed"
+        ),
+    )
+    with pytest.raises(RuntimeError, match=r"CDC dbt build failed \[PRIVATE_KEY_AUTH\]"):
+        build_approved_cdc_models("source-version-1")
+    assert "CDC_DBT_DIAGNOSTIC=PRIVATE_KEY_AUTH" in caplog.text
+    assert "private key could not be parsed" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "adapter_error",
+    [
+        "Bad decrypt. Incorrect password?",
+        "Could not deserialize key data",
+    ],
+)
+def test_dbt_failure_classifies_encrypted_key_adapter_errors_without_logging_them(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, adapter_error: str
+) -> None:
+    monkeypatch.setattr(
+        cdc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr=adapter_error),
+    )
+
+    with pytest.raises(RuntimeError, match=r"CDC dbt build failed \[PRIVATE_KEY_AUTH\]"):
+        build_approved_cdc_models("source-version-1")
+
+    assert "CDC_DBT_DIAGNOSTIC=PRIVATE_KEY_AUTH" in caplog.text
+    assert adapter_error not in caplog.text
 
 
 def test_dbt_uses_only_migration_provisioned_governed_schemas() -> None:
@@ -1164,6 +1658,22 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V036",
         "V037",
         "V038",
+        "V039",
+        "V040",
+        "V041",
+        "V042",
+        "V043",
+        "V044",
+        "V045",
+        "V046",
+        "V047",
+        "V048",
+        "V049",
+        "V050",
+        "V051",
+        "V052",
+        "V053",
+        "V054",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1171,8 +1681,12 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 35
+    assert len(prod_plan) == 44
     assert "V034" not in {item["version"] for item in prod_plan}
+    operations_console = next(item.source for item in migrations if item.version == "V039")
+    assert "CATALOG_REGISTRATION_RUNS" in operations_console
+    assert "V_PIPELINE_COMMAND_CENTER" in operations_console
+    assert "GRANT SELECT ON TABLE GOVERNANCE.INGESTION_RUNS" not in operations_console
     rendered_prod = render_migration(migrations[2], "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "OH_LYME_PROD_STREAMLIT_OWNER" in rendered_prod
     safe_variant_insert = "SELECT :decision_id, :RESOURCE_KEY, :DECISION, :RATIONALE, :CONDITIONS"
@@ -1183,6 +1697,28 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "BEGIN TRANSACTION" in migrations[9].source
     assert "WHEN OTHER THEN" in migrations[9].source
     assert "RETIRED" in migrations[10].source
+    v041 = next(item for item in migrations if item.version == "V041")
+    assert migration_execution_role(v041, DEV_DATABASE) == "OH_LYME_DEV_GOVERNED_VIEW_OWNER"
+    assert migration_execution_role(v041, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
+        "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
+    )
+    assert migration_execution_role(migrations[0], DEV_DATABASE) is None
+
+
+def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
+    evidence_grants = next(item.source for item in load_migrations() if item.version == "V042")
+    for table_name in (
+        "CATALOG_DATASETS",
+        "CATALOG_RESOURCES",
+        "SOURCE_ACCESS_PROFILES",
+        "SOURCE_DOCUMENT_SNAPSHOTS",
+        "SCHEMA_SNAPSHOTS",
+        "DATASET_QUALITY_ASSESSMENTS",
+    ):
+        assert f"GOVERNANCE.{table_name}" in evidence_grants
+    assert "MANUAL_REVIEW_DECISIONS" not in evidence_grants
+    assert "DATA_SOURCE_VERSIONS" not in evidence_grants
+    assert "RAW.CDC_LYME_X5J9_WYBP" not in evidence_grants
 
 
 def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() -> None:
@@ -1207,10 +1743,15 @@ def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() ->
     )
     assert not is_authorized_legacy_reconciliation(
         "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
-        "V028",
-        LEGACY_DEV_MIGRATION_CHECKSUMS["V028"],
-        v028.sha256,
-        {"V028": (LEGACY_DEV_MIGRATION_CHECKSUMS["V028"], v028.sha256)},
+        "V029",
+        LEGACY_DEV_MIGRATION_CHECKSUMS["V029"],
+        next(migration for migration in migrations if migration.version == "V029").sha256,
+        {
+            "V029": (
+                LEGACY_DEV_MIGRATION_CHECKSUMS["V029"],
+                next(migration for migration in migrations if migration.version == "V029").sha256,
+            )
+        },
     )
     assert not is_authorized_legacy_reconciliation(
         DEV_DATABASE,
@@ -1220,6 +1761,73 @@ def test_legacy_reconciliation_is_pinned_to_the_authorized_dev_mismatch_set() ->
         {"V001": ("unapproved", "unapproved")},
     )
     assert DEV_DATABASE == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+
+
+def test_line_ending_equivalence_accepts_only_lf_or_crlf_serialization() -> None:
+    source = "SELECT 1;\nSELECT 2;\n"
+    lf_checksum = hashlib.sha256(source.encode()).hexdigest()
+    crlf_checksum = hashlib.sha256(source.replace("\n", "\r\n").encode()).hexdigest()
+    carriage_return_checksum = hashlib.sha256(source.replace("\n", "\r").encode()).hexdigest()
+    changed_checksum = hashlib.sha256(b"SELECT 3;\n").hexdigest()
+
+    assert is_line_ending_equivalent_checksum(source, lf_checksum)
+    assert is_line_ending_equivalent_checksum(source, crlf_checksum)
+    assert not is_line_ending_equivalent_checksum(source, carriage_return_checksum)
+    assert not is_line_ending_equivalent_checksum(source, changed_checksum)
+
+
+def test_prod_reconciliation_is_pinned_to_exact_variant_and_duplicate_rows() -> None:
+    migrations = load_migrations()
+    applied_rows = [
+        (version, LEGACY_PROD_MIGRATION_FILENAMES[version], checksum)
+        for version, checksum in LEGACY_PROD_MIGRATION_CHECKSUMS.items()
+        for _ in range(LEGACY_PROD_MIGRATION_ROW_COUNTS[version])
+    ]
+
+    reconciliations = legacy_prod_reconciliation_plan(applied_rows, migrations)
+    assert [migration.version for migration in reconciliations] == ["V022", "V028"]
+    assert is_authorized_legacy_reconciliation(
+        PROD_DATABASE,
+        "V022",
+        LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+        reconciliations[0].sha256,
+        {
+            "V022": (
+                LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+                reconciliations[0].sha256,
+            )
+        },
+    )
+
+    with pytest.raises(ValueError, match="Unexpected PROD ledger shape for V028"):
+        legacy_prod_reconciliation_plan(applied_rows[:-1], migrations)
+    with pytest.raises(ValueError, match="Unexpected PROD ledger shape for V022"):
+        legacy_prod_reconciliation_plan(
+            [("V022", LEGACY_PROD_MIGRATION_FILENAMES["V022"], "not-authorized")]
+            + applied_rows[1:],
+            migrations,
+        )
+
+    assert not is_authorized_legacy_reconciliation(
+        DEV_DATABASE,
+        "V022",
+        LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+        reconciliations[0].sha256,
+        {
+            "V022": (
+                LEGACY_PROD_MIGRATION_CHECKSUMS["V022"],
+                reconciliations[0].sha256,
+            )
+        },
+    )
+
+
+def test_prod_reconciliation_command_is_explicit_and_not_in_dev_deploy() -> None:
+    cli_source = Path("src/lyme_gap_atlas_data/cli.py").read_text(encoding="utf-8")
+    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    assert '@pipeline_app.command("reconcile-legacy-prod-migrations")' in cli_source
+    assert "Pass --confirm to reconcile legacy PROD migrations" in cli_source
+    assert "reconcile-legacy-prod-migrations" not in workflow
 
 
 def test_v034_reasserts_the_redacted_observability_contract_after_legacy_reconciliation() -> None:
@@ -1281,10 +1889,11 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     assert "GRANT SELECT, UPDATE ON TABLE KNOWLEDGE_GRAPH.PAPERS" in paper_review_owner
     assert "TO ROLE OH_LYME_{{ ENV }}_STREAMLIT_OWNER" in paper_review_owner
     recovery = migration_sources["V037"]
-    assert "GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery
+    assert "GRANT OWNERSHIP ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" not in recovery
     assert "PAPER_QUERY_MATCHES" in recovery
     assert "DECISION = 'rejected' AND p.state IN ('retry_pending','retry_exhausted')" in recovery
-    assert "COPY CURRENT GRANTS" in recovery
+    assert "GRANT OWNERSHIP ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" not in recovery
+    assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" in recovery
     streamlit_app = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
     assert "Recovery states can only be rejected" in streamlit_app
     assert '["rejected"] if recovery_selected' in streamlit_app
@@ -1294,6 +1903,17 @@ def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_n
     assert "pmc_oa_recovery_rejection" in recovery_procedure
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in recovery_procedure
     assert "SP_REJECT_PMC_RECOVERY_BATCH(PARSE_JSON(?)" in streamlit_app
+    approval_exception_fix = migration_sources["V040"]
+    assert (
+        "CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION"
+        in approval_exception_fix
+    )
+    assert "invalid_resource EXCEPTION (-20007" in approval_exception_fix
+    assert "EXCEPTION (-20000" not in approval_exception_fix
+    assert (
+        "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION"
+        in approval_exception_fix
+    )
     assert "WHERE r.is_active = TRUE" in migrations[11].source
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_SOURCE_APPROVAL_QUEUE" in migrations[12].source
     assert "ld.manual_review_decision_id IS NULL" in migrations[13].source
@@ -1361,3 +1981,5 @@ def test_approval_console_refreshes_to_the_next_pending_candidate() -> None:
     assert 'st.code(_safe_snowflake_error(exc), language="text")' in source
     assert "INSERT INTO GOVERNANCE" not in source
     assert "UPDATE GOVERNANCE" not in source
+    assert '"ONE_HEALTH_LYME_GAP_ATLAS_PROD"' in source
+    assert '"cdc_lyme_qtbi_xd4i": "CDC Lyme | 2008-2021 | qtbi-xd4i"' in source

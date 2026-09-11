@@ -1,7 +1,7 @@
 """Internal-only Snowflake Streamlit SOURCE_APPROVAL_CONSOLE.
 
-This first governed release is restricted to the DEV CDC/Socrata x5j9-wybp
-candidate. It makes no network calls and writes only via the controlled procedure.
+This internal governed release supports the allowlisted CDC human and tick sources.
+It makes no network calls and writes only via the controlled procedure.
 """
 
 # ruff: noqa: E501
@@ -17,7 +17,7 @@ import streamlit as st
 from snowflake.snowpark.context import get_active_session
 
 APP_VERSION: Final = "1.0.0"
-CDC_RESOURCE_KEY: Final = "cdc_lyme_x5j9_wybp"
+CDC_RESOURCE_KEY = "cdc_lyme_x5j9_wybp"
 DECISIONS: Final = {"APPROVED", "APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 CONDITIONS_REQUIRED: Final = {"APPROVED_WITH_CONDITIONS", "REJECTED", "RETIRED", "DEFERRED"}
 BACKLOG_PAGE_SIZE: Final = 100
@@ -102,6 +102,14 @@ def _pipeline_status() -> dict[str, object] | None:
     return _lower_keys(rows[0]) if rows else None
 
 
+def _post_ingestion_validation() -> list[dict[str, object]]:
+    return _rows(
+        """SELECT * FROM GOVERNANCE.V_SOURCE_INGESTION_VALIDATION
+           WHERE resource_key = ? ORDER BY ingestion_completed_at DESC NULLS LAST""",
+        [CDC_RESOURCE_KEY],
+    )
+
+
 def _paper_queue() -> list[dict[str, object]]:
     return _rows(
         """SELECT pmid, pmcid, title, journal, publication_date, publication_types,
@@ -121,6 +129,9 @@ def _operations_rows(view: str) -> list[dict[str, object]]:
         "V_PIPELINE_CATALOG_COVERAGE",
         "V_PIPELINE_REGISTRATION_OUTCOMES",
         "V_PIPELINE_SOURCE_GOVERNANCE",
+        "V_PIPELINE_COMMAND_CENTER",
+        "V_PIPELINE_REGISTRATION_RUNS",
+        "V_PIPELINE_SEARCH_COVERAGE",
     }
     if view not in allowed:
         raise ValueError("Unsupported operational view")
@@ -143,7 +154,61 @@ def _artifact_backlog_page(
 
 
 def _render_operations(page: str) -> None:
-    if page == "Overview":
+    if page == "Pipeline command center":
+        rows = _operations_rows("V_PIPELINE_COMMAND_CENTER")
+        if not rows:
+            st.info("No completed discovery chain is available yet.")
+            return
+        row = _lower_keys(rows[0])
+        st.subheader("Pipeline command center")
+        st.caption(
+            "Current-chain governed-ledger state only; it does not claim scheduler, container, memory, digest, or trace health."
+        )
+        columns = st.columns(4)
+        for column, label, key in zip(
+            columns,
+            ("Operational state", "Active-chain artifacts", "Completed", "Remaining"),
+            (
+                "operational_state",
+                "active_chain_artifacts",
+                "completed_artifacts",
+                "pending_or_in_progress_artifacts",
+            ),
+            strict=True,
+        ):
+            value = row.get(key) or 0
+            column.metric(
+                label,
+                str(value).replace("_", " ").title()
+                if key == "operational_state"
+                else f"{int(value):,}",
+            )
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    elif page == "Registration recovery":
+        st.subheader(page)
+        st.dataframe(
+            _rows(
+                "SELECT * FROM GOVERNANCE.V_PIPELINE_REGISTRATION_RUNS ORDER BY started_at DESC LIMIT 100"
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "PARTIAL means a bounded metadata-registration pass reached its declared limit; it is not failed full-source ingestion."
+        )
+    elif page == "Search coverage and gaps":
+        st.subheader(page)
+        st.dataframe(
+            _rows(
+                "SELECT * FROM GOVERNANCE.V_PIPELINE_SEARCH_COVERAGE ORDER BY requested_at DESC LIMIT 500"
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "Recorded zero-result searches are explicit. Absence of a request is not inferred to mean an unattempted search."
+        )
+    elif page == "Overview":
         rows = _operations_rows("V_PIPELINE_OBSERVABILITY_OVERVIEW")
         if not rows:
             st.info("No governed pipeline-operational records are available yet.")
@@ -211,7 +276,39 @@ def _render_operations(page: str) -> None:
 
 st.set_page_config(page_title="Source approval console", layout="wide")
 st.title("SOURCE_APPROVAL_CONSOLE")
-st.caption("DEV only | CDC/Socrata x5j9-wybp only | internal governed review")
+current_database = str(_rows("SELECT CURRENT_DATABASE() AS database_name")[0]["DATABASE_NAME"])
+if current_database in {
+    "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+}:
+    source_labels = {
+        "cdc_lyme_x5j9_wybp": "CDC Lyme | 2022-current | x5j9-wybp",
+        "cdc_lyme_qtbi_xd4i": "CDC Lyme | 2008-2021 | qtbi-xd4i",
+    }
+    if current_database.endswith("_DEV"):
+        source_labels["cdc_tick_ixodes_county_status"] = "CDC ticks | county status through 2025"
+    CDC_RESOURCE_KEY = st.sidebar.selectbox(
+        "Source to review", options=list(source_labels), format_func=lambda key: source_labels[key]
+    )
+    environment_label = "DEV" if current_database.endswith("_DEV") else "PROD"
+    st.caption(
+        f"{environment_label} | {source_labels[CDC_RESOURCE_KEY]} | internal governed review"
+    )
+else:
+    st.error("This console is available only in the isolated governed DEV or PROD database.")
+    st.stop()
+if CDC_RESOURCE_KEY == "cdc_lyme_qtbi_xd4i":
+    st.warning(
+        "Historical 2008-2021 surveillance era. Do not directly compare with 2022 onward. "
+        "This onboarding contains a bounded sample, not validated full-dataset coverage. "
+        "Approval does not run ingestion; the historical full-ingestion path is a separate step."
+    )
+elif CDC_RESOURCE_KEY == "cdc_tick_ixodes_county_status":
+    st.warning(
+        "Cumulative county tick-surveillance status through December 31, 2025. "
+        "No records means no reported surveillance evidence; it is not evidence of absence. "
+        "This evidence capture contains a bounded review sample and cannot run ingestion."
+    )
 st.info("This console cannot run discovery, ingestion, retries, or transformations.")
 recorded_decision = st.session_state.pop("recorded_decision", None)
 if recorded_decision:
@@ -239,9 +336,12 @@ try:
         "View",
         (
             "Overview",
+            "Pipeline command center",
             "Pipeline health",
+            "Registration recovery",
             "Artifact backlog",
             "Discovery coverage",
+            "Search coverage and gaps",
             "Registration outcomes",
             "Governance & approval",
             "Run explorer",
@@ -250,6 +350,7 @@ try:
             "Candidate detail",
             "Decision form",
             "Decision history",
+            "Post-ingestion validation",
         ),
     )
     queue = _queue() if page == "Queue" else []
@@ -260,9 +361,12 @@ except Exception as exc:
 
 if page in {
     "Overview",
+    "Pipeline command center",
     "Pipeline health",
+    "Registration recovery",
     "Artifact backlog",
     "Discovery coverage",
+    "Search coverage and gaps",
     "Registration outcomes",
     "Governance & approval",
     "Run explorer",
@@ -391,7 +495,7 @@ elif page == "Queue":
     st.download_button(
         "Download filtered queue JSON",
         json.dumps(displayed, default=str, indent=2),
-        "cdc_x5j9_wybp_approval_queue.json",
+        f"{CDC_RESOURCE_KEY}_approval_queue.json",
         "application/json",
     )
     st.caption(
@@ -409,7 +513,8 @@ elif page == "Candidate detail":
     if pipeline:
         if bool(pipeline.get("eligible_for_full_ingestion")):
             st.success(
-                "Pipeline eligibility: eligible for scheduled full ingestion; this app cannot start it."
+                "Pipeline eligibility: the source version may proceed only through a separately "
+                "implemented and authorized acquisition path; this app cannot start it."
             )
         else:
             st.warning("Pipeline eligibility: blocked or awaiting steward action.")
@@ -458,6 +563,27 @@ elif page == "Candidate detail":
         }
     )
 
+elif page == "Post-ingestion validation":
+    st.subheader("Post-ingestion validation")
+    st.caption(
+        "Safe run evidence only: counts, timestamps, identifiers, and CDC caveats. "
+        "RAW payloads, artifact locations, request bodies, and credentials are excluded."
+    )
+    validation = _post_ingestion_validation()
+    if not validation:
+        st.info("No governed ingestion run is available for this source version yet.")
+    else:
+        st.dataframe(validation, use_container_width=True, hide_index=True)
+        latest = _lower_keys(validation[0])
+        if latest.get("conformed_materialization_status") == "MATERIALIZED":
+            st.success("The selected source version has materialized CONFORMED rows.")
+        else:
+            st.warning("No CONFORMED rows are materialized for the latest source version.")
+        st.warning(str(latest["caveat"]))
+        st.caption(
+            "Open GOVERNED_DATA_EXPLORER for curated CONFORMED and ANALYTICS record browsing."
+        )
+
 elif page == "Decision form":
     st.subheader("Record a governed decision")
     if not steward:
@@ -478,8 +604,8 @@ elif page == "Decision form":
         )
         decision = st.selectbox("Decision", available_decisions)
         consequence = {
-            "APPROVED": "Allows scheduled full ingestion after a governed source version is activated.",
-            "APPROVED_WITH_CONDITIONS": "Allows scheduled ingestion only with the recorded conditions.",
+            "APPROVED": "Creates a governed source version eligible for a separate acquisition step.",
+            "APPROVED_WITH_CONDITIONS": "Creates eligibility subject to every recorded condition.",
             "REJECTED": "Blocks full ingestion and preserves the evidence and decision history.",
             "RETIRED": "Retires any active source version and blocks future full ingestion.",
             "DEFERRED": "Leaves the candidate pending and blocks full ingestion until later review.",
@@ -537,6 +663,6 @@ else:
         st.download_button(
             "Download decision history JSON",
             json.dumps(history, default=str, indent=2),
-            "cdc_x5j9_wybp_review_history.json",
+            f"{CDC_RESOURCE_KEY}_review_history.json",
             "application/json",
         )

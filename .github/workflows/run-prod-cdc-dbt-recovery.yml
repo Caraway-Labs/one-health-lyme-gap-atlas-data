@@ -1,0 +1,181 @@
+name: Recover approved CDC dbt path in PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact immutable image already ACTIVE and verified in DEV
+        required: true
+        type: string
+      operation:
+        description: Governed operation; never acquires source rows
+        type: choice
+        default: dbt-recovery
+        options: [dbt-recovery, historical-dbt-recovery, bootstrap, metadata, rollback, enable-policy]
+      ingestion_run_id:
+        description: Retained PROD ingestion run required for historical recovery, bootstrap, or rollback
+        required: false
+        type: string
+      expected_revision:
+        description: Current publication revision required for rollback
+        required: false
+        type: string
+      source_version_id:
+        description: Approved PROD CDC source version with retained RAW rows
+        required: true
+        type: string
+        default: 6e0cb93f-ea95-4b3a-a358-b343321223b8
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: prod-cdc-dbt-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Promote the DEV-tested digest and run CDC dbt only once
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      CDC_OPERATION: ${{ inputs.operation || 'dbt-recovery' }}
+      INGESTION_RUN_ID: ${{ inputs.ingestion_run_id }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
+      MONITOR_ENABLED: ${{ vars.CDC_MONITOR_ENABLED }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Promote the DEV-tested digest and recover dbt without re-ingestion
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEV_APP_ID"
+          test -n "$PROD_APP_ID"
+          [[ "$SOURCE_VERSION_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          case "$CDC_OPERATION" in
+            enable-policy)
+              test "$MONITOR_ENABLED" = true
+              monitor_run="$(gh api 'repos/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/workflows/monitor-cdc-operations.yml/runs?status=success&per_page=1' --jq '.workflow_runs[0].id')"
+              [[ "$monitor_run" =~ ^[0-9]+$ ]]
+              test "$(gh api "repos/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/$monitor_run/jobs" --jq 'any(.jobs[]; .name == "monitor" and .conclusion == "success")')" = true
+              command="uv run atlas-data pipeline verify-cdc-ready --source-version-id $SOURCE_VERSION_ID"
+              ;;
+            dbt-recovery)
+              command="uv run atlas-data pipeline run-production-cdc-dbt-recovery --source-version-id $SOURCE_VERSION_ID"
+              ;;
+            historical-dbt-recovery)
+              [[ "$INGESTION_RUN_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+              command="uv run atlas-data pipeline recover-approved-cdc-historical --source-version-id $SOURCE_VERSION_ID --ingestion-run-id $INGESTION_RUN_ID"
+              ;;
+            metadata)
+              command="uv run atlas-data pipeline check-cdc-metadata"
+              ;;
+            bootstrap|rollback)
+              [[ "$INGESTION_RUN_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+              if [ "$CDC_OPERATION" = bootstrap ]; then
+                command="uv run atlas-data pipeline bootstrap-cdc-publication --source-version-id $SOURCE_VERSION_ID --ingestion-run-id $INGESTION_RUN_ID"
+              else
+                [[ "$EXPECTED_REVISION" =~ ^[1-9][0-9]*$ ]]
+                command="uv run atlas-data pipeline rollback-cdc-publication --source-version-id $SOURCE_VERSION_ID --ingestion-run-id $INGESTION_RUN_ID --expected-revision $EXPECTED_REVISION"
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
+
+          baseline_spec="$(mktemp)"
+          promoted_spec="$(mktemp)"
+          recovery_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          policy_spec="$(mktemp)"
+          promoted_captured=false
+
+          restore_promoted_baseline() {
+            recovery_status=$?
+            set +e
+            if [ "$promoted_captured" = true ]; then
+              # Specifications contain provider-encrypted secrets. Never print them.
+              doctl apps update "$PROD_APP_ID" --spec "$promoted_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              restore_status=$?
+              if [ "$restore_status" -ne 0 ]; then
+                echo "::error::The temporary recovery topology could not be removed. Stop and restore the promoted baseline before further production work."
+                recovery_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$promoted_spec" "$recovery_spec" "$dev_spec" "$policy_spec"
+            trap - EXIT
+            exit "$recovery_status"
+          }
+          trap restore_promoted_baseline EXIT
+
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          dev_deployment_id="$(doctl apps get "$DEV_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
+          [[ "$dev_deployment_id" =~ ^[0-9a-f-]{36}$ ]]
+          test "$(doctl apps get-deployment "$DEV_APP_ID" "$dev_deployment_id" --output json | jq -r '.[0].phase')" = "ACTIVE"
+          doctl apps spec get "$DEV_APP_ID" --deployment "$dev_deployment_id" --format json > "$dev_spec"
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
+          test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion")] | length' "$baseline_spec")" = "1"
+          test "$(jq '[.jobs[] | select(.name == "cdc-dbt-recovery-once")] | length' "$baseline_spec")" = "0"
+          test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .run_command' "$baseline_spec")" = "uv run atlas-data pipeline run-production-schedule"
+          test "$(jq -r '.name' "$dev_spec")" = "oh-lyme-data-dev"
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$dev_spec")" = "1"
+          dev_digest="$(jq -r '.jobs[] | select(.name == "catalog-ingestion") | .image.digest' "$dev_spec")"
+          test -n "$dev_digest"
+          test "$dev_digest" != "null"
+          test "$dev_digest" = "$IMAGE_DIGEST"
+
+          # Retain the DEV-tested digest after recovery; only temporary topology rolls back.
+          jq --arg digest "$dev_digest" '
+            .jobs |= map(
+              del(.github, .dockerfile_path, .source_dir)
+              | .image = {
+                  registry_type: "DOCR",
+                  registry: "oh-lyme-data",
+                  repository: "pipeline",
+                  digest: $digest
+                }
+            )
+          ' "$baseline_spec" > "$promoted_spec"
+          promoted_captured=true
+
+          operation_spec="$promoted_spec"
+          if [ "$CDC_OPERATION" = enable-policy ]; then
+            # Generated specs contain encrypted provider values: redirect, never log.
+            uv run python -c 'import json,sys; from lyme_gap_atlas_data.cdc_deployment import operating_policy_spec; print(json.dumps(operating_policy_spec(json.load(open(sys.argv[1])),sys.argv[2])))' "$promoted_spec" "$dev_digest" > "$policy_spec"
+            operation_spec="$policy_spec"
+          fi
+
+          jq --arg command "$command" '
+            (.jobs[] | select(.name == "approved-source-ingestion")) as $template
+            | .jobs += [
+                $template
+                | .name = "cdc-dbt-recovery-once"
+                | .kind = "PRE_DEPLOY"
+                | .run_command = $command
+                | del(.schedule)
+              ]
+          ' "$operation_spec" > "$recovery_spec"
+
+          # Provider success is the result for the temporary non-routable PRE_DEPLOY job.
+          # The command verifies approval and RAW rows before dbt and never ingests.
+          doctl apps update "$PROD_APP_ID" --spec "$recovery_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          if [ "$CDC_OPERATION" = enable-policy ]; then
+            # Retain the new schedule only after the readiness pre-deploy job passed.
+            cp "$policy_spec" "$promoted_spec"
+          fi
+          echo "CDC dbt recovery completed; restoring the promoted baseline topology."

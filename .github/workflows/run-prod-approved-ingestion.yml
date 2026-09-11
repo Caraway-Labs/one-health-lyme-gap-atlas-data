@@ -1,0 +1,103 @@
+name: Run approved governed ingestion in PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      check_id:
+        description: Successful metadata check authorizing this reviewed full refresh
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-approved-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Run approved CDC ingestion and dbt once
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      CHECK_ID: ${{ inputs.check_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Run the approved schedule once and restore the production app specification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$CHECK_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+          test -n "$DEV_APP_ID"
+          test -n "$PROD_APP_ID"
+
+          baseline_spec="$(mktemp)"
+          ingestion_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          baseline_captured=false
+
+          restore_baseline() {
+            ingestion_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              # The fetched specification contains provider-encrypted secrets. Never print it.
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              restore_status=$?
+              if [ "$restore_status" -ne 0 ]; then
+                echo "::error::The ingestion job finished, but automatic topology restoration failed. Stop here and restore the prior App Platform specification before any further production action."
+                ingestion_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$ingestion_spec" "$dev_spec"
+            trap - EXIT
+            exit "$ingestion_status"
+          }
+          trap restore_baseline EXIT
+
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          baseline_captured=true
+          test "$(jq -r '.name' "$baseline_spec")" = "oh-lyme-data-prod"
+          test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion")] | length' "$baseline_spec")" = "1"
+          test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion-once")] | length' "$baseline_spec")" = "0"
+          test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .run_command' "$baseline_spec")" = "uv run atlas-data pipeline run-production-schedule"
+          prod_digest="$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .image.digest' "$baseline_spec")"
+          test -n "$prod_digest"
+          test "$prod_digest" != "null"
+
+          # A production one-shot may use only a digest that has already run in DEV.
+          dev_verified=false
+          while read -r deployment_id; do
+            doctl apps spec get "$DEV_APP_ID" --deployment "$deployment_id" --format json > "$dev_spec"
+            if jq -e --arg digest "$prod_digest" '[.jobs[] | .image.digest] | index($digest)' "$dev_spec" > /dev/null; then
+              dev_verified=true
+              break
+            fi
+          done < <(doctl apps list-deployments "$DEV_APP_ID" --format ID --no-header)
+          test "$dev_verified" = true
+
+          jq --arg check_id "$CHECK_ID" '
+            (.jobs[] | select(.name == "approved-source-ingestion")) as $template
+            | .jobs += [
+                $template
+                | .name = "approved-source-ingestion-once"
+                | .kind = "PRE_DEPLOY"
+                | .run_command = ("uv run atlas-data pipeline promote-approved-cdc --check-id " + $check_id)
+                | del(.schedule)
+              ]
+          ' "$baseline_spec" > "$ingestion_spec"
+
+          # App Platform reports the PRE_DEPLOY job's exit through deployment
+          # success. The command itself fails closed without an approved source
+          # version and runs dbt only after a successful full RAW load.
+          doctl apps update "$PROD_APP_ID" --spec "$ingestion_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "Approved production ingestion and dbt completed. The temporary job will now be removed."

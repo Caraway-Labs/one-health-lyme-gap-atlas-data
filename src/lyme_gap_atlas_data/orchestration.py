@@ -18,7 +18,12 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .artifacts import create_artifact
-from .cdc import build_approved_cdc_models, ingest_approved_cdc
+from .cdc import (
+    CdcDbtBuildError,
+    build_approved_cdc_models,
+    confirm_approved_cdc_raw_load,
+)
+from .cdc_operations import check_cdc_metadata
 from .discovery import (
     DiscoveryRequest,
     fetch_json,
@@ -555,15 +560,76 @@ def run_discovery(*, maximum_requests: int | None = None) -> dict[str, Any]:
 
 
 def run_production_schedule() -> dict[str, Any]:
-    """Run the production-only CDC refresh path after steward approval.
-
-    The App Platform schedule is the caller.  Approval remains enforced inside
-    ``ingest_approved_cdc`` by the active source-version lookup; this command
-    never creates an approval or substitutes a DEV source version.
-    """
+    """Check CDC metadata only; scheduled execution never acquires source rows."""
     settings = PipelineSettings()
     if settings.topx_env != "prod":
         raise ValueError("The approved-source schedule may run only in production")
-    ingestion = ingest_approved_cdc(trigger_type="SCHEDULED")
-    promotion = build_approved_cdc_models(str(ingestion["source_version_id"]))
-    return {"ingestion": ingestion, "promotion": promotion, "status": "COMPLETED"}
+    return check_cdc_metadata()
+
+
+def run_cdc_dbt_recovery(source_version_id: str) -> dict[str, Any]:
+    """Run and ledger the CDC dbt path without source acquisition or RAW mutation."""
+    recovery_run_id = str(uuid.uuid4())
+    started_at = datetime.now(UTC)
+    with connect(SnowflakeSettings()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                (ingestion_run_id, resource_key, run_mode, trigger_type, status,
+                 code_version, started_at)
+                VALUES (%s, 'cdc_lyme_x5j9_wybp', 'DBT_RECOVERY', 'MANUAL', 'RUNNING',
+                        'cdc-x5j9-dbt-recovery-v1', %s)""",
+                (recovery_run_id, started_at),
+            )
+        connection.commit()
+
+    try:
+        raw_load = confirm_approved_cdc_raw_load(source_version_id)
+    except Exception:
+        _complete_cdc_dbt_recovery(recovery_run_id, "FAILED", "RAW_VALIDATION_FAILED")
+        raise
+    try:
+        promotion = build_approved_cdc_models(source_version_id)
+    except CdcDbtBuildError as error:
+        _complete_cdc_dbt_recovery(recovery_run_id, "FAILED", error.classification)
+        raise
+    except Exception:
+        _complete_cdc_dbt_recovery(recovery_run_id, "FAILED", "DBT_INVOCATION_FAILED")
+        raise
+    _complete_cdc_dbt_recovery(recovery_run_id, "COMPLETED", None)
+    return {
+        "recovery_run_id": recovery_run_id,
+        "raw_load": raw_load,
+        "promotion": promotion,
+        "status": "COMPLETED",
+    }
+
+
+def _complete_cdc_dbt_recovery(
+    recovery_run_id: str, status: str, failure_classification: str | None
+) -> None:
+    """Close the append-only recovery run with a controlled diagnostic only."""
+    with connect(SnowflakeSettings()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE GOVERNANCE.INGESTION_RUNS
+                SET status = %s, completed_at = %s, error_classification = %s,
+                    redacted_error = IFF(%s IS NULL, NULL, 'CDC dbt recovery failed')
+                WHERE ingestion_run_id = %s AND status = 'RUNNING'""",
+                (
+                    status,
+                    datetime.now(UTC),
+                    failure_classification,
+                    failure_classification,
+                    recovery_run_id,
+                ),
+            )
+        connection.commit()
+
+
+def run_production_cdc_dbt_recovery(source_version_id: str) -> dict[str, Any]:
+    """Run the CDC dbt recovery only from the production runtime."""
+    settings = PipelineSettings()
+    if settings.topx_env != "prod":
+        raise ValueError("The CDC dbt recovery may run only in production")
+    return run_cdc_dbt_recovery(source_version_id)

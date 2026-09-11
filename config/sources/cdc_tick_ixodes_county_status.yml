@@ -1,0 +1,38 @@
+resource_key: cdc_tick_ixodes_county_status
+source_dataset_id: cdc-ixodes-county-status-2025
+profile_version: 1
+platform_type: HTTP_XLSX
+connector_name: HTTP_XLSX_V1
+landing_page_url: https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html
+endpoint_template: https://www.cdc.gov/ticks/media/files/2026/04/Public_Use_Ixodes_County_Table_2026_03252026.xlsx
+workbook_sheet: Ixodes records 2025
+header_row: 2
+deterministic_order_clause: FIPSCode ASC
+incremental_strategy: SNAPSHOT_DIFF
+onboarding_environments: [dev]
+onboarding_mode: EVIDENCE_ONLY
+sample_limit: 25
+maximum_sample_limit: 100
+maximum_workbook_bytes: 1048576
+maximum_uncompressed_bytes: 10485760
+dataset_as_of: 2025-12-31
+geography_semantics: COUNTY_SURVEILLANCE_STATUS
+temporal_semantics: CUMULATIVE_STATUS_THROUGH_DATE
+required_columns:
+  - FIPSCode
+  - State
+  - County
+  - Ixodes_scapularis_County_Status
+  - Ixodes_scapularis_data_source
+  - Ixodes_pacificus_county_status
+  - Ixodes_pacificus_data_source
+allowed_status_values: [Established, Reported, No records]
+restrictions:
+  - Evidence capture retrieves the publisher workbook under a strict byte bound because the source offers no row-level API; it stores no RAW rows and runs no transformations.
+  - No records means no reported surveillance evidence and must never be interpreted as tick absence.
+  - County status is cumulative through the stated as-of date and is not an annual abundance measure.
+  - Reported and established are publisher classifications, not infection prevalence or human disease risk.
+  - The embedded data-use agreement and source citations require steward review before approval.
+  - Raw workbook access is restricted to the requestor and governed service identities; raw bytes must not be exposed through Streamlit, APIs, public web pages, GitHub artifacts, or logs.
+  - Derived publications require ArboNET attribution and delivery of a final copy to the CDC contact identified in the workbook.
+  - Collection effort, sampling method, life stage, abundance, and pathogen testing are not supplied by this county-status workbook.

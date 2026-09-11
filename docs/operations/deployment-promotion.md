@@ -75,6 +75,87 @@ reconciliation command; no ledger history is rewritten. To disable the
 operational views after V034, revoke the Streamlit owner role's view usage as
 a separately reviewed, append-only grant change while retaining audit evidence.
 
+### PROD legacy migration-ledger recovery
+
+The protected historical CDC rollout found two bounded PROD conditions before
+V051: earlier Windows execution recorded eleven otherwise identical migration
+sources with CRLF hashes, and the applied PROD V022 variant reconciles duplicate
+V020 rows while the current DEV-oriented V022 source reconciles V019. PROD also
+contains exactly two identical V028 ledger rows. The runner treats LF and CRLF
+as equivalent only when both hashes can be derived from the same normalized SQL;
+any content change still fails closed.
+
+Before applying V051, run the separately approved
+`pipeline reconcile-legacy-prod-migrations --confirm` command. It accepts only
+the pinned V022 filename/checksum with one row and the pinned V028
+filename/checksum with two rows, then appends PROD-scoped evidence to
+`GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS`. It never updates or deletes the
+original ledger. Any different filename, checksum, row count, database, or
+existing reconciliation record stops the operation.
+
+This reconciliation is an AccountAdmin-governed bootstrap and is not included
+in the normal DEV deployment. Use a separately authorized session, verify its
+role/database/warehouse first, run only the reconciliation, and end that scope.
+V051 requires its own explicit one-time AccountAdmin authorization. V052 must
+use a separate PAT restricted to `OH_LYME_PROD_GOVERNED_VIEW_OWNER`; never
+switch to that role inside an AccountAdmin-restricted PAT session.
+
+### DEV V037 paper-review procedure ownership handoff
+
+V037 replaces an owner-rights paper-review procedure. The GitHub DEV migration
+role cannot preserve existing grants while transferring ownership because
+`COPY CURRENT GRANTS` requires account-level `MANAGE GRANTS`. For this
+DEV-only migration, use a separately approved AccountAdmin session to transfer
+`GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(ARRAY, VARCHAR, VARCHAR, VARCHAR,
+VARCHAR, VARCHAR)` to `OH_LYME_DEV_MIGRATION_DEPLOYER` before the migration
+workflow. After its successful ledger entry, transfer ownership back to
+`OH_LYME_DEV_KG_PAPER_REVIEW_OWNER` with `COPY CURRENT GRANTS`, then verify
+that `OH_LYME_DEV_STREAMLIT_OWNER` retains `USAGE`. Do not use this procedure
+or its DEV roles for production promotion.
+
+### V041 governed-view owner bootstrap
+
+V041 must run as `OH_LYME_<ENV>_GOVERNED_VIEW_OWNER`, not the default
+migration deployer and not the Streamlit owner. Before applying it, an
+AccountAdmin-approved bootstrap grants that role only `USAGE` on the target
+database, `GOVERNANCE`, `RAW`, and `CONFORMED` schemas; `CREATE VIEW` on
+`GOVERNANCE`; migration-ledger `SELECT`/`INSERT`; and `SELECT` on the exact
+CDC RAW, CDC CONFORMED, and validation-ledger dependencies. Grant the role to
+the environment's migration deployment service user. Do not grant it to an
+app owner, steward, viewer, pipeline runtime, or a cross-environment identity.
+
+The checksum runner selects this role only for V041. Verify the four resulting
+views using the Streamlit owner role before deploying either app. A rollback
+redeploys prior app source and revokes app usage if necessary; it does not
+delete ingestion or provenance records.
+
+### V042 CDC evidence-runtime grant repair
+
+V042 grants the pipeline runtime only the governance writes used by the
+evidence-only CDC onboarding command: catalog dataset/resource registration,
+the versioned access profile, document/schema snapshots, and the deterministic
+quality assessment. It does not grant approval, source-version, RAW, dbt, or
+Streamlit privileges. Apply and verify this migration before running the
+protected PROD evidence-capture workflow; otherwise the job must fail closed.
+
+### dbt runtime key handling
+
+The App Platform runtime stores the Snowflake key only as encrypted
+`SNOWFLAKE_PRIVATE_KEY_B64`. Before invoking dbt, the pipeline decodes that
+value into a mode-`0600` file inside a process `TemporaryDirectory`, passes
+only that temporary path to dbt, and removes it when dbt exits. Neither the key
+nor dbt's captured stdout/stderr is emitted to workflow logs.
+
+### Controlled CDC dbt-only recovery
+
+When a completed approved CDC RAW ingestion needs only its dbt path retried,
+use the protected `Recover approved CDC dbt path in PROD` workflow rather than
+the full-ingestion workflow. It promotes the active DEV-tested digest, verifies
+the named PROD source version is approved and has retained RAW rows, runs dbt
+through a temporary non-routable pre-deploy job, and removes that temporary
+topology afterward. It must never be used to re-ingest the source. See ADR
+0017 for the exact guardrails and required post-run validation.
+
 Completed production-runtime controls:
 
 1. Separate PROD Snowflake, Spaces, service identity, and non-routable App
@@ -86,18 +167,36 @@ Completed production-runtime controls:
    their immutable image digest. This preserves provider-encrypted secrets and
    all other production job settings.
 
+The approved live PROD operational topology contains exactly six scheduled
+jobs: `catalog-discovery`, `approved-source-ingestion`,
+`catalog-registration-01`, `catalog-registration-02`,
+`catalog-registration-03`, and `cdc-operations-watchdog`. The promotion
+workflow fails closed if a job is missing, an unexpected or temporary job is
+present, or any job is not using the private `pipeline` image. Literature jobs
+in the provisioning template are not part of the current live PROD topology;
+an image promotion must not create them implicitly. Adding those jobs requires
+a separately reviewed topology change and live provisioning evidence.
+
 Still required before a full-production ingestion can run:
 
-1. Complete the CDC steward decision, approved full-ingestion, and dbt
-   acceptance path. The DEV `SOURCE_APPROVAL_CONSOLE` is deployed under
-   `OH_LYME_DEV_STREAMLIT_OWNER` with the dedicated approval warehouse; the
-   `x5j9-wybp` evidence-only candidate is intentionally pending a human
-   decision.
-2. Exercise a DEV rollback by redeploying a previously approved digest.
+1. Run the protected `Capture PROD CDC evidence for steward review` workflow
+   from `main`. It uses the existing production runtime's encrypted settings to
+   create only the bounded `x5j9-wybp` evidence candidate, verifies the
+   one-shot job invocation, and restores the exact prior app specification.
+   It cannot approve, full-ingest, run dbt, or promote an image. See ADR 0015.
+2. Review and record the immutable PROD steward decision in the PROD
+   `SOURCE_APPROVAL_CONSOLE`.
+3. Run the protected `Run approved governed ingestion in PROD` workflow from
+   `main`. It verifies that the active PROD digest appears in DEV deployment
+   history, requires a recorded metadata-check ID, runs the explicitly authorized
+   full refresh once as a temporary
+   pre-deploy job, and restores the exact prior app specification. See ADR
+   0016.
+4. Exercise a DEV rollback by redeploying a previously approved digest.
 
 The checked-in `.do/app.prod.yaml` is the production job specification. It
-runs the approved CDC source on its declared annual cadence and invokes dbt
-only after a full RAW load succeeds. It requires an active steward-approved
+runs metadata-only CDC checks monthly. An operator-authorized full refresh invokes
+dbt and quality checks before atomically publishing a snapshot. It requires an active steward-approved
 PROD source version and `ENABLE_PRODUCTION_EXECUTION=true`; it cannot consume
 a DEV approval, create an approval, or run against the Alpha POC database.
 

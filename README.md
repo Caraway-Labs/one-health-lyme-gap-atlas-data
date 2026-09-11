@@ -19,6 +19,14 @@ Community does not enforce separate API-reader and pipeline-writer permissions;
 the VPC, secret store, fixed API retrieval templates, and review gate are the
 required compensating controls.
 
+The literature worker is deliberately split at the human-review boundary:
+`pipeline pubmed-discover --family <family>` writes immutable EFetch XML and
+queues normalized citations for a steward. Only after a paper is approved can
+`pipeline extract-approved-paper` claim one PMC Open Access paper, validate its
+license-bearing JATS content, reserve extraction budget, and publish a
+passage-backed graph contribution. Both commands use the isolated DEV/PROD
+database selected by `TOPX_ENV`; neither touches the Alpha POC database.
+
 ```powershell
 uv sync --extra dev
 uv run atlas-data provision --dry-run
@@ -71,6 +79,37 @@ It creates a `PENDING_REVIEW` candidate in the internal Snowflake
 `GOVERNANCE.SOURCE_APPROVAL_CONSOLE`; it never acquires the full dataset. The
 steward's immutable decision in that console is the prerequisite for a later
 full-ingestion command and dbt run.
+
+The separately reviewed historical CDC `qtbi-xd4i` source has a
+[controlled DEV full-ingestion path](docs/operations/cdc-historical-ingestion.md)
+and a separate [bounded PROD onboarding path](docs/operations/cdc-historical-prod-onboarding.md).
+It retains the 2008–2021 era separately and publishes only validated snapshots.
+PROD onboarding captures evidence for a new steward decision; it does not run
+full ingestion or add an unattended schedule.
+
+After that independent PROD decision, the
+[protected PROD full-ingestion path](docs/operations/cdc-historical-prod-ingestion.md)
+uses the exact DEV-tested image and approved PROD source-version UUID for one
+bounded acquisition. It persists eleven blocking checks, restores the prior
+six-job topology, and has a separate retained-snapshot rollback workflow. It
+does not add an unattended historical refresh schedule.
+
+The next DEV-only evidence candidate is the CDC county-status workbook for
+*Ixodes scapularis* and *Ixodes pacificus*. Run
+`pipeline cdc-tick-surveillance-sample` only through the protected DEV evidence
+workflow. Under ADR 0023, a repository-owned local CLI validates the operator's
+browser print and county-status workbook, then transports them in a checksum-bound,
+short-lived private OCI envelope; raw bytes never enter GitHub and GitHub receives
+no Snowflake or Spaces credentials. The DEV runtime independently verifies and
+retains the operator landing-page print, acquisition manifest, byte-bounded
+publisher workbook, embedded terms, and a 25-row deterministic review sample as
+private artifacts. It creates a
+`PENDING_REVIEW` candidate but writes no RAW rows, runs no dbt models, records
+no steward decision, and has no PROD or scheduled path.
+The separately supplied pathogen-status workbook is not part of this candidate;
+it requires its own canonical mapping and governed decision.
+The canonical mapping contract is
+[`canonical-tick-surveillance-v1.md`](docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.md).
 
 After the quality workflow verifies a `main` commit, it builds an immutable
 image and deploys that digest to DEV. Production promotion is a separate,

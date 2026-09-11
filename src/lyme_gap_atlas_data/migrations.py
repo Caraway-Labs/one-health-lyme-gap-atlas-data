@@ -15,7 +15,24 @@ from snowflake.connector.errors import ProgrammingError
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
-DEV_ONLY_MIGRATION_VERSIONS = {"V034", "V037", "V038"}
+PROD_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+DEV_ONLY_MIGRATION_VERSIONS = {
+    "V034",
+    "V037",
+    "V038",
+    "V044",
+    "V045",
+    "V046",
+    "V047",
+    "V048",
+    "V053",
+    "V054",
+}
+PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
+# V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
+# needs those exact reads, but the normal migration role and Streamlit owner
+# must not inherit them.
+VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047", "V052"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
 # They are an explicit, DEV-only recovery boundary—not a general checksum bypass.
@@ -25,6 +42,20 @@ LEGACY_DEV_MIGRATION_CHECKSUMS = {
     "V033": "ff90ba209e6a525690bbc53b92e015942d8d5590debd3dbd2bf495b7a00a150f",
 }
 RECONCILIATION_REASON = "Ticket 03 owner authorization, 2026-08-30"
+# These exact PROD rows were observed during the protected qtbi-xd4i rollout.
+# V022 is the previously applied PROD variant that reconciled duplicate V020
+# rows. V028 is duplicated twice with one identical CRLF-source checksum. Both
+# conditions require append-only evidence before later migrations may proceed.
+LEGACY_PROD_MIGRATION_CHECKSUMS = {
+    "V022": "0459687e88d2a5c23bfb730b832d1569a0cb950fab708fbe34b6f1e8379fe8a2",
+    "V028": "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85",
+}
+LEGACY_PROD_MIGRATION_FILENAMES = {
+    "V022": "V022__reconcile_duplicate_v020_ledger_entry.sql",
+    "V028": "V028__resumable_catalog_discovery_registration.sql",
+}
+LEGACY_PROD_MIGRATION_ROW_COUNTS = {"V022": 1, "V028": 2}
+PROD_RECONCILIATION_REASON = "Protected qtbi-xd4i rollout owner authorization, 2026-09-08"
 REQUIRED_REGISTRATION_COLUMNS = {
     "ARTIFACT_ID",
     "CONFIG_SHA256",
@@ -45,6 +76,16 @@ class Migration:
     filename: str
     source: str
     sha256: str
+
+
+def is_line_ending_equivalent_checksum(source: str, checksum: str) -> bool:
+    """Accept only byte hashes that differ by LF versus CRLF serialization."""
+    normalized = source.replace("\r\n", "\n")
+    variants = {
+        hashlib.sha256(normalized.encode()).hexdigest(),
+        hashlib.sha256(normalized.replace("\n", "\r\n").encode()).hexdigest(),
+    }
+    return checksum in variants
 
 
 def load_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
@@ -71,6 +112,10 @@ def render_migration(migration: Migration, database: str) -> str:
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     environment = match.group(1)
+    if migration.version in DEV_ONLY_MIGRATION_VERSIONS and database != DEV_DATABASE:
+        raise ValueError("This migration is DEV-only")
+    if migration.version in PROD_ONLY_MIGRATION_VERSIONS and database != PROD_DATABASE:
+        raise ValueError("Historical CDC PROD migration is PROD-only")
     rendered = migration.source.replace("{{ DATABASE }}", database).replace(
         "{{ ENV }}", environment
     )
@@ -85,8 +130,39 @@ def migration_plan(database: str) -> list[dict[str, str]]:
         {"version": item.version, "filename": item.filename, "sha256": item.sha256}
         for item in load_migrations()
         if (database == DEV_DATABASE or item.version not in DEV_ONLY_MIGRATION_VERSIONS)
+        and (database == PROD_DATABASE or item.version not in PROD_ONLY_MIGRATION_VERSIONS)
         and render_migration(item, database)
     ]
+
+
+def migration_execution_role(migration: Migration, database: str) -> str | None:
+    """Return a narrowly-scoped owner role for a migration that needs one."""
+    match = DATABASE_PATTERN.fullmatch(database)
+    if match is None:
+        raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if migration.version in {"V044", "V053"}:
+        if database != DEV_DATABASE:
+            raise ValueError("DEV source-review view migration is DEV-only")
+        return "OH_LYME_DEV_STREAMLIT_OWNER"
+    if migration.version == "V049":
+        if database != PROD_DATABASE:
+            raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
+        return "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
+    if migration.version == "V050":
+        if database != PROD_DATABASE:
+            raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
+        return "OH_LYME_PROD_STREAMLIT_OWNER"
+    if migration.version not in VIEW_OWNER_MIGRATION_VERSIONS:
+        return None
+    return f"OH_LYME_{match.group(1)}_GOVERNED_VIEW_OWNER"
+
+
+def _migration_settings(
+    settings: SnowflakeSettings, migration: Migration, database: str
+) -> SnowflakeSettings:
+    """Keep the default deployer role except for explicitly bounded migrations."""
+    role = migration_execution_role(migration, database)
+    return settings if role is None else settings.model_copy(update={"snowflake_role": role})
 
 
 def legacy_dev_reconciliation_plan(
@@ -104,6 +180,33 @@ def legacy_dev_reconciliation_plan(
             raise ValueError(f"Unexpected DEV ledger checksum for {version}")
         if legacy_checksum == migration.sha256:
             raise ValueError(f"Legacy reconciliation is no longer required for {version}")
+        reconciliations.append(migration)
+    return reconciliations
+
+
+def legacy_prod_reconciliation_plan(
+    applied_rows: list[tuple[str, str, str]], migrations: list[Migration]
+) -> list[Migration]:
+    """Validate the exact owner-approved PROD variant and duplicate ledger rows."""
+    source_by_version = {migration.version: migration for migration in migrations}
+    if set(LEGACY_PROD_MIGRATION_CHECKSUMS) - set(source_by_version):
+        raise ValueError("Legacy PROD reconciliation migration source is missing")
+
+    rows_by_version: dict[str, list[tuple[str, str]]] = {}
+    for version, filename, checksum in applied_rows:
+        rows_by_version.setdefault(version, []).append((filename, checksum))
+
+    reconciliations: list[Migration] = []
+    for version, legacy_checksum in LEGACY_PROD_MIGRATION_CHECKSUMS.items():
+        rows = rows_by_version.get(version, [])
+        expected_row = (LEGACY_PROD_MIGRATION_FILENAMES[version], legacy_checksum)
+        if len(rows) != LEGACY_PROD_MIGRATION_ROW_COUNTS[version] or any(
+            row != expected_row for row in rows
+        ):
+            raise ValueError(f"Unexpected PROD ledger shape for {version}")
+        migration = source_by_version[version]
+        if legacy_checksum == migration.sha256:
+            raise ValueError(f"Legacy PROD reconciliation is no longer required for {version}")
         reconciliations.append(migration)
     return reconciliations
 
@@ -185,17 +288,84 @@ def reconcile_legacy_dev_migrations(
     return recorded
 
 
+def reconcile_legacy_prod_migrations(
+    settings: SnowflakeSettings, database: str, commit: str | None = None
+) -> list[str]:
+    """Append immutable PROD evidence for the exact owner-approved legacy rows."""
+    if database != PROD_DATABASE:
+        raise ValueError("PROD legacy reconciliation is permitted only in the PROD database")
+
+    migrations = load_migrations()
+    with connect(settings, include_database=False) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(f"USE DATABASE {database}")
+            cursor.execute("SELECT version, filename, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
+            applied_rows = list(cursor.fetchall())
+            reconciliations = legacy_prod_reconciliation_plan(applied_rows, migrations)
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS (
+                migration_version VARCHAR PRIMARY KEY,
+                legacy_sha256 VARCHAR(64) NOT NULL,
+                source_sha256 VARCHAR(64) NOT NULL,
+                reconciliation_scope VARCHAR NOT NULL,
+                rationale VARCHAR NOT NULL,
+                approved_by VARCHAR NOT NULL,
+                reconciled_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+                deployment_commit VARCHAR
+                )"""
+            )
+
+            recorded: list[str] = []
+            for migration in reconciliations:
+                cursor.execute(
+                    """SELECT legacy_sha256, source_sha256, reconciliation_scope
+                    FROM GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS
+                    WHERE migration_version = %s""",
+                    (migration.version,),
+                )
+                existing = cursor.fetchone()
+                expected = (
+                    LEGACY_PROD_MIGRATION_CHECKSUMS[migration.version],
+                    migration.sha256,
+                    "PROD",
+                )
+                if existing is not None:
+                    if tuple(existing) != expected:
+                        raise ValueError(
+                            f"Existing PROD reconciliation does not match {migration.version}"
+                        )
+                    continue
+                cursor.execute(
+                    """INSERT INTO GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS
+                    (migration_version, legacy_sha256, source_sha256, reconciliation_scope,
+                     rationale, approved_by, deployment_commit)
+                    VALUES (%s, %s, %s, 'PROD', %s, CURRENT_USER(), %s)""",
+                    (
+                        migration.version,
+                        LEGACY_PROD_MIGRATION_CHECKSUMS[migration.version],
+                        migration.sha256,
+                        PROD_RECONCILIATION_REASON,
+                        commit,
+                    ),
+                )
+                recorded.append(migration.version)
+        connection.commit()
+    return recorded
+
+
 def _reconciled_legacy_migrations(
     cursor: SnowflakeCursor, database: str
 ) -> dict[str, tuple[str, str]]:
     """Read immutable reconciliation evidence; absent evidence never relaxes checks."""
-    if database != DEV_DATABASE:
+    scope = "DEV" if database == DEV_DATABASE else "PROD" if database == PROD_DATABASE else None
+    if scope is None:
         return {}
     try:
         cursor.execute(
             """SELECT migration_version, legacy_sha256, source_sha256
             FROM GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS
-            WHERE reconciliation_scope = 'DEV'"""
+            WHERE reconciliation_scope = %s""",
+            (scope,),
         )
         return {version: (legacy, source) for version, legacy, source in cursor.fetchall()}
     except ProgrammingError:
@@ -209,11 +379,17 @@ def is_authorized_legacy_reconciliation(
     source_checksum: str,
     recorded: dict[str, tuple[str, str]],
 ) -> bool:
-    """Require both the pinned DEV exception and its immutable matching evidence."""
-    return (
-        database == DEV_DATABASE
-        and LEGACY_DEV_MIGRATION_CHECKSUMS.get(version) == legacy_checksum
-        and recorded.get(version) == (legacy_checksum, source_checksum)
+    """Require a pinned environment exception and immutable matching evidence."""
+    expected_checksums = (
+        LEGACY_DEV_MIGRATION_CHECKSUMS
+        if database == DEV_DATABASE
+        else LEGACY_PROD_MIGRATION_CHECKSUMS
+        if database == PROD_DATABASE
+        else {}
+    )
+    return expected_checksums.get(version) == legacy_checksum and recorded.get(version) == (
+        legacy_checksum,
+        source_checksum,
     )
 
 
@@ -227,31 +403,37 @@ def apply_migrations(
         migration
         for migration in load_migrations()
         if database == DEV_DATABASE or migration.version not in DEV_ONLY_MIGRATION_VERSIONS
+        if database == PROD_DATABASE or migration.version not in PROD_ONLY_MIGRATION_VERSIONS
     ]
-    with connect(settings, include_database=False) as connection:
-        with connection.cursor() as cursor:
-            try:
-                cursor.execute(f"USE DATABASE {database}")
-                cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
-                applied = dict(cursor.fetchall())
-            except ProgrammingError:
-                applied = {}
-            reconciled = _reconciled_legacy_migrations(cursor, database)
-        executed: list[str] = []
-        for migration in plan:
-            prior_checksum = applied.get(migration.version)
-            if prior_checksum == migration.sha256:
+    with connect(settings, include_database=False) as connection, connection.cursor() as cursor:
+        try:
+            cursor.execute(f"USE DATABASE {database}")
+            cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
+            applied = dict(cursor.fetchall())
+        except ProgrammingError:
+            applied = {}
+        reconciled = _reconciled_legacy_migrations(cursor, database)
+    executed: list[str] = []
+    for migration in plan:
+        prior_checksum = applied.get(migration.version)
+        if prior_checksum == migration.sha256 or (
+            prior_checksum is not None
+            and is_line_ending_equivalent_checksum(migration.source, prior_checksum)
+        ):
+            continue
+        if prior_checksum is not None:
+            if is_authorized_legacy_reconciliation(
+                database,
+                migration.version,
+                prior_checksum,
+                migration.sha256,
+                reconciled,
+            ):
                 continue
-            if prior_checksum is not None:
-                if is_authorized_legacy_reconciliation(
-                    database,
-                    migration.version,
-                    prior_checksum,
-                    migration.sha256,
-                    reconciled,
-                ):
-                    continue
-                raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+            raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        with connect(
+            _migration_settings(settings, migration, database), include_database=False
+        ) as connection:
             connection.execute_string(render_migration(migration, database))
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -261,5 +443,5 @@ def apply_migrations(
                     (migration.version, migration.filename, migration.sha256, commit),
                 )
             connection.commit()
-            executed.append(migration.version)
+        executed.append(migration.version)
     return executed

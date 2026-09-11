@@ -15,19 +15,38 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
-from .cdc import build_approved_cdc_models, collect_cdc_evidence, ingest_approved_cdc
+from .cdc import collect_cdc_evidence
+from .cdc_operations import (
+    check_cdc_metadata,
+    check_cdc_overdue,
+    operator_refresh,
+    verify_cdc_ready,
+)
+from .cdc_publication import bootstrap_publication, rollback_publication
+from .cdc_quality import record_cdc_quality
 from .database import load as load_release
 from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
-from .migrations import apply_migrations, migration_plan, reconcile_legacy_dev_migrations
-from .orchestration import run_discovery, run_production_schedule
+from .migrations import (
+    apply_migrations,
+    migration_plan,
+    reconcile_legacy_dev_migrations,
+    reconcile_legacy_prod_migrations,
+)
+from .orchestration import (
+    run_cdc_dbt_recovery,
+    run_discovery,
+    run_production_cdc_dbt_recovery,
+    run_production_schedule,
+)
 from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .settings import PipelineSettings
-from .streamlit_deploy import deploy_approval_console
+from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
+from .tick_surveillance import collect_tick_surveillance_evidence
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
 
@@ -60,24 +79,27 @@ class ObservedTyper(typer.Typer):
         configure_tracing(SERVICE_NAME)
         command = _command_path(sys.argv[1:])
         started = monotonic()
-        span = trace.get_tracer(SERVICE_NAME).start_span("atlas-data.cli")
-        span.set_attribute("atlas.command", command)
-        span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
         try:
-            result = super().__call__(*args, **kwargs)
-        except BaseException as error:
-            failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
-            span.set_attribute("atlas.outcome", "failure" if failed else "success")
-            if failed:
-                span.set_attribute("error.type", type(error).__name__)
-                span.set_status(Status(StatusCode.ERROR, type(error).__name__))
-            raise
-        else:
-            span.set_attribute("atlas.outcome", "success")
-            return result
+            # The current context lets safe, bounded child spans correlate to the
+            # command that invoked them without adding command arguments to traces.
+            with trace.get_tracer(SERVICE_NAME).start_as_current_span("atlas-data.cli") as span:
+                span.set_attribute("atlas.command", command)
+                span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+                try:
+                    result = super().__call__(*args, **kwargs)
+                except BaseException as error:
+                    failed = not isinstance(error, SystemExit) or error.code not in (None, 0)
+                    span.set_attribute("atlas.outcome", "failure" if failed else "success")
+                    if failed:
+                        span.set_attribute("error.type", type(error).__name__)
+                        span.set_status(Status(StatusCode.ERROR, type(error).__name__))
+                    raise
+                else:
+                    span.set_attribute("atlas.outcome", "success")
+                    return result
+                finally:
+                    span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
         finally:
-            span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
-            span.end()
             _flush_and_shutdown_tracing()
 
 
@@ -85,13 +107,6 @@ app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 logger = logging.getLogger(__name__)
-
-
-@app.callback()
-def configure_runtime_observability() -> None:
-    """Initialize redacted JSON logs for every CLI command, including jobs."""
-    configure_logging()
-    configure_tracing(SERVICE_NAME)
 
 
 def _settings() -> SnowflakeSettings:
@@ -281,6 +296,20 @@ def reconcile_legacy_dev_migrations_command(
     )
 
 
+@pipeline_app.command("reconcile-legacy-prod-migrations")
+def reconcile_legacy_prod_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Append the separately approved PROD legacy-ledger reconciliation evidence."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to reconcile legacy PROD migrations")
+    typer.echo(
+        json.dumps({"reconciled": reconcile_legacy_prod_migrations(_settings(), database, commit)})
+    )
+
+
 @pipeline_app.command("deploy-approval-console")
 def deploy_approval_console_command(
     database: str = typer.Option(..., "--database"),
@@ -292,30 +321,164 @@ def deploy_approval_console_command(
     typer.echo(json.dumps({"streamlit": deploy_approval_console(_settings(), database)}))
 
 
+@pipeline_app.command("deploy-data-explorer")
+def deploy_data_explorer_command(
+    database: str = typer.Option(..., "--database"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Deploy the internal read-only governed data explorer from reviewed source files."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to deploy the data explorer")
+    typer.echo(json.dumps({"streamlit": deploy_data_explorer(_settings(), database)}))
+
+
 @pipeline_app.command("cdc-sample")
 def cdc_sample(sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100)) -> None:
     """Collect CDC x5j9-wybp metadata and an ordered sample; never full-ingest data."""
     typer.echo(json.dumps(collect_cdc_evidence(sample_limit), default=str))
 
 
+@pipeline_app.command("cdc-historical-sample")
+def cdc_historical_sample(
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+) -> None:
+    """Capture bounded qtbi-xd4i evidence; never acquire the full dataset."""
+    typer.echo(json.dumps(collect_cdc_evidence(sample_limit, dataset_id="qtbi-xd4i"), default=str))
+
+
+@pipeline_app.command("cdc-tick-surveillance-sample")
+def cdc_tick_surveillance_sample(
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Capture bounded CDC Ixodes workbook evidence in DEV; never load RAW data."""
+    typer.echo(
+        json.dumps(
+            collect_tick_surveillance_evidence(
+                sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+            ),
+            default=str,
+        )
+    )
+
+
+@pipeline_app.command("ingest-approved-cdc-historical")
+def ingest_historical_command(source_version_id: str = typer.Option(...)) -> None:
+    """Explicit DEV-only approved 2008-2021 acquisition, validation and publication."""
+    from .cdc_historical_ingestion import refresh_historical
+
+    typer.echo(json.dumps(refresh_historical(source_version_id), default=str))
+
+
+@pipeline_app.command("rollback-cdc-historical")
+def rollback_historical_command(
+    source_version_id: str = typer.Option(...),
+    ingestion_run_id: str = typer.Option(...),
+    expected_revision: int = typer.Option(..., min=1),
+) -> None:
+    """DEV-only audited rollback to a retained historical snapshot; no acquisition."""
+    from .cdc_historical_ingestion import rollback_historical
+
+    typer.echo(
+        json.dumps(
+            rollback_historical(source_version_id, ingestion_run_id, expected_revision), default=str
+        )
+    )
+
+
+@pipeline_app.command("recover-approved-cdc-historical")
+def recover_historical_command(
+    source_version_id: str = typer.Option(..., "--source-version-id"),
+    ingestion_run_id: str = typer.Option(..., "--ingestion-run-id"),
+) -> None:
+    """Validate and publish retained historical RAW data without acquisition."""
+    from .cdc_historical_ingestion import recover_historical
+
+    typer.echo(json.dumps(recover_historical(source_version_id, ingestion_run_id), default=str))
+
+
 @pipeline_app.command("ingest-approved-cdc")
 def ingest_approved_cdc_command(
-    page_size: int = typer.Option(5000, "--page-size", min=1, max=10000),
+    check_id: str = typer.Option(..., "--check-id"),
 ) -> None:
     """Load CDC x5j9-wybp only when a steward-approved source version is active."""
-    typer.echo(json.dumps(ingest_approved_cdc(page_size), default=str))
+    typer.echo(json.dumps(operator_refresh(check_id), default=str))
 
 
 @pipeline_app.command("promote-approved-cdc")
 def promote_approved_cdc_command(
-    page_size: int = typer.Option(5000, "--page-size", min=1, max=10000),
+    check_id: str = typer.Option(..., "--check-id"),
 ) -> None:
     """Run explicit CDC acquisition followed by its dbt promotion path."""
-    ingestion = ingest_approved_cdc(page_size)
-    typer.echo(json.dumps(build_approved_cdc_models(str(ingestion["source_version_id"]))))
+    typer.echo(json.dumps(operator_refresh(check_id), default=str))
+
+
+@pipeline_app.command("check-cdc-metadata")
+def check_cdc_metadata_command() -> None:
+    """Check CDC publisher metadata only; never acquire source rows."""
+    typer.echo(json.dumps(check_cdc_metadata()))
+
+
+@pipeline_app.command("bootstrap-cdc-publication")
+def bootstrap_cdc_publication_command(
+    source_version_id: str = typer.Option(...),
+    ingestion_run_id: str = typer.Option(...),
+) -> None:
+    """Validate the existing snapshot and activate pointer-based publication."""
+    typer.echo(json.dumps(bootstrap_publication(source_version_id, ingestion_run_id)))
+
+
+@pipeline_app.command("check-cdc-overdue")
+def check_cdc_overdue_command() -> None:
+    """Record a redacted incident when a monthly metadata check is overdue."""
+    typer.echo(json.dumps(check_cdc_overdue()))
+
+
+@pipeline_app.command("verify-cdc-ready")
+def verify_cdc_ready_command(source_version_id: str = typer.Option(...)) -> None:
+    """Check publication and metadata evidence before routine scheduling."""
+    typer.echo(json.dumps(verify_cdc_ready(source_version_id)))
+
+
+@pipeline_app.command("validate-cdc-quality")
+def validate_cdc_quality_command(source_version_id: str = typer.Option(...)) -> None:
+    """Validate retained RAW/CONFORMED rows and append aggregate quality evidence."""
+    typer.echo(json.dumps(record_cdc_quality(source_version_id)))
+
+
+@pipeline_app.command("rollback-cdc-publication")
+def rollback_cdc_publication_command(
+    source_version_id: str = typer.Option(...),
+    ingestion_run_id: str = typer.Option(...),
+    expected_revision: int = typer.Option(..., min=1),
+) -> None:
+    """Restore a retained validated snapshot; preserve acquisition evidence."""
+    typer.echo(
+        json.dumps(
+            rollback_publication(
+                source_version_id, ingestion_run_id, expected_revision=expected_revision
+            )
+        )
+    )
 
 
 @pipeline_app.command("run-production-schedule")
 def run_production_schedule_command() -> None:
     """Run the production scheduled approved-source ingestion and dbt path."""
     typer.echo(json.dumps(run_production_schedule(), default=str))
+
+
+@pipeline_app.command("run-production-cdc-dbt-recovery")
+def run_production_cdc_dbt_recovery_command(
+    source_version_id: str = typer.Option(..., "--source-version-id"),
+) -> None:
+    """Recover the CDC dbt path for verified PROD RAW data without re-ingestion."""
+    typer.echo(json.dumps(run_production_cdc_dbt_recovery(source_version_id), default=str))
+
+
+@pipeline_app.command("run-cdc-dbt-recovery")
+def run_cdc_dbt_recovery_command(
+    source_version_id: str = typer.Option(..., "--source-version-id"),
+) -> None:
+    """Run dbt for an approved source version with retained governed RAW data."""
+    typer.echo(json.dumps(run_cdc_dbt_recovery(source_version_id), default=str))

@@ -1,0 +1,126 @@
+name: Capture operator-provided DEV CDC tick evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact reviewed image already active in DEV
+        required: true
+        type: string
+      envelope_digest:
+        description: Immutable private operator evidence-envelope digest
+        required: true
+        type: string
+      envelope_tag:
+        description: Short-lived private registry tag to remove after capture
+        required: true
+        type: string
+      retrieval_id:
+        description: UUID bound into the operator acquisition manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-cdc-tick-surveillance-evidence
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Create the bounded CDC Ixodes review candidate
+    environment: dev
+    runs-on: ubuntu-latest
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      ENVELOPE_DIGEST: ${{ inputs.envelope_digest }}
+      ENVELOPE_TAG: ${{ inputs.envelope_tag }}
+      RETRIEVAL_ID: ${{ inputs.retrieval_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Validate, capture, and restore DEV topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$ENVELOPE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$ENVELOPE_TAG" =~ ^tick-operator-evidence-[0-9a-f-]{36}$ ]]
+          [[ "$RETRIEVAL_ID" =~ ^[0-9a-f-]{36}$ ]]
+          test "$ENVELOPE_TAG" = "tick-operator-evidence-$RETRIEVAL_ID"
+          baseline="$(mktemp)"
+          capture="$(mktemp)"
+          baseline_captured=false
+
+          restore() {
+            status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              doctl apps update "$DEV_APP_ID" --spec "$baseline" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then
+                echo "::error::DEV topology restoration failed; stop pipeline work."
+                status=1
+              fi
+            fi
+            doctl registry repository delete-tag pipeline "$ENVELOPE_TAG" --force
+            if [ "$?" -ne 0 ]; then
+              echo "::error::Temporary operator evidence tag removal failed."
+              status=1
+            fi
+            rm -f "$baseline" "$capture"
+            trap - EXIT
+            exit "$status"
+          }
+          trap restore EXIT
+
+          tag_digest="$(doctl registry repository list-manifests pipeline --output json \
+            | jq -r --arg tag "$ENVELOPE_TAG" '.[] | select(.tags | index($tag)) | .digest')"
+          test "$tag_digest" = "$ENVELOPE_DIGEST"
+
+          doctl apps spec get "$DEV_APP_ID" --format json > "$baseline"
+          test "$(jq -r '.name' "$baseline")" = "oh-lyme-data-dev"
+          test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' "$baseline")" = "1"
+          test "$(jq -r '.jobs[] | select(.name == "catalog-ingestion") | .image.digest' "$baseline")" = "$IMAGE_DIGEST"
+          test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline")" = "0"
+          baseline_captured=true
+
+          jq \
+            --arg envelope_digest "$ENVELOPE_DIGEST" \
+            --arg base_digest "$IMAGE_DIGEST" \
+            --arg retrieval_id "$RETRIEVAL_ID" '
+            (.jobs[] | select(.name == "catalog-ingestion")) as $template
+            | .jobs |= map(.image.digest = $envelope_digest)
+            | .jobs += [
+                $template
+                | .name = "cdc-tick-evidence-once"
+                | .kind = "PRE_DEPLOY"
+                | .image.digest = $envelope_digest
+                | .run_command = "/app/.venv/bin/atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
+                | del(.schedule)
+                | .envs = ((.envs // [])
+                    | map(select(.key != "TICK_EVIDENCE_BASE_IMAGE_DIGEST"
+                        and .key != "TICK_EVIDENCE_ENVELOPE_DIGEST"
+                        and .key != "TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID"))
+                    + [
+                        {key: "TICK_EVIDENCE_BASE_IMAGE_DIGEST", scope: "RUN_TIME", value: $base_digest},
+                        {key: "TICK_EVIDENCE_ENVELOPE_DIGEST", scope: "RUN_TIME", value: $envelope_digest},
+                        {key: "TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID", scope: "RUN_TIME", value: $retrieval_id}
+                      ])
+              ]
+          ' "$baseline" > "$capture"
+
+          test "$(jq '[.jobs[].image.digest] | unique | length' "$capture")" = "1"
+          test "$(jq -r '.jobs[].image.digest' "$capture" | sort -u)" = "$ENVELOPE_DIGEST"
+
+          doctl apps update "$DEV_APP_ID" --spec "$capture" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "Operator evidence capture completed; restoring DEV topology."

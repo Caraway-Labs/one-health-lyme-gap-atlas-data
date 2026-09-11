@@ -10,6 +10,7 @@ from lyme_gap_atlas_shared.snowflake import connect
 from .migrations import DATABASE_PATTERN
 
 APP_SOURCE_DIR = Path(__file__).resolve().parents[2] / "streamlit_approval"
+EXPLORER_SOURCE_DIR = Path(__file__).resolve().parents[2] / "streamlit_explorer"
 
 
 def deploy_approval_console(settings: SnowflakeSettings, database: str) -> str:
@@ -49,3 +50,39 @@ def deploy_approval_console(settings: SnowflakeSettings, database: str) -> str:
             + f"TO ROLE OH_LYME_{environment}_APPROVAL_VIEWER"
         )
     return f"{database}.GOVERNANCE.SOURCE_APPROVAL_CONSOLE"
+
+
+def deploy_data_explorer(settings: SnowflakeSettings, database: str) -> str:
+    """Upload the curated read-only explorer under the existing app-owner role."""
+    match = DATABASE_PATTERN.fullmatch(database)
+    if match is None:
+        raise ValueError("Data explorer may target only the governed DEV or PROD database")
+    environment = match.group(1)
+    owner_role = f"OH_LYME_{environment}_STREAMLIT_OWNER"
+    warehouse = f"OH_LYME_{environment}_APPROVAL_XS_WH"
+    stage_path = "@GOVERNANCE.STREAMLIT_SOURCE_STAGE/governed_data_explorer"
+    with connect(settings, include_database=False) as connection, connection.cursor() as cursor:
+        cursor.execute(f"USE ROLE {owner_role}")
+        cursor.execute(f"USE DATABASE {database}")
+        cursor.execute(f"USE WAREHOUSE {warehouse}")
+        for filename in ("streamlit_app.py", "environment.yml"):
+            source_file = EXPLORER_SOURCE_DIR / filename
+            if not source_file.is_file():
+                raise FileNotFoundError(source_file)
+            cursor.execute(
+                f"PUT '{source_file.resolve().as_uri()}' {stage_path} "
+                "AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+            )
+        cursor.execute(
+            """CREATE OR REPLACE STREAMLIT GOVERNANCE.GOVERNED_DATA_EXPLORER
+               ROOT_LOCATION = '@GOVERNANCE.STREAMLIT_SOURCE_STAGE/governed_data_explorer'
+               MAIN_FILE = 'streamlit_app.py'
+               QUERY_WAREHOUSE = """
+            + warehouse
+        )
+        for role in ("DATA_STEWARD", "APPROVAL_VIEWER"):
+            cursor.execute(
+                "GRANT USAGE ON STREAMLIT GOVERNANCE.GOVERNED_DATA_EXPLORER "
+                + f"TO ROLE OH_LYME_{environment}_{role}"
+            )
+    return f"{database}.GOVERNANCE.GOVERNED_DATA_EXPLORER"
