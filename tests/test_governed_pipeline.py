@@ -1678,6 +1678,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V056",
         "V057",
         "V058",
+        "V059",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1763,6 +1764,16 @@ def test_dev_pmc_review_view_grant_preserves_the_streamlit_boundary() -> None:
     assert "GRANT SELECT ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in repair.source
     assert "OH_LYME_{{ ENV }}_STREAMLIT_OWNER" in repair.source
     assert "KNOWLEDGE_GRAPH.PAPERS" not in repair.source
+
+
+def test_dev_pmc_review_procedure_uses_unambiguous_parameter_names() -> None:
+    repair = next(item for item in load_migrations() if item.version == "V059")
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(repair, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "P_DECISION VARCHAR" in repair.source
+    assert ":P_DECISION" in repair.source
+    assert "IF (DECISION NOT IN" not in repair.source
+    assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" in repair.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:

@@ -113,6 +113,13 @@ workflow. After its successful ledger entry, transfer ownership back to
 that `OH_LYME_DEV_STREAMLIT_OWNER` retains `USAGE`. Do not use this procedure
 or its DEV roles for production promotion.
 
+V059 is a DEV-only correction for the same procedure. Before the protected
+workflow, repeat the documented temporary ownership handoff to
+`OH_LYME_DEV_MIGRATION_DEPLOYER`; after its successful ledger entry, transfer
+ownership back to `OH_LYME_DEV_KG_PAPER_REVIEW_OWNER` with `COPY CURRENT GRANTS`.
+It replaces the ambiguous `DECISION` parameter with prefixed names while
+preserving the existing signature and atomic steward-decision boundary.
+
 ### DEV V056 PMC budget-procedure owner bootstrap
 
 V056 restores the fail-closed PMC extraction budget procedure under the dedicated
