@@ -1677,6 +1677,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V055",
         "V056",
         "V057",
+        "V058",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1750,6 +1751,18 @@ def test_dev_pmc_budget_reservation_uses_select_for_generated_identifier() -> No
     assert "V057" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
+
+
+def test_dev_pmc_review_view_grant_preserves_the_streamlit_boundary() -> None:
+    repair = next(item for item in load_migrations() if item.version == "V058")
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(repair, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V058" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "GRANT SELECT ON VIEW GOVERNANCE.V_KG_PAPER_REVIEW_QUEUE" in repair.source
+    assert "OH_LYME_{{ ENV }}_STREAMLIT_OWNER" in repair.source
+    assert "KNOWLEDGE_GRAPH.PAPERS" not in repair.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
