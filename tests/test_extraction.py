@@ -1,7 +1,10 @@
 from contextlib import suppress
 from typing import Any
 
-from lyme_gap_atlas_data.extraction import ExtractionCoordinator
+import pytest
+
+from lyme_gap_atlas_data import extraction
+from lyme_gap_atlas_data.extraction import ExtractionCoordinator, GroqStructuredExtractor
 
 
 class FakeExtractor:
@@ -44,3 +47,39 @@ def test_large_complete_request_routes_to_luna_before_validation() -> None:
         coordinator.process("request", "complete request")
     assert openai.called
     assert not groq.called
+
+
+def test_groq_strict_schema_requires_defaulted_properties(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"choices": [{"message": {"content": "{}"}}]}
+
+    def post(*_args: object, **kwargs: object) -> Response:
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr(extraction.httpx, "post", post)
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "required_field": {"type": "string"},
+            "defaulted_field": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["required_field"],
+        "additionalProperties": False,
+    }
+
+    GroqStructuredExtractor("test-key").extract("request", schema)
+
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    strict_schema = payload["response_format"]["json_schema"]["schema"]
+    assert strict_schema["required"] == ["required_field", "defaulted_field"]
+    assert schema["required"] == ["required_field"]

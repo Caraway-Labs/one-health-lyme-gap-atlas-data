@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable
 from typing import Protocol
@@ -28,6 +29,25 @@ class PassageEmbedder(Protocol):
     def embed(self, summaries: list[str], dimensions: int) -> list[list[float]]: ...
 
 
+def _groq_strict_schema(schema: dict[str, object]) -> dict[str, object]:
+    """Make Pydantic's defaulted fields explicit for Groq strict JSON Schema mode."""
+    normalized = copy.deepcopy(schema)
+
+    def require_declared_properties(node: object) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                node["required"] = list(properties)
+            for value in node.values():
+                require_declared_properties(value)
+        elif isinstance(node, list):
+            for item in node:
+                require_declared_properties(item)
+
+    require_declared_properties(normalized)
+    return normalized
+
+
 class GroqStructuredExtractor:
     def __init__(self, api_key: str) -> None:
         self._headers = {"Authorization": f"Bearer {api_key}"}
@@ -44,7 +64,7 @@ class GroqStructuredExtractor:
                     "json_schema": {
                         "name": "graph_contribution",
                         "strict": True,
-                        "schema": schema,
+                        "schema": _groq_strict_schema(schema),
                     },
                 },
             },
