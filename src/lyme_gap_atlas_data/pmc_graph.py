@@ -14,6 +14,7 @@ from lyme_gap_atlas_kg import (
 from neo4j import Driver
 
 _SPACE = re.compile(r"\s+")
+_URL = re.compile(r"https?://[^\s<>\"']+")
 _OPEN_LICENSE_HOSTS = ("creativecommons.org/licenses/", "creativecommons.org/publicdomain/")
 
 
@@ -51,9 +52,16 @@ def admit_pmc_open_access(jats: bytes) -> AdmittedFullText:
     license_url = ""
     for license_node in _nodes(root, "license"):
         for link_node in license_node.iter():
-            candidate = link_node.attrib.get("{http://www.w3.org/1999/xlink}href", "")
-            if any(host in candidate.casefold() for host in _OPEN_LICENSE_HOSTS):
-                license_url = candidate
+            candidates = [
+                link_node.attrib.get("{http://www.w3.org/1999/xlink}href", ""),
+                *_URL.findall(" ".join(link_node.itertext())),
+            ]
+            for candidate in candidates:
+                candidate = candidate.rstrip(".,;)")
+                if any(host in candidate.casefold() for host in _OPEN_LICENSE_HOSTS):
+                    license_url = candidate
+                    break
+            if license_url:
                 break
         if license_url:
             break

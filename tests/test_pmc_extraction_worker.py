@@ -37,6 +37,13 @@ xmlns:xlink="http://www.w3.org/1999/xlink"><front><article-meta>
 <license><license-p><ext-link xlink:href="https://creativecommons.org/licenses/by/4.0/"/>
 </license-p></license></permissions>
 </article-meta></front><body><sec><p>Approved evidence.</p></sec></body></article>"""
+OAI_JATS_LICENSE_REF = b"""<article xml:lang="en" xmlns="https://jats.nlm.nih.gov/ns/archiving/1.4"
+xmlns:ali="http://www.niso.org/schemas/ali/1.0/"><front><article-meta>
+<article-id pub-id-type="pmcid">PMC123</article-id><permissions>
+<license><ali:license_ref specific-use="textmining" content-type="ccbylicense">
+https://creativecommons.org/licenses/by/4.0/</ali:license_ref>
+</license></permissions></article-meta></front><body><sec><p>Approved evidence.</p>
+</sec></body></article>"""
 OAI_RESPONSE = (
     b"""<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"><GetRecord>
 <record><metadata>"""
@@ -93,6 +100,13 @@ def test_namespaced_oai_jats_preserves_open_access_admission() -> None:
     admitted = admit_pmc_open_access(OAI_JATS)
     assert admitted.pmcid == "PMC123"
     assert admitted.normalized_text == "Approved evidence."
+
+
+def test_namespaced_oai_jats_admits_allowlisted_license_ref_text() -> None:
+    from lyme_gap_atlas_data.pmc_graph import admit_pmc_open_access
+
+    admitted = admit_pmc_open_access(OAI_JATS_LICENSE_REF)
+    assert admitted.license_url == "https://creativecommons.org/licenses/by/4.0/"
 
 
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
