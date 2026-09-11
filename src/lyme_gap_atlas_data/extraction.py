@@ -41,6 +41,12 @@ def _strict_response_schema(schema: dict[str, object]) -> dict[str, object]:
         if isinstance(node, dict):
             properties = node.get("properties")
             if isinstance(properties, dict):
+                # Arbitrary identifier maps cannot be represented by the
+                # providers' closed strict-schema subset.  They are optional
+                # metadata in the canonical model, so omit them only from the
+                # transport schema; Pydantic restores their empty defaults
+                # when validating the response.
+                properties.pop("external_ids", None)
                 node["required"] = list(properties)
                 node["additionalProperties"] = False
             # Pydantic emits open-ended maps for optional identifier metadata.

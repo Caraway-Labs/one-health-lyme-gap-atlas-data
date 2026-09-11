@@ -86,7 +86,7 @@ def test_groq_strict_schema_requires_defaulted_properties(
     assert schema["required"] == ["required_field"]
 
 
-def test_groq_strict_schema_closes_dynamic_maps_and_removes_defaults() -> None:
+def test_strict_schema_omits_dynamic_identifier_maps_and_removes_defaults() -> None:
     schema: dict[str, object] = {
         "type": "object",
         "properties": {
@@ -101,10 +101,8 @@ def test_groq_strict_schema_closes_dynamic_maps_and_removes_defaults() -> None:
 
     strict_schema = extraction._strict_response_schema(schema)
 
-    external_ids = strict_schema["properties"]["external_ids"]
-    assert strict_schema["required"] == ["external_ids"]
-    assert external_ids["additionalProperties"] is False
-    assert "default" not in external_ids
+    assert strict_schema["properties"] == {}
+    assert strict_schema["required"] == []
     assert schema["properties"]["external_ids"]["additionalProperties"] == {"type": "string"}
 
 
