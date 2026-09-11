@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from lyme_gap_atlas_data.literature import (
+    GROQ_MAX_INPUT_TOKENS,
     EntrezHistoryClient,
     PaperState,
     build_pubmed_query,
@@ -30,7 +31,10 @@ def test_state_machine_is_forward_only() -> None:
 
 @pytest.mark.parametrize(
     ("tokens", "expected"),
-    [(130_000, "groq:openai/gpt-oss-120b"), (130_001, "openai:gpt-5.6-luna")],
+    [
+        (GROQ_MAX_INPUT_TOKENS, "groq:openai/gpt-oss-120b"),
+        (GROQ_MAX_INPUT_TOKENS + 1, "openai:gpt-5.6-luna"),
+    ],
 )
 def test_complete_request_routing(tokens: int, expected: str) -> None:
     assert extraction_provider(tokens) == expected

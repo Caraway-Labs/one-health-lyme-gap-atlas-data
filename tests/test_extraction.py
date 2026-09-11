@@ -5,6 +5,7 @@ import pytest
 
 from lyme_gap_atlas_data import extraction
 from lyme_gap_atlas_data.extraction import ExtractionCoordinator, GroqStructuredExtractor
+from lyme_gap_atlas_data.literature import GROQ_MAX_INPUT_TOKENS
 
 
 class FakeExtractor:
@@ -40,7 +41,7 @@ def test_large_complete_request_routes_to_luna_before_validation() -> None:
         budget=FakeBudget(),
         publisher=FakePublisher(),
         embedder=FakeEmbedder(),
-        token_estimator=lambda _: 130_001,
+        token_estimator=lambda _: GROQ_MAX_INPUT_TOKENS + 1,
         cost_estimator=lambda _route, _tokens: 1.0,
     )
     with suppress(ValueError):
