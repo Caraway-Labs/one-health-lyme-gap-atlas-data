@@ -21,6 +21,9 @@ green unit-test run is not permission to enable the feature flag.
 5. As a steward, approve a permitted PMCID paper. Run one extraction worker
    and reconcile the PMC artifact ledger, paper content hash/object key,
    extraction receipt, Neo4j transaction ID, passage count, and PubMed link.
+   Confirm the durable attempt route matches the complete-request estimate:
+   requests above the conservative Groq input budget must use the configured
+   OpenAI extraction provider without first calling Groq.
 6. Create a Neo4j backup, perform the prescribed restore test, and retain its
    checksum, graph counts, and fixed-retrieval evidence.
 7. Exercise the disabled API endpoint, evidence-unavailable path, no-evidence

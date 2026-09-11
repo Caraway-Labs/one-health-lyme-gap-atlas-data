@@ -29,6 +29,19 @@ FAMILY_TERMS: dict[str, str] = {
     for family, terms in _CONFIG["corpus"]["query_families"].items()
 }
 
+# Groq publishes a 131,072-token context window and a 65,536-token maximum
+# completion for GPT-OSS-120B. The strict JSON schema and request envelope also
+# consume context, so reserve a conservative 71,072 tokens for non-document
+# input and completion. Route complete requests above this safe input budget to
+# the already-configured OpenAI provider before any Groq call. The estimate
+# includes the complete extraction prompt, including admitted JATS.
+GROQ_CONTEXT_WINDOW_TOKENS = 131_072
+GROQ_MAX_OUTPUT_TOKENS = 65_536
+GROQ_REQUEST_OVERHEAD_TOKENS = 5_536
+GROQ_MAX_INPUT_TOKENS = (
+    GROQ_CONTEXT_WINDOW_TOKENS - GROQ_MAX_OUTPUT_TOKENS - GROQ_REQUEST_OVERHEAD_TOKENS
+)
+
 
 class PaperState(StrEnum):
     DISCOVERED = "discovered"
@@ -145,7 +158,11 @@ class EntrezHistoryClient:
 def extraction_provider(estimated_tokens: int) -> str:
     if estimated_tokens <= 0:
         raise ValueError("estimated_tokens must be positive")
-    return "groq:openai/gpt-oss-120b" if estimated_tokens <= 130_000 else "openai:gpt-5.6-luna"
+    return (
+        "groq:openai/gpt-oss-120b"
+        if estimated_tokens <= GROQ_MAX_INPUT_TOKENS
+        else "openai:gpt-5.6-luna"
+    )
 
 
 def validate_extraction(edges: Iterable[dict[str, Any]]) -> list[SemanticEdge]:
