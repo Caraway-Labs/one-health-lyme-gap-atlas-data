@@ -1675,6 +1675,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V053",
         "V054",
         "V055",
+        "V056",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1720,6 +1721,23 @@ def test_dev_pmc_budget_repair_preserves_the_fail_closed_runtime_boundary() -> N
     assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in repair.source
     assert "OH_LYME_{{ ENV }}_API_RUNTIME" in repair.source
     assert "GRANT SELECT ON TABLE GOVERNANCE.LLM_BUDGET_USAGE" not in repair.source
+
+
+def test_dev_pmc_budget_owner_is_dedicated_and_fail_closed() -> None:
+    owner_migration = next(item for item in load_migrations() if item.version == "V056")
+    assert migration_execution_role(owner_migration, DEV_DATABASE) == (
+        "OH_LYME_DEV_KG_LLM_BUDGET_OWNER"
+    )
+    with pytest.raises(ValueError, match="DEV PMC budget-owner migration is DEV-only"):
+        migration_execution_role(owner_migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V056" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "EXECUTE AS OWNER" in owner_migration.source
+    assert "GOVERNANCE.LLM_BUDGET_USAGE" in owner_migration.source
+    assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in owner_migration.source
+    assert "OH_LYME_{{ ENV }}_API_RUNTIME" in owner_migration.source
+    assert "GRANT SELECT ON TABLE GOVERNANCE.LLM_BUDGET_USAGE" not in owner_migration.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:

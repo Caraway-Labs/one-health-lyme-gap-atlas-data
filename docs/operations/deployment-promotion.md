@@ -113,6 +113,20 @@ workflow. After its successful ledger entry, transfer ownership back to
 that `OH_LYME_DEV_STREAMLIT_OWNER` retains `USAGE`. Do not use this procedure
 or its DEV roles for production promotion.
 
+### DEV V056 PMC budget-procedure owner bootstrap
+
+V056 restores the fail-closed PMC extraction budget procedure under the dedicated
+`OH_LYME_DEV_KG_LLM_BUDGET_OWNER` role. Before the protected DEV workflow,
+an explicitly authorized AccountAdmin session creates that DEV-only role; grants
+it `USAGE` on the DEV database and `GOVERNANCE` schema; grants only `SELECT,
+INSERT` on `GOVERNANCE.LLM_BUDGET_USAGE`; grants `CREATE PROCEDURE` on
+`GOVERNANCE`; and grants only migration-ledger `SELECT, INSERT`. Grant this
+role to `OH_LYME_DEV_MIGRATION_DEPLOY_SVC`, then transfer ownership of
+`SP_RESERVE_KG_LLM_BUDGET` to it with `COPY CURRENT GRANTS`. The protected
+workflow applies V056 under that role and re-grants only procedure `USAGE` to
+the DEV pipeline and API runtime roles. Do not grant either runtime role direct
+access to the budget table, and do not apply this bootstrap or migration to PROD.
+
 ### V041 governed-view owner bootstrap
 
 V041 must run as `OH_LYME_<ENV>_GOVERNED_VIEW_OWNER`, not the default
