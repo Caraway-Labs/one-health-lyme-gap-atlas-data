@@ -36,6 +36,11 @@ _OAI_ENDPOINT = "https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/"
 _OAI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
 
 
+def _provider_rejected_before_inference(error: Exception) -> bool:
+    """Identify a provider's client-side request rejection without retaining its body."""
+    return isinstance(error, httpx.HTTPStatusError) and 400 <= error.response.status_code < 500
+
+
 @dataclass(frozen=True)
 class ApprovedPaper:
     """The minimum, citation-only identity required before PMC access."""
@@ -479,15 +484,9 @@ class SnowflakePMCExtractionLedger:
 
     def fail(self, paper: ApprovedPaper, attempt_id: str | None, error: Exception) -> None:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS WHERE pmid = %s",
-                (paper.pmid,),
+            provider_rejected = attempt_id is not None and _provider_rejected_before_inference(
+                error
             )
-            count_row = cursor.fetchone()
-            if count_row is None:
-                raise RuntimeError("extraction-attempt count is unavailable")
-            exhausted = int(count_row[0]) >= 3
-            target = "retry_exhausted" if exhausted else "retry_pending"
             if attempt_id is not None:
                 cursor.execute(
                     """UPDATE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS
@@ -495,6 +494,32 @@ class SnowflakePMCExtractionLedger:
                        WHERE extraction_attempt_id = %s""",
                     (type(error).__name__, attempt_id),
                 )
+            if provider_rejected:
+                cursor.execute(
+                    """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
+                       (classification_id, extraction_attempt_id, pmid, classification, rationale, correlation_id)
+                       VALUES (%s, %s, %s, 'provider_rejected_pre_inference', %s, %s)""",
+                    (
+                        str(uuid.uuid4()),
+                        attempt_id,
+                        paper.pmid,
+                        "provider_http_4xx",
+                        str(uuid.uuid4()),
+                    ),
+                )
+            cursor.execute(
+                """SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
+                   WHERE a.pmid = %s AND a.status = 'failed' AND NOT EXISTS (
+                     SELECT 1 FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS c
+                     WHERE c.extraction_attempt_id = a.extraction_attempt_id
+                       AND c.classification = 'provider_rejected_pre_inference')""",
+                (paper.pmid,),
+            )
+            count_row = cursor.fetchone()
+            if count_row is None:
+                raise RuntimeError("extraction-attempt count is unavailable")
+            exhausted = int(count_row[0]) >= 3
+            target = "retry_exhausted" if exhausted else "retry_pending"
             cursor.execute(
                 "UPDATE KNOWLEDGE_GRAPH.PAPERS SET state = %s, updated_at = CURRENT_TIMESTAMP() WHERE pmid = %s",
                 (target, paper.pmid),

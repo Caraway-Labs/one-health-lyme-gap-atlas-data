@@ -40,3 +40,7 @@ code, Snowflake DDL, source configuration, or deployment files.
   and pipeline procedure grants after `CREATE OR REPLACE`.
 - Run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`,
   `uv run pytest`, `dbt parse`, and the container build for material changes.
+- PMC retries: the three-failure ceiling applies only to confirmed LLM
+  execution failures. Record provider rejections before inference in an
+  append-only classification ledger; reopen an exhausted DEV paper only via
+  the reviewed recovery procedure and a state event, never by editing history.

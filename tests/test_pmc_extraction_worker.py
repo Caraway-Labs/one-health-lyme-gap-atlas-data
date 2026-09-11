@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import pytest
 from lyme_gap_atlas_kg import (
     AssertionBasis,
@@ -21,6 +22,7 @@ from lyme_gap_atlas_data.pmc_extraction_worker import (
     ApprovedPaper,
     PMCExtractionWorker,
     PMCOpenAccessClient,
+    _provider_rejected_before_inference,
 )
 
 JATS = b"""<article xml:lang="en" xmlns:xlink="http://www.w3.org/1999/xlink"><front><article-meta>
@@ -107,6 +109,15 @@ def test_namespaced_oai_jats_admits_allowlisted_license_ref_text() -> None:
 
     admitted = admit_pmc_open_access(OAI_JATS_LICENSE_REF)
     assert admitted.license_url == "https://creativecommons.org/licenses/by/4.0/"
+
+
+def test_provider_client_rejection_is_not_an_llm_execution_failure() -> None:
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    error = httpx.HTTPStatusError(
+        "rejected", request=request, response=httpx.Response(413, request=request)
+    )
+    assert _provider_rejected_before_inference(error)
+    assert not _provider_rejected_before_inference(RuntimeError("model execution failed"))
 
 
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
