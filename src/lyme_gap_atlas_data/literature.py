@@ -30,16 +30,19 @@ FAMILY_TERMS: dict[str, str] = {
 }
 
 # Groq publishes a 131,072-token context window and a 65,536-token maximum
-# completion for GPT-OSS-120B. The strict JSON schema and request envelope also
-# consume context, so reserve a conservative 71,072 tokens for non-document
-# input and completion. Route complete requests above this safe input budget to
-# the already-configured OpenAI provider before any Groq call. The estimate
-# includes the complete extraction prompt, including admitted JATS.
+# completion for GPT-OSS-120B.  Its live strict-schema endpoint has also
+# rejected 6,201- and 11,410-token complete PMC requests with HTTP 413 before
+# inference.  Keep a deliberately conservative transport-safe ceiling below
+# the smallest observed rejection; requests above it use the already-configured
+# OpenAI provider without a speculative Groq call.  The estimate includes the
+# complete extraction prompt, including admitted JATS.
 GROQ_CONTEXT_WINDOW_TOKENS = 131_072
 GROQ_MAX_OUTPUT_TOKENS = 65_536
 GROQ_REQUEST_OVERHEAD_TOKENS = 5_536
-GROQ_MAX_INPUT_TOKENS = (
-    GROQ_CONTEXT_WINDOW_TOKENS - GROQ_MAX_OUTPUT_TOKENS - GROQ_REQUEST_OVERHEAD_TOKENS
+GROQ_TRANSPORT_SAFE_INPUT_TOKENS = 4_000
+GROQ_MAX_INPUT_TOKENS = min(
+    GROQ_CONTEXT_WINDOW_TOKENS - GROQ_MAX_OUTPUT_TOKENS - GROQ_REQUEST_OVERHEAD_TOKENS,
+    GROQ_TRANSPORT_SAFE_INPUT_TOKENS,
 )
 
 

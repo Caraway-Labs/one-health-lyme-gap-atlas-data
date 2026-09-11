@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from typing import Any
 
@@ -118,6 +119,13 @@ def test_provider_client_rejection_is_not_an_llm_execution_failure() -> None:
     )
     assert _provider_rejected_before_inference(error)
     assert not _provider_rejected_before_inference(RuntimeError("model execution failed"))
+
+
+def test_claim_query_prioritizes_recovery_and_excludes_pre_inference_rejections() -> None:
+    source = inspect.getsource(pmc_extraction_worker.SnowflakePMCExtractionLedger.claim_one)
+    assert "EXTRACTION_ATTEMPT_CLASSIFICATIONS" in source
+    assert "provider_rejected_pre_inference" in source
+    assert "CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END" in source
 
 
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
