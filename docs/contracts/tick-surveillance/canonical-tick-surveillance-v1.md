@@ -1,8 +1,8 @@
 # Canonical tick-surveillance observation contract v1
 
-Status: Proposed for steward review  
-Owner: Atlas data stewardship and engineering  
-Schema: `canonical-tick-surveillance-v1.schema.json`  
+Status: Proposed for steward review
+Owner: Atlas data stewardship and engineering
+Schema: `canonical-tick-surveillance-v1.schema.json`
 Method version: `tick-surveillance-v1`
 
 ## Purpose and boundary
