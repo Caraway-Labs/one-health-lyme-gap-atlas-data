@@ -21,10 +21,11 @@ LANGUAGE SQL
 EXECUTE AS OWNER
 AS
 $$
-DECLARE invalid_input EXCEPTION (-20601, 'A bounded provider-rejection recovery rationale is required');
-DECLARE invalid_attempt EXCEPTION (-20602, 'Only failed attempts for the named exhausted paper may be classified');
-DECLARE expected NUMBER;
-DECLARE matched NUMBER;
+DECLARE
+  invalid_input EXCEPTION (-20601, 'A bounded provider-rejection recovery rationale is required');
+  invalid_attempt EXCEPTION (-20602, 'Only failed attempts for the named exhausted paper may be classified');
+  expected NUMBER;
+  matched NUMBER;
 BEGIN
   IF (P_PMID IS NULL OR ARRAY_SIZE(P_ATTEMPT_IDS) = 0 OR P_RATIONALE IS NULL
       OR LENGTH(TRIM(P_RATIONALE)) < 10 OR LENGTH(P_RATIONALE) > 10000) THEN RAISE invalid_input; END IF;
