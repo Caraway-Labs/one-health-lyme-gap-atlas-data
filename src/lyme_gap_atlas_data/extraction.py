@@ -10,6 +10,7 @@ from typing import Protocol
 import httpx
 from lyme_gap_atlas_kg import GraphContribution
 
+from .contribution_admission import AdmittedContribution, admit_graph_contribution
 from .literature import extraction_provider
 
 
@@ -176,8 +177,8 @@ class ExtractionCoordinator:
 
     def process(self, request_id: str, full_request: str) -> dict[str, object]:
         """Build a validated contribution then publish it atomically."""
-        contribution = self.build_contribution(request_id, full_request)
-        return self._publisher.publish(contribution)
+        admitted = self.build_contribution(request_id, full_request)
+        return self._publisher.publish(admitted.contribution)
 
     def route_for_request(self, full_request: str) -> str:
         """Expose the deterministic model route for durable attempt provenance."""
@@ -187,8 +188,8 @@ class ExtractionCoordinator:
         """Expose the deterministic input estimate used by the budget reservation."""
         return self._tokens(full_request)
 
-    def build_contribution(self, request_id: str, full_request: str) -> GraphContribution:
-        """Reserve budget and return a validated, embedded contribution without publishing it."""
+    def build_contribution(self, request_id: str, full_request: str) -> AdmittedContribution:
+        """Reserve budget and return a partially admitted, embedded contribution."""
         tokens = self.estimate_input_tokens(full_request)
         route = self.route_for_request(full_request)
         estimated_cost = self._cost(route, tokens)
@@ -199,9 +200,9 @@ class ExtractionCoordinator:
             # provider adapter must request strict structured output and returns no
             # retained raw response beyond this in-memory object.
             schema = GraphContribution.model_json_schema()
-            contribution = GraphContribution.model_validate(
-                self._providers[route].extract(full_request, schema)
-            )
+            raw = self._providers[route].extract(full_request, schema)
+            admitted = admit_graph_contribution(raw)
+            contribution = admitted.contribution
             if contribution.passages:
                 embeddings = self._embedder.embed(
                     [passage.extraction_summary for passage in contribution.passages], 1_024
@@ -222,11 +223,14 @@ class ExtractionCoordinator:
                         ]
                     }
                 )
+                admitted = AdmittedContribution(
+                    contribution=contribution, dropped_edges=admitted.dropped_edges
+                )
         except Exception:
             self._budget.finalize(request_id, "failed")
             raise
         self._budget.finalize(request_id, "used", estimated_cost)
-        return contribution
+        return admitted
 
     def publish_contribution(self, contribution: GraphContribution) -> dict[str, object]:
         """Publish a contribution that a workflow has validated against its admission record."""
@@ -242,6 +246,6 @@ class ExtractionCoordinator:
         """Record attempt provenance, validate admission identity, then publish atomically."""
         route = self.route_for_request(full_request)
         attempt_started(route, self.estimate_input_tokens(full_request), request_id)
-        contribution = self.build_contribution(request_id, full_request)
-        validate(contribution)
-        return self.publish_contribution(contribution)
+        admitted = self.build_contribution(request_id, full_request)
+        validate(admitted.contribution)
+        return self.publish_contribution(admitted.contribution)

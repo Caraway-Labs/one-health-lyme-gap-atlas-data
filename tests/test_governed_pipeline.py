@@ -1682,6 +1682,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V060",
         "V061",
         "V062",
+        "V063",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1689,7 +1690,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 44
+    assert len(prod_plan) == 45
     assert "V034" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
@@ -1812,6 +1813,21 @@ def test_dev_pmc_budget_finalization_procedures_keep_budget_owner() -> None:
     assert "CREATE TABLE" not in repair.source
     assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET" in repair.source
     assert "OH_LYME_DEV_PIPELINE_RUNTIME" in repair.source
+
+
+def test_extraction_attempt_diagnostics_are_append_only_and_redacted() -> None:
+    repair = next(item for item in load_migrations() if item.version == "V063")
+    assert migration_execution_role(repair, DEV_DATABASE) is None
+    rendered = render_migration(repair, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "EXTRACTION_ATTEMPT_DIAGNOSTICS" in rendered
+    assert "OH_LYME_PROD_PIPELINE_RUNTIME" in rendered
+    assert "dropped_illegal_edge" in repair.source
+    assert "partial_accept_summary" in repair.source
+    assert "GRANT SELECT, INSERT ON TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS" in (
+        repair.source
+    )
+    assert "UPDATE " not in repair.source
+    assert "DELETE " not in repair.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
