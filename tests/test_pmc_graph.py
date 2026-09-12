@@ -1,6 +1,6 @@
 import pytest
 
-from lyme_gap_atlas_data.pmc_graph import admit_pmc_open_access
+from lyme_gap_atlas_data.pmc_graph import _neo4j_safe_properties, admit_pmc_open_access
 
 
 def jats(
@@ -27,3 +27,21 @@ def test_admits_only_english_explicit_open_access_jats() -> None:
 def test_rejects_ineligible_full_text_before_extraction(payload: bytes) -> None:
     with pytest.raises(ValueError):
         admit_pmc_open_access(payload)
+
+
+def test_neo4j_safe_properties_omit_empty_maps_and_encode_populated_maps() -> None:
+    safe = _neo4j_safe_properties(
+        {
+            "id": "node:1",
+            "external_ids": {},
+            "aliases": ["a"],
+            "optional": None,
+            "populated": {"mesh": "D008193"},
+        }
+    )
+    assert safe == {
+        "id": "node:1",
+        "aliases": ["a"],
+        "populated": '{"mesh":"D008193"}',
+    }
+    assert "external_ids" not in safe
