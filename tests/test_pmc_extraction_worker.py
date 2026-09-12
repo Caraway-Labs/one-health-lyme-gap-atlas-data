@@ -19,6 +19,7 @@ from lyme_gap_atlas_kg import (
 )
 
 from lyme_gap_atlas_data import pmc_extraction_worker
+from lyme_gap_atlas_data.contribution_admission import AdmittedContribution
 from lyme_gap_atlas_data.pmc_extraction_worker import (
     ApprovedPaper,
     PMCExtractionWorker,
@@ -166,6 +167,16 @@ class Ledger:
         self.events.append("attempt")
         return "attempt-1"
 
+    def record_diagnostics(
+        self,
+        paper: ApprovedPaper,
+        attempt_id: str,
+        diagnostics: object,
+        *,
+        published: bool = False,
+    ) -> None:
+        self.events.append(f"diagnostics:{published}:{len(tuple(diagnostics))}")
+
     def record_receipt(
         self,
         paper: ApprovedPaper,
@@ -273,7 +284,7 @@ class Coordinator:
         self.graph = graph
         self.called = False
 
-    def build_contribution(self, request_id: str, full_request: str) -> GraphContribution:
+    def build_contribution(self, request_id: str, full_request: str) -> AdmittedContribution:
         self.called = True
         if isinstance(self.graph, Exception):
             raise self.graph
@@ -288,7 +299,10 @@ class Coordinator:
                 )[0],
             }
         )
-        return graph.model_copy(update={"paper": paper})
+        return AdmittedContribution(
+            contribution=graph.model_copy(update={"paper": paper}),
+            dropped_edges=(),
+        )
 
     def route_for_request(self, full_request: str) -> str:
         return "groq:openai/gpt-oss-120b"
@@ -305,7 +319,12 @@ class Publisher:
     def publish(self, graph: GraphContribution) -> dict[str, Any]:
         self.called = True
         self.events.append("publish")
-        return {"neo4j_transaction_id": "tx-1", "passage_count": len(graph.passages)}
+        return {
+            "neo4j_transaction_id": "tx-1",
+            "node_count": len(graph.nodes) + 1,
+            "passage_count": len(graph.passages),
+            "edge_count": len(graph.edges),
+        }
 
 
 def worker(

@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -17,8 +18,16 @@ from lyme_gap_atlas_kg import GraphContribution
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
+from opentelemetry import trace
 
 from .artifacts import Artifact, create_artifact
+from .contribution_admission import (
+    AdmittedContribution,
+    ContributionAdmissionError,
+    RedactedEdgeDiagnostic,
+    dropped_edge_summary,
+    endpoint_matrix_prompt,
+)
 from .extraction import (
     ExtractionCoordinator,
     GroqStructuredExtractor,
@@ -34,6 +43,8 @@ from .pubmed_discovery import _spaces_client
 
 _OAI_ENDPOINT = "https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/"
 _OAI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
+_LOGGER = logging.getLogger(__name__)
+_TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.pmc-extraction")
 
 
 def _provider_rejected_before_inference(error: Exception) -> bool:
@@ -76,6 +87,15 @@ class PMCExtractionLedger(Protocol):
         lease_seconds: int,
     ) -> str: ...
 
+    def record_diagnostics(
+        self,
+        paper: ApprovedPaper,
+        attempt_id: str,
+        diagnostics: Sequence[RedactedEdgeDiagnostic],
+        *,
+        published: bool = False,
+    ) -> None: ...
+
     def record_receipt(
         self,
         paper: ApprovedPaper,
@@ -95,7 +115,7 @@ class ContributionBuilder(Protocol):
 
     def estimate_input_tokens(self, full_request: str) -> int: ...
 
-    def build_contribution(self, request_id: str, full_request: str) -> GraphContribution: ...
+    def build_contribution(self, request_id: str, full_request: str) -> AdmittedContribution: ...
 
 
 class JatsFetcher(Protocol):
@@ -159,7 +179,9 @@ def build_extraction_request(
         "Return only a strict kg-v1.0.0 GraphContribution. The contribution paper must "
         "exactly match this identity, every substantive edge must cite one supplied evidence "
         "passage, and unsupported assertions must be omitted. Do not include any facts not "
-        "supported by the full text.\nIdentity:\n"
+        "supported by the full text.\n"
+        + endpoint_matrix_prompt()
+        + "\nIdentity:\n"
         + json.dumps(identity, sort_keys=True)
         + "\nApproved PMC Open Access full text:\n"
         + admitted.normalized_text
@@ -243,50 +265,118 @@ class PMCExtractionWorker:
         ):
             raise ValueError("only an approved, provenance-complete paper may be extracted")
         attempt_id: str | None = None
-        try:
-            jats = self._fetcher.fetch_jats(paper.pmcid)
-            admitted = admit_pmc_open_access(jats)
-            if admitted.pmcid != paper.pmcid:
-                raise ValueError("PMC JATS identity does not match the claimed paper")
-            artifact = create_artifact(
-                payload=jats,
-                environment=self._environment,
-                resource_key=f"{self._artifact_prefix}/pmc_full_text",
-                run_id=paper.pmid,
-            )
-            self._artifact_store.put_object(
-                Bucket=self._artifact_bucket,
-                Key=artifact.object_key,
-                Body=jats,
-                ContentType="application/xml",
-            )
-            artifact_id = self._ledger.record_artifact(paper, artifact, admitted)
-            request = build_extraction_request(paper, admitted, artifact)
-            request_sha = hashlib.sha256(request.encode()).hexdigest()
-            attempt_id = self._ledger.record_attempt(
-                paper,
-                request_sha,
-                self._coordinator.route_for_request(request),
-                self._coordinator.estimate_input_tokens(request),
-                self._lease_seconds,
-            )
-            contribution = self._coordinator.build_contribution(attempt_id, request)
-            validate_contribution_identity(contribution, paper, admitted, artifact)
-            receipt = self._publisher.publish(contribution)
-            contribution_sha = contribution_sha256(contribution)
-            self._ledger.record_receipt(paper, attempt_id, artifact_id, contribution_sha, receipt)
-            self._ledger.finish(paper, attempt_id)
-            return {
-                "status": "COMPLETED",
-                "pmid": paper.pmid,
-                "artifact_sha256": artifact.sha256,
-                "contribution_sha256": contribution_sha,
-                "neo4j_transaction_id": receipt["neo4j_transaction_id"],
-                "passage_count": receipt["passage_count"],
-            }
-        except Exception as error:
-            self._ledger.fail(paper, attempt_id, error)
-            raise
+        built: AdmittedContribution | None = None
+        with _TRACER.start_as_current_span("pmc_extraction.run") as span:
+            span.set_attribute("atlas.pmc.pmid", paper.pmid)
+            span.set_attribute("atlas.pmc.pmcid", paper.pmcid)
+            try:
+                jats = self._fetcher.fetch_jats(paper.pmcid)
+                admitted = admit_pmc_open_access(jats)
+                if admitted.pmcid != paper.pmcid:
+                    raise ValueError("PMC JATS identity does not match the claimed paper")
+                artifact = create_artifact(
+                    payload=jats,
+                    environment=self._environment,
+                    resource_key=f"{self._artifact_prefix}/pmc_full_text",
+                    run_id=paper.pmid,
+                )
+                self._artifact_store.put_object(
+                    Bucket=self._artifact_bucket,
+                    Key=artifact.object_key,
+                    Body=jats,
+                    ContentType="application/xml",
+                )
+                artifact_id = self._ledger.record_artifact(paper, artifact, admitted)
+                request = build_extraction_request(paper, admitted, artifact)
+                request_sha = hashlib.sha256(request.encode()).hexdigest()
+                attempt_id = self._ledger.record_attempt(
+                    paper,
+                    request_sha,
+                    self._coordinator.route_for_request(request),
+                    self._coordinator.estimate_input_tokens(request),
+                    self._lease_seconds,
+                )
+                span.set_attribute("atlas.pmc.extraction_attempt_id", attempt_id)
+                built = self._coordinator.build_contribution(attempt_id, request)
+                contribution = built.contribution
+                validate_contribution_identity(contribution, paper, admitted, artifact)
+                receipt = self._publisher.publish(contribution)
+                contribution_sha = contribution_sha256(contribution)
+                self._ledger.record_receipt(
+                    paper, attempt_id, artifact_id, contribution_sha, receipt
+                )
+                self._ledger.finish(paper, attempt_id)
+                self._emit_admission_diagnostics(
+                    paper, attempt_id, built.dropped_edges, span, published=True
+                )
+                edge_count = receipt["edge_count"]
+                passage_count = receipt["passage_count"]
+                if not isinstance(edge_count, int) or not isinstance(passage_count, int):
+                    raise RuntimeError("graph publication receipt counts are malformed")
+                span.set_attribute("atlas.pmc.edge_count", edge_count)
+                span.set_attribute("atlas.pmc.passage_count", passage_count)
+                span.set_attribute("atlas.pmc.dropped_edge_count", built.dropped_edge_count)
+                return {
+                    "status": "COMPLETED",
+                    "pmid": paper.pmid,
+                    "artifact_sha256": artifact.sha256,
+                    "contribution_sha256": contribution_sha,
+                    "neo4j_transaction_id": receipt["neo4j_transaction_id"],
+                    "passage_count": passage_count,
+                    "dropped_edge_count": built.dropped_edge_count,
+                }
+            except Exception as error:
+                diagnostics: Sequence[RedactedEdgeDiagnostic] = ()
+                if isinstance(error, ContributionAdmissionError):
+                    diagnostics = error.diagnostics
+                elif built is not None:
+                    diagnostics = built.dropped_edges
+                if attempt_id is not None and diagnostics:
+                    self._emit_admission_diagnostics(
+                        paper, attempt_id, diagnostics, span, published=False
+                    )
+                span.set_attribute("error.type", type(error).__name__)
+                self._ledger.fail(paper, attempt_id, error)
+                raise
+
+    def _emit_admission_diagnostics(
+        self,
+        paper: ApprovedPaper,
+        attempt_id: str,
+        diagnostics: Sequence[RedactedEdgeDiagnostic],
+        span: Any,
+        *,
+        published: bool,
+    ) -> None:
+        if not diagnostics:
+            return
+        summary = dropped_edge_summary(tuple(diagnostics))
+        self._ledger.record_diagnostics(paper, attempt_id, diagnostics, published=published)
+        _LOGGER.info(
+            "pmc.extraction.admission_diagnostics pmid=%s attempt_id=%s published=%s "
+            "dropped_edge_count=%s dropped_by_reason=%s dropped_by_relationship_type=%s edges=%s",
+            paper.pmid,
+            attempt_id,
+            published,
+            summary["dropped_edge_count"],
+            json.dumps(summary["dropped_by_reason"], sort_keys=True),
+            json.dumps(summary["dropped_by_relationship_type"], sort_keys=True),
+            json.dumps(summary["edges"], sort_keys=True),
+        )
+        span.set_attribute("atlas.pmc.dropped_edge_count", int(summary["dropped_edge_count"]))
+        span.set_attribute("atlas.pmc.partial_accept_published", published)
+        span.set_attribute(
+            "atlas.pmc.dropped_by_reason",
+            json.dumps(summary["dropped_by_reason"], sort_keys=True),
+        )
+        span.set_attribute(
+            "atlas.pmc.dropped_by_relationship_type",
+            json.dumps(summary["dropped_by_relationship_type"], sort_keys=True),
+        )
+        span.set_attribute(
+            "atlas.pmc.admission_diagnostics",
+            json.dumps(summary["edges"], sort_keys=True)[:4_000],
+        )
 
 
 @dataclass
@@ -443,6 +533,57 @@ class SnowflakePMCExtractionLedger:
             )
             connection.commit()
         return attempt_id
+
+    def record_diagnostics(
+        self,
+        paper: ApprovedPaper,
+        attempt_id: str,
+        diagnostics: Sequence[RedactedEdgeDiagnostic],
+        *,
+        published: bool = False,
+    ) -> None:
+        if not diagnostics:
+            return
+        summary = dropped_edge_summary(tuple(diagnostics))
+        with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            for item in diagnostics:
+                cursor.execute(
+                    """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+                       (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
+                       SELECT %s, %s, %s, %s, PARSE_JSON(%s)""",
+                    (
+                        str(uuid.uuid4()),
+                        attempt_id,
+                        paper.pmid,
+                        item.diagnostic_type,
+                        json.dumps(item.as_ledger_payload(), sort_keys=True),
+                    ),
+                )
+            if published and any(
+                item.diagnostic_type == "dropped_illegal_edge" for item in diagnostics
+            ):
+                cursor.execute(
+                    """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+                       (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
+                       SELECT %s, %s, %s, 'partial_accept_summary', PARSE_JSON(%s)""",
+                    (
+                        str(uuid.uuid4()),
+                        attempt_id,
+                        paper.pmid,
+                        json.dumps(
+                            {
+                                "dropped_edge_count": summary["dropped_edge_count"],
+                                "dropped_by_reason": summary["dropped_by_reason"],
+                                "dropped_by_relationship_type": summary[
+                                    "dropped_by_relationship_type"
+                                ],
+                                "kept_after_partial_accept": True,
+                            },
+                            sort_keys=True,
+                        ),
+                    ),
+                )
+            connection.commit()
 
     def record_receipt(
         self,

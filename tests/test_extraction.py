@@ -121,7 +121,7 @@ def test_successful_contribution_finalizes_budget_as_used() -> None:
         cost_estimator=lambda _route, _tokens: 0.25,
     )
     contribution = coordinator.build_contribution("request-2", "complete request")
-    assert contribution.paper.pmid == "1"
+    assert contribution.contribution.paper.pmid == "1"
     assert budget.finalizations == [("request-2", "used", 0.25)]
 
 
