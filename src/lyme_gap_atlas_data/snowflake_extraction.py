@@ -33,6 +33,13 @@ class SnowflakeExtractionBudget:
             payload = row[0] if isinstance(row[0], dict) else json.loads(str(row[0]))
             return bool(payload["allowed"])
 
+    def finalize(self, request_id: str, status: str, actual_cost_usd: float | None = None) -> None:
+        with connect(self._settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "CALL GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET(%s,%s,%s,%s)",
+                ("extraction", request_id, status, actual_cost_usd),
+            )
+
 
 class SnowflakeExtractionWorkStore(ExtractionWorkStore):
     def __init__(self, settings: SnowflakeSettings) -> None:
