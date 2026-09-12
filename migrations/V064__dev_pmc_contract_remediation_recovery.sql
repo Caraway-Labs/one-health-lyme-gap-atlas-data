@@ -3,15 +3,25 @@
 -- grants auditor read on redacted extraction diagnostics.
 USE DATABASE {{ DATABASE }};
 
-ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
-  DROP CONSTRAINT ck_pmc_attempt_classification;
-ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
-  ADD CONSTRAINT ck_pmc_attempt_classification CHECK (
-    classification IN (
-      'provider_rejected_pre_inference',
-      'contract_remediation_reopen'
-    )
-  );
+-- Snowflake rejects ADD CHECK without ENABLE NOVALIDATE on populated tables.
+-- DROP may already have succeeded on a prior partial apply; tolerate absence.
+EXECUTE IMMEDIATE $$
+BEGIN
+  BEGIN
+    ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
+      DROP CONSTRAINT ck_pmc_attempt_classification;
+  EXCEPTION
+    WHEN OTHER THEN NULL;
+  END;
+  ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
+    ADD CONSTRAINT ck_pmc_attempt_classification CHECK (
+      classification IN (
+        'provider_rejected_pre_inference',
+        'contract_remediation_reopen'
+      )
+    ) ENABLE NOVALIDATE;
+END;
+$$;
 
 CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_REOPEN_PMC_CONTRACT_REMEDIATION(
   P_PMID VARCHAR, P_ATTEMPT_IDS ARRAY, P_RATIONALE VARCHAR, P_CORRELATION_ID VARCHAR
@@ -67,14 +77,22 @@ GRANT SELECT ON TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
 GRANT SELECT ON TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
   TO ROLE OH_LYME_DEV_PMC_AUDITOR;
 
-ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
-  DROP CONSTRAINT ck_extraction_attempt_diagnostic_type;
-ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
-  ADD CONSTRAINT ck_extraction_attempt_diagnostic_type CHECK (
-    diagnostic_type IN (
-      'dropped_illegal_edge',
-      'contribution_validation_failure',
-      'partial_accept_summary',
-      'identity_mismatch'
-    )
-  );
+EXECUTE IMMEDIATE $$
+BEGIN
+  BEGIN
+    ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+      DROP CONSTRAINT ck_extraction_attempt_diagnostic_type;
+  EXCEPTION
+    WHEN OTHER THEN NULL;
+  END;
+  ALTER TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+    ADD CONSTRAINT ck_extraction_attempt_diagnostic_type CHECK (
+      diagnostic_type IN (
+        'dropped_illegal_edge',
+        'contribution_validation_failure',
+        'partial_accept_summary',
+        'identity_mismatch'
+      )
+    ) ENABLE NOVALIDATE;
+END;
+$$;

@@ -1841,6 +1841,7 @@ def test_dev_pmc_contract_remediation_recovery_is_append_only() -> None:
     assert "SP_REOPEN_PMC_CONTRACT_REMEDIATION" in repair.source
     assert "contract_remediation_reopen" in repair.source
     assert "identity_mismatch" in repair.source
+    assert "ENABLE NOVALIDATE" in repair.source
     assert "GRANT SELECT ON TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS" in repair.source
     assert "OH_LYME_DEV_PMC_AUDITOR" in repair.source
     assert "DELETE " not in repair.source
