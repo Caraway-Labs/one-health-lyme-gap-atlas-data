@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -20,6 +21,21 @@ _OPEN_LICENSE_HOSTS = ("creativecommons.org/licenses/", "creativecommons.org/pub
 
 def _nodes(root: ET.Element, name: str) -> list[ET.Element]:
     return [node for node in root.iter() if node.tag.rsplit("}", maxsplit=1)[-1] == name]
+
+
+def _neo4j_safe_properties(props: dict[str, Any]) -> dict[str, Any]:
+    """Drop Neo4j-illegal nested maps/nulls while preserving primitive property values."""
+    safe: dict[str, Any] = {}
+    for key, value in props.items():
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            if not value:
+                continue
+            safe[key] = json.dumps(value, sort_keys=True, separators=(",", ":"))
+            continue
+        safe[key] = value
+    return safe
 
 
 @dataclass(frozen=True)
@@ -90,13 +106,19 @@ class Neo4jPaperPublisher:
 
     def publish(self, contribution: GraphContribution) -> dict[str, object]:
         payload = {
-            "paper": contribution.paper.model_dump(mode="json"),
-            "nodes": [node.model_dump(mode="json") for node in contribution.nodes],
+            "paper": _neo4j_safe_properties(contribution.paper.model_dump(mode="json")),
+            "nodes": [
+                _neo4j_safe_properties(node.model_dump(mode="json")) for node in contribution.nodes
+            ],
             "passages": [
-                {**node.model_dump(mode="json"), "embedding": node.embedding}
+                _neo4j_safe_properties(
+                    {**node.model_dump(mode="json"), "embedding": node.embedding}
+                )
                 for node in contribution.passages
             ],
-            "edges": [edge.model_dump(mode="json") for edge in contribution.edges],
+            "edges": [
+                _neo4j_safe_properties(edge.model_dump(mode="json")) for edge in contribution.edges
+            ],
         }
         with self._driver.session(database="neo4j") as session:
             result = session.execute_write(self._replace_paper, payload)
