@@ -24,6 +24,10 @@ green unit-test run is not permission to enable the feature flag.
    Confirm the durable attempt route matches the complete-request estimate:
    requests above the conservative Groq input budget must use the configured
    OpenAI extraction provider without first calling Groq.
+   On the VPC worker Droplet, the systemd unit must use Docker `--network host`
+   (or an equivalent Bolt URI reachable from the container) whenever
+   `NEO4J_URI` targets localhost on a co-located Neo4j runtime. Keep the
+   extraction timer disabled for one-shot recovery proofs.
 6. Create a Neo4j backup, perform the prescribed restore test, and retain its
    checksum, graph counts, and fixed-retrieval evidence.
 7. Exercise the disabled API endpoint, evidence-unavailable path, no-evidence
