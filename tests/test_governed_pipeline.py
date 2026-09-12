@@ -1793,6 +1793,8 @@ def test_dev_pmc_budget_finalization_is_append_only_and_fail_closed() -> None:
     assert "DELETE FROM GOVERNANCE.LLM_BUDGET_USAGE" not in repair.source
     assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET" in repair.source
     assert "OH_LYME_DEV_PIPELINE_RUNTIME" in repair.source
+    assert "JOIN KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a" in repair.source
+    assert "a.status = 'failed'" in repair.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
