@@ -44,6 +44,7 @@ from .orchestration import (
 from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
+from .retrieval_corpus import build_retrieval_corpus
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 from .tick_surveillance import collect_tick_surveillance_evidence
@@ -221,6 +222,17 @@ def pmc_extract(
             run_pmc_extraction(estimated_cost_usd=estimated_cost_usd, settings=PipelineSettings())
         )
     )
+
+
+@pipeline_app.command("build-retrieval-corpus")
+def build_retrieval_corpus_command(
+    confirm: bool = typer.Option(False, "--confirm"),
+    pmid: str | None = typer.Option(None, "--pmid"),
+) -> None:
+    """Rebuild the DEV retrieval corpus from approved PMC artifacts and receipts."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to rebuild the DEV retrieval corpus")
+    typer.echo(json.dumps(build_retrieval_corpus(pmid=pmid, settings=PipelineSettings())))
 
 
 @pipeline_app.command("register-discovery")
