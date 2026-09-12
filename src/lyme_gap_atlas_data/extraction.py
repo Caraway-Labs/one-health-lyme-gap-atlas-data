@@ -20,6 +20,10 @@ class ContractExtractor(Protocol):
 class ExtractionBudget(Protocol):
     def reserve(self, request_id: str, route: str, estimated_cost_usd: float) -> bool: ...
 
+    def finalize(
+        self, request_id: str, status: str, actual_cost_usd: float | None = None
+    ) -> None: ...
+
 
 class ContributionPublisher(Protocol):
     def publish(self, contribution: GraphContribution) -> dict[str, object]: ...
@@ -187,33 +191,41 @@ class ExtractionCoordinator:
         """Reserve budget and return a validated, embedded contribution without publishing it."""
         tokens = self.estimate_input_tokens(full_request)
         route = self.route_for_request(full_request)
-        if not self._budget.reserve(request_id, route, self._cost(route, tokens)):
+        estimated_cost = self._cost(route, tokens)
+        if not self._budget.reserve(request_id, route, estimated_cost):
             raise RuntimeError("extraction budget is unavailable")
-        # The validated Pydantic schema is passed directly to the provider. The
-        # provider adapter must request strict structured output and returns no
-        # retained raw response beyond this in-memory object.
-        schema = GraphContribution.model_json_schema()
-        contribution = GraphContribution.model_validate(
-            self._providers[route].extract(full_request, schema)
-        )
-        if contribution.passages:
-            embeddings = self._embedder.embed(
-                [passage.extraction_summary for passage in contribution.passages], 1_024
+        try:
+            # The validated Pydantic schema is passed directly to the provider. The
+            # provider adapter must request strict structured output and returns no
+            # retained raw response beyond this in-memory object.
+            schema = GraphContribution.model_json_schema()
+            contribution = GraphContribution.model_validate(
+                self._providers[route].extract(full_request, schema)
             )
-            if len(embeddings) != len(contribution.passages) or any(
-                len(embedding) != 1_024 for embedding in embeddings
-            ):
-                raise ValueError("embedding response does not match the 1,024-dimension contract")
-            contribution = contribution.model_copy(
-                update={
-                    "passages": [
-                        passage.model_copy(update={"embedding": embedding})
-                        for passage, embedding in zip(
-                            contribution.passages, embeddings, strict=True
-                        )
-                    ]
-                }
-            )
+            if contribution.passages:
+                embeddings = self._embedder.embed(
+                    [passage.extraction_summary for passage in contribution.passages], 1_024
+                )
+                if len(embeddings) != len(contribution.passages) or any(
+                    len(embedding) != 1_024 for embedding in embeddings
+                ):
+                    raise ValueError(
+                        "embedding response does not match the 1,024-dimension contract"
+                    )
+                contribution = contribution.model_copy(
+                    update={
+                        "passages": [
+                            passage.model_copy(update={"embedding": embedding})
+                            for passage, embedding in zip(
+                                contribution.passages, embeddings, strict=True
+                            )
+                        ]
+                    }
+                )
+        except Exception:
+            self._budget.finalize(request_id, "failed")
+            raise
+        self._budget.finalize(request_id, "used", estimated_cost)
         return contribution
 
     def publish_contribution(self, contribution: GraphContribution) -> dict[str, object]:

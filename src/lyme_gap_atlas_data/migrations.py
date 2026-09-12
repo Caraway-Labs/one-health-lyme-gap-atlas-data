@@ -33,6 +33,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V058",
     "V059",
     "V060",
+    "V061",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
@@ -150,7 +151,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != DEV_DATABASE:
             raise ValueError("DEV source-review view migration is DEV-only")
         return "OH_LYME_DEV_STREAMLIT_OWNER"
-    if migration.version in {"V056", "V057"}:
+    if migration.version in {"V056", "V057", "V061"}:
         if database != DEV_DATABASE:
             raise ValueError("DEV PMC budget-owner migration is DEV-only")
         return "OH_LYME_DEV_KG_LLM_BUDGET_OWNER"

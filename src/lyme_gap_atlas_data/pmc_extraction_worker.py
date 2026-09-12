@@ -573,6 +573,13 @@ class SnowflakeExtractionBudget:
                 raise RuntimeError("budget reservation returned an invalid result")
             return bool(result["allowed"])
 
+    def finalize(self, request_id: str, status: str, actual_cost_usd: float | None = None) -> None:
+        with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "CALL GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET(%s,%s,%s,%s)",
+                ("pmc_extraction", request_id, status, actual_cost_usd),
+            )
+
 
 class _UnusedCoordinatorPublisher:
     """The worker publishes only after its own identity validation."""

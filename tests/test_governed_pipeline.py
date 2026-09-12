@@ -1680,6 +1680,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V058",
         "V059",
         "V060",
+        "V061",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1775,6 +1776,26 @@ def test_dev_pmc_review_procedure_uses_unambiguous_parameter_names() -> None:
     assert ":P_DECISION" in repair.source
     assert "IF (DECISION NOT IN" not in repair.source
     assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH" in repair.source
+
+
+def test_dev_pmc_budget_finalization_is_append_only_and_fail_closed() -> None:
+    repair = next(item for item in load_migrations() if item.version == "V061")
+    assert migration_execution_role(repair, DEV_DATABASE) == "OH_LYME_DEV_KG_LLM_BUDGET_OWNER"
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(repair, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V061" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "CREATE TABLE IF NOT EXISTS GOVERNANCE.LLM_BUDGET_FINALIZATIONS" in repair.source
+    assert "SP_FINALIZE_KG_LLM_BUDGET" in repair.source
+    assert "f.status = 'failed'" in repair.source
+    assert "UPDATE GOVERNANCE.LLM_BUDGET_USAGE" not in repair.source
+    assert "DELETE FROM GOVERNANCE.LLM_BUDGET_USAGE" not in repair.source
+    assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET" in repair.source
+    assert "OH_LYME_DEV_PIPELINE_RUNTIME" in repair.source
+    assert "FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a" in repair.source
+    assert "a.status = 'failed'" in repair.source
+    assert "OR NOT EXISTS" in repair.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:
