@@ -1683,6 +1683,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V061",
         "V062",
         "V063",
+        "V064",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1828,6 +1829,22 @@ def test_extraction_attempt_diagnostics_are_append_only_and_redacted() -> None:
     )
     assert "UPDATE " not in repair.source
     assert "DELETE " not in repair.source
+
+
+def test_dev_pmc_contract_remediation_recovery_is_append_only() -> None:
+    repair = next(item for item in load_migrations() if item.version == "V064")
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(repair, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V064" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "SP_REOPEN_PMC_CONTRACT_REMEDIATION" in repair.source
+    assert "contract_remediation_reopen" in repair.source
+    assert "identity_mismatch" in repair.source
+    assert "GRANT SELECT ON TABLE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS" in repair.source
+    assert "OH_LYME_DEV_PMC_AUDITOR" in repair.source
+    assert "DELETE " not in repair.source
+    assert "UPDATE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS" not in repair.source
 
 
 def test_cdc_evidence_grants_are_limited_to_evidence_writes() -> None:

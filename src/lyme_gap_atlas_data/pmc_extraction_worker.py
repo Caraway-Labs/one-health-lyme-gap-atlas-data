@@ -204,14 +204,22 @@ def validate_contribution_identity(
 ) -> None:
     """Reject paper switching, absent passage citations, and incomplete provenance."""
     published = contribution.paper
-    if (
-        published.pmid != paper.pmid
-        or published.pmcid != paper.pmcid
-        or published.content_hash != admitted.text_sha256
-        or published.full_text_object_key != artifact.object_key
-        or sorted(published.query_match_ids) != sorted(paper.query_match_ids)
-    ):
-        raise ValueError("model contribution does not match the claimed paper identity")
+    mismatches: list[str] = []
+    if published.pmid != paper.pmid:
+        mismatches.append("pmid")
+    if published.pmcid != paper.pmcid:
+        mismatches.append("pmcid")
+    if published.content_hash != admitted.text_sha256:
+        mismatches.append("content_hash")
+    if published.full_text_object_key != artifact.object_key:
+        mismatches.append("full_text_object_key")
+    if sorted(published.query_match_ids) != sorted(paper.query_match_ids):
+        mismatches.append("query_match_ids")
+    if mismatches:
+        raise ContributionIdentityError(
+            "model contribution does not match the claimed paper identity",
+            tuple(mismatches),
+        )
     passage_ids = {passage.id for passage in contribution.passages}
     if not passage_ids or any(
         passage.paper_id != published.id for passage in contribution.passages
@@ -222,6 +230,26 @@ def validate_contribution_identity(
         for edge in contribution.edges
     ):
         raise ValueError("every graph edge requires a claimed-paper evidence passage")
+
+
+class ContributionIdentityError(ValueError):
+    """Raised when the model contribution identity fields do not match the claim."""
+
+    def __init__(self, message: str, mismatched_fields: tuple[str, ...]) -> None:
+        super().__init__(message)
+        self.mismatched_fields = mismatched_fields
+        self.diagnostics = (
+            RedactedEdgeDiagnostic(
+                diagnostic_type="identity_mismatch",
+                edge_index=-1,
+                edge_id=None,
+                relationship_type=None,
+                source_node_type=None,
+                target_node_type=None,
+                assertion_basis=None,
+                reason="mismatched_fields=" + ",".join(mismatched_fields),
+            ),
+        )
 
 
 class PMCExtractionWorker:
@@ -327,7 +355,7 @@ class PMCExtractionWorker:
                 }
             except Exception as error:
                 diagnostics: Sequence[RedactedEdgeDiagnostic] = ()
-                if isinstance(error, ContributionAdmissionError):
+                if isinstance(error, (ContributionAdmissionError, ContributionIdentityError)):
                     diagnostics = error.diagnostics
                 elif built is not None:
                     diagnostics = built.dropped_edges
@@ -417,7 +445,10 @@ class SnowflakePMCExtractionLedger:
                               SELECT 1
                               FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS c
                               WHERE c.extraction_attempt_id = a.extraction_attempt_id
-                                AND c.classification = 'provider_rejected_pre_inference'
+                                AND c.classification IN (
+                                  'provider_rejected_pre_inference',
+                                  'contract_remediation_reopen'
+                                )
                             )) < 3
                    GROUP BY p.pmid, p.pmcid, p.title, p.journal, p.publication_date,
                             p.publication_types, p.language, p.state
@@ -661,7 +692,10 @@ class SnowflakePMCExtractionLedger:
                    WHERE a.pmid = %s AND a.status = 'failed' AND NOT EXISTS (
                      SELECT 1 FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS c
                      WHERE c.extraction_attempt_id = a.extraction_attempt_id
-                       AND c.classification = 'provider_rejected_pre_inference')""",
+                       AND c.classification IN (
+                         'provider_rejected_pre_inference',
+                         'contract_remediation_reopen'
+                       ))""",
                 (paper.pmid,),
             )
             count_row = cursor.fetchone()

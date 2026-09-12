@@ -126,7 +126,34 @@ def test_claim_query_prioritizes_recovery_and_excludes_pre_inference_rejections(
     source = inspect.getsource(pmc_extraction_worker.SnowflakePMCExtractionLedger.claim_one)
     assert "EXTRACTION_ATTEMPT_CLASSIFICATIONS" in source
     assert "provider_rejected_pre_inference" in source
+    assert "contract_remediation_reopen" in source
     assert "CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END" in source
+
+
+def test_identity_mismatch_records_redacted_field_names() -> None:
+    from lyme_gap_atlas_data.artifacts import Artifact
+    from lyme_gap_atlas_data.pmc_extraction_worker import (
+        ContributionIdentityError,
+        validate_contribution_identity,
+    )
+    from lyme_gap_atlas_data.pmc_graph import AdmittedFullText
+
+    graph = contribution(pmcid="PMC999")
+    paper = approved_paper()
+    admitted = AdmittedFullText(
+        "PMC123",
+        "https://creativecommons.org/licenses/by/4.0/",
+        "Approved evidence.",
+        "c" * 64,
+        "d" * 64,
+    )
+    artifact = Artifact(sha256="e" * 64, byte_count=1, object_key="dev/key.bin")
+    with pytest.raises(ContributionIdentityError, match="identity") as raised:
+        validate_contribution_identity(graph, paper, admitted, artifact)
+    assert "pmcid" in raised.value.mismatched_fields
+    assert raised.value.diagnostics[0].diagnostic_type == "identity_mismatch"
+    assert "claim_text" not in raised.value.diagnostics[0].as_ledger_payload()
+    assert "mismatched_fields=" in raised.value.diagnostics[0].reason
 
 
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
