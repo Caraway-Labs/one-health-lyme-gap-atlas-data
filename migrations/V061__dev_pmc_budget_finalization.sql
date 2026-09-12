@@ -101,19 +101,27 @@ GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET(
   TO ROLE OH_LYME_{{ ENV }}_API_RUNTIME;
 
 -- One-time DEV repair: append failed finalizations for reservations whose
--- matching extraction attempt already failed, so orphaned reserved rows stop
--- consuming the daily/monthly limit. Never updates or deletes usage rows.
+-- matching extraction attempt already failed, or whose request_id never landed
+-- in EXTRACTION_ATTEMPTS, so orphaned reserved rows stop consuming the
+-- daily/monthly limit. Never updates or deletes usage rows.
 INSERT INTO GOVERNANCE.LLM_BUDGET_FINALIZATIONS (
   budget_finalization_id, workload, request_id, status, actual_cost_usd, recorded_at
 )
 SELECT UUID_STRING(), u.workload, u.request_id, 'failed', NULL, CURRENT_TIMESTAMP()
 FROM GOVERNANCE.LLM_BUDGET_USAGE u
-JOIN KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
-  ON a.extraction_attempt_id = u.request_id
- AND a.status = 'failed'
 WHERE u.workload = 'pmc_extraction'
   AND u.status = 'reserved'
   AND NOT EXISTS (
     SELECT 1 FROM GOVERNANCE.LLM_BUDGET_FINALIZATIONS f
     WHERE f.workload = u.workload AND f.request_id = u.request_id
+  )
+  AND (
+    EXISTS (
+      SELECT 1 FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
+      WHERE a.extraction_attempt_id = u.request_id AND a.status = 'failed'
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
+      WHERE a.extraction_attempt_id = u.request_id
+    )
   );
