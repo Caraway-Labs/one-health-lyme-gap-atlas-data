@@ -55,8 +55,14 @@ Persisted on `GOVERNANCE.INGESTION_RUNS` (extended) and/or
 ```python
 class IngestionOrchestrator:
     def validate(self, definition: SourceDefinition) -> ValidationResult: ...
-    def run(self, definition: SourceDefinition, *, tier: Tier, dry_run: bool = False,
-            fail_after_stage: str | None = None) -> RunState: ...
+    def run(
+        self,
+        definition: SourceDefinition,
+        *,
+        tier: Tier,
+        dry_run: bool = False,
+        fail_after_stage: str | None = None,
+    ) -> RunState: ...
     def resume(self, run_id: str, *, fail_after_stage: str | None = None) -> RunState: ...
     def inspect(self, run_id: str) -> RunState: ...
 ```

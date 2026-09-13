@@ -109,9 +109,7 @@ def test_production_spec_schedules_each_pubmed_family_and_single_extractor() -> 
     for family in commands:
         assert any(f"--family {family}" in job["run_command"] for job in jobs.values())
     extraction = jobs["approved-paper-extraction"]
-    assert extraction["run_command"].endswith(
-        "pmc-extract --estimated-cost-usd 0.10 --confirm"
-    )
+    assert extraction["run_command"].endswith("pmc-extract --estimated-cost-usd 0.10 --confirm")
     envs = {entry["key"]: entry for entry in extraction["envs"]}
     assert set(envs).issuperset(
         {
