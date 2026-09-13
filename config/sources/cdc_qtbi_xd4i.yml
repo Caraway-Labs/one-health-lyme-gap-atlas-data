@@ -1,4 +1,7 @@
 resource_key: cdc_lyme_qtbi_xd4i
+source_id: cdc_lyme
+dataset_id: qtbi-xd4i
+definition_version: 2
 api_dataset_id: qtbi-xd4i
 profile_version: 1
 platform_type: SOCRATA_SODA2
@@ -7,15 +10,26 @@ metadata_endpoint_template: https://data.cdc.gov/api/views/qtbi-xd4i
 deterministic_order_clause: ":id ASC"
 incremental_strategy: FULL_REFRESH
 onboarding_environments: [dev, prod]
-onboarding_mode: EVIDENCE_ONLY
+onboarding_mode: ROUTINE_PUBLIC
 sample_limit: 25
 maximum_sample_limit: 100
+page_size: 5000
+maximum_rows: 1000000
+destination: RAW.CDC_LYME_QTBI_XD4I
+normalization_kind: cdc_historical_2008_2021
 surveillance_era: "2008-2021"
 minimum_year: 2008
 maximum_year: 2021
 geography_semantics: COUNTY_OF_RESIDENCE
 temporal_semantics: surveillance_year
 required_columns: [year, state, fips, case_status, sex, age_cat_yrs, frequency]
+quality_rules:
+  - rule_id: cdc_qtbi_required_geography
+    severity: BLOCKING
+  - rule_id: cdc_qtbi_historical_era
+    severity: BLOCKING
+  - rule_id: cdc_qtbi_value_state_preservation
+    severity: BLOCKING
 restrictions:
   - Evidence capture is bounded and environment-isolated; approval never starts acquisition.
   - Preserve the 2008-2021 surveillance era separately from 2022 onward.

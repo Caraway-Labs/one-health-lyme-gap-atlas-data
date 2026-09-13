@@ -69,10 +69,11 @@ verification before marking the rollout complete.
 3. Run `pipeline check-cdc-metadata`. Retain its `check_id` and change status.
    This command does not download source rows. A fingerprint is an update signal,
    not proof of byte-identical publisher data.
-4. An operator may authorize `pipeline promote-approved-cdc --check-id <id>`.
-   PROD uses the protected manual workflow with this ID. Approval and metadata
-   are checked again before acquisition; metadata is checked after acquisition.
-   A source-version change or unstable publisher snapshot fails closed.
+4. The legacy x5j9 `pipeline promote-approved-cdc` CLI entry point is retired
+   and fails closed. Routine DEV uses the versioned SourceDefinition through
+   `run-ingestion.yml`; PROD publication still requires its protected
+   environment and the independent source-version/publication controls. A
+   source-version change or unstable publisher snapshot fails closed.
 5. The promotion result distinguishes `PUBLISHED` from `UNCHANGED`. An unchanged
    content checksum leaves the visible pointer and row count unchanged; RAW
    attempts and source artifacts remain retained for audit.

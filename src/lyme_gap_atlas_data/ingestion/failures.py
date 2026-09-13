@@ -20,6 +20,10 @@ FAILURE_GUIDANCE: dict[FailureCategory, str] = {
     FailureCategory.PERMISSION: (
         "Use least-privilege DEV role; escalate ownership handoffs only when documented."
     ),
+    FailureCategory.PROCESS: (
+        "Inspect the redacted diagnostic code, then resume the failed stage after the "
+        "process issue is corrected."
+    ),
 }
 
 

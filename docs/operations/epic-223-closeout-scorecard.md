@@ -1,5 +1,9 @@
 # Epic #223 closeout scorecard
 
+Phase 2 follow-on dispositions and release evidence are tracked in [Epic #259
+closeout scorecard](epic-259-closeout-scorecard.md). The historical and tick
+exceptions listed below are retained there with their current rationale.
+
 ## Velocity benchmark (fixture-backed golden path)
 
 Measured on local developer loop for existing adapter pattern (`cdc_lyme_x5j9_wybp`):
