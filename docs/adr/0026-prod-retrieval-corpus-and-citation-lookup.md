@@ -14,7 +14,10 @@ with corpus provenance by PMID without replacing the Neo4j fail-closed gate.
 ## Decision
 
 1. Publish `RETRIEVAL_CORPUS_BUILDS` / `RETRIEVAL_CORPUS_UNITS` in both DEV and
-   PROD via env-neutral migration V066 (CREATE IF NOT EXISTS; `{{ ENV }}` grants).
+   PROD via env-neutral migration V066 (CREATE IF NOT EXISTS; pipeline
+   `{{ ENV }}` grants). Do not create account roles in V066; DEV auditor SELECT
+   remains from V065, and PROD auditor SELECT waits on out-of-band role
+   provision.
 2. Allow operator corpus rebuilds in PROD when `TOPX_ENV=prod` and
    `ENABLE_PRODUCTION_EXECUTION=true`. No unattended PROD corpus schedule.
 3. Expose `GOVERNANCE.SP_LOOKUP_RETRIEVAL_CORPUS_PROVENANCE(ARRAY)` to
