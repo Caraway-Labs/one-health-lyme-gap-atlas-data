@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Governed Source Onboarding and Promotion",
+    "output": "docs/operations/governed-ingestion-promotion-workflow.html",
+    "viewBox": [1000, 820],
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "steward", "label": "Data Steward" },
+    { "id": "dev", "label": "DEV Governed Pipeline" },
+    { "id": "release", "label": "Protected Release" },
+    { "id": "prod", "label": "PROD Governed Pipeline" },
+    { "id": "exceptions", "label": "Stop or Rollback", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "review", "label": "Human review", "fromCol": 0, "toCol": 1, "variant": "security" },
+    { "id": "dev-proof", "label": "DEV proof", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "prod-promotion", "label": "Protected promotion", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["review_candidate", "approve_dev", "ingest_dev", "validate_dev", "rollback_dev", "approve_prod", "promote_digest", "ingest_prod"],
+  "nodes": [
+    { "id": "review_candidate", "lane": "steward", "col": 0, "width": 62, "type": "security", "label": "Review", "tag": "x5j9-wybp" },
+    { "id": "approve_dev", "lane": "steward", "col": 1, "width": 62, "type": "security", "label": "Approve", "tag": "DEV version" },
+    { "id": "ingest_dev", "lane": "dev", "col": 2, "width": 62, "type": "backend", "label": "Ingest", "tag": "DEV only" },
+    { "id": "validate_dev", "lane": "dev", "col": 3, "width": 62, "type": "database", "label": "Validate", "tag": "CONFORMED" },
+    { "id": "rollback_dev", "lane": "dev", "col": 4, "width": 62, "type": "cloud", "label": "Rollback", "tag": "prior digest" },
+    { "id": "approve_prod", "lane": "steward", "col": 5, "width": 62, "type": "security", "label": "Approve", "tag": "PROD version" },
+    { "id": "promote_digest", "lane": "release", "col": 5, "width": 62, "type": "security", "label": "Promote", "tag": "same digest" },
+    { "id": "ingest_prod", "lane": "prod", "col": 5, "width": 62, "type": "backend", "label": "Ingest", "tag": "PROD verify" },
+    { "id": "hold", "lane": "exceptions", "col": 1, "width": 62, "type": "security", "label": "Hold", "tag": "no approval" },
+    { "id": "stop", "lane": "exceptions", "col": 3, "width": 62, "type": "security", "label": "Stop", "tag": "bad evidence" }
+  ],
+  "edges": [
+    { "from": "review_candidate", "to": "approve_dev", "variant": "security", "role": "main" },
+    { "from": "approve_dev", "to": "ingest_dev", "variant": "security", "role": "main" },
+    { "from": "ingest_dev", "to": "validate_dev", "variant": "emphasis", "role": "main" },
+    { "from": "validate_dev", "to": "rollback_dev", "variant": "emphasis", "role": "main", "route": "bottom-channel", "fromSide": "bottom", "toSide": "bottom" },
+    { "from": "rollback_dev", "to": "approve_prod", "variant": "security", "role": "main" },
+    { "from": "approve_prod", "to": "promote_digest", "variant": "security", "role": "main" },
+    { "from": "promote_digest", "to": "ingest_prod", "variant": "security", "role": "main" },
+    { "from": "review_candidate", "to": "hold", "variant": "security", "role": "error" },
+    { "from": "validate_dev", "to": "stop", "variant": "security", "role": "error" }
+  ],
+  "cards": [
+    { "dot": "amber", "title": "Decision boundaries", "items": ["A runtime job cannot approve a candidate", "DEV approval never activates PROD", "A protected release approval cannot replace source approval"] },
+    { "dot": "emerald", "title": "Promotion evidence", "items": ["Prove source lineage through CONFORMED in DEV", "Rehearse a DEV digest rollback", "Promote the exact immutable image tested in DEV"] }
+  ]
+}
