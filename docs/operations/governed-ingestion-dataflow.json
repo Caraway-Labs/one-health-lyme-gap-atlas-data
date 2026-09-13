@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Governed Ingestion: Evidence to Conformed Data",
+    "output": "docs/operations/governed-ingestion-dataflow.html",
+    "viewBox": [1080, 760],
+    "quality_profile": "showcase"
+  },
+  "stages": [
+    { "label": "Discover" },
+    { "label": "Register" },
+    { "label": "Review" },
+    { "label": "Ingest" },
+    { "label": "Transform" }
+  ],
+  "nodes": [
+    { "id": "catalogs", "type": "external", "label": "Public catalogs", "stage": 0, "row": 1, "tag": "metadata only" },
+    { "id": "artifacts", "type": "cloud", "label": "Immutable artifacts", "stage": 1, "row": 0, "tag": "content-addressed" },
+    { "id": "candidate", "type": "database", "label": "Registered candidate", "stage": 1, "row": 2, "width": 144, "tag": "no source payload" },
+    { "id": "assessment", "type": "backend", "label": "Assessment evidence", "stage": 2, "row": 0, "tag": "schema and sample" },
+    { "id": "steward", "type": "security", "label": "Steward decision", "stage": 2, "row": 2, "tag": "human gate" },
+    { "id": "raw", "type": "database", "label": "Approved RAW", "stage": 3, "row": 1, "tag": "provenance-bearing" },
+    { "id": "conformed", "type": "database", "label": "CONFORMED", "stage": 4, "row": 0, "tag": "dbt validated" },
+    { "id": "consumers", "type": "backend", "label": "Governed consumers", "stage": 4, "row": 2, "tag": "derived views" }
+  ],
+  "flows": [
+    { "from": "catalogs", "to": "artifacts", "label": "capture metadata", "classification": "immutable evidence", "variant": "emphasis" },
+    { "from": "artifacts", "to": "candidate", "label": "register", "classification": "catalog records", "variant": "default" },
+    { "from": "candidate", "to": "assessment", "label": "triage", "classification": "evidence only", "variant": "default" },
+    { "from": "assessment", "to": "steward", "label": "review package", "classification": "approval required", "variant": "security" },
+    { "from": "steward", "to": "raw", "label": "approved source version", "classification": "controlled activation", "variant": "security" },
+    { "from": "raw", "to": "conformed", "label": "dbt: STAGING to CONFORMED", "classification": "tests and lineage", "variant": "emphasis" },
+    { "from": "conformed", "to": "consumers", "label": "derived governed views", "classification": "read-only consumption", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "amber", "title": "Current position", "items": ["Catalog registration is complete", "The CDC/Socrata candidate is awaiting a steward decision", "No source payload is acquired before approval"] },
+    { "dot": "emerald", "title": "Data boundary", "items": ["RAW preserves source bytes and provenance", "dbt creates STAGING and CONFORMED only from approved input", "Analytics and feature consumers derive from CONFORMED"] }
+  ]
+}
