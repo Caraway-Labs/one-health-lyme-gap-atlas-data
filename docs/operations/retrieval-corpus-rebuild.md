@@ -1,8 +1,8 @@
-# DEV retrieval corpus rebuild
+# Retrieval corpus rebuild (DEV and PROD)
 
 Rebuilds the versioned Research Assistant chunk corpus from steward-processed
 PMC Open Access artifacts. This is a derived projection, not immutable
-extraction-attempt evidence.
+extraction-attempt evidence (ADR 0025 / ADR 0026).
 
 ## Eligibility
 
@@ -19,12 +19,24 @@ Unapproved, rejected, deferred, retrying, or incomplete papers are counted in
 ## Command
 
 ```powershell
+# DEV
 uv run atlas-data pipeline build-retrieval-corpus --confirm
-uv run atlas-data pipeline build-retrieval-corpus --confirm --pmid 42472018
+
+# PROD (operator one-shot; no unattended schedule)
+$env:TOPX_ENV = "prod"
+$env:ENABLE_PRODUCTION_EXECUTION = "true"
+$env:SNOWFLAKE_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+uv run atlas-data pipeline build-retrieval-corpus --confirm
 ```
 
-DEV only (`TOPX_ENV=dev`). Requires pipeline Snowflake credentials and Spaces
-read access to admitted JATS object keys.
+Requires pipeline Snowflake credentials and Spaces read access to admitted JATS
+object keys. PROD may write zero units until processed papers exist there.
+
+## API provenance lookup
+
+`GOVERNANCE.SP_LOOKUP_RETRIEVAL_CORPUS_PROVENANCE(ARRAY)` returns bounded
+per-PMID provenance for Evidence Chat citation enrichment. It does not replace
+Neo4j retrieval.
 
 ## Verification queries
 
@@ -46,5 +58,5 @@ completed build for `retrieval-corpus-v1`.
 ## Out of scope
 
 - Re-enabling the PMC extraction timer
-- PROD promotion
+- Unattended PROD corpus schedule
 - Rewriting extraction attempt history
