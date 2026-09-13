@@ -101,3 +101,14 @@ def test_v065_retrieval_corpus_is_dev_only_and_queryable() -> None:
     assert "DELETE ON TABLE KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS" in rendered
     assert CORPUS_RULES_VERSION == "retrieval-corpus-v1"
     assert len(hashlib.sha256(CorpusRules().sha256().encode()).hexdigest()) == 64
+
+
+def test_v066_retrieval_corpus_is_env_neutral_with_api_lookup() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V066")
+    prod = render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V066" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")}
+    assert "SP_LOOKUP_RETRIEVAL_CORPUS_PROVENANCE" in prod
+    assert "OH_LYME_PROD_PIPELINE_RUNTIME" in prod
+    assert "OH_LYME_PROD_API_RUNTIME" in prod
+    assert "OH_LYME_PROD_PMC_AUDITOR" in prod
+    assert "unit_text" not in migration.source.split("CREATE OR REPLACE PROCEDURE", 1)[1]

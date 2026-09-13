@@ -337,8 +337,10 @@ def build_retrieval_corpus(
 ) -> dict[str, object]:
     """Rebuild the DEV retrieval corpus from approved PMC artifacts only."""
     settings = settings or PipelineSettings()
-    if settings.topx_env != "dev":
-        raise ValueError("Retrieval corpus builds are DEV-only")
+    if settings.topx_env == "prod" and not settings.enable_production_execution:
+        raise ValueError("Production corpus rebuild requires ENABLE_PRODUCTION_EXECUTION=true")
+    if settings.topx_env not in {"dev", "prod"}:
+        raise ValueError("Retrieval corpus builds require TOPX_ENV=dev or prod")
     rules = rules or CorpusRules()
     store = artifact_store or _spaces_client(settings)
     build_id = str(uuid.uuid4())
