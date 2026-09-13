@@ -1,8 +1,7 @@
-"""Executable, provenance-preserving PubMed discovery worker.
+"""Legacy PubMed discovery worker (unwired from the CLI).
 
-The worker deliberately stops at the steward review boundary.  It stores the
-raw EFetch response before normalising a batch, so an operator can reproduce a
-paper record from its query, History cursor, and immutable source artifact.
+Epic #223 / #230: the live discovery entry point is `pipeline pubmed-discover`
+(`pubmed_discovery.py`). Prefer that module for new work.
 """
 
 # ruff: noqa: E501

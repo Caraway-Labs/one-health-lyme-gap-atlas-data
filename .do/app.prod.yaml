@@ -254,7 +254,7 @@ jobs:
       registry_type: DOCR
       repository: pipeline
       digest: ${IMAGE_DIGEST}
-    run_command: /app/.venv/bin/atlas-data pipeline extract-approved-paper
+    run_command: /app/.venv/bin/atlas-data pipeline pmc-extract --estimated-cost-usd 0.10 --confirm
     envs:
       - key: TOPX_ENV
         value: prod

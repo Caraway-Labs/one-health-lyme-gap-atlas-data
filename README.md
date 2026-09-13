@@ -9,7 +9,10 @@ The repository contains two deliberately separate capabilities:
   `CONFORMED` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV`.
 
 The governed pipeline contract is in `docs/contracts/catalog-to-snowflake/`.
-See workspace ADR 0005 before provisioning it.
+See workspace ADR 0005 and data ADR 0027 (tiered operating model) before
+changing ingestion governance. Simplified onboarding uses `atlas-data source`
+and `atlas-data runs` — see
+[simplified ingestion migration](docs/operations/simplified-ingestion-migration.md).
 Deployment and DEV-to-PROD promotion are governed by workspace ADR 0006 and
 the [deployment runbook](docs/operations/deployment-promotion.md).
 
@@ -22,7 +25,7 @@ required compensating controls.
 The literature worker is deliberately split at the human-review boundary:
 `pipeline pubmed-discover --family <family>` writes immutable EFetch XML and
 queues normalized citations for a steward. Only after a paper is approved can
-`pipeline extract-approved-paper` claim one PMC Open Access paper, validate its
+`pipeline pmc-extract` claim one PMC Open Access paper, validate its
 license-bearing JATS content, reserve extraction budget, and publish a
 passage-backed graph contribution. Both commands use the isolated DEV/PROD
 database selected by `TOPX_ENV`; neither touches the Alpha POC database.
@@ -31,7 +34,9 @@ database selected by `TOPX_ENV`; neither touches the Alpha POC database.
 uv sync --extra dev
 uv run atlas-data provision --dry-run
 uv run atlas-data load --release alpha-2026-08-06 --dry-run
-uv run pytest
+uv run pytest tests/test_simplified_ingestion.py
+uv run atlas-data source validate --definition config/sources/cdc_x5j9_wybp.yml
+uv run atlas-data source run --definition config/sources/cdc_x5j9_wybp.yml --tier A
 uv run atlas-data pipeline preflight
 ```
 
@@ -44,8 +49,10 @@ The scheduled `pipeline discover` job runs the versioned catalog terms and
 catalog-specific refinements against Data.gov, HealthData.gov, and Socrata/ODN.
 It follows each catalog's configured cursor or offset pagination and stores
 each response as a private, content-addressed artifact with append-only
-Snowflake request/run lineage. It discovers metadata only; full source
-ingestion remains blocked pending a steward decision.
+Snowflake request/run lineage. It discovers metadata only. Routine Tier B
+public sources with a committed SourceDefinition advance through automated
+checks (ADR 0027); Tier D exceptional/restricted sources still require steward
+review before full acquisition.
 
 After a discovery configuration reaches one durable `COMPLETED` run, run
 `pipeline register-discovery --config-sha256 <checksum>` as a separate,

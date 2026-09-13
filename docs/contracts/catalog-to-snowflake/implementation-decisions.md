@@ -20,8 +20,8 @@ An implementation agent must follow these decisions. It may propose alternatives
 | Discovery scope | Data.gov Catalog API v4, HealthData.gov, and Socrata/ODN only; resolve qualifying results to authoritative publisher resources. |
 | Discovery cadence | Weekly. Approved sources refresh on their individually validated schedules. |
 | First-release ingestion | One sequential orchestrator job; a Snowflake-backed per-resource lock prevents overlap. |
-| Source onboarding | Metadata/documentation/sample first; deterministic assessment; Streamlit data-steward approval; full data only after approval. |
-| Source configuration | Version-controlled JSON/YAML files, deployed with checksum/version into Snowflake `GOVERNANCE`; runtime reads approved active versions only. |
+| Source onboarding | Tiered model (ADR 0027): Tier A local/fixture; Tier B routine DEV public sources advance via automated policy/provenance/schema/quality checks without a steward click solely to unlock technical stages; Tier C PROD remains protected (ADR 0006); Tier D exceptional/restricted sources still require Streamlit steward approval before full acquisition. |
+| Source configuration | Version-controlled `SourceDefinition` YAML under `config/sources/`, deployed with checksum/version into Snowflake `GOVERNANCE`. Tier B runtime reads committed definitions that pass automated checks; Tier D still requires an approved active source version. |
 | MVP reference source | CDC/Socrata Lyme family, beginning with `x5j9-wybp`. |
 | Immutable artifacts | Private DigitalOcean Spaces is authoritative; Snowflake named internal stage is temporary load transport. |
 | Artifact retention | Seven-year default; no automatic deletion for active/published versions, unresolved incidents/reviews, holds, or stricter terms. |
@@ -30,7 +30,7 @@ An implementation agent must follow these decisions. It may propose alternatives
 | Transformations | Python handles discovery/acquisition/RAW; dbt Core builds/tests `STAGING`, `CONFORMED`, and `ANALYTICS`. Do not use dbt Cloud. |
 | Snowflake compute | Dedicated X-Small ingestion warehouse, auto-resume, 60-second auto-suspend, and budget/resource monitoring. |
 | Environments | Separate `ONE_HEALTH_LYME_GAP_ATLAS_DEV` and `ONE_HEALTH_LYME_GAP_ATLAS_PROD` databases; development is small and fixture-driven, production performs scheduled full ingestion. |
-| Review UI | Warehouse-runtime Streamlit in Snowflake approval console with owner’s rights; no external network access. |
+| Review UI | Warehouse-runtime Streamlit in Snowflake approval console with owner’s rights; no external network access. Used for Tier D exceptions, licensing/policy ambiguity, and publication judgments—not as a mandatory unlock for every Tier B technical stage. |
 | CI/CD | GitHub Actions and version-controlled DigitalOcean App Platform specification; protected main is the only production promotion source. |
 | Python tooling | `uv`, committed `uv.lock`, Ruff, mypy, pytest. |
 | Test strategy | Fixture-based unit/CI tests plus separate read-only live catalog/API smoke tests. |
@@ -45,15 +45,13 @@ GitHub repository + GitHub Actions
         |
         | deploy migrations, configuration, container, dbt, Streamlit
         v
-DigitalOcean App Platform scheduled job
+One application orchestrator (CLI / generic Actions / DO jobs)
         |
         +--> discovery catalogs --> GOVERNANCE catalog/resource records
-        +--> metadata/docs/sample --> assessment queue
-        |                                |
-        |                                v
-        |                    Snowflake Streamlit approval console
-        |                                |
-        +--> approved source only <------+
+        +--> Tier A: local fixture validate/dry-run (no external writes)
+        +--> Tier B: automated checks --> acquire/validate/normalize/load/quality/stage
+        +--> Tier D: assessment queue --> Streamlit steward --> then full acquire
+        +--> Tier C: protected PROD promote (digest-identical, ADR 0006)
         |
         +--> immutable artifact --> private DigitalOcean Spaces
         +--> named Snowflake stage --> COPY INTO RAW

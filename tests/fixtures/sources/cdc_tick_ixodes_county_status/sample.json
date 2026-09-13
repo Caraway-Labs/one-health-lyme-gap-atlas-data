@@ -1,0 +1,11 @@
+[
+  {
+    "FIPSCode": "01001",
+    "State": "Alabama",
+    "County": "Autauga",
+    "Ixodes_scapularis_County_Status": "Established",
+    "Ixodes_scapularis_data_source": "fixture",
+    "Ixodes_pacificus_county_status": "No records",
+    "Ixodes_pacificus_data_source": "fixture"
+  }
+]

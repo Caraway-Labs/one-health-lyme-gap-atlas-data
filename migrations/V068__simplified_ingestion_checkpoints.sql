@@ -1,0 +1,49 @@
+-- Epic #223 / Story #226: durable stage checkpoints for the shared orchestrator.
+-- Extends GOVERNANCE.INGESTION_RUNS without replacing immutable evidence tables.
+
+CREATE TABLE IF NOT EXISTS GOVERNANCE.INGESTION_RUN_CHECKPOINTS (
+    checkpoint_id VARCHAR PRIMARY KEY,
+    ingestion_run_id VARCHAR NOT NULL,
+    resource_key VARCHAR NOT NULL,
+    source_definition_version NUMBER NOT NULL,
+    stage VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    attempt_count NUMBER NOT NULL DEFAULT 0,
+    artifact_id VARCHAR,
+    artifact_sha256 VARCHAR(64),
+    transformation_version VARCHAR,
+    failure_category VARCHAR,
+    redacted_diagnostic_code VARCHAR,
+    next_action VARCHAR,
+    detail VARIANT,
+    started_at TIMESTAMP_LTZ,
+    completed_at TIMESTAMP_LTZ,
+    updated_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
+);
+
+CREATE TABLE IF NOT EXISTS GOVERNANCE.LITERATURE_WORK_ITEMS (
+    work_item_id VARCHAR PRIMARY KEY,
+    pmid VARCHAR NOT NULL,
+    license_exception BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    updated_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
+);
+
+CREATE TABLE IF NOT EXISTS GOVERNANCE.LITERATURE_WORK_STAGES (
+    work_stage_id VARCHAR PRIMARY KEY,
+    work_item_id VARCHAR NOT NULL,
+    stage VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    attempt_count NUMBER NOT NULL DEFAULT 0,
+    artifact_ref VARCHAR,
+    failure_category VARCHAR,
+    next_action VARCHAR,
+    updated_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
+);
+
+GRANT SELECT, INSERT, UPDATE ON TABLE GOVERNANCE.INGESTION_RUN_CHECKPOINTS
+    TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME;
+GRANT SELECT, INSERT, UPDATE ON TABLE GOVERNANCE.LITERATURE_WORK_ITEMS
+    TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME;
+GRANT SELECT, INSERT, UPDATE ON TABLE GOVERNANCE.LITERATURE_WORK_STAGES
+    TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME;

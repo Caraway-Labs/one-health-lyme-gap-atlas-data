@@ -2,9 +2,11 @@
 
 ## Summary
 
-Build a Streamlit in Snowflake application named `SOURCE_APPROVAL_CONSOLE`. It is the mandatory human-review gate between automated catalog discovery/source assessment and full source-data ingestion.
+Build a Streamlit in Snowflake application named `SOURCE_APPROVAL_CONSOLE`. It is the human-review console for **Tier D** exceptional/restricted sources, licensing/policy ambiguity, and genuine semantic or production-publication judgments (ADR 0027 / Epic #223).
 
-The application must allow authorized data stewards to inspect discovered catalog resources, their metadata/documentation/sample evidence and deterministic assessment scores, then approve, conditionally approve, reject, retire, or defer the candidate. Every decision must create an immutable, attributable `GOVERNANCE.MANUAL_REVIEW_DECISIONS` record and control whether the DigitalOcean pipeline may create a full-ingestion run.
+It is **not** a mandatory unlock between technical stages for routine **Tier B** DEV public sources that already have a committed `SourceDefinition` fitting an existing adapter and that pass automated policy, provenance, schema, and technical quality checks.
+
+The application must allow authorized data stewards to inspect discovered catalog resources, their metadata/documentation/sample evidence and deterministic assessment scores, then approve, conditionally approve, reject, retire, or defer the candidate. Every decision must create an immutable, attributable `GOVERNANCE.MANUAL_REVIEW_DECISIONS` record. For Tier D candidates, that decision controls whether the pipeline may create a full-ingestion run. Pipeline runtime roles still must never approve candidates.
 
 The MVP uses Snowflake Streamlit’s **warehouse runtime with owner’s rights**. It runs in Snowflake, does not call external networks, and uses Snowflake identities/roles for access. It is part of the governed pipeline—not a general-purpose data exploration app.
 

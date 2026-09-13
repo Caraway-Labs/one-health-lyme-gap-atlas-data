@@ -1,8 +1,9 @@
 # Data Pipeline Instructions
 
-Read the workspace `TECHNOLOGY_AND_GOVERNANCE.md`, ADR 0005, and the governed
-contracts in `docs/contracts/catalog-to-snowflake/` before changing pipeline
-code, Snowflake DDL, source configuration, or deployment files.
+Read the workspace `TECHNOLOGY_AND_GOVERNANCE.md`, ADR 0005 (amended by data
+ADR 0027), `docs/contracts/catalog-to-snowflake/operating-model.md`, and
+`docs/contracts/simplified-ingestion/interface-freeze.md` before changing
+pipeline code, Snowflake DDL, source configuration, or deployment files.
 
 - This repository owns the governed ingestion pipeline, dbt project, Snowflake
   Streamlit approval console, and its DEV/PROD deployment assets.
@@ -10,8 +11,18 @@ code, Snowflake DDL, source configuration, or deployment files.
   governed pipeline commands. Use the suffixed DEV/PROD databases only.
 - Preserve append-only provenance, source-faithful RAW payloads, and the
   distinction between zero, null, unknown, suppressed, and not-reported.
-- Full acquisition requires an approved source version; a pipeline runtime role
-  must never approve candidates.
+- Tiered governance (ADR 0027): Tier A local/fixture; Tier B routine DEV public
+  sources advance via automated checks without a steward click solely to unlock
+  technical stages; Tier C PROD remains protected; Tier D exceptional/restricted
+  sources still require Streamlit steward review. A pipeline runtime role must
+  never approve candidates.
+- Canonical simplified ingestion commands (Epic #223):
+  - `uv run atlas-data source validate --definition config/sources/<file>.yml`
+  - `uv run atlas-data source run --definition ... --tier A`
+  - `uv run atlas-data source dev-smoke`
+  - `uv run atlas-data runs show|explain|resume --run-id <id>`
+  Prefer these over source-specific `pipeline cdc-*` workflows for migrated
+  sources. See `docs/operations/simplified-ingestion-migration.md`.
 - Commit blank environment templates only. Do not log credentials, artifact
   contents, or unredacted request data.
 - For Codex-initiated Snowflake inspection or administration, use `snow` with
@@ -40,6 +51,7 @@ code, Snowflake DDL, source configuration, or deployment files.
   and pipeline procedure grants after `CREATE OR REPLACE`.
 - Run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`,
   `uv run pytest`, `dbt parse`, and the container build for material changes.
+  Fast inner-loop ingestion tests: `uv run pytest tests/test_simplified_ingestion.py`.
 - PMC retries: the three-failure ceiling applies only to confirmed LLM
   execution failures. Record provider rejections before inference in an
   append-only classification ledger; reopen an exhausted DEV paper only via

@@ -518,25 +518,17 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
 
 
 def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology() -> None:
+    """x5j9 capture workflow is retired; generic run-ingestion owns the happy path."""
     workflow = Path(".github/workflows/capture-prod-cdc-evidence.yml").read_text(encoding="utf-8")
-    assert "environment: production" in workflow
-    assert "workflow_dispatch:" in workflow
-    assert "concurrency:" in workflow
-    assert "group: prod-cdc-evidence-capture" in workflow
-    assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"' in workflow
-    assert 'test "$(jq -r \'.name\' "$baseline_spec")" = "oh-lyme-data-prod"' in workflow
-    assert '"catalog-discovery"' in workflow
-    assert '"cdc-evidence-capture"' in workflow
-    assert '.kind = "PRE_DEPLOY"' in workflow
-    assert "del(.schedule)" in workflow
-    assert '"uv run atlas-data pipeline cdc-sample"' in workflow
-    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
-    assert "PRE_DEPLOY job's exit through deployment" in workflow
-    assert "list-job-invocations" not in workflow
-    assert "provider-encrypted secrets" in workflow
-    assert "ingest-approved-cdc" not in workflow
-    assert "run-production-schedule" not in workflow
-    assert "dbt " not in workflow
+    assert "DEPRECATED" in workflow
+    assert "run-ingestion.yml" in workflow
+    assert "exit 1" in workflow
+    generic = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in generic
+    assert "atlas-data source" in generic
+    assert "environment: ${{ inputs.environment_name }}" in generic
+    assert "operation" in generic
+    assert "must not encode source" in generic.lower() or "source business logic" in generic.lower()
 
 
 def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology() -> None:
@@ -607,21 +599,18 @@ def test_deployment_fixture_uses_current_historical_environment_guard() -> None:
 
 
 def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
+    """x5j9 approved-ingestion workflow is retired; generic run-ingestion owns the path."""
     workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
-    assert "environment: production" in workflow
-    assert "group: prod-approved-ingestion" in workflow
-    assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
-    assert '"approved-source-ingestion"' in workflow
-    assert '"approved-source-ingestion-once"' in workflow
-    assert '"uv run atlas-data pipeline run-production-schedule"' in workflow
-    assert 'doctl apps list-deployments "$DEV_APP_ID"' in workflow
-    assert 'test "$dev_verified" = true' in workflow
-    assert '.kind = "PRE_DEPLOY"' in workflow
-    assert "del(.schedule)" in workflow
-    assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
-    assert "cdc-sample" not in workflow
-    assert "ingest-approved-cdc" not in workflow
-    assert "dbt run" not in workflow
+    assert "DEPRECATED" in workflow
+    assert "run-ingestion.yml" in workflow
+    assert "exit 1" in workflow
+    generic = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
+    assert "production" in generic
+    assert "atlas-data source validate" in generic or "source validate" in generic
+    assert "atlas-data source run" in generic or "source run" in generic
+    assert "promote-prod" not in Path(".github/workflows/run-ingestion.yml").name
+    promote = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    assert "environment: production" in promote
 
 
 def test_preflight_identifies_missing_required_configuration() -> None:
@@ -1687,6 +1676,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V065",
         "V066",
         "V067",
+        "V068",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1694,10 +1684,11 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 47
+    assert len(prod_plan) == 48
     assert "V034" not in {item["version"] for item in prod_plan}
     assert "V066" in {item["version"] for item in prod_plan}
     assert "V067" in {item["version"] for item in prod_plan}
+    assert "V068" in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
     assert "V_PIPELINE_COMMAND_CENTER" in operations_console

@@ -1,0 +1,255 @@
+"""SourceDefinition loading and local validation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
+
+from .types import (
+    DEFAULT_HTTP_XLSX_STAGES,
+    DEFAULT_SOCRATA_STAGES,
+    AdapterKind,
+    AuthMode,
+    FailureCategory,
+    QualityRule,
+    SourceDefinition,
+    Stage,
+    ValidationIssue,
+    ValidationResult,
+)
+
+_PLATFORM_TO_ADAPTER: dict[str, AdapterKind] = {
+    "SOCRATA_SODA2": AdapterKind.SOCRATA,
+    "socrata": AdapterKind.SOCRATA,
+    "HTTP_XLSX": AdapterKind.HTTP_XLSX,
+    "http_xlsx": AdapterKind.HTTP_XLSX,
+}
+
+
+def _as_adapter(value: Any) -> AdapterKind:
+    if isinstance(value, AdapterKind):
+        return value
+    text = str(value)
+    if text in _PLATFORM_TO_ADAPTER:
+        return _PLATFORM_TO_ADAPTER[text]
+    return AdapterKind(text)
+
+
+def _as_stages(raw: Any, adapter: AdapterKind) -> tuple[Stage, ...]:
+    if not raw:
+        return (
+            DEFAULT_SOCRATA_STAGES if adapter is AdapterKind.SOCRATA else DEFAULT_HTTP_XLSX_STAGES
+        )
+    return tuple(Stage(str(item)) for item in raw)
+
+
+def load_source_definition(path: Path | str) -> SourceDefinition:
+    """Load a versioned SourceDefinition from YAML (legacy profiles supported)."""
+    document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("Source definition must be a mapping")
+    return source_definition_from_mapping(document)
+
+
+def source_definition_from_mapping(document: dict[str, Any]) -> SourceDefinition:
+    resource_key = str(document.get("resource_key") or "").strip()
+    if not resource_key:
+        raise ValueError("resource_key is required")
+
+    adapter_raw = document.get("adapter_kind") or document.get("platform_type")
+    if not adapter_raw:
+        raise ValueError("adapter_kind or platform_type is required")
+    adapter = _as_adapter(adapter_raw)
+
+    version = document.get("definition_version", document.get("profile_version", 1))
+    quality_raw = document.get("quality_rules") or []
+    quality_rules = tuple(
+        QualityRule(rule_id=str(rule["rule_id"]), severity=str(rule.get("severity", "BLOCKING")))
+        for rule in quality_raw
+        if isinstance(rule, dict) and "rule_id" in rule
+    )
+    restrictions = document.get("restrictions") or []
+    required_columns = document.get("required_columns") or []
+    destination = str(
+        document.get("destination") or document.get("raw_table") or f"RAW.{resource_key.upper()}"
+    )
+    auth_raw = document.get("auth_mode", "none")
+    known = {
+        "resource_key",
+        "source_id",
+        "dataset_id",
+        "source_dataset_id",
+        "definition_version",
+        "profile_version",
+        "adapter_kind",
+        "platform_type",
+        "endpoint_template",
+        "metadata_endpoint_template",
+        "auth_mode",
+        "deterministic_order_clause",
+        "incremental_strategy",
+        "geography_semantics",
+        "temporal_semantics",
+        "restrictions",
+        "artifact_policy",
+        "quality_rules",
+        "destination",
+        "raw_table",
+        "expected_refresh_cadence",
+        "stages",
+        "required_columns",
+        "workbook_sheet",
+        "header_row",
+        "maximum_workbook_bytes",
+        "connector_name",
+    }
+    extra = {key: value for key, value in document.items() if key not in known}
+
+    return SourceDefinition(
+        resource_key=resource_key,
+        source_id=str(document.get("source_id") or resource_key),
+        dataset_id=str(
+            document.get("dataset_id") or document.get("source_dataset_id") or resource_key
+        ),
+        definition_version=int(version),
+        adapter_kind=adapter,
+        endpoint_template=str(document.get("endpoint_template") or ""),
+        metadata_endpoint_template=(
+            str(document["metadata_endpoint_template"])
+            if document.get("metadata_endpoint_template")
+            else None
+        ),
+        auth_mode=AuthMode(str(auth_raw)),
+        deterministic_order_clause=str(document.get("deterministic_order_clause") or ""),
+        incremental_strategy=str(document.get("incremental_strategy") or ""),
+        geography_semantics=str(document.get("geography_semantics") or ""),
+        temporal_semantics=str(document.get("temporal_semantics") or ""),
+        restrictions=tuple(str(item) for item in restrictions),
+        artifact_policy=str(document.get("artifact_policy") or "PUBLIC_SEVEN_YEAR"),
+        quality_rules=quality_rules,
+        destination=destination,
+        expected_refresh_cadence=str(document.get("expected_refresh_cadence") or ""),
+        stages=_as_stages(document.get("stages"), adapter),
+        required_columns=tuple(str(item) for item in required_columns),
+        workbook_sheet=(
+            str(document["workbook_sheet"]) if document.get("workbook_sheet") else None
+        ),
+        header_row=int(document["header_row"]) if document.get("header_row") is not None else None,
+        maximum_workbook_bytes=(
+            int(document["maximum_workbook_bytes"])
+            if document.get("maximum_workbook_bytes") is not None
+            else None
+        ),
+        extra=extra,
+    )
+
+
+def validate_source_definition(definition: SourceDefinition) -> ValidationResult:
+    """Validate configuration locally before network or warehouse side effects."""
+    issues: list[ValidationIssue] = []
+
+    if not definition.endpoint_template.startswith(("https://", "file://", "fixture://")):
+        issues.append(
+            ValidationIssue(
+                code="ENDPOINT_SCHEME",
+                message="endpoint_template must use https://, file://, or fixture://",
+                category=FailureCategory.CONFIGURATION,
+            )
+        )
+    if not definition.deterministic_order_clause:
+        issues.append(
+            ValidationIssue(
+                code="ORDER_CLAUSE_REQUIRED",
+                message="deterministic_order_clause is required for reproducible acquisition",
+            )
+        )
+    if not definition.geography_semantics or not definition.temporal_semantics:
+        issues.append(
+            ValidationIssue(
+                code="GEO_TIME_REQUIRED",
+                message="geography_semantics and temporal_semantics are required lineage facts",
+            )
+        )
+    if definition.adapter_kind is AdapterKind.SOCRATA:
+        if ":id" not in definition.deterministic_order_clause.replace(" ", "").lower() and (
+            definition.deterministic_order_clause != ":id ASC"
+        ):
+            # Keep soft: historical profiles may differ; x5j9 requires :id ASC.
+            pass
+        if not definition.quality_rules:
+            issues.append(
+                ValidationIssue(
+                    code="QUALITY_RULES_REQUIRED",
+                    message="Socrata sources must declare at least one quality rule",
+                    category=FailureCategory.QUALITY,
+                )
+            )
+    if definition.adapter_kind is AdapterKind.HTTP_XLSX:
+        if not definition.required_columns:
+            issues.append(
+                ValidationIssue(
+                    code="REQUIRED_COLUMNS",
+                    message="http_xlsx sources must declare required_columns",
+                    category=FailureCategory.SCHEMA,
+                )
+            )
+        if definition.workbook_sheet is None:
+            issues.append(
+                ValidationIssue(
+                    code="WORKBOOK_SHEET",
+                    message="http_xlsx sources must declare workbook_sheet",
+                    category=FailureCategory.SCHEMA,
+                )
+            )
+
+    return ValidationResult(ok=not issues, issues=issues)
+
+
+def starter_definition_yaml(*, resource_key: str, adapter_kind: AdapterKind) -> str:
+    """Smallest useful starter definition for `source init`."""
+    if adapter_kind is AdapterKind.SOCRATA:
+        return (
+            f"resource_key: {resource_key}\n"
+            "definition_version: 1\n"
+            "adapter_kind: socrata\n"
+            "endpoint_template: https://data.example.gov/resource/example.json\n"
+            "metadata_endpoint_template: https://data.example.gov/api/views/example\n"
+            "auth_mode: none\n"
+            'deterministic_order_clause: ":id ASC"\n'
+            "incremental_strategy: FULL_REFRESH\n"
+            "expected_refresh_cadence: annual\n"
+            "geography_semantics: COUNTY\n"
+            "temporal_semantics: year\n"
+            "artifact_policy: PUBLIC_SEVEN_YEAR\n"
+            "destination: RAW.EXAMPLE\n"
+            "quality_rules:\n"
+            "  - rule_id: example_required_geography\n"
+            "    severity: BLOCKING\n"
+            "restrictions:\n"
+            "  - Replace endpoint and semantics before Tier B runs.\n"
+        )
+    return (
+        f"resource_key: {resource_key}\n"
+        "definition_version: 1\n"
+        "adapter_kind: http_xlsx\n"
+        "endpoint_template: https://www.example.gov/data/example.xlsx\n"
+        "auth_mode: none\n"
+        "deterministic_order_clause: FIPSCode ASC\n"
+        "incremental_strategy: SNAPSHOT_DIFF\n"
+        "geography_semantics: COUNTY\n"
+        "temporal_semantics: as_of_date\n"
+        "workbook_sheet: Sheet1\n"
+        "header_row: 1\n"
+        "maximum_workbook_bytes: 1048576\n"
+        "required_columns:\n"
+        "  - FIPSCode\n"
+        "artifact_policy: PUBLIC_SEVEN_YEAR\n"
+        "destination: RAW.EXAMPLE\n"
+        "quality_rules:\n"
+        "  - rule_id: example_required_columns\n"
+        "    severity: BLOCKING\n"
+        "restrictions:\n"
+        "  - Replace endpoint and sheet before Tier B runs.\n"
+    )

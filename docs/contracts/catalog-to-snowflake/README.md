@@ -5,14 +5,17 @@ This folder is the self-contained specification package for building the TOPx go
 ## Required reading order
 
 1. [implementation-decisions.md](implementation-decisions.md) — binding technical choices; do not re-litigate them.
-2. [requirements.md](requirements.md) — functional, non-functional, and test requirements.
-3. [source-onboarding-spec-cdc-lyme-socrata.md](source-onboarding-spec-cdc-lyme-socrata.md) — discovery/onboarding behavior and first CDC/Socrata reference pipeline.
-4. [catalog-search-terms.json](catalog-search-terms.json) — runtime discovery input; preserve its schema and enabled/disabled term-group behavior.
-5. [SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md](SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md) — authoritative governance schema and provenance contract.
-6. [streamlit-snowflake-approval-app-requirements.md](streamlit-snowflake-approval-app-requirements.md) — Snowflake-hosted approval-console requirements.
-7. [governed-data-explorer-requirements.md](governed-data-explorer-requirements.md) — read-only curated CONFORMED/ANALYTICS explorer requirements.
-8. [catalog-to-snowflake-ingestion-diagrams.md](catalog-to-snowflake-ingestion-diagrams.md) — architecture diagrams and shared mental model.
-9. [.env.example](.env.example) — local-development environment-variable template; copy it to `.env` and keep values out of Git.
+2. [operating-model.md](operating-model.md) — Tier A/B/C/D simplified ingestion operating model (Epic #223 / ADR 0027).
+3. [requirements.md](requirements.md) — functional, non-functional, and test requirements.
+4. [source-onboarding-spec-cdc-lyme-socrata.md](source-onboarding-spec-cdc-lyme-socrata.md) — discovery/onboarding behavior and first CDC/Socrata reference pipeline.
+5. [catalog-search-terms.json](catalog-search-terms.json) — runtime discovery input; preserve its schema and enabled/disabled term-group behavior.
+6. [SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md](SNOWFLAKE_DATA_PROVENANCE_IMPLEMENTATION.md) — authoritative governance schema and provenance contract.
+7. [streamlit-snowflake-approval-app-requirements.md](streamlit-snowflake-approval-app-requirements.md) — Snowflake-hosted approval-console requirements (Tier D / publication judgment).
+8. [governed-data-explorer-requirements.md](governed-data-explorer-requirements.md) — read-only curated CONFORMED/ANALYTICS explorer requirements.
+9. [catalog-to-snowflake-ingestion-diagrams.md](catalog-to-snowflake-ingestion-diagrams.md) — architecture diagrams and shared mental model.
+10. [.env.example](.env.example) — local-development environment-variable template; copy it to `.env` and keep values out of Git.
+
+Also read `docs/contracts/simplified-ingestion/interface-freeze.md` before changing the shared orchestrator.
 
 ## Codex instructions
 
