@@ -1,0 +1,14 @@
+[
+  {
+    "id": "row-1",
+    "geography": "01001",
+    "surveillance_year": "2022",
+    "cases": "5"
+  },
+  {
+    "id": "row-2",
+    "geography": "01003",
+    "surveillance_year": "2022",
+    "cases": "12"
+  }
+]

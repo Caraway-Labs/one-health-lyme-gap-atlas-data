@@ -1,4 +1,10 @@
-"""Approved-paper extraction orchestration at the human-review boundary."""
+"""Legacy approved-paper extraction orchestration (unwired).
+
+Epic #223 / #230: the live CLI entry point is `pipeline pmc-extract`
+(`pmc_extraction_worker.py`). Durable stage/retry semantics live in
+`ingestion.literature_queue.LiteratureWorkQueue`. Do not extend this module;
+migrate callers to the live worker + work-queue model instead.
+"""
 
 # ruff: noqa: E501
 

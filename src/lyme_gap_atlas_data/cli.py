@@ -29,6 +29,15 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
+from .ingestion import (
+    AdapterKind,
+    FileCheckpointStore,
+    IngestionOrchestrator,
+    Tier,
+    explain_run,
+    load_source_definition,
+    starter_definition_yaml,
+)
 from .migrations import (
     apply_migrations,
     migration_plan,
@@ -106,8 +115,23 @@ class ObservedTyper(typer.Typer):
 
 app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
+source_app = typer.Typer(no_args_is_help=True)
+runs_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(source_app, name="source")
+app.add_typer(runs_app, name="runs")
 logger = logging.getLogger(__name__)
+
+_DEFAULT_RUN_STORE = Path(".atlas-ingestion-runs")
+_DEFAULT_SOURCE_DIR = "config/sources"
+_DEFAULT_X5J9_DEFINITION = "config/sources/cdc_x5j9_wybp.yml"
+
+
+def _orchestrator(fixture_dir: Path | None = None) -> IngestionOrchestrator:
+    return IngestionOrchestrator(
+        store=FileCheckpointStore(_DEFAULT_RUN_STORE),
+        fixture_dir=fixture_dir,
+    )
 
 
 def _settings() -> SnowflakeSettings:
@@ -494,3 +518,191 @@ def run_cdc_dbt_recovery_command(
 ) -> None:
     """Run dbt for an approved source version with retained governed RAW data."""
     typer.echo(json.dumps(run_cdc_dbt_recovery(source_version_id), default=str))
+
+
+@source_app.command("init")
+def source_init(
+    resource_key: str = typer.Option(..., "--resource-key"),
+    adapter: str = typer.Option("socrata", "--adapter"),
+    output_dir: str = typer.Option(_DEFAULT_SOURCE_DIR, "--output-dir"),
+) -> None:
+    """Scaffold the smallest useful SourceDefinition plus fixture/test skeleton."""
+    kind = AdapterKind(adapter)
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    definition_path = output / f"{resource_key}.yml"
+    if definition_path.exists():
+        raise typer.BadParameter(f"Definition already exists: {definition_path}")
+    definition_path.write_text(
+        starter_definition_yaml(resource_key=resource_key, adapter_kind=kind),
+        encoding="utf-8",
+    )
+    fixture_root = Path("tests/fixtures/sources") / resource_key
+    fixture_root.mkdir(parents=True, exist_ok=True)
+    (fixture_root / "sample.json").write_text("[]\n", encoding="utf-8")
+    (fixture_root / "README.md").write_text(
+        f"# Fixtures for `{resource_key}`\n\nReplace sample.json before Tier A runs.\n",
+        encoding="utf-8",
+    )
+    typer.echo(
+        json.dumps(
+            {
+                "definition": str(definition_path),
+                "fixture_dir": str(fixture_root),
+                "next": f"atlas-data source validate --definition {definition_path}",
+            }
+        )
+    )
+
+
+@source_app.command("validate")
+def source_validate(
+    definition: str = typer.Option(..., "--definition"),
+) -> None:
+    """Validate a SourceDefinition before network or warehouse side effects."""
+    loaded = load_source_definition(Path(definition))
+    result = _orchestrator().validate(loaded)
+    typer.echo(json.dumps(result.to_dict(), indent=2))
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
+@source_app.command("inspect")
+def source_inspect(
+    definition: str = typer.Option(..., "--definition"),
+) -> None:
+    """Show normalized SourceDefinition fields used by the orchestrator."""
+    loaded = load_source_definition(Path(definition))
+    typer.echo(
+        json.dumps(
+            {
+                "resource_key": loaded.resource_key,
+                "source_id": loaded.source_id,
+                "dataset_id": loaded.dataset_id,
+                "definition_version": loaded.definition_version,
+                "adapter_kind": loaded.adapter_kind.value,
+                "endpoint_template": loaded.endpoint_template,
+                "stages": [stage.value for stage in loaded.stages],
+                "destination": loaded.destination,
+                "quality_rules": [
+                    {"rule_id": rule.rule_id, "severity": rule.severity}
+                    for rule in loaded.quality_rules
+                ],
+            },
+            indent=2,
+        )
+    )
+
+
+@source_app.command("run")
+def source_run(
+    definition: str = typer.Option(..., "--definition"),
+    tier: str = typer.Option("A", "--tier", help="A=local fixture, B=DEV, C=PROD protected"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    fixture_dir: str | None = typer.Option(None, "--fixture-dir"),
+    fail_after_stage: str | None = typer.Option(None, "--fail-after-stage"),
+) -> None:
+    """Run or dry-run ingestion through the shared orchestrator."""
+    loaded = load_source_definition(Path(definition))
+    selected_tier = Tier(tier.upper())
+    resolved_fixture = Path(fixture_dir) if fixture_dir else None
+    if selected_tier is Tier.A and resolved_fixture is None:
+        candidate = Path("tests/fixtures/sources") / loaded.resource_key
+        if candidate.exists():
+            resolved_fixture = candidate
+    state = _orchestrator(resolved_fixture).run(
+        loaded,
+        tier=selected_tier,
+        dry_run=dry_run,
+        fail_after_stage=fail_after_stage,
+    )
+    typer.echo(json.dumps(state.to_dict(), indent=2))
+    if state.status.value != "SUCCEEDED":
+        raise typer.Exit(code=1)
+
+
+@source_app.command("dev-smoke")
+def source_dev_smoke(
+    definition: str = typer.Option(_DEFAULT_X5J9_DEFINITION, "--definition"),
+) -> None:
+    """Bounded one-source DEV smoke using fixtures (no App Platform topology edits)."""
+    loaded = load_source_definition(Path(definition))
+    fixture = Path("tests/fixtures/sources") / loaded.resource_key
+    state = _orchestrator(fixture if fixture.exists() else None).run(
+        loaded,
+        tier=Tier.A,
+        dry_run=not fixture.exists(),
+    )
+    typer.echo(
+        json.dumps(
+            {
+                "mode": "bounded_dev_smoke",
+                "topology_mutated": False,
+                "run": state.to_dict(),
+            },
+            indent=2,
+        )
+    )
+    if state.status.value != "SUCCEEDED":
+        raise typer.Exit(code=1)
+
+
+@runs_app.command("list")
+def runs_list() -> None:
+    """List local durable ingestion runs."""
+    store = FileCheckpointStore(_DEFAULT_RUN_STORE)
+    typer.echo(
+        json.dumps(
+            [
+                {
+                    "ingestion_run_id": run.ingestion_run_id,
+                    "resource_key": run.resource_key,
+                    "status": run.status.value,
+                    "next_action": run.next_action,
+                }
+                for run in store.list_runs()
+            ],
+            indent=2,
+        )
+    )
+
+
+@runs_app.command("show")
+def runs_show(run_id: str = typer.Option(..., "--run-id")) -> None:
+    """Show one run including stage checkpoints."""
+    typer.echo(json.dumps(_orchestrator().inspect(run_id).to_dict(), indent=2))
+
+
+@runs_app.command("explain")
+def runs_explain(run_id: str = typer.Option(..., "--run-id")) -> None:
+    """Explain failing stage, category, and next action."""
+    typer.echo(json.dumps(explain_run(_orchestrator().inspect(run_id)), indent=2))
+
+
+@runs_app.command("resume")
+def runs_resume(
+    run_id: str = typer.Option(..., "--run-id"),
+    definition: str = typer.Option(..., "--definition"),
+    fixture_dir: str | None = typer.Option(None, "--fixture-dir"),
+) -> None:
+    """Resume a failed run at the failed stage without replaying completed work."""
+    loaded = load_source_definition(Path(definition))
+    resolved_fixture = Path(fixture_dir) if fixture_dir else None
+    if resolved_fixture is None:
+        candidate = Path("tests/fixtures/sources") / loaded.resource_key
+        if candidate.exists():
+            resolved_fixture = candidate
+    state = _orchestrator(resolved_fixture).resume(run_id, definition=loaded)
+    typer.echo(json.dumps(state.to_dict(), indent=2))
+    if state.status.value != "SUCCEEDED":
+        raise typer.Exit(code=1)
+
+
+@runs_app.command("retry")
+def runs_retry(
+    run_id: str = typer.Option(..., "--run-id"),
+    definition: str = typer.Option(..., "--definition"),
+    fixture_dir: str | None = typer.Option(None, "--fixture-dir"),
+) -> None:
+    """Alias for resume (shared orchestration entry point)."""
+    runs_resume(run_id=run_id, definition=definition, fixture_dir=fixture_dir)

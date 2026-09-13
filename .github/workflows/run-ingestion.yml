@@ -1,0 +1,94 @@
+name: Run governed ingestion (generic)
+
+# Epic #223 / Story #227 — one Actions surface for source run/resume.
+# Workflow YAML must not encode source business logic.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_definition:
+        description: Path to SourceDefinition YAML under the repo
+        required: true
+        default: config/sources/cdc_x5j9_wybp.yml
+        type: string
+      environment_name:
+        description: GitHub Environment (development or production)
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - production
+      operation:
+        description: Orchestrator operation
+        required: true
+        default: run
+        type: choice
+        options:
+          - run
+          - resume
+          - validate
+          - inspect
+      tier:
+        description: Risk tier (A local/fixture via job, B DEV, C PROD protected)
+        required: true
+        default: B
+        type: choice
+        options:
+          - A
+          - B
+          - C
+      run_id:
+        description: Existing run id for resume/inspect
+        required: false
+        type: string
+      publish:
+        description: Request publish/stage (still subject to Tier C protections)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: run-ingestion-${{ inputs.environment_name }}-${{ inputs.source_definition }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Canonical ingestion entry point
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install package
+        run: uv sync --extra dev
+      - name: Validate definition
+        if: inputs.operation == 'validate' || inputs.operation == 'run'
+        run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+      - name: Run ingestion
+        if: inputs.operation == 'run'
+        run: |
+          uv run atlas-data source run \
+            --definition "${{ inputs.source_definition }}" \
+            --tier "${{ inputs.tier }}" \
+            --dry-run
+      - name: Resume ingestion
+        if: inputs.operation == 'resume'
+        run: |
+          test -n "${{ inputs.run_id }}"
+          uv run atlas-data runs resume \
+            --run-id "${{ inputs.run_id }}" \
+            --definition "${{ inputs.source_definition }}"
+      - name: Inspect definition
+        if: inputs.operation == 'inspect'
+        run: uv run atlas-data source inspect --definition "${{ inputs.source_definition }}"
+      - name: Publish gate note
+        if: inputs.publish == true && inputs.environment_name == 'production'
+        run: |
+          echo "Tier C publish remains on protected promote-prod / publication controls."
+          echo "This workflow invokes the same orchestrator entry point as the CLI."
