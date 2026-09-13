@@ -112,3 +112,14 @@ def test_v066_retrieval_corpus_is_env_neutral_with_api_lookup() -> None:
     assert "OH_LYME_PROD_API_RUNTIME" in prod
     assert "OH_LYME_PROD_PMC_AUDITOR" in prod
     assert "unit_text" not in migration.source.split("CREATE OR REPLACE PROCEDURE", 1)[1]
+
+
+def test_v067_kg_chat_budget_and_persist_fixes_are_env_neutral() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V067")
+    prod = render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V067" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")}
+    assert "INSERT INTO GOVERNANCE.LLM_BUDGET_USAGE (" in prod
+    assert "SELECT UUID_STRING()" in prod
+    assert "GET(value:passage_ids, 0)" in prod
+    assert "OH_LYME_API_READER" in prod
+    assert "OH_LYME_PROD_API_RUNTIME" in prod
