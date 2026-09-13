@@ -1,6 +1,6 @@
 name: Run governed ingestion (generic)
 
-# Epic #223 / Story #227 — one Actions surface for source run/resume.
+# Epic #259 / Stories #254-255 — one Actions surface for source run/resume.
 # Workflow YAML must not encode source business logic.
 
 on:
@@ -12,12 +12,12 @@ on:
         default: config/sources/cdc_x5j9_wybp.yml
         type: string
       environment_name:
-        description: GitHub Environment (development or production)
+        description: GitHub Environment (dev or production)
         required: true
-        default: development
+        default: dev
         type: choice
         options:
-          - development
+          - dev
           - production
       operation:
         description: Orchestrator operation
@@ -60,6 +60,22 @@ jobs:
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment_name }}
+    env:
+      TOPX_ENV: dev
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_AUTH_METHOD: key_pair
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+      SPACES_REGION: ${{ secrets.SPACES_REGION }}
+      SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+      SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+      SPACES_PREFIX: ${{ secrets.SPACES_PREFIX }}
+      SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -70,13 +86,23 @@ jobs:
       - name: Validate definition
         if: inputs.operation == 'validate' || inputs.operation == 'run'
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+      - name: Enforce environment and tier boundary
+        if: inputs.operation == 'run' || inputs.operation == 'resume'
+        run: |
+          if [ "${{ inputs.tier }}" = "B" ] && [ "${{ inputs.environment_name }}" != "dev" ]; then
+            echo "::error::Tier B runs are limited to the dev GitHub Environment."
+            exit 1
+          fi
+          if [ "${{ inputs.tier }}" = "C" ]; then
+            echo "::error::Tier C execution belongs to the protected promote/publication workflows."
+            exit 1
+          fi
       - name: Run ingestion
         if: inputs.operation == 'run'
         run: |
           uv run atlas-data source run \
             --definition "${{ inputs.source_definition }}" \
-            --tier "${{ inputs.tier }}" \
-            --dry-run
+            --tier "${{ inputs.tier }}"
       - name: Resume ingestion
         if: inputs.operation == 'resume'
         run: |

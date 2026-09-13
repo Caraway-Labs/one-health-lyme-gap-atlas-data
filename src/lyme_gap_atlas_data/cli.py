@@ -16,12 +16,7 @@ from opentelemetry.trace import Status, StatusCode
 
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
-from .cdc_operations import (
-    check_cdc_metadata,
-    check_cdc_overdue,
-    operator_refresh,
-    verify_cdc_ready,
-)
+from .cdc_operations import check_cdc_metadata, check_cdc_overdue, verify_cdc_ready
 from .cdc_publication import bootstrap_publication, rollback_publication
 from .cdc_quality import record_cdc_quality
 from .database import load as load_release
@@ -33,6 +28,7 @@ from .ingestion import (
     AdapterKind,
     FileCheckpointStore,
     IngestionOrchestrator,
+    SnowflakeCheckpointStore,
     Tier,
     explain_run,
     load_source_definition,
@@ -127,11 +123,40 @@ _DEFAULT_SOURCE_DIR = "config/sources"
 _DEFAULT_X5J9_DEFINITION = "config/sources/cdc_x5j9_wybp.yml"
 
 
-def _orchestrator(fixture_dir: Path | None = None) -> IngestionOrchestrator:
+def _orchestrator(
+    fixture_dir: Path | None = None,
+    *,
+    tier: Tier = Tier.A,
+    dry_run: bool = False,
+) -> IngestionOrchestrator:
+    store = (
+        SnowflakeCheckpointStore()
+        if tier is Tier.B and not dry_run
+        else FileCheckpointStore(_DEFAULT_RUN_STORE)
+    )
     return IngestionOrchestrator(
-        store=FileCheckpointStore(_DEFAULT_RUN_STORE),
+        store=store,
         fixture_dir=fixture_dir,
     )
+
+
+def _orchestrator_for_run(run_id: str, fixture_dir: Path | None = None) -> IngestionOrchestrator:
+    local = FileCheckpointStore(_DEFAULT_RUN_STORE)
+    if local.load(run_id) is not None:
+        return IngestionOrchestrator(store=local, fixture_dir=fixture_dir)
+    if os.environ.get("SNOWFLAKE_ACCOUNT"):
+        return IngestionOrchestrator(
+            store=SnowflakeCheckpointStore(),
+            fixture_dir=fixture_dir,
+        )
+    return IngestionOrchestrator(store=local, fixture_dir=fixture_dir)
+
+
+def _run_store() -> FileCheckpointStore | SnowflakeCheckpointStore:
+    """Use the durable warehouse ledger in worker containers, local files otherwise."""
+    if os.environ.get("SNOWFLAKE_ACCOUNT"):
+        return SnowflakeCheckpointStore()
+    return FileCheckpointStore(_DEFAULT_RUN_STORE)
 
 
 def _settings() -> SnowflakeSettings:
@@ -437,16 +462,24 @@ def recover_historical_command(
 def ingest_approved_cdc_command(
     check_id: str = typer.Option(..., "--check-id"),
 ) -> None:
-    """Load CDC x5j9-wybp only when a steward-approved source version is active."""
-    typer.echo(json.dumps(operator_refresh(check_id), default=str))
+    """Deprecated x5j9 loader; use the generic SourceDefinition workflow."""
+    del check_id
+    raise typer.BadParameter(
+        "Legacy x5j9 loading is unsupported; use run-ingestion.yml with "
+        "config/sources/cdc_x5j9_wybp.yml and tier B."
+    )
 
 
 @pipeline_app.command("promote-approved-cdc")
 def promote_approved_cdc_command(
     check_id: str = typer.Option(..., "--check-id"),
 ) -> None:
-    """Run explicit CDC acquisition followed by its dbt promotion path."""
-    typer.echo(json.dumps(operator_refresh(check_id), default=str))
+    """Deprecated x5j9 promoter; use the protected promotion/publication workflow."""
+    del check_id
+    raise typer.BadParameter(
+        "Legacy x5j9 promotion is unsupported; use the generic DEV run and protected "
+        "PROD promotion/publication workflow."
+    )
 
 
 @pipeline_app.command("check-cdc-metadata")
@@ -610,7 +643,7 @@ def source_run(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    state = _orchestrator(resolved_fixture).run(
+    state = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run).run(
         loaded,
         tier=selected_tier,
         dry_run=dry_run,
@@ -649,8 +682,8 @@ def source_dev_smoke(
 
 @runs_app.command("list")
 def runs_list() -> None:
-    """List local durable ingestion runs."""
-    store = FileCheckpointStore(_DEFAULT_RUN_STORE)
+    """List durable ingestion runs from the active runtime store."""
+    store = _run_store()
     typer.echo(
         json.dumps(
             [
@@ -670,13 +703,13 @@ def runs_list() -> None:
 @runs_app.command("show")
 def runs_show(run_id: str = typer.Option(..., "--run-id")) -> None:
     """Show one run including stage checkpoints."""
-    typer.echo(json.dumps(_orchestrator().inspect(run_id).to_dict(), indent=2))
+    typer.echo(json.dumps(_orchestrator_for_run(run_id).inspect(run_id).to_dict(), indent=2))
 
 
 @runs_app.command("explain")
 def runs_explain(run_id: str = typer.Option(..., "--run-id")) -> None:
     """Explain failing stage, category, and next action."""
-    typer.echo(json.dumps(explain_run(_orchestrator().inspect(run_id)), indent=2))
+    typer.echo(json.dumps(explain_run(_orchestrator_for_run(run_id).inspect(run_id)), indent=2))
 
 
 @runs_app.command("resume")
@@ -692,7 +725,7 @@ def runs_resume(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    state = _orchestrator(resolved_fixture).resume(run_id, definition=loaded)
+    state = _orchestrator_for_run(run_id, resolved_fixture).resume(run_id, definition=loaded)
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
         raise typer.Exit(code=1)

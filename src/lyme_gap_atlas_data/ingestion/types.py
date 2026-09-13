@@ -50,6 +50,7 @@ class RunStatus(StrEnum):
     EXCEPTION_REVIEW = "EXCEPTION_REVIEW"
     OPERATOR_INTERVENTION = "OPERATOR_INTERVENTION"
     POLICY_BLOCKED = "POLICY_BLOCKED"
+    PAUSED = "PAUSED"
 
 
 class FailureCategory(StrEnum):
@@ -64,6 +65,7 @@ class FailureCategory(StrEnum):
     GRAPH = "GRAPH"
     DEPLOYMENT = "DEPLOYMENT"
     PERMISSION = "PERMISSION"
+    PROCESS = "PROCESS"
 
 
 DEFAULT_SOCRATA_STAGES: tuple[Stage, ...] = (
@@ -115,6 +117,8 @@ class SourceDefinition:
     workbook_sheet: str | None = None
     header_row: int | None = None
     maximum_workbook_bytes: int | None = None
+    maximum_rows: int | None = None
+    page_size: int = 5_000
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -136,6 +140,8 @@ class StageCheckpoint:
     redacted_diagnostic_code: str | None = None
     next_action: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)
+    started_at: str | None = None
+    completed_at: str | None = None
 
 
 @dataclass
@@ -178,6 +184,8 @@ class RunState:
                     "redacted_diagnostic_code": checkpoint.redacted_diagnostic_code,
                     "next_action": checkpoint.next_action,
                     "detail": checkpoint.detail,
+                    "started_at": checkpoint.started_at,
+                    "completed_at": checkpoint.completed_at,
                 }
                 for checkpoint in self.stages
             ],

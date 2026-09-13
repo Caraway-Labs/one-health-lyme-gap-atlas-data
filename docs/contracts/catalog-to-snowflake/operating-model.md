@@ -20,6 +20,22 @@ This is operational guidance for implementers. It is intentionally short.
 | New source-specific Snowflake role | Forbidden | Forbidden | Forbidden | Documented exception only |
 | Source-specific recovery workflow | Forbidden | Forbidden | Forbidden | Documented exception only |
 
+## Phase 2 source boundary
+
+Routine public Socrata definitions (`cdc_lyme_x5j9_wybp` and the migrated
+`cdc_lyme_qtbi_xd4i`) use the same bounded adapter and V068 checkpoint store in
+DEV. Their generic V069 effects retain immutable source artifacts, normalized
+lineage, idempotent row projections, quality results, and a staged publication
+record. `run-ingestion.yml` is the only routine Actions entry point.
+
+The tick county-status workbook is a permanent Tier D restricted-egress
+exception under [ADR 0023](../../adr/0023-dev-operator-captured-restricted-evidence.md).
+Its evidence-only definition is fail-closed for Tier B/C. Revisit only when the
+publisher offers a permitted runtime-accessible transport and the steward
+reviews a replacement source definition, canonical mapping, and raw-byte
+handling. The protected historical CDC workflows are likewise exception-only
+for approved source-version capture, publication, recovery, and rollback.
+
 ## Removed from Tier A/B happy path
 
 1. Human approval solely to move between technical stages

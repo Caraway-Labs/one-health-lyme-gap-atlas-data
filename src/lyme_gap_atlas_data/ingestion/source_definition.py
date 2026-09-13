@@ -103,6 +103,8 @@ def source_definition_from_mapping(document: dict[str, Any]) -> SourceDefinition
         "workbook_sheet",
         "header_row",
         "maximum_workbook_bytes",
+        "maximum_rows",
+        "page_size",
         "connector_name",
     }
     extra = {key: value for key, value in document.items() if key not in known}
@@ -142,6 +144,10 @@ def source_definition_from_mapping(document: dict[str, Any]) -> SourceDefinition
             if document.get("maximum_workbook_bytes") is not None
             else None
         ),
+        maximum_rows=(
+            int(document["maximum_rows"]) if document.get("maximum_rows") is not None else None
+        ),
+        page_size=int(document.get("page_size") or 5_000),
         extra=extra,
     )
 
@@ -172,6 +178,27 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                 message="geography_semantics and temporal_semantics are required lineage facts",
             )
         )
+    if definition.definition_version < 1:
+        issues.append(
+            ValidationIssue(
+                code="DEFINITION_VERSION",
+                message="definition_version must be a positive integer",
+            )
+        )
+    if not 1 <= definition.page_size <= 100_000:
+        issues.append(
+            ValidationIssue(
+                code="PAGE_SIZE",
+                message="page_size must be between 1 and 100,000",
+            )
+        )
+    if definition.maximum_rows is not None and not 1 <= definition.maximum_rows <= 10_000_000:
+        issues.append(
+            ValidationIssue(
+                code="MAXIMUM_ROWS",
+                message="maximum_rows must be between 1 and 10,000,000",
+            )
+        )
     if definition.adapter_kind is AdapterKind.SOCRATA:
         if ":id" not in definition.deterministic_order_clause.replace(" ", "").lower() and (
             definition.deterministic_order_clause != ":id ASC"
@@ -184,6 +211,18 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                     code="QUALITY_RULES_REQUIRED",
                     message="Socrata sources must declare at least one quality rule",
                     category=FailureCategory.QUALITY,
+                )
+            )
+        # Required columns are checked again against the acquired payload; this
+        # local check only protects an accidentally empty declaration.
+        if definition.required_columns and any(
+            not column.strip() for column in definition.required_columns
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="REQUIRED_COLUMN_NAME",
+                    message="required_columns must contain non-empty names",
+                    category=FailureCategory.SCHEMA,
                 )
             )
     if definition.adapter_kind is AdapterKind.HTTP_XLSX:

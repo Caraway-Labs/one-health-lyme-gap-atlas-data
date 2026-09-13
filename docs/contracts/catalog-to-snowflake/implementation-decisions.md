@@ -26,7 +26,7 @@ An implementation agent must follow these decisions. It may propose alternatives
 | Immutable artifacts | Private DigitalOcean Spaces is authoritative; Snowflake named internal stage is temporary load transport. |
 | Artifact retention | Seven-year default; no automatic deletion for active/published versions, unresolved incidents/reviews, holds, or stricter terms. |
 | Snowflake authentication | The deployed pipeline uses a dedicated least-privilege service user with rotating key-pair authentication. Codex-initiated local DEV Snowflake work uses the Snowflake CLI with a named, role-restricted programmatic access token (PAT) connection. |
-| Snowflake loading | Worker uploads to a private named stage and uses `COPY INTO` for source-specific RAW tables. |
+| Snowflake loading | The Phase 2 SourceDefinition path uploads immutable bytes to private Spaces and writes an idempotent generic RAW/STAGING/CONFORMED row projection with V069 lineage. Protected historical CDC exceptions retain their reviewed named-stage/COPY path until explicitly retired. |
 | Transformations | Python handles discovery/acquisition/RAW; dbt Core builds/tests `STAGING`, `CONFORMED`, and `ANALYTICS`. Do not use dbt Cloud. |
 | Snowflake compute | Dedicated X-Small ingestion warehouse, auto-resume, 60-second auto-suspend, and budget/resource monitoring. |
 | Environments | Separate `ONE_HEALTH_LYME_GAP_ATLAS_DEV` and `ONE_HEALTH_LYME_GAP_ATLAS_PROD` databases; development is small and fixture-driven, production performs scheduled full ingestion. |

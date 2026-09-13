@@ -1,4 +1,4 @@
-# Simplified Ingestion Interface Freeze (Wave 1)
+# Simplified Ingestion Interface Freeze (Waves 1-2)
 
 Epic #223 / Stories #225, #226, #228. Frozen before parallel implementation.
 Do not invent a second orchestration entry point.
@@ -84,7 +84,27 @@ tests/fixtures/sources/cdc_lyme_x5j9_wybp/
   expected_normalized.json
 ```
 
+## Phase 2 runtime extension
+
+The frozen interface is extended without adding a second orchestration entry
+point:
+
+- `page_size` and `maximum_rows` bound live Socrata paging; HTTP/XLSX keeps its
+  declared byte and row bounds.
+- Live adapters return the retained response bytes and a checksum. A generic
+  stage-effects boundary registers the immutable artifact, materializes the
+  normalized projection, loads idempotent V069 rows, records quality results,
+  and stages publication lineage.
+- Payload and normalized projections are persisted with the checkpoint store,
+  so a fresh process resumes from the failed stage without reacquiring or
+  recomputing completed work.
+- `onboarding_mode: EVIDENCE_ONLY` is a fail-closed Tier D marker. It cannot be
+  used for a Tier B/C run; the tick operator envelope remains governed by ADR
+  0023.
+
 ## Local vs DEV
 
 Same orchestrator code. Tier A uses fixture adapters and in-memory/file
-checkpoint store. Tier B uses Snowflake checkpoint store and live adapters.
+checkpoint store. Tier B uses Snowflake checkpoint and stage-effect stores with
+live adapters. Tier C is entered only through protected promotion/publication
+controls; Tier D uses its separately governed evidence path.
