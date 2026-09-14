@@ -28,6 +28,12 @@ from lyme_gap_atlas_data.ingestion.adapters import (
     HttpXlsxAdapter,
     SocrataAdapter,
 )
+from lyme_gap_atlas_data.ingestion.runtime import (
+    _UPSERT_CONFORMED_SQL,
+    _UPSERT_RAW_SQL,
+    _UPSERT_STAGING_SQL,
+    _lineage_rows,
+)
 from lyme_gap_atlas_data.ingestion.source_definition import source_definition_from_mapping
 from lyme_gap_atlas_data.ingestion.types import RunState, RunStatus, StageCheckpoint
 
@@ -420,3 +426,36 @@ def test_snowflake_stage_effects_registers_artifact_and_generic_rows() -> None:
     assert load["physical_relation"] == "RAW.GOVERNED_SOURCE_RECORDS"
     assert len(cursor.executed) == 2
     assert len(cursor.executemany_calls) == 1
+
+
+def test_generic_row_identity_is_stable_when_source_order_changes() -> None:
+    definition = load_source_definition(X5J9)
+    state = RunState(
+        ingestion_run_id="run-1",
+        resource_key=definition.resource_key,
+        source_definition_version=definition.definition_version,
+        tier=Tier.B,
+        status=RunStatus.RUNNING,
+        stages=[],
+    )
+    first = {"source_id": definition.source_id, "record": {":id": "publisher-1", "fips": "08001"}}
+    inserted = {
+        "source_id": definition.source_id,
+        "record": {":id": "publisher-0", "fips": "08000"},
+    }
+
+    original_id = _lineage_rows(definition, state, [first])[0][0]
+    shifted_id = _lineage_rows(definition, state, [inserted, first])[1][0]
+
+    assert shifted_id == original_id
+
+
+def test_generic_projection_merges_update_lineage_and_uses_each_table_timestamp() -> None:
+    for sql, timestamp_column in (
+        (_UPSERT_RAW_SQL, "loaded_at"),
+        (_UPSERT_STAGING_SQL, "normalized_at"),
+        (_UPSERT_CONFORMED_SQL, "conformed_at"),
+    ):
+        assert "WHEN MATCHED THEN UPDATE SET" in sql
+        assert f", {timestamp_column}=CURRENT_TIMESTAMP()" in sql
+        assert f",\n   {timestamp_column})" in sql
