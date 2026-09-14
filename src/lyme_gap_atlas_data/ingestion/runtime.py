@@ -429,7 +429,7 @@ def _lineage_rows(
     definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
-    for index, normalized in enumerate(records):
+    for normalized in records:
         source_row = normalized.get("record")
         if not isinstance(source_row, dict):
             continue
@@ -439,9 +439,9 @@ def _lineage_rows(
         serialized = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
         source_hash = hashlib.sha256(source_serialized.encode()).hexdigest()
         source_record_id = source_row.get(":id") or source_row.get("id")
+        source_identity = str(source_record_id) if source_record_id is not None else source_hash
         record_id = _stable_id(
-            f"record:{definition.resource_key}:{definition.definition_version}:"
-            f"{index}:{source_hash}"
+            f"record:{definition.resource_key}:{definition.definition_version}:{source_identity}"
         )
         rows.append(
             (
@@ -464,23 +464,31 @@ def _stable_id(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-_UPSERT_RAW_SQL = """MERGE INTO RAW.GOVERNED_SOURCE_RECORDS target
+def _upsert_sql(relation: str, timestamp_column: str) -> str:
+    """Build the shared row projection MERGE for a known governed relation."""
+    return f"""MERGE INTO {relation} target
 USING (SELECT %s AS record_id, %s AS source_id, %s AS dataset_id, %s AS resource_key,
               %s AS source_definition_version, %s AS ingestion_run_id,
               %s AS source_record_id, %s AS source_row_hash, PARSE_JSON(%s) AS payload,
               %s AS retrieved_at) source
 ON target.record_id=source.record_id
+WHEN MATCHED THEN UPDATE SET
+  source_id=source.source_id, dataset_id=source.dataset_id,
+  resource_key=source.resource_key,
+  source_definition_version=source.source_definition_version,
+  ingestion_run_id=source.ingestion_run_id, source_record_id=source.source_record_id,
+  source_row_hash=source.source_row_hash, payload=source.payload,
+  retrieved_at=source.retrieved_at, {timestamp_column}=CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN INSERT
   (record_id, source_id, dataset_id, resource_key, source_definition_version,
-   ingestion_run_id, source_record_id, source_row_hash, payload, retrieved_at)
+   ingestion_run_id, source_record_id, source_row_hash, payload, retrieved_at,
+   {timestamp_column})
   VALUES (source.record_id, source.source_id, source.dataset_id, source.resource_key,
           source.source_definition_version, source.ingestion_run_id,
           source.source_record_id, source.source_row_hash, source.payload,
-          source.retrieved_at)"""
+          source.retrieved_at, CURRENT_TIMESTAMP())"""
 
-_UPSERT_STAGING_SQL = _UPSERT_RAW_SQL.replace(
-    "RAW.GOVERNED_SOURCE_RECORDS", "STAGING.GOVERNED_SOURCE_RECORDS"
-)
-_UPSERT_CONFORMED_SQL = _UPSERT_RAW_SQL.replace(
-    "RAW.GOVERNED_SOURCE_RECORDS", "CONFORMED.GOVERNED_SOURCE_RECORDS"
-)
+
+_UPSERT_RAW_SQL = _upsert_sql("RAW.GOVERNED_SOURCE_RECORDS", "loaded_at")
+_UPSERT_STAGING_SQL = _upsert_sql("STAGING.GOVERNED_SOURCE_RECORDS", "normalized_at")
+_UPSERT_CONFORMED_SQL = _upsert_sql("CONFORMED.GOVERNED_SOURCE_RECORDS", "conformed_at")
