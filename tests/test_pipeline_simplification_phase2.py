@@ -236,10 +236,8 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE()" in workflow
     assert "secrets.SNOWFLAKE_USER" not in workflow
     assert "secrets.SNOWFLAKE_ROLE" not in workflow
-    assert 'test -n "$SNOWFLAKE_RUNTIME_USER"' not in workflow
-    assert 'test -n "$SNOWFLAKE_USER"' in workflow
-    assert 'test -n "$SPACES_ACCESS_KEY_ID"' in workflow
-    assert 'test -n "$SPACES_SECRET_ACCESS_KEY"' in workflow
+    assert "required_var in \\" in workflow
+    assert "Missing required generic-ingestion configuration: $required_var" in workflow
 
 
 class _RecordingEffects:

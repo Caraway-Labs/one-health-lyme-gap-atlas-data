@@ -104,14 +104,21 @@ jobs:
         if: inputs.operation == 'run' || inputs.operation == 'resume'
         run: |
           set -euo pipefail
-          test -n "$SNOWFLAKE_USER"
-          test -n "$SNOWFLAKE_ROLE"
-          test -n "$SNOWFLAKE_PRIVATE_KEY_B64"
-          test -n "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
-          test -n "$SPACES_ENDPOINT"
-          test -n "$SPACES_BUCKET"
-          test -n "$SPACES_ACCESS_KEY_ID"
-          test -n "$SPACES_SECRET_ACCESS_KEY"
+          for required_var in \
+            SNOWFLAKE_USER \
+            SNOWFLAKE_ROLE \
+            SNOWFLAKE_PRIVATE_KEY_B64 \
+            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE \
+            SPACES_ENDPOINT \
+            SPACES_BUCKET \
+            SPACES_ACCESS_KEY_ID \
+            SPACES_SECRET_ACCESS_KEY
+          do
+            if [ -z "${!required_var:-}" ]; then
+              echo "::error::Missing required generic-ingestion configuration: $required_var"
+              exit 1
+            fi
+          done
           key_file="$RUNNER_TEMP/oh-lyme-ingestion-key.p8"
           trap 'rm -f "$key_file"' EXIT
           umask 077
