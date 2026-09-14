@@ -63,13 +63,16 @@ jobs:
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      # Runtime ingestion must not reuse the migration identity. The dev
+      # environment keeps the migration secrets for deploy-dev.yml and stores
+      # this worker identity under the explicit runtime names below.
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}
       SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
       SNOWFLAKE_AUTH_METHOD: key_pair
-      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
-      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
       SPACES_REGION: ${{ secrets.SPACES_REGION }}
       SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
       SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
@@ -101,6 +104,14 @@ jobs:
         if: inputs.operation == 'run' || inputs.operation == 'resume'
         run: |
           set -euo pipefail
+          test -n "$SNOWFLAKE_USER"
+          test -n "$SNOWFLAKE_ROLE"
+          test -n "$SNOWFLAKE_PRIVATE_KEY_B64"
+          test -n "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
+          test -n "$SPACES_ENDPOINT"
+          test -n "$SPACES_BUCKET"
+          test -n "$SPACES_ACCESS_KEY_ID"
+          test -n "$SPACES_SECRET_ACCESS_KEY"
           key_file="$RUNNER_TEMP/oh-lyme-ingestion-key.p8"
           trap 'rm -f "$key_file"' EXIT
           umask 077
@@ -114,6 +125,38 @@ jobs:
           # base64 encoding of the complete PEM file, so normalize it only in
           # this ephemeral process environment and never print the key.
           export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
+
+          uv run python - <<'PY'
+          import os
+
+          from lyme_gap_atlas_shared.settings import SnowflakeSettings
+          from lyme_gap_atlas_shared.snowflake import connect
+
+          environment = os.environ["TOPX_ENV"].upper()
+          expected_user = f"OH_LYME_{environment}_PIPELINE_SVC"
+          expected_role = f"OH_LYME_{environment}_PIPELINE_RUNTIME"
+          settings = SnowflakeSettings()
+          with connect(settings) as connection, connection.cursor() as cursor:
+              cursor.execute(
+                  "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), "
+                  "CURRENT_WAREHOUSE()"
+              )
+              user, role, database, warehouse = cursor.fetchone()
+          print(
+              "Snowflake runtime identity: "
+              f"user={user}, role={role}, database={database}, warehouse={warehouse}"
+          )
+          if (user, role, database, warehouse) != (
+              expected_user,
+              expected_role,
+              settings.snowflake_database,
+              settings.snowflake_warehouse,
+          ):
+              raise SystemExit(
+                  "Runtime ingestion requires the dedicated "
+                  f"{expected_user}/{expected_role} identity."
+              )
+          PY
 
           if [ "${{ inputs.operation }}" = "run" ]; then
             uv run atlas-data source run \

@@ -227,6 +227,19 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert 'export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"' in workflow
     assert "The secret stores the PEM body" in workflow
     assert "trap 'rm -f \"$key_file\"' EXIT" in workflow
+    assert "SNOWFLAKE_RUNTIME_USER" in workflow
+    assert "SNOWFLAKE_RUNTIME_ROLE" in workflow
+    assert "SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64" in workflow
+    assert "SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE" in workflow
+    assert "OH_LYME_{environment}_PIPELINE_SVC" in workflow
+    assert "OH_LYME_{environment}_PIPELINE_RUNTIME" in workflow
+    assert "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE()" in workflow
+    assert "secrets.SNOWFLAKE_USER" not in workflow
+    assert "secrets.SNOWFLAKE_ROLE" not in workflow
+    assert 'test -n "$SNOWFLAKE_RUNTIME_USER"' not in workflow
+    assert 'test -n "$SNOWFLAKE_USER"' in workflow
+    assert 'test -n "$SPACES_ACCESS_KEY_ID"' in workflow
+    assert 'test -n "$SPACES_SECRET_ACCESS_KEY"' in workflow
 
 
 class _RecordingEffects:
