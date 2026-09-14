@@ -223,6 +223,10 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "--dry-run" not in workflow
     assert "environment_name" in workflow
     assert "Tier C execution belongs to the protected" in workflow
+    assert "BEGIN ENCRYPTED PRIVATE KEY" in workflow
+    assert 'export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"' in workflow
+    assert "The secret stores the PEM body" in workflow
+    assert "trap 'rm -f \"$key_file\"' EXIT" in workflow
 
 
 class _RecordingEffects:
