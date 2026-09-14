@@ -26,6 +26,27 @@ load/quality/publication effects. Tier C is rejected by the CLI and belongs to
 the protected promotion/publication workflows; evidence-only definitions are
 also rejected for Tier B/C.
 
+### DEV runtime identity and artifact storage
+
+`run-ingestion.yml` is a worker operation, not a migration operation. In the
+`dev` GitHub Environment it must use the dedicated runtime service principal
+and the role already assigned to that principal:
+
+| GitHub secret | Required value |
+|---|---|
+| `SNOWFLAKE_RUNTIME_USER` | `OH_LYME_DEV_PIPELINE_SVC` |
+| `SNOWFLAKE_RUNTIME_ROLE` | `OH_LYME_DEV_PIPELINE_RUNTIME` |
+| `SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64` | Encrypted PKCS#8 PEM body for that service user; do not include PEM headers |
+| `SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE` | Passphrase for that key |
+
+Keep the migration-only `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE`,
+`SNOWFLAKE_PRIVATE_KEY_B64`, and `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` secrets
+for `deploy-dev.yml`. The runtime workflow also requires the DEV Spaces
+endpoint, bucket, prefix, access key, and secret access key so it can retain
+the immutable private acquisition artifact before Snowflake writes. The
+workflow verifies the resolved user, role, database, and warehouse before it
+starts the orchestrator and fails closed if the migration identity is supplied.
+
 ## Parity checklist (x5j9)
 
 - [x] SourceDefinition loads from existing YAML profile
