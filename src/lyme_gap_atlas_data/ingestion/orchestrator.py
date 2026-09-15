@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import AcquisitionError, SourceAdapter, get_adapter
-from .checkpoints import CheckpointStore, InMemoryCheckpointStore, PayloadStore
+from .checkpoints import CheckpointStore, InMemoryCheckpointStore, PayloadStore, RawArtifactStore
 from .runtime import NoopStageEffects, QualityFailure, SnowflakeStageEffects, StageEffects
 from .source_definition import validate_source_definition
 from .types import (
@@ -134,6 +134,12 @@ class IngestionOrchestrator:
         normalized = self._normalized.get(state.ingestion_run_id)
         if payload is None and isinstance(self.store, PayloadStore):
             payload = self.store.load_payload(state.ingestion_run_id)
+        if payload is None and isinstance(self.store, RawArtifactStore):
+            raw_payload = self.store.load_source_artifact(state.ingestion_run_id)
+            if raw_payload is not None:
+                payload = adapter.restore_raw_payload(definition, raw_payload)
+                if isinstance(self.store, PayloadStore):
+                    self.store.save_payload(state.ingestion_run_id, payload)
         if normalized is None and isinstance(self.store, PayloadStore):
             normalized = self.store.load_normalized(state.ingestion_run_id)
 

@@ -26,7 +26,8 @@ Routine public Socrata definitions (`cdc_lyme_x5j9_wybp` and the migrated
 `cdc_lyme_qtbi_xd4i`) use the same bounded adapter and V068 checkpoint store in
 DEV. Their generic V069 effects retain immutable source artifacts, normalized
 lineage, idempotent row projections, quality results, and a staged publication
-record. `run-ingestion.yml` is the only routine Actions entry point.
+record; V070 persists the payload projections used for fresh-process resume.
+`run-ingestion.yml` is the only routine Actions entry point.
 
 The tick county-status workbook is a permanent Tier D restricted-egress
 exception under [ADR 0023](../../adr/0023-dev-operator-captured-restricted-evidence.md).

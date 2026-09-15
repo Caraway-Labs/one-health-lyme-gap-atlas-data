@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -9,10 +10,14 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
+from urllib.parse import urlsplit
 
+import boto3  # type: ignore[import-untyped]
+from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
+from ..settings import PipelineSettings
 from .types import FailureCategory, RunState, RunStatus, Stage, StageCheckpoint, StageStatus, Tier
 
 
@@ -33,6 +38,11 @@ class PayloadStore(Protocol):
     def save_normalized(self, run_id: str, records: list[dict[str, object]]) -> None: ...
 
     def load_normalized(self, run_id: str) -> list[dict[str, object]] | None: ...
+
+
+@runtime_checkable
+class RawArtifactStore(Protocol):
+    def load_source_artifact(self, run_id: str) -> bytes | None: ...
 
 
 class InMemoryCheckpointStore:
@@ -145,10 +155,147 @@ class FileCheckpointStore:
 
 
 class SnowflakeCheckpointStore:
-    """V068-backed checkpoint store used by DEV/PROD worker containers."""
+    """V068/V070-backed checkpoint store used by DEV/PROD worker containers."""
 
-    def __init__(self, connection_factory: Callable[[], Any] | None = None) -> None:
+    def __init__(
+        self,
+        connection_factory: Callable[[], Any] | None = None,
+        *,
+        spaces_client: Any | None = None,
+        settings: PipelineSettings | None = None,
+    ) -> None:
         self._connection_factory = connection_factory or (lambda: connect(SnowflakeSettings()))
+        self._spaces_client = spaces_client
+        self._settings = settings
+
+    def load_source_artifact(self, run_id: str) -> bytes | None:
+        """Recover source-faithful bytes when a pre-V070 run needs resume."""
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT artifact_uri, sha256 FROM GOVERNANCE.RAW_ARTIFACTS
+                    WHERE ingestion_run_id=%s AND artifact_type='SOURCE_PAYLOAD'
+                    ORDER BY created_at LIMIT 1""",
+                (run_id,),
+            )
+            artifact = cursor.fetchone()
+        if artifact is None:
+            return None
+        parsed = urlsplit(str(artifact[0]))
+        settings = self._pipeline_settings()
+        if parsed.scheme != "s3" or parsed.netloc != settings.spaces_bucket or not parsed.path:
+            raise ValueError("Source artifact is outside the configured private bucket")
+        key = parsed.path.lstrip("/")
+        if not key.startswith(f"{settings.spaces_prefix}/"):
+            raise ValueError("Source artifact is outside the configured environment prefix")
+        response = self._spaces().get_object(Bucket=parsed.netloc, Key=key)
+        body = response["Body"].read()
+        if _sha256_bytes(body) != str(artifact[1]):
+            raise ValueError("Source artifact checksum mismatch")
+        return cast(bytes, body)
+
+    def _pipeline_settings(self) -> PipelineSettings:
+        if self._settings is None:
+            self._settings = PipelineSettings()
+        return self._settings
+
+    def _spaces(self) -> Any:
+        if self._spaces_client is not None:
+            return self._spaces_client
+        settings = self._pipeline_settings()
+        if settings.spaces_access_key_id is None or settings.spaces_secret_access_key is None:
+            raise ValueError("Spaces credentials are required to recover a source artifact")
+        self._spaces_client = boto3.client(
+            "s3",
+            endpoint_url=settings.spaces_endpoint,
+            aws_access_key_id=settings.spaces_access_key_id.get_secret_value(),
+            aws_secret_access_key=settings.spaces_secret_access_key.get_secret_value(),
+            region_name=settings.spaces_region,
+            config=Config(signature_version="s3v4"),
+        )
+        return self._spaces_client
+
+    def save_payload(self, run_id: str, payload: object) -> None:
+        """Persist the acquired canonical payload without permitting replacement."""
+        self._save_json_document(
+            table="INGESTION_RUN_PAYLOADS",
+            value_column="payload",
+            run_id=run_id,
+            value=payload,
+        )
+
+    def load_payload(self, run_id: str) -> object | None:
+        """Load and checksum-verify a payload saved by a prior worker process."""
+        return self._load_json_document(
+            table="INGESTION_RUN_PAYLOADS", value_column="payload", run_id=run_id
+        )
+
+    def save_normalized(self, run_id: str, records: list[dict[str, object]]) -> None:
+        """Persist normalized rows without permitting replacement."""
+        self._save_json_document(
+            table="INGESTION_RUN_NORMALIZED",
+            value_column="records",
+            run_id=run_id,
+            value=records,
+        )
+
+    def load_normalized(self, run_id: str) -> list[dict[str, object]] | None:
+        """Load and checksum-verify normalized rows saved by a prior process."""
+        value = self._load_json_document(
+            table="INGESTION_RUN_NORMALIZED", value_column="records", run_id=run_id
+        )
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("Persisted normalized payload is not a list")
+        if not all(isinstance(item, dict) for item in value):
+            raise ValueError("Persisted normalized payload contains a non-object row")
+        return [dict(item) for item in value]
+
+    def _save_json_document(
+        self, *, table: str, value_column: str, run_id: str, value: object
+    ) -> None:
+        serialized = _serialize_json(value)
+        digest = _sha256(serialized)
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""MERGE INTO GOVERNANCE.{table} target
+                    USING (SELECT %s AS ingestion_run_id, PARSE_JSON(%s) AS {value_column},
+                                  %s AS value_sha256) source
+                    ON target.ingestion_run_id=source.ingestion_run_id
+                    WHEN NOT MATCHED THEN INSERT
+                      (ingestion_run_id, {value_column}, value_sha256, created_at)
+                      VALUES (source.ingestion_run_id, source.{value_column},
+                              source.value_sha256, CURRENT_TIMESTAMP())""",
+                    (run_id, serialized, digest),
+                )
+                cursor.execute(
+                    f"""SELECT value_sha256 FROM GOVERNANCE.{table}
+                        WHERE ingestion_run_id=%s""",
+                    (run_id,),
+                )
+                stored = cursor.fetchone()
+                if stored is None or str(stored[0]) != digest:
+                    raise ValueError(f"Stored {value_column} checkpoint checksum mismatch")
+            connection.commit()
+
+    def _load_json_document(self, *, table: str, value_column: str, run_id: str) -> object | None:
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT {value_column}, value_sha256 FROM GOVERNANCE.{table}
+                    WHERE ingestion_run_id=%s""",
+                (run_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        value = row[0]
+        if isinstance(value, str):
+            value = json.loads(value)
+        if _sha256(_serialize_json(value)) != str(row[1]):
+            raise ValueError(f"Stored {value_column} checkpoint checksum mismatch")
+        return cast(object, value)
 
     def save(self, state: RunState) -> None:
         database_status = "COMPLETED" if state.status is RunStatus.SUCCEEDED else state.status.value
@@ -309,6 +456,18 @@ def _checkpoint_from_row(row: tuple[object, ...]) -> StageCheckpoint:
 def _run_status_from_database(value: str) -> RunStatus:
     """Map the governed table's COMPLETED value to the CLI's SUCCEEDED value."""
     return RunStatus.SUCCEEDED if value == "COMPLETED" else RunStatus(value)
+
+
+def _serialize_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
 def run_state_from_dict(payload: dict[str, object]) -> RunState:

@@ -95,9 +95,11 @@ point:
   stage-effects boundary registers the immutable artifact, materializes the
   normalized projection, loads idempotent V069 rows, records quality results,
   and stages publication lineage.
-- Payload and normalized projections are persisted with the checkpoint store,
-  so a fresh process resumes from the failed stage without reacquiring or
-  recomputing completed work.
+- Payload and normalized projections are persisted with the checkpoint store
+  (`GOVERNANCE.INGESTION_RUN_PAYLOADS` and
+  `GOVERNANCE.INGESTION_RUN_NORMALIZED`), with checksums verified on write and
+  read, so a fresh process resumes from the failed stage without reacquiring
+  or recomputing completed work.
 - `onboarding_mode: EVIDENCE_ONLY` is a fail-closed Tier D marker. It cannot be
   used for a Tier B/C run; the tick operator envelope remains governed by ADR
   0023.

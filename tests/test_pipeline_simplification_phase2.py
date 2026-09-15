@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -117,6 +119,18 @@ def test_socrata_live_acquisition_is_ordered_paginated_and_bounded() -> None:
     assert result.raw_payload is not None
 
 
+def test_socrata_restores_payload_from_retained_response_bytes() -> None:
+    definition = _socrata_definition()
+    raw_payload = b'{"id":"example"}\n[{":id":"1","fips":"08001"}]'
+
+    restored = SocrataAdapter().restore_raw_payload(definition, raw_payload)
+
+    assert restored == {
+        "metadata": {"id": "example"},
+        "sample": [{":id": "1", "fips": "08001"}],
+    }
+
+
 def test_socrata_live_acquisition_retries_provider_failures() -> None:
     attempts = 0
     sleeps: list[int] = []
@@ -181,6 +195,7 @@ def test_http_xlsx_live_acquisition_reads_declared_sheet_and_headers() -> None:
     assert result.payload["headers"] == ["FIPSCode", "State"]
     assert result.payload["sample"][0] == {"FIPSCode": "08001", "State": "CO"}
     assert result.raw_payload == body
+    assert HttpXlsxAdapter().restore_raw_payload(definition, body) == result.payload
 
 
 def test_simplified_resume_uses_payload_persisted_by_a_previous_process(tmp_path: Path) -> None:
@@ -246,6 +261,14 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "required_var in \\" in workflow
     assert "Missing required generic-ingestion configuration: $required_var" in workflow
 
+    checkpoint_migration = (
+        REPO / "migrations" / "V070__durable_ingestion_payload_checkpoints.sql"
+    ).read_text(encoding="utf-8")
+    assert "INGESTION_RUN_PAYLOADS" in checkpoint_migration
+    assert "INGESTION_RUN_NORMALIZED" in checkpoint_migration
+    assert "value_sha256" in checkpoint_migration
+    assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in checkpoint_migration
+
 
 class _RecordingEffects:
     def __init__(self) -> None:
@@ -292,10 +315,15 @@ def test_orchestrator_calls_each_generic_stage_effect() -> None:
 
 class _FakeCursor:
     def __init__(
-        self, *, run: tuple[Any, ...] | None = None, rows: list[tuple[Any, ...]] | None = None
+        self,
+        *,
+        run: tuple[Any, ...] | None = None,
+        rows: list[tuple[Any, ...]] | None = None,
+        fetchone_results: list[tuple[Any, ...] | None] | None = None,
     ):
         self.run = run
         self.rows = rows or []
+        self.fetchone_results = fetchone_results or []
         self.executed: list[tuple[str, tuple[Any, ...] | None]] = []
         self.executemany_calls: list[tuple[str, list[tuple[Any, ...]]]] = []
 
@@ -312,6 +340,8 @@ class _FakeCursor:
         self.executemany_calls.append((sql, params))
 
     def fetchone(self) -> tuple[Any, ...] | None:
+        if self.fetchone_results:
+            return self.fetchone_results.pop(0)
         return self.run
 
     def fetchall(self) -> list[tuple[Any, ...]]:
@@ -388,6 +418,47 @@ def test_snowflake_checkpoint_store_writes_completed_for_succeeded_state() -> No
     run_params = cursor.executed[0][1]
     assert run_params is not None and run_params[3] == "COMPLETED"
     assert connection.committed is True
+
+
+def test_snowflake_checkpoint_store_persists_and_verifies_payloads() -> None:
+    payload = {"metadata": {"id": "x5j9"}, "sample": [{":id": "1"}]}
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    cursor = _FakeCursor(fetchone_results=[(digest,)])
+    connection = _FakeConnection(cursor)
+
+    SnowflakeCheckpointStore(connection_factory=lambda: connection).save_payload("run-1", payload)
+
+    assert connection.committed is True
+    assert any("INGESTION_RUN_PAYLOADS" in sql for sql, _params in cursor.executed)
+    assert cursor.executed[0][1] == ("run-1", serialized, digest)
+
+
+def test_snowflake_checkpoint_store_loads_and_verifies_payloads() -> None:
+    payload = {"metadata": {"id": "x5j9"}, "sample": [{":id": "1"}]}
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    cursor = _FakeCursor(fetchone_results=[(payload, digest)])
+    connection = _FakeConnection(cursor)
+
+    loaded = SnowflakeCheckpointStore(connection_factory=lambda: connection).load_payload("run-1")
+
+    assert loaded == payload
+
+
+def test_snowflake_checkpoint_store_persists_and_verifies_normalized_rows() -> None:
+    records = [{"source_id": "cdc", "record": {":id": "1"}}]
+    serialized = json.dumps(records, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    cursor = _FakeCursor(fetchone_results=[(digest,)])
+    connection = _FakeConnection(cursor)
+
+    SnowflakeCheckpointStore(connection_factory=lambda: connection).save_normalized(
+        "run-1", records
+    )
+
+    assert connection.committed is True
+    assert any("INGESTION_RUN_NORMALIZED" in sql for sql, _params in cursor.executed)
 
 
 class _FakeSpaces:
