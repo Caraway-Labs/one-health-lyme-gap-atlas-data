@@ -30,6 +30,12 @@ from lyme_gap_atlas_data.ingestion.adapters import (
     HttpXlsxAdapter,
     SocrataAdapter,
 )
+from lyme_gap_atlas_data.ingestion.identity import (
+    assess_identity,
+    deterministic_record_id,
+    identity_strategy,
+    source_row_hash,
+)
 from lyme_gap_atlas_data.ingestion.runtime import (
     _UPSERT_BATCH_SIZE,
     _UPSERT_CONFORMED_SQL,
@@ -116,6 +122,10 @@ def test_socrata_live_acquisition_is_ordered_paginated_and_bounded() -> None:
     data_requests = [request for request in requests if "/resource.json" in str(request.url)]
     assert [request.url.params["$limit"] for request in data_requests] == ["2", "1"]
     assert all(request.url.params["$order"] == ":id ASC" for request in data_requests)
+    assert all(
+        request.url.params["$select"] == ":id,:created_at,:updated_at,*"
+        for request in data_requests
+    )
     assert result.raw_payload is not None
 
 
@@ -151,6 +161,53 @@ def test_socrata_live_acquisition_retries_provider_failures() -> None:
     assert result.row_count == 1
     assert attempts == 3  # metadata plus the retried data request
     assert sleeps == [1]
+
+
+def test_publisher_id_keeps_record_identity_across_row_revisions() -> None:
+    first = {
+        ":id": "publisher-1",
+        ":updated_at": "2025-01-01T00:00:00Z",
+        "fips": "08001",
+        "frequency": "1",
+    }
+    revised = {
+        ":id": "publisher-1",
+        ":updated_at": "2025-02-01T00:00:00Z",
+        "fips": "08001",
+        "frequency": "2",
+    }
+
+    assert identity_strategy(first) == "PUBLISHER_SYSTEM_ID"
+    assert source_row_hash(first) != source_row_hash(revised)
+    assert deterministic_record_id("cdc_lyme_x5j9_wybp", 2, first) == deterministic_record_id(
+        "cdc_lyme_x5j9_wybp", 2, revised
+    )
+    assessment = assess_identity([first, revised])
+    assert assessment.publisher_id_fields == (":id",)
+    assert assessment.duplicate_publisher_id_count == 1
+
+
+def test_missing_publisher_id_uses_content_hash_not_demographic_natural_key() -> None:
+    first = {
+        "fips": "08001",
+        "year": "2023",
+        "case_status": "Confirmed",
+        "frequency": "1",
+    }
+    revised = {
+        "fips": "08001",
+        "year": "2023",
+        "case_status": "Confirmed",
+        "frequency": "2",
+    }
+
+    assert identity_strategy(first) == "CANONICAL_ROW_HASH"
+    assert deterministic_record_id("cdc_lyme_x5j9_wybp", 2, first) != deterministic_record_id(
+        "cdc_lyme_x5j9_wybp", 2, revised
+    )
+    assessment = assess_identity([first])
+    assert assessment.publisher_identity_observed is False
+    assert assessment.publisher_id_fields == ()
 
 
 def test_socrata_live_acquisition_classifies_non_retryable_provider_rejection() -> None:

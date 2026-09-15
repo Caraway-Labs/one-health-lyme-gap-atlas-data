@@ -3,6 +3,15 @@
 from .adapters import HttpXlsxAdapter, SocrataAdapter, get_adapter
 from .checkpoints import FileCheckpointStore, InMemoryCheckpointStore, SnowflakeCheckpointStore
 from .failures import explain_run
+from .identity import (
+    IdentityAssessment,
+    assess_identity,
+    canonical_source_row,
+    deterministic_record_id,
+    identity_strategy,
+    publisher_record_id,
+    source_row_hash,
+)
 from .literature_queue import LiteratureStage, LiteratureWorkQueue
 from .orchestrator import IngestionOrchestrator
 from .runtime import NoopStageEffects, QualityFailure, SnowflakeStageEffects, evaluate_quality_rules
@@ -42,8 +51,15 @@ __all__ = [
     "SnowflakeStageEffects",
     "evaluate_quality_rules",
     "explain_run",
+    "IdentityAssessment",
+    "assess_identity",
+    "canonical_source_row",
+    "deterministic_record_id",
     "get_adapter",
+    "identity_strategy",
     "load_source_definition",
     "starter_definition_yaml",
+    "publisher_record_id",
+    "source_row_hash",
     "validate_source_definition",
 ]

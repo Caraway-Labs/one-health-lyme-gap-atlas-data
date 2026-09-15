@@ -110,3 +110,20 @@ Same orchestrator code. Tier A uses fixture adapters and in-memory/file
 checkpoint store. Tier B uses Snowflake checkpoint and stage-effect stores with
 live adapters. Tier C is entered only through protected promotion/publication
 controls; Tier D uses its separately governed evidence path.
+
+## Source-row identity and revision policy
+
+For Socrata sources, the adapter requests and retains `:id`, `:created_at`, and
+`:updated_at` system fields when the provider exposes them. `source_record_id`
+uses the non-empty publisher `:id` (or an explicitly supplied compatibility
+`id` field); `record_id` is deterministic over the resource key, definition
+version, and that publisher identity. The source-row checksum includes the
+complete retained row and is allowed to change when a publisher revision
+changes.
+
+If no publisher system ID is present, `source_record_id` remains null and
+`record_id` uses the canonical full-row SHA-256. This is a documented identity
+limitation, not a natural key inferred from geography, year, case, sex, age, or
+other analytical dimensions. See
+`x5j9-record-identity-policy.md` for the bounded evidence and revision
+decision.
