@@ -27,6 +27,8 @@ from lyme_gap_atlas_data.ingestion import (
 )
 from lyme_gap_atlas_data.ingestion.adapters import (
     AcquisitionError,
+    HttpCsvAdapter,
+    HttpJsonAdapter,
     HttpXlsxAdapter,
     SocrataAdapter,
 )
@@ -91,6 +93,99 @@ def _xlsx_definition(**overrides: Any):
     }
     document.update(overrides)
     return source_definition_from_mapping(document)
+
+
+def _json_definition(**overrides: Any):
+    document: dict[str, Any] = {
+        "resource_key": "example_json",
+        "source_id": "example",
+        "dataset_id": "example-json",
+        "definition_version": 1,
+        "adapter_kind": AdapterKind.HTTP_JSON.value,
+        "endpoint_template": "https://example.test/query?f=geojson&where=1%3D1",
+        "deterministic_order_clause": "STCNTY ASC",
+        "incremental_strategy": "FULL_REFRESH",
+        "geography_semantics": "COUNTY",
+        "temporal_semantics": "AS_OF_DATE",
+        "required_columns": ["STCNTY", "geometry"],
+        "quality_rules": [{"rule_id": "required_geometry", "severity": "BLOCKING"}],
+        "maximum_rows": 2,
+        "pagination": {
+            "enabled": True,
+            "offset_param": "resultOffset",
+            "page_size_param": "resultRecordCount",
+            "page_size": 1,
+        },
+        "row_path": "features",
+    }
+    document.update(overrides)
+    return source_definition_from_mapping(document)
+
+
+def _csv_definition(**overrides: Any):
+    document: dict[str, Any] = {
+        "resource_key": "example_csv",
+        "source_id": "example",
+        "dataset_id": "example-csv",
+        "definition_version": 1,
+        "adapter_kind": AdapterKind.HTTP_CSV.value,
+        "endpoint_template": "https://example.test/data.csv",
+        "deterministic_order_clause": "FIPS ASC",
+        "incremental_strategy": "FULL_REFRESH",
+        "geography_semantics": "COUNTY",
+        "temporal_semantics": "CODEBOOK",
+        "required_columns": ["FIPS", "Value"],
+        "quality_rules": [{"rule_id": "required_geography", "severity": "BLOCKING"}],
+    }
+    document.update(overrides)
+    return source_definition_from_mapping(document)
+
+
+def test_json_live_acquisition_flattens_features_and_resumes_pages() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        offset = int(request.url.params["resultOffset"])
+        return httpx.Response(
+            200,
+            json={
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": []},
+                        "properties": {"STCNTY": f"0800{offset + 1}"},
+                    }
+                ],
+            },
+            request=request,
+        )
+
+    definition = _json_definition()
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = HttpJsonAdapter(client=client).acquire(definition)
+
+    assert len(requests) == 2
+    assert requests[0].url.params["f"] == "geojson"
+    assert requests[0].url.params["where"] == "1=1"
+    assert result.row_count == 2
+    assert result.payload["sample"][0]["STCNTY"] == "08001"
+    assert result.payload["sample"][0]["geometry"]["type"] == "Polygon"
+    assert HttpJsonAdapter().restore_raw_payload(definition, result.raw_payload or b"")["sample"]
+
+
+def test_csv_live_acquisition_preserves_encoding_and_required_columns() -> None:
+    body = "FIPS,Attribute,Value\n08001,RUCC_2023,1\n".encode("cp1252")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, request=request)
+
+    definition = _csv_definition(encoding="cp1252")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = HttpCsvAdapter(client=client).acquire(definition)
+
+    assert result.payload["sample"] == [{"FIPS": "08001", "Attribute": "RUCC_2023", "Value": "1"}]
 
 
 def test_socrata_live_acquisition_is_ordered_paginated_and_bounded() -> None:

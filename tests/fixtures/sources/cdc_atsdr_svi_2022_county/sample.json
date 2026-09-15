@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-105.0, 40.0], [-104.0, 40.0], [-104.0, 41.0], [-105.0, 41.0], [-105.0, 40.0]]]
+      },
+      "properties": {
+        "STCNTY": "08001",
+        "STATE": "Colorado",
+        "ST_ABBR": "CO",
+        "COUNTY": "Adams County",
+        "LOCATION": "Adams County, Colorado",
+        "E_TOTPOP": 519572,
+        "RPL_THEMES": 0.5123,
+        "EP_UNINSUR": 8.4,
+        "EPL_UNINSUR": 0.4811
+      }
+    }
+  ]
+}

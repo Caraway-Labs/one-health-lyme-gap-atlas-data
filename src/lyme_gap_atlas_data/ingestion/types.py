@@ -17,6 +17,8 @@ class Tier(StrEnum):
 class AdapterKind(StrEnum):
     SOCRATA = "socrata"
     HTTP_XLSX = "http_xlsx"
+    HTTP_JSON = "http_json"
+    HTTP_CSV = "http_csv"
 
 
 class AuthMode(StrEnum):
@@ -85,6 +87,8 @@ DEFAULT_HTTP_XLSX_STAGES: tuple[Stage, ...] = (
     Stage.QUALITY,
     Stage.PUBLISH_STAGE,
 )
+
+DEFAULT_HTTP_STRUCTURED_STAGES: tuple[Stage, ...] = DEFAULT_HTTP_XLSX_STAGES
 
 
 @dataclass(frozen=True)

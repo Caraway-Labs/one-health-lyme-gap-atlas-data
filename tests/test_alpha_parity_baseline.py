@@ -13,7 +13,9 @@ CHECKSUM = BASELINE_DIR / "alpha-2026-08-06-baseline.sha256"
 
 
 def test_alpha_baseline_is_checksum_bound_and_metadata_only() -> None:
-    manifest_bytes = MANIFEST.read_bytes()
+    # Git checks out this text file with platform-native line endings on
+    # Windows; the sidecar binds the canonical UTF-8 LF representation.
+    manifest_bytes = MANIFEST.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")
     expected = CHECKSUM.read_text(encoding="utf-8").strip()
     assert expected != "PENDING_MANIFEST_CHECKSUM"
     assert hashlib.sha256(manifest_bytes).hexdigest() == expected

@@ -26,8 +26,12 @@ from lyme_gap_atlas_data.ingestion.source_definition import source_definition_fr
 REPO = Path(__file__).resolve().parents[1]
 X5J9 = REPO / "config" / "sources" / "cdc_x5j9_wybp.yml"
 TICK = REPO / "config" / "sources" / "cdc_tick_ixodes_county_status.yml"
+SVI = REPO / "config" / "sources" / "cdc_atsdr_svi_2022_county.yml"
+RUCC = REPO / "config" / "sources" / "usda_ers_rucc_2023.yml"
 X5J9_FIXTURES = REPO / "tests" / "fixtures" / "sources" / "cdc_lyme_x5j9_wybp"
 TICK_FIXTURES = REPO / "tests" / "fixtures" / "sources" / "cdc_tick_ixodes_county_status"
+SVI_FIXTURES = REPO / "tests" / "fixtures" / "sources" / "cdc_atsdr_svi_2022_county"
+RUCC_FIXTURES = REPO / "tests" / "fixtures" / "sources" / "usda_ers_rucc_2023"
 
 
 def test_load_and_validate_x5j9_definition() -> None:
@@ -43,6 +47,23 @@ def test_load_and_validate_tick_definition() -> None:
     assert definition.adapter_kind is AdapterKind.HTTP_XLSX
     result = validate_source_definition(definition)
     assert result.ok, result.to_dict()
+
+
+@pytest.mark.parametrize(
+    ("path", "adapter", "fixture"),
+    [
+        (SVI, AdapterKind.HTTP_JSON, SVI_FIXTURES),
+        (RUCC, AdapterKind.HTTP_CSV, RUCC_FIXTURES),
+    ],
+)
+def test_load_and_validate_context_definitions(
+    path: Path, adapter: AdapterKind, fixture: Path
+) -> None:
+    definition = load_source_definition(path)
+    assert definition.adapter_kind is adapter
+    result = validate_source_definition(definition)
+    assert result.ok, result.to_dict()
+    assert fixture.exists()
 
 
 def test_invalid_definition_fails_locally() -> None:
@@ -104,6 +125,17 @@ def test_tick_fixture_run_succeeds() -> None:
         store=InMemoryCheckpointStore(),
         fixture_dir=TICK_FIXTURES,
     )
+    state = orch.run(definition, tier=Tier.A)
+    assert state.status.value == "SUCCEEDED"
+
+
+@pytest.mark.parametrize(
+    ("path", "fixture"),
+    [(SVI, SVI_FIXTURES), (RUCC, RUCC_FIXTURES)],
+)
+def test_context_fixture_runs_succeed(path: Path, fixture: Path) -> None:
+    definition = load_source_definition(path)
+    orch = IngestionOrchestrator(store=InMemoryCheckpointStore(), fixture_dir=fixture)
     state = orch.run(definition, tier=Tier.A)
     assert state.status.value == "SUCCEEDED"
 

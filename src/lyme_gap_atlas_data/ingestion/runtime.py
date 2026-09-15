@@ -385,7 +385,15 @@ def evaluate_quality_rules(
         passed = bool(source_rows)
         expected: Any = "at_least_one_record"
         if "geography" in rule_id:
-            keys = ("fips", "FIPSCode", "county_fips", "geography")
+            keys = (
+                "fips",
+                "FIPS",
+                "FIPSCode",
+                "county_fips",
+                "geography",
+                "STCNTY",
+                "GEOID",
+            )
             missing_geography = sum(
                 not any(row.get(key) not in (None, "") for key in keys) for row in source_rows
             )
@@ -426,6 +434,18 @@ def evaluate_quality_rules(
             observed = {"missing_columns": missing_columns}
             expected = {"missing_columns": []}
             passed = not missing_columns and bool(source_rows)
+        elif "geometry" in rule_id:
+            invalid_geometry = []
+            for index, row in enumerate(source_rows):
+                geometry = row.get("geometry")
+                if not isinstance(geometry, dict) or geometry.get("type") not in {
+                    "Polygon",
+                    "MultiPolygon",
+                }:
+                    invalid_geometry.append(index)
+            observed = {"invalid_geometry": len(invalid_geometry)}
+            expected = {"invalid_geometry": 0}
+            passed = bool(source_rows) and not invalid_geometry
         results.append(
             {
                 "rule_id": rule.rule_id,

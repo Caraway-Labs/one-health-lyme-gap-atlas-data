@@ -1,0 +1,31 @@
+resource_key: usda_ers_rucc_2023
+source_id: usda_ers
+dataset_id: rural-urban-continuum-codes-2023
+definition_version: 1
+profile_version: 1
+platform_type: HTTP_CSV
+endpoint_template: https://www.ers.usda.gov/media/5768/2023-rural-urban-continuum-codes.csv?v=86650
+deterministic_order_clause: FIPS ASC, Attribute ASC
+incremental_strategy: FULL_REFRESH
+onboarding_environments: [dev, prod]
+onboarding_mode: ROUTINE_PUBLIC
+expected_refresh_cadence: periodic
+sample_limit: 25
+maximum_rows: 1000000
+page_size: 5000
+destination: RAW.USDA_ERS_RUCC_2023
+geography_semantics: COUNTY_FIPS_5
+temporal_semantics: RUCC_2023_CODEBOOK
+required_columns: [FIPS, Attribute, Value]
+encoding: cp1252
+quality_rules:
+  - rule_id: rucc_required_geography
+    severity: BLOCKING
+  - rule_id: rucc_required_fields
+    severity: BLOCKING
+  - rule_id: rucc_value_state_preservation
+    severity: BLOCKING
+restrictions:
+  - Preserve the 2023 codebook as a vintage-specific source; RUCC values are not comparable across vintages without review.
+  - Use the RUCC_2023 attribute for the county rurality measure; retain other attributes for lineage and auditability.
+  - RUCC is a county classification, not a causal driver or individual risk measure.
