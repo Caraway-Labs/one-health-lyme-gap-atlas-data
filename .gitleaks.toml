@@ -66,3 +66,13 @@ regexTarget = "match"
 regexes = [
   '''SNOWFLAKE_PRIVATE_KEY_B64''',
 ]
+
+[[allowlists]]
+description = "Published CDC/ATSDR ArcGIS service identifier, not a credential"
+paths = [
+  '''^config/sources/cdc_atsdr_svi_2022_county\.yml$''',
+]
+regexTarget = "match"
+regexes = [
+  '''ZvidGQkLaDJxRSJ2''',
+]
