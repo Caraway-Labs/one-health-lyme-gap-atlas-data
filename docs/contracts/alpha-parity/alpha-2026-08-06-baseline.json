@@ -1,0 +1,143 @@
+{
+  "manifest_schema": "atlas-alpha-parity-baseline/v1",
+  "release_id": "alpha-2026-08-06",
+  "methodology_version": "alpha-0.2.0",
+  "generated_at": "2026-08-06T05:37:16Z",
+  "retention": {
+    "alpha_poc_database_mutated": false,
+    "alpha_bundle_path": "Lyme_Gap_Atlas_Live_Alpha_Source/Lyme_Gap_Atlas_Live_Alpha/public/data/atlas.json",
+    "alpha_bundle_sha256": "dd7408c7ce0f8c55623c3319cec813c0e28f3b0c81929197b1958f2a4a47be7c",
+    "manifest_is_metadata_only": true,
+    "raw_source_files_copied": false
+  },
+  "coverage": {
+    "feature_count": 3144,
+    "unique_fips": 3144,
+    "first_fips": "01001",
+    "last_fips": "56045",
+    "state_or_district_count": 51,
+    "contiguous_scope_true": 3109,
+    "contiguous_scope_false": 35,
+    "geometry_feature_count": 3144,
+    "geometry_types": {
+      "Polygon": 3144
+    }
+  },
+  "score_inputs": {
+    "ecological_share": 0.65,
+    "community_share": 0.35,
+    "low_incidence_breakpoint_per_100k": 10,
+    "missing_human_signal_weakness": 75,
+    "ecological_mix": {
+      "tick_status": 0.6,
+      "b_burgdorferi_in_ticks": 0.4
+    },
+    "community_mix": {
+      "svi": 0.5,
+      "uninsured_percentile": 0.3,
+      "rurality": 0.2
+    }
+  },
+  "source_contributions": [
+    {
+      "key": "human",
+      "publisher": "CDC",
+      "dataset_id": "x5j9-wybp",
+      "vintage": "2023",
+      "fields": [
+        "human_status",
+        "case_count_floor_2023",
+        "incidence_floor_2023",
+        "state_unallocated_records_2023"
+      ],
+      "limitation": "County-linked sums are a privacy-protected published floor, not an official complete county incidence estimate."
+    },
+    {
+      "key": "tick",
+      "publisher": "CDC ArboNET",
+      "vintage": "through Dec. 31, 2025",
+      "fields": ["tick_status", "scapularis_status", "pacificus_status"],
+      "limitation": "No records does not mean the tick is absent."
+    },
+    {
+      "key": "pathogen",
+      "publisher": "CDC ArboNET",
+      "vintage": "through Dec. 31, 2025",
+      "fields": ["burgdorferi_status"],
+      "limitation": "No records does not mean pathogen absence or individual infection risk."
+    },
+    {
+      "key": "svi",
+      "publisher": "CDC/ATSDR",
+      "dataset_id": "Social Vulnerability Index 2022",
+      "vintage": "2022 (2018-2022 ACS)",
+      "fields": ["population", "svi_percentile", "uninsured_percentile", "uninsured_percent"],
+      "limitation": "Contextual population and vulnerability measures are not causal drivers or individual risk factors."
+    },
+    {
+      "key": "rurality",
+      "publisher": "USDA ERS",
+      "dataset_id": "Rural-Urban Continuum Codes",
+      "vintage": "2023",
+      "fields": ["rucc_2023"],
+      "limitation": "RUCC codes are contextual categories and historical vintages are not automatically comparable."
+    },
+    {
+      "key": "county_identity",
+      "publisher": "Alpha joined county reference",
+      "fields": ["fips", "county", "state", "state_name", "in_contiguous_tick_scope"],
+      "limitation": "Stable five-digit FIPS is the join identity; display labels are not identity."
+    },
+    {
+      "key": "geometry",
+      "publisher": "CDC/ATSDR SVI 2022 county layer as used by Alpha",
+      "vintage": "2022",
+      "fields": ["geometry"],
+      "limitation": "The exact independent geometry license/provenance contract remains a governed follow-up before public replacement."
+    },
+    {
+      "key": "derived_semantic",
+      "publisher": "Alpha scoring implementation",
+      "fields": ["evidence_completeness", "default"],
+      "limitation": "Derived score and completeness are method outputs, not source observations."
+    }
+  ],
+  "field_profiles": {
+    "fips": {"type": "string", "present_count": 3144, "null_count": 0, "distinct_count": 3144},
+    "county": {"type": "string", "present_count": 3144, "null_count": 0, "distinct_count": 1882},
+    "state": {"type": "string", "present_count": 3144, "null_count": 0, "distinct_count": 51},
+    "state_name": {"type": "string", "present_count": 3144, "null_count": 0, "distinct_count": 51},
+    "population": {"type": "integer", "present_count": 3144, "null_count": 0, "distinct_count": 3080, "min": 50, "max": 9936690},
+    "in_contiguous_tick_scope": {"type": "boolean", "present_count": 3144, "null_count": 0, "value_counts": {"true": 3109, "false": 35}},
+    "human_status": {"type": "string", "present_count": 3144, "null_count": 0, "value_counts": {"published_count_floor": 651, "no_county_linked_record": 2493}},
+    "case_count_floor_2023": {"type": "integer", "present_count": 651, "null_count": 2493, "distinct_count": 249, "min": 5, "max": 3262},
+    "incidence_floor_2023": {"type": "number", "present_count": 651, "null_count": 2493, "distinct_count": 639, "min": 0.15, "max": 1640.46},
+    "state_unallocated_records_2023": {"type": "integer", "present_count": 3144, "null_count": 0, "distinct_count": 32, "min": 0, "max": 293},
+    "tick_status": {"type": "string", "present_count": 3144, "null_count": 0, "value_counts": {"Established": 1404, "Reported": 490, "No records": 1250}},
+    "scapularis_status": {"type": "string", "present_count": 3144, "null_count": 0, "value_counts": {"Established": 1307, "Reported": 475, "No records": 1362}},
+    "pacificus_status": {"type": "string", "present_count": 3144, "null_count": 0, "value_counts": {"Established": 97, "Reported": 15, "No records": 3032}},
+    "burgdorferi_status": {"type": "string", "present_count": 3144, "null_count": 0, "value_counts": {"Present": 689, "No records": 2455}},
+    "svi_percentile": {"type": "number", "present_count": 3144, "null_count": 0, "distinct_count": 3082, "min": 0, "max": 1},
+    "uninsured_percentile": {"type": "number", "present_count": 3144, "null_count": 0, "distinct_count": 261, "min": 0, "max": 1},
+    "uninsured_percent": {"type": "number", "present_count": 3144, "null_count": 0, "distinct_count": 261, "min": 0, "max": 45.1},
+    "rucc_2023": {"type": "integer", "present_count": 3144, "null_count": 0, "value_counts": {"1": 443, "2": 385, "3": 358, "4": 201, "5": 76, "6": 379, "7": 247, "8": 466, "9": 589}},
+    "evidence_completeness": {"type": "integer", "present_count": 3144, "null_count": 0, "value_counts": {"50": 1224, "67": 1050, "83": 426, "100": 444}},
+    "geometry": {"type": "object", "present_count": 3144, "null_count": 0, "distinct_count": 3144, "geometry_types": {"Polygon": 3144}},
+    "default": {"type": "object", "present_count": 3144, "null_count": 0, "distinct_count": 3144, "subfields": {"human_weakness": {"min": 0, "max": 98.5}, "tick_signal": {"min": 0, "max": 100}, "pathogen_signal": {"min": 0, "max": 100}, "ecological": {"min": 0, "max": 100}, "svi_signal": {"min": 0, "max": 100}, "access_signal": {"min": 0, "max": 100}, "rural_signal": {"min": 0, "max": 100}, "community": {"min": 0.1, "max": 99.6}, "score": {"min": 0, "max": 84.6}}}
+  },
+  "allowed_difference_categories": [
+    "SOURCE_REFRESH",
+    "SOURCE_REVISION",
+    "MISSINGNESS_VALUE_STATE",
+    "GEOGRAPHY_SCOPE",
+    "GEOMETRY",
+    "METHODOLOGY",
+    "DEFECT"
+  ],
+  "interpretation_requirements": [
+    "Published county-linked values are privacy-protected floors, not true incidence.",
+    "No records is not absence.",
+    "Ecological status is not individual infection risk or diagnosis.",
+    "The score is a deterministic surveillance follow-up priority, not a prediction, causal claim, or automatic action."
+  ]
+}
