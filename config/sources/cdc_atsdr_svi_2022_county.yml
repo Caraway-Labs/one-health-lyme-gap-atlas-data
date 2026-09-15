@@ -1,0 +1,55 @@
+resource_key: cdc_atsdr_svi_2022_county
+source_id: cdc_atsdr_svi
+dataset_id: atsdr-svi-2022-county-layer
+definition_version: 1
+profile_version: 1
+platform_type: HTTP_JSON
+endpoint_template: "https://services3.arcgis.com/ZvidGQkLaDJxRSJ2/arcgis/rest/services/CDC_ATSDR_Social_Vulnerability_Index_2022_USA/FeatureServer/1/query?where=1%3D1&outFields=STCNTY%2CSTATE%2CST_ABBR%2CCOUNTY%2CLOCATION%2CE_TOTPOP%2CRPL_THEMES%2CEP_UNINSUR%2CEPL_UNINSUR&returnGeometry=true&outSR=4326&maxAllowableOffset=0.01&orderByFields=STCNTY&f=geojson"
+deterministic_order_clause: STCNTY ASC
+incremental_strategy: FULL_REFRESH
+onboarding_environments: [dev, prod]
+onboarding_mode: ROUTINE_PUBLIC
+expected_refresh_cadence: annual
+sample_limit: 25
+maximum_rows: 10000
+page_size: 2000
+destination: RAW.CDC_ATSDR_SVI_2022_COUNTY
+geography_semantics: COUNTY_FIPS_5
+temporal_semantics: SVI_2022_ACS_2018_2022
+row_path: features
+required_columns:
+  - STCNTY
+  - ST_ABBR
+  - COUNTY
+  - E_TOTPOP
+  - RPL_THEMES
+  - EP_UNINSUR
+  - EPL_UNINSUR
+  - geometry
+pagination:
+  enabled: true
+  offset_param: resultOffset
+  page_size_param: resultRecordCount
+  initial_offset: 0
+  page_size: 2000
+geometry_contract:
+  publisher: CDC/ATSDR ArcGIS FeatureServer
+  dataset_vintage: 2022
+  crs: EPSG:4326
+  delivery: GeoJSON
+  simplification: maxAllowableOffset=0.01
+  scope: United States counties and county equivalents; joined by STCNTY
+quality_rules:
+  - rule_id: svi_required_geography
+    severity: BLOCKING
+  - rule_id: svi_required_fields
+    severity: BLOCKING
+  - rule_id: svi_geometry_valid
+    severity: BLOCKING
+  - rule_id: svi_value_state_preservation
+    severity: BLOCKING
+restrictions:
+  - Preserve SVI percentiles, uninsured percent, population, missingness, and geometry as separate source fields.
+  - RPL_THEMES and EPL_UNINSUR are national county percentiles; they are not causal drivers or individual risk measures.
+  - E_TOTPOP is the 2018-2022 ACS population estimate supplied by the SVI layer.
+  - Geometry is a display boundary and must retain source/version/checksum lineage.

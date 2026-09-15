@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
@@ -545,9 +546,349 @@ class HttpXlsxAdapter:
         )
 
 
+class HttpJsonAdapter:
+    """Bounded JSON adapter for public structured HTTP endpoints."""
+
+    kind = AdapterKind.HTTP_JSON
+
+    def __init__(
+        self,
+        *,
+        client: httpx.Client | None = None,
+        sleep_fn: Any = time.sleep,
+        max_retries: int = 3,
+    ) -> None:
+        self._client = client
+        self._sleep = sleep_fn
+        self._max_retries = max_retries
+
+    def acquire(
+        self,
+        definition: SourceDefinition,
+        *,
+        fixture_dir: Path | None = None,
+    ) -> AcquireResult:
+        if fixture_dir is not None:
+            body = (fixture_dir / "sample.json").read_bytes()
+            document = _parse_json(body)
+            rows = _json_rows(document, definition)
+            return AcquireResult(
+                payload={"sample": rows},
+                artifact_sha256=_sha256(body),
+                media_type="application/json",
+                row_count=len(rows),
+                detail={"source": "fixture"},
+                raw_payload=body,
+            )
+
+        client = self._client or httpx.Client(timeout=60.0, follow_redirects=False)
+        try:
+            pagination_value = definition.extra.get("pagination")
+            pagination: dict[str, Any] = (
+                pagination_value if isinstance(pagination_value, dict) else {}
+            )
+            paginated = bool(pagination.get("enabled", False))
+            offset = int(pagination.get("initial_offset", 0)) if paginated else 0
+            page_size = (
+                int(pagination.get("page_size", definition.page_size)) if paginated else None
+            )
+            acquired_rows: list[dict[str, Any]] = []
+            raw_parts: list[bytes] = []
+            pages: list[dict[str, Any]] = []
+            while True:
+                if (
+                    definition.maximum_rows is not None
+                    and len(acquired_rows) >= definition.maximum_rows
+                ):
+                    break
+                params: dict[str, Any] = {}
+                if paginated:
+                    params[str(pagination.get("offset_param", "offset"))] = offset
+                    params[str(pagination.get("page_size_param", "limit"))] = min(
+                        page_size or definition.page_size,
+                        (definition.maximum_rows or page_size or definition.page_size)
+                        - len(acquired_rows),
+                    )
+                response = _request_http(
+                    client,
+                    definition.endpoint_template,
+                    headers={"Accept": "application/json"},
+                    params=params or None,
+                    sleep_fn=self._sleep,
+                    max_retries=self._max_retries,
+                    label="JSON",
+                )
+                raw_parts.append(response.content)
+                document = _parse_json(response.content)
+                page_rows = _json_rows(document, definition)
+                pages.append({"offset": offset, "row_count": len(page_rows)})
+                acquired_rows.extend(page_rows)
+                if not paginated or len(page_rows) < (page_size or definition.page_size):
+                    break
+                offset += len(page_rows)
+            if definition.maximum_rows is not None:
+                acquired_rows = acquired_rows[: definition.maximum_rows]
+            return AcquireResult(
+                payload={"sample": acquired_rows, "pages": pages},
+                artifact_sha256=_sha256(b"\n".join(raw_parts)),
+                media_type="application/json",
+                row_count=len(acquired_rows),
+                detail={"source": "live", "page_count": len(pages)},
+                raw_payload=b"\n".join(raw_parts),
+            )
+        finally:
+            if self._client is None:
+                client.close()
+
+    def validate_payload(self, definition: SourceDefinition, payload: Any) -> ValidationResult:
+        return _validate_structured_payload(definition, payload, source_label="JSON")
+
+    def restore_raw_payload(self, definition: SourceDefinition, raw_payload: bytes) -> Any:
+        documents = _json_documents(raw_payload)
+        rows: list[dict[str, Any]] = []
+        for document in documents:
+            rows.extend(_json_rows(document, definition))
+        return {"sample": rows}
+
+    def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
+        sample = payload.get("sample") if isinstance(payload, dict) else payload
+        assert isinstance(sample, list)
+        records = [_normalized_record(definition, row) for row in sample if isinstance(row, dict)]
+        return NormalizeResult(
+            records=records,
+            transformation_version="http_json_normalize_v1",
+            detail={"record_count": len(records)},
+        )
+
+
+class HttpCsvAdapter:
+    """Bounded CSV adapter for public structured HTTP endpoints."""
+
+    kind = AdapterKind.HTTP_CSV
+
+    def __init__(
+        self,
+        *,
+        client: httpx.Client | None = None,
+        sleep_fn: Any = time.sleep,
+        max_retries: int = 3,
+    ) -> None:
+        self._client = client
+        self._sleep = sleep_fn
+        self._max_retries = max_retries
+
+    def acquire(
+        self,
+        definition: SourceDefinition,
+        *,
+        fixture_dir: Path | None = None,
+    ) -> AcquireResult:
+        if fixture_dir is not None:
+            body = (fixture_dir / "sample.csv").read_bytes()
+            rows = _csv_rows(body, definition)
+            return AcquireResult(
+                payload={"sample": rows},
+                artifact_sha256=_sha256(body),
+                media_type="text/csv",
+                row_count=len(rows),
+                detail={"source": "fixture"},
+                raw_payload=body,
+            )
+
+        client = self._client or httpx.Client(timeout=60.0, follow_redirects=False)
+        try:
+            response = _request_http(
+                client,
+                definition.endpoint_template,
+                headers={"Accept": "text/csv"},
+                sleep_fn=self._sleep,
+                max_retries=self._max_retries,
+                label="CSV",
+            )
+            rows = _csv_rows(response.content, definition)
+            return AcquireResult(
+                payload={"sample": rows},
+                artifact_sha256=_sha256(response.content),
+                media_type="text/csv",
+                row_count=len(rows),
+                detail={"source": "live"},
+                raw_payload=response.content,
+            )
+        finally:
+            if self._client is None:
+                client.close()
+
+    def validate_payload(self, definition: SourceDefinition, payload: Any) -> ValidationResult:
+        return _validate_structured_payload(definition, payload, source_label="CSV")
+
+    def restore_raw_payload(self, definition: SourceDefinition, raw_payload: bytes) -> Any:
+        return {"sample": _csv_rows(raw_payload, definition)}
+
+    def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
+        sample = payload.get("sample") if isinstance(payload, dict) else payload
+        assert isinstance(sample, list)
+        records = [_normalized_record(definition, row) for row in sample if isinstance(row, dict)]
+        return NormalizeResult(
+            records=records,
+            transformation_version="http_csv_normalize_v1",
+            detail={"record_count": len(records)},
+        )
+
+
+def _request_http(
+    client: httpx.Client,
+    url: str,
+    *,
+    headers: dict[str, str],
+    params: dict[str, Any] | None = None,
+    sleep_fn: Any,
+    max_retries: int,
+    label: str,
+) -> httpx.Response:
+    for attempt in range(max_retries):
+        try:
+            response = client.get(url, headers=headers, params=params)
+        except httpx.TransportError as error:
+            if attempt == max_retries - 1:
+                raise AcquisitionError(f"{label} transport failed", code="TRANSPORT") from error
+            sleep_fn(2**attempt)
+            continue
+        if response.status_code in {408, 425, 429} or response.status_code >= 500:
+            if attempt == max_retries - 1:
+                raise AcquisitionError(
+                    f"{label} provider returned HTTP {response.status_code}",
+                    code=f"HTTP_{response.status_code}",
+                )
+            sleep_fn(2**attempt)
+            continue
+        if response.status_code >= 400:
+            raise AcquisitionError(
+                f"{label} provider rejected request with HTTP {response.status_code}",
+                code=f"HTTP_{response.status_code}",
+            )
+        return response
+    raise AssertionError("unreachable")
+
+
+def _parse_json(body: bytes) -> Any:
+    try:
+        return json.loads(body)
+    except ValueError as error:
+        raise AcquisitionError("JSON response was not valid JSON", code="RESPONSE_JSON") from error
+
+
+def _json_documents(body: bytes) -> list[Any]:
+    decoder = json.JSONDecoder()
+    text = body.decode("utf-8")
+    documents: list[Any] = []
+    offset = 0
+    while offset < len(text):
+        while offset < len(text) and text[offset].isspace():
+            offset += 1
+        if offset == len(text):
+            break
+        document, offset = decoder.raw_decode(text, offset)
+        documents.append(document)
+    if not documents:
+        raise AcquisitionError("Retained JSON artifact was empty", code="ARTIFACT_SHAPE")
+    return documents
+
+
+def _json_rows(document: Any, definition: SourceDefinition) -> list[dict[str, Any]]:
+    current = document
+    row_path = definition.extra.get("row_path")
+    if row_path:
+        for part in str(row_path).split("."):
+            if not isinstance(current, dict):
+                raise AcquisitionError("JSON row path did not resolve", code="RESPONSE_SHAPE")
+            current = current.get(part)
+    if not isinstance(current, list):
+        raise AcquisitionError("JSON rows must be a list", code="RESPONSE_SHAPE")
+    rows: list[dict[str, Any]] = []
+    for row in current:
+        if not isinstance(row, dict):
+            raise AcquisitionError("JSON rows must be objects", code="ROW_SHAPE")
+        if row.get("type") == "Feature" and isinstance(row.get("properties"), dict):
+            flattened = dict(row["properties"])
+            if "geometry" in row:
+                flattened["geometry"] = row["geometry"]
+            rows.append(flattened)
+        else:
+            rows.append(row)
+    return rows
+
+
+def _csv_rows(body: bytes, definition: SourceDefinition) -> list[dict[str, Any]]:
+    encoding = str(definition.extra.get("encoding") or "utf-8-sig")
+    try:
+        text = body.decode(encoding)
+    except UnicodeDecodeError as error:
+        raise AcquisitionError(
+            "CSV response could not be decoded", code="RESPONSE_ENCODING"
+        ) from error
+    reader = csv.DictReader(io.StringIO(text))
+    names = [str(name).strip() for name in (reader.fieldnames or [])]
+    if not names or len(names) != len(set(names)) or any(not name for name in names):
+        raise AcquisitionError("CSV header is not unique and non-empty", code="HEADER_INVALID")
+    missing = [column for column in definition.required_columns if column not in names]
+    if missing:
+        raise AcquisitionError(
+            f"CSV is missing required columns: {', '.join(missing)}", code="MISSING_COLUMNS"
+        )
+    rows: list[dict[str, Any]] = []
+    for row in reader:
+        cleaned = {str(key).strip(): value for key, value in row.items() if key is not None}
+        if any(value not in (None, "") for value in cleaned.values()):
+            rows.append(cleaned)
+        if definition.maximum_rows is not None and len(rows) > definition.maximum_rows:
+            raise AcquisitionError("CSV exceeds configured row bound", code="ROW_BOUND")
+    return rows
+
+
+def _validate_structured_payload(
+    definition: SourceDefinition, payload: Any, *, source_label: str
+) -> ValidationResult:
+    issues: list[ValidationIssue] = []
+    sample = payload.get("sample") if isinstance(payload, dict) else payload
+    if not isinstance(sample, list) or not sample:
+        issues.append(
+            ValidationIssue(
+                code="EMPTY_SAMPLE",
+                message=f"{source_label} sample must be a non-empty list",
+                category=FailureCategory.SCHEMA,
+            )
+        )
+        return ValidationResult(ok=False, issues=issues)
+    if not all(isinstance(row, dict) for row in sample):
+        issues.append(
+            ValidationIssue(
+                code="ROW_SHAPE",
+                message=f"{source_label} rows must be objects",
+                category=FailureCategory.SCHEMA,
+            )
+        )
+        return ValidationResult(ok=False, issues=issues)
+    missing = [
+        column
+        for column in definition.required_columns
+        if not all(column in row for row in sample if isinstance(row, dict))
+    ]
+    if missing:
+        issues.append(
+            ValidationIssue(
+                code="MISSING_COLUMNS",
+                message=f"Missing required columns: {', '.join(missing)}",
+                category=FailureCategory.SCHEMA,
+            )
+        )
+    return ValidationResult(ok=not issues, issues=issues)
+
+
 _REGISTRY: dict[AdapterKind, SourceAdapter] = {
     AdapterKind.SOCRATA: SocrataAdapter(),
     AdapterKind.HTTP_XLSX: HttpXlsxAdapter(),
+    AdapterKind.HTTP_JSON: HttpJsonAdapter(),
+    AdapterKind.HTTP_CSV: HttpCsvAdapter(),
 }
 
 

@@ -8,6 +8,7 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 
 from .types import (
+    DEFAULT_HTTP_STRUCTURED_STAGES,
     DEFAULT_HTTP_XLSX_STAGES,
     DEFAULT_SOCRATA_STAGES,
     AdapterKind,
@@ -25,6 +26,10 @@ _PLATFORM_TO_ADAPTER: dict[str, AdapterKind] = {
     "socrata": AdapterKind.SOCRATA,
     "HTTP_XLSX": AdapterKind.HTTP_XLSX,
     "http_xlsx": AdapterKind.HTTP_XLSX,
+    "HTTP_JSON": AdapterKind.HTTP_JSON,
+    "http_json": AdapterKind.HTTP_JSON,
+    "HTTP_CSV": AdapterKind.HTTP_CSV,
+    "http_csv": AdapterKind.HTTP_CSV,
 }
 
 
@@ -39,9 +44,11 @@ def _as_adapter(value: Any) -> AdapterKind:
 
 def _as_stages(raw: Any, adapter: AdapterKind) -> tuple[Stage, ...]:
     if not raw:
-        return (
-            DEFAULT_SOCRATA_STAGES if adapter is AdapterKind.SOCRATA else DEFAULT_HTTP_XLSX_STAGES
-        )
+        if adapter is AdapterKind.SOCRATA:
+            return DEFAULT_SOCRATA_STAGES
+        if adapter is AdapterKind.HTTP_XLSX:
+            return DEFAULT_HTTP_XLSX_STAGES
+        return DEFAULT_HTTP_STRUCTURED_STAGES
     return tuple(Stage(str(item)) for item in raw)
 
 
@@ -242,6 +249,17 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                     category=FailureCategory.SCHEMA,
                 )
             )
+    if (
+        definition.adapter_kind in {AdapterKind.HTTP_JSON, AdapterKind.HTTP_CSV}
+        and not definition.required_columns
+    ):
+        issues.append(
+            ValidationIssue(
+                code="REQUIRED_COLUMNS",
+                message="structured HTTP sources must declare required_columns",
+                category=FailureCategory.SCHEMA,
+            )
+        )
 
     return ValidationResult(ok=not issues, issues=issues)
 
