@@ -130,6 +130,7 @@ class SocrataAdapter:
             offset = 0
             rows: list[dict[str, Any]] = []
             pages: list[dict[str, Any]] = []
+            select_clause = _socrata_select_clause(metadata_payload, definition.required_columns)
             while True:
                 if definition.maximum_rows is not None and len(rows) >= definition.maximum_rows:
                     break
@@ -142,10 +143,11 @@ class SocrataAdapter:
                     "$offset": offset,
                     "$order": definition.deterministic_order_clause,
                     # Socrata omits system columns from the default projection.
-                    # Retain publisher identity and revision timestamps when
-                    # available; the identity policy still has a safe hash
-                    # fallback for fixtures and sources without them.
-                    "$select": ":id,:created_at,:updated_at,*",
+                    # Request them alongside the explicit publisher columns
+                    # returned by metadata.  A wildcard cannot be combined
+                    # with system columns on every SODA2 dataset (including
+                    # qtbi-xd4i), so the projection must remain explicit.
+                    "$select": select_clause,
                 }
                 response = self._request(
                     client, definition.endpoint_template, headers, params=params
@@ -561,6 +563,23 @@ def get_adapter(kind: AdapterKind) -> SourceAdapter:
 
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _socrata_select_clause(metadata_payload: Any, required_columns: tuple[str, ...]) -> str:
+    """Build a portable explicit projection with publisher system columns."""
+    columns: list[str] = [":id", ":created_at", ":updated_at"]
+    if isinstance(metadata_payload, dict):
+        metadata_columns = metadata_payload.get("columns")
+        if isinstance(metadata_columns, list):
+            for column in metadata_columns:
+                if not isinstance(column, dict):
+                    continue
+                field_name = column.get("fieldName") or column.get("name")
+                if isinstance(field_name, str) and field_name.strip():
+                    columns.append(field_name.strip())
+    if len(columns) == 3:
+        columns.extend(column.strip() for column in required_columns if column.strip())
+    return ",".join(dict.fromkeys(columns))
 
 
 def _normalized_record(definition: SourceDefinition, row: dict[str, Any]) -> dict[str, Any]:
