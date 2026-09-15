@@ -22,6 +22,7 @@ from ..artifacts import create_artifact
 from ..redaction import redact_mapping
 from ..settings import PipelineSettings
 from .adapters import AcquireResult
+from .identity import deterministic_record_id, publisher_record_id, source_row_hash
 from .types import RunState, SourceDefinition
 
 
@@ -445,15 +446,11 @@ def _lineage_rows(
         source_row = normalized.get("record")
         if not isinstance(source_row, dict):
             continue
-        source_serialized = json.dumps(
-            source_row, sort_keys=True, separators=(",", ":"), default=str
-        )
         serialized = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
-        source_hash = hashlib.sha256(source_serialized.encode()).hexdigest()
-        source_record_id = source_row.get(":id") or source_row.get("id")
-        source_identity = str(source_record_id) if source_record_id is not None else source_hash
-        record_id = _stable_id(
-            f"record:{definition.resource_key}:{definition.definition_version}:{source_identity}"
+        source_hash = source_row_hash(source_row)
+        source_record_id = publisher_record_id(source_row)
+        record_id = deterministic_record_id(
+            definition.resource_key, definition.definition_version, source_row
         )
         rows.append(
             (

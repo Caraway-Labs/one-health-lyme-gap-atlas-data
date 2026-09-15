@@ -141,6 +141,11 @@ class SocrataAdapter:
                     "$limit": limit,
                     "$offset": offset,
                     "$order": definition.deterministic_order_clause,
+                    # Socrata omits system columns from the default projection.
+                    # Retain publisher identity and revision timestamps when
+                    # available; the identity policy still has a safe hash
+                    # fallback for fixtures and sources without them.
+                    "$select": ":id,:created_at,:updated_at,*",
                 }
                 response = self._request(
                     client, definition.endpoint_template, headers, params=params
