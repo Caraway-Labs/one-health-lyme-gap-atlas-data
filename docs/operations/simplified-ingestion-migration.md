@@ -23,8 +23,11 @@ uv run atlas-data runs resume --run-id <id> --definition config/sources/cdc_x5j9
 For a live routine public source, use `--tier B` in the isolated DEV
 environment. The command persists payloads, stage checkpoints, and generic
 load/quality/publication effects. Tier C is rejected by the CLI and belongs to
-the protected promotion/publication workflows; evidence-only definitions are
-also rejected for Tier B/C.
+the protected `run-prod-ingestion.yml` workflow, which invokes the same CLI
+with the production environment guard and `--tier C`; evidence-only definitions
+are also rejected for Tier B/C. The protected workflow requires the exact
+reviewed commit and verifies the dedicated PROD runtime identity before any
+acquisition or warehouse write.
 
 ### DEV runtime identity and artifact storage
 

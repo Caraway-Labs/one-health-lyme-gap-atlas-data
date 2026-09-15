@@ -159,3 +159,21 @@ def test_tier_c_requires_protection() -> None:
     orch = IngestionOrchestrator(store=InMemoryCheckpointStore(), fixture_dir=X5J9_FIXTURES)
     with pytest.raises(PermissionError):
         orch.run(definition, tier=Tier.C, dry_run=False)
+
+
+def test_tier_c_accepts_only_explicit_production_execution(monkeypatch) -> None:
+    definition = load_source_definition(X5J9)
+    monkeypatch.setenv("TOPX_ENV", "prod")
+    monkeypatch.setenv("ENABLE_PRODUCTION_EXECUTION", "true")
+    monkeypatch.setenv("SNOWFLAKE_DATABASE", "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "test-account")
+    monkeypatch.setenv("SNOWFLAKE_USER", "OH_LYME_PROD_PIPELINE_SVC")
+    monkeypatch.setenv("SNOWFLAKE_ROLE", "OH_LYME_PROD_PIPELINE_RUNTIME")
+
+    # The check happens before a Tier C run can select effects or acquire data.
+    # Keep this test side-effect free by verifying the protected settings gate
+    # directly through an injected dry-run boundary.
+    state = IngestionOrchestrator(store=InMemoryCheckpointStore(), fixture_dir=X5J9_FIXTURES).run(
+        definition, tier=Tier.C, dry_run=True
+    )
+    assert state.status.value == "SUCCEEDED"

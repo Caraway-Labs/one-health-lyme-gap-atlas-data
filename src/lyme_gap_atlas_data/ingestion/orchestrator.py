@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..settings import PipelineSettings
 from .adapters import AcquisitionError, SourceAdapter, get_adapter
 from .checkpoints import CheckpointStore, InMemoryCheckpointStore, PayloadStore, RawArtifactStore
 from .runtime import NoopStageEffects, QualityFailure, SnowflakeStageEffects, StageEffects
@@ -61,9 +62,7 @@ class IngestionOrchestrator:
         run_id: str | None = None,
     ) -> RunState:
         if tier is Tier.C and dry_run is False:
-            raise PermissionError(
-                "Tier C PROD runs require protected promotion workflows; use dry-run or Tier B."
-            )
+            _require_protected_prod_execution()
         if tier is Tier.D and dry_run is False:
             raise PermissionError(
                 "Tier D sources require the governed steward-review path before acquisition."
@@ -282,7 +281,7 @@ class IngestionOrchestrator:
     def _effects(self, state: RunState) -> StageEffects:
         if self._effects_override is not None:
             return self._effects_override
-        if state.tier is Tier.B and not state.dry_run:
+        if state.tier in {Tier.B, Tier.C} and not state.dry_run:
             return SnowflakeStageEffects()
         return NoopStageEffects()
 
@@ -326,3 +325,16 @@ def _diagnostic_code(error: Exception) -> str:
     if isinstance(code, str) and code:
         return code
     return type(error).__name__.upper()
+
+
+def _require_protected_prod_execution() -> None:
+    """Require the production settings asserted by a protected workflow."""
+    try:
+        settings = PipelineSettings()
+    except ValueError as error:
+        raise PermissionError(
+            "Tier C requires TOPX_ENV=prod, the governed PROD database, and "
+            "ENABLE_PRODUCTION_EXECUTION=true"
+        ) from error
+    if settings.topx_env != "prod":
+        raise PermissionError("Tier C execution requires TOPX_ENV=prod")

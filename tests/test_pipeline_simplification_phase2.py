@@ -358,6 +358,20 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "required_var in \\" in workflow
     assert "Missing required generic-ingestion configuration: $required_var" in workflow
 
+    prod_workflow = (REPO / ".github" / "workflows" / "run-prod-ingestion.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "environment: production" in prod_workflow
+    assert 'ENABLE_PRODUCTION_EXECUTION: "true"' in prod_workflow
+    assert "release_commit" in prod_workflow
+    assert 'test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"' in prod_workflow
+    assert "SNOWFLAKE_RUNTIME_USER" in prod_workflow
+    assert "SNOWFLAKE_RUNTIME_ROLE" in prod_workflow
+    assert "OH_LYME_PROD_PIPELINE_SVC" in prod_workflow
+    assert "OH_LYME_PROD_PIPELINE_RUNTIME" in prod_workflow
+    assert "--tier C" in prod_workflow
+    assert "run-production-schedule" not in prod_workflow
+
     checkpoint_migration = (
         REPO / "migrations" / "V070__durable_ingestion_payload_checkpoints.sql"
     ).read_text(encoding="utf-8")
