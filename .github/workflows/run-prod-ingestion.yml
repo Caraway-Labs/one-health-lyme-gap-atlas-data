@@ -1,0 +1,146 @@
+name: Run protected governed PROD ingestion
+
+# Story #255: Tier C is available only through this protected workflow. The
+# application service remains the single orchestration entry point; this file
+# supplies production environment protection, identity checks, and credentials.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_definition:
+        description: Path to SourceDefinition YAML under the repo
+        required: true
+        default: config/sources/cdc_x5j9_wybp.yml
+        type: string
+      operation:
+        description: Run a new source release or resume a retained run
+        required: true
+        default: run
+        type: choice
+        options:
+          - run
+          - resume
+      run_id:
+        description: Existing run id when operation is resume
+        required: false
+        type: string
+      release_commit:
+        description: Exact commit reviewed for this protected execution
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-governed-ingestion-${{ inputs.source_definition }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Protected canonical PROD ingestion
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      TOPX_ENV: prod
+      ENABLE_PRODUCTION_EXECUTION: "true"
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_AUTH_METHOD: key_pair
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
+      SPACES_REGION: ${{ secrets.SPACES_REGION }}
+      SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+      SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+      SPACES_PREFIX: ${{ secrets.SPACES_PREFIX }}
+      SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify reviewed commit and definition
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"
+          test -f "${{ inputs.source_definition }}"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install package
+        run: uv sync --extra dev --extra pipeline --locked
+      - name: Validate definition
+        run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+      - name: Verify protected PROD runtime identity
+        run: |
+          set -euo pipefail
+          for required_var in \
+            SNOWFLAKE_ACCOUNT \
+            SNOWFLAKE_USER \
+            SNOWFLAKE_ROLE \
+            SNOWFLAKE_WAREHOUSE \
+            SNOWFLAKE_DATABASE \
+            SNOWFLAKE_PRIVATE_KEY_B64 \
+            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE \
+            SPACES_ENDPOINT \
+            SPACES_BUCKET \
+            SPACES_ACCESS_KEY_ID \
+            SPACES_SECRET_ACCESS_KEY
+          do
+            if [ -z "${!required_var:-}" ]; then
+              echo "::error::Missing protected PROD ingestion configuration: $required_var"
+              exit 1
+            fi
+          done
+          key_file="$RUNNER_TEMP/oh-lyme-prod-ingestion-key.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
+
+          uv run python - <<'PY'
+          from lyme_gap_atlas_shared.settings import SnowflakeSettings
+          from lyme_gap_atlas_shared.snowflake import connect
+
+          settings = SnowflakeSettings()
+          with connect(settings) as connection, connection.cursor() as cursor:
+              cursor.execute(
+                  "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), "
+                  "CURRENT_WAREHOUSE()"
+              )
+              identity = cursor.fetchone()
+          expected = (
+              "OH_LYME_PROD_PIPELINE_SVC",
+              "OH_LYME_PROD_PIPELINE_RUNTIME",
+              "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+              settings.snowflake_warehouse,
+          )
+          print(
+              "Snowflake PROD runtime identity: "
+              f"user={identity[0]}, role={identity[1]}, database={identity[2]}, "
+              f"warehouse={identity[3]}"
+          )
+          if identity != expected:
+              raise SystemExit(
+                  "Protected Tier C ingestion requires the dedicated PROD "
+                  "pipeline service identity."
+              )
+          PY
+      - name: Execute canonical Tier C run or resume
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.operation }}" = "run" ]; then
+            uv run atlas-data source run \
+              --definition "${{ inputs.source_definition }}" \
+              --tier C
+          else
+            test -n "${{ inputs.run_id }}"
+            uv run atlas-data runs resume \
+              --run-id "${{ inputs.run_id }}" \
+              --definition "${{ inputs.source_definition }}"
+          fi

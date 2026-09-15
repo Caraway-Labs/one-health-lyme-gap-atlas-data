@@ -131,7 +131,7 @@ def _orchestrator(
 ) -> IngestionOrchestrator:
     store = (
         SnowflakeCheckpointStore()
-        if tier is Tier.B and not dry_run
+        if tier in {Tier.B, Tier.C} and not dry_run
         else FileCheckpointStore(_DEFAULT_RUN_STORE)
     )
     return IngestionOrchestrator(

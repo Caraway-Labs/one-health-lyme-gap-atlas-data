@@ -39,7 +39,10 @@ workflow no longer forces `--dry-run`; Tier B runs execute in the `dev`
 environment and persist checkpoints in Snowflake V068. The old x5j9 capture and
 approved-ingestion workflows fail closed. The protected historical command is
 the only retained source-specific load exception, and it is bounded to an
-approved historical source version.
+approved historical source version. New generic Tier C execution uses
+`run-prod-ingestion.yml`, which requires an exact reviewed commit, the protected
+`production` environment, the dedicated PROD runtime identity, and the same
+orchestrator entry point; the public DEV worker continues to reject Tier C.
 
 Every generic row is idempotent by a deterministic record identifier and keeps
 the source row hash, source identity, definition version, ingestion run, and
