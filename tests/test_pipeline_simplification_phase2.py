@@ -102,7 +102,7 @@ def _json_definition(**overrides: Any):
         "dataset_id": "example-json",
         "definition_version": 1,
         "adapter_kind": AdapterKind.HTTP_JSON.value,
-        "endpoint_template": "https://example.test/query",
+        "endpoint_template": "https://example.test/query?f=geojson&where=1%3D1",
         "deterministic_order_clause": "STCNTY ASC",
         "incremental_strategy": "FULL_REFRESH",
         "geography_semantics": "COUNTY",
@@ -167,6 +167,8 @@ def test_json_live_acquisition_flattens_features_and_resumes_pages() -> None:
         result = HttpJsonAdapter(client=client).acquire(definition)
 
     assert len(requests) == 2
+    assert requests[0].url.params["f"] == "geojson"
+    assert requests[0].url.params["where"] == "1=1"
     assert result.row_count == 2
     assert result.payload["sample"][0]["STCNTY"] == "08001"
     assert result.payload["sample"][0]["geometry"]["type"] == "Polygon"

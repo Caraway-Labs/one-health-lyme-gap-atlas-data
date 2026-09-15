@@ -747,7 +747,8 @@ def _request_http(
 ) -> httpx.Response:
     for attempt in range(max_retries):
         try:
-            response = client.get(url, headers=headers, params=params)
+            request_url = str(httpx.URL(url).copy_merge_params(params or {}))
+            response = client.get(request_url, headers=headers)
         except httpx.TransportError as error:
             if attempt == max_retries - 1:
                 raise AcquisitionError(f"{label} transport failed", code="TRANSPORT") from error
