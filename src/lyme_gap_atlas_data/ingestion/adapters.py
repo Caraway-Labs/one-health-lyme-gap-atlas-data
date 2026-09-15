@@ -56,6 +56,8 @@ class SourceAdapter(Protocol):
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult: ...
 
+    def restore_raw_payload(self, definition: SourceDefinition, raw_payload: bytes) -> Any: ...
+
 
 class SocrataAdapter:
     """Socrata SODA2 adapter for the x5j9 golden path."""
@@ -236,6 +238,42 @@ class SocrataAdapter:
                 )
             _validate_era(definition, sample, issues)
         return ValidationResult(ok=not issues, issues=issues)
+
+    def restore_raw_payload(self, definition: SourceDefinition, raw_payload: bytes) -> Any:
+        """Reconstruct the canonical adapter payload from retained JSON responses."""
+        del definition
+        decoder = json.JSONDecoder()
+        text = raw_payload.decode("utf-8")
+        documents: list[Any] = []
+        offset = 0
+        while offset < len(text):
+            while offset < len(text) and text[offset].isspace():
+                offset += 1
+            if offset == len(text):
+                break
+            document, offset = decoder.raw_decode(text, offset)
+            documents.append(document)
+        if not documents:
+            raise AcquisitionError("Retained Socrata artifact was empty", code="ARTIFACT_SHAPE")
+        if (
+            len(documents) == 1
+            and isinstance(documents[0], dict)
+            and isinstance(documents[0].get("sample"), list)
+        ):
+            return documents[0]
+        metadata: Any = {}
+        pages = documents
+        if isinstance(documents[0], dict):
+            metadata = documents[0]
+            pages = documents[1:]
+        rows: list[dict[str, Any]] = []
+        for page in pages:
+            if not isinstance(page, list) or not all(isinstance(row, dict) for row in page):
+                raise AcquisitionError(
+                    "Retained Socrata artifact had an invalid page", code="ARTIFACT_SHAPE"
+                )
+            rows.extend(page)
+        return {"metadata": metadata, "sample": rows}
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
         sample = payload.get("sample") if isinstance(payload, dict) else payload
@@ -434,6 +472,60 @@ class HttpXlsxAdapter:
         if isinstance(sample[0], dict):
             _validate_era(definition, sample, issues)
         return ValidationResult(ok=not issues, issues=issues)
+
+    def restore_raw_payload(self, definition: SourceDefinition, raw_payload: bytes) -> Any:
+        """Reconstruct the canonical workbook payload from retained XLSX bytes."""
+        limit = definition.maximum_workbook_bytes
+        if limit is not None and len(raw_payload) > limit:
+            raise AcquisitionError(
+                "Retained XLSX artifact exceeds configured byte bound", code="BYTE_BOUND"
+            )
+        try:
+            workbook = load_workbook(io.BytesIO(raw_payload), read_only=True, data_only=True)
+        except (OSError, ValueError, KeyError) as error:
+            raise AcquisitionError(
+                "Retained XLSX artifact was not a readable workbook", code="WORKBOOK_INVALID"
+            ) from error
+        try:
+            if definition.workbook_sheet not in workbook.sheetnames:
+                raise AcquisitionError(
+                    "Configured workbook sheet was not found", code="SHEET_NOT_FOUND"
+                )
+            sheet = workbook[definition.workbook_sheet]
+            header_row = definition.header_row or 1
+            rows_iter = sheet.iter_rows(values_only=True)
+            headers_row: tuple[Any, ...] | None = None
+            for index, row in enumerate(rows_iter, start=1):
+                if index == header_row:
+                    headers_row = tuple(row)
+                    break
+            if headers_row is None:
+                raise AcquisitionError(
+                    "Configured workbook header row was not found", code="HEADER_NOT_FOUND"
+                )
+            names = [str(value).strip() for value in headers_row]
+            if len(names) != len(set(names)) or any(not name for name in names):
+                raise AcquisitionError(
+                    "Workbook header is not unique and non-empty", code="HEADER_INVALID"
+                )
+            missing = [column for column in definition.required_columns if column not in names]
+            if missing:
+                raise AcquisitionError(
+                    f"Workbook is missing required columns: {', '.join(missing)}",
+                    code="MISSING_COLUMNS",
+                )
+            rows: list[dict[str, Any]] = []
+            for values in rows_iter:
+                if not any(value is not None for value in values):
+                    continue
+                rows.append({name: value for name, value in zip(names, values, strict=False)})
+                if definition.maximum_rows is not None and len(rows) > definition.maximum_rows:
+                    raise AcquisitionError(
+                        "Workbook exceeds configured row bound", code="ROW_BOUND"
+                    )
+            return {"sample": rows, "workbook_sheet": definition.workbook_sheet, "headers": names}
+        finally:
+            workbook.close()
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
         sample = payload.get("sample") if isinstance(payload, dict) else payload

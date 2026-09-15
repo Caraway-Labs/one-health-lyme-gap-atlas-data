@@ -21,9 +21,10 @@ Use one generic runtime boundary for routine public tabular sources:
    deterministic paging and HTTP/XLSX uses declared byte, sheet, header, and
    row bounds.
 2. ACQUIRE retains response bytes and registers an immutable artifact before
-   downstream work. V068 stores the run/stage checkpoints and persisted payload
-   projections; V069 stores idempotent generic RAW/STAGING/CONFORMED rows and a
-   staged publication lineage record.
+   downstream work. V068 stores the run/stage checkpoints, V070 stores the
+   checksum-verified payload and normalized projections, and V069 stores
+   idempotent generic RAW/STAGING/CONFORMED rows plus staged publication
+   lineage.
 3. Tier B is the live DEV path and advances by automated validation, schema,
    provenance, and quality checks. Tier C remains protected and is not callable
    through the generic CLI. Evidence-only definitions are fail-closed for
