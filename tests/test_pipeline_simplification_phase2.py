@@ -99,7 +99,11 @@ def test_socrata_live_acquisition_is_ordered_paginated_and_bounded() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path.endswith("/api/views/example"):
-            return httpx.Response(200, json={"id": "example"}, request=request)
+            return httpx.Response(
+                200,
+                json={"id": "example", "columns": [{"fieldName": "fips"}]},
+                request=request,
+            )
         offset = int(request.url.params["$offset"])
         page = (
             [{":id": "1", "fips": "08001"}, {":id": "2", "fips": "08003"}]
@@ -123,10 +127,46 @@ def test_socrata_live_acquisition_is_ordered_paginated_and_bounded() -> None:
     assert [request.url.params["$limit"] for request in data_requests] == ["2", "1"]
     assert all(request.url.params["$order"] == ":id ASC" for request in data_requests)
     assert all(
-        request.url.params["$select"] == ":id,:created_at,:updated_at,*"
+        request.url.params["$select"] == ":id,:created_at,:updated_at,fips"
         for request in data_requests
     )
     assert result.raw_payload is not None
+
+
+def test_socrata_projection_uses_metadata_columns_without_a_wildcard() -> None:
+    definition = load_source_definition(REPO / "config" / "sources" / "cdc_qtbi_xd4i.yml")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/api/views/qtbi-xd4i"):
+            return httpx.Response(
+                200,
+                json={"columns": [{"fieldName": field} for field in definition.required_columns]},
+                request=request,
+            )
+        assert request.url.params["$select"] == (
+            ":id,:created_at,:updated_at,year,state,fips,case_status,sex,age_cat_yrs,frequency"
+        )
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    ":id": "row-1",
+                    "year": "2008",
+                    "state": "AK",
+                    "fips": "Suppressed",
+                    "case_status": "Confirmed",
+                    "sex": "Female",
+                    "age_cat_yrs": "20+",
+                    "frequency": "5",
+                }
+            ],
+            request=request,
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = SocrataAdapter(client=client).acquire(definition)
+
+    assert result.row_count == 1
 
 
 def test_socrata_restores_payload_from_retained_response_bytes() -> None:
