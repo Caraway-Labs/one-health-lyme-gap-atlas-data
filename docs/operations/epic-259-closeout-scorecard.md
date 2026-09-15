@@ -40,9 +40,13 @@ separate from local tests and CI.
       [34919615186](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919615186).
       The final scorecard follow-up was revalidated by
       [34920925549](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34920925549).
-- [x] The exact DEV digest `sha256:53a5b635b420e8530d4c07b46ef667b063603badd4ac355748aa2c4add904ecc`
-      is promoted through protected PROD workflow
-      [34919924604](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919924604).
+- [x] The exact runtime DEV digest `sha256:53a5b635b420e8530d4c07b46ef667b063603badd4ac355748aa2c4add904ecc`
+      was promoted through protected PROD workflow
+      [34919924604](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919924604);
+      the final scorecard release digest is
+      `sha256:4f6e30ca51292365d2963dd5a05402d823eb2d6fc22376a2198f6b3e378e271b`
+      and was promoted by
+      [34921039350](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34921039350).
 - [x] PROD job image digests, migration ledger, and runtime grants are verified
       read-only: V069 and V070 each occur once; V070 records commit `098c5ca`;
       all six scheduled jobs use the promoted digest.
