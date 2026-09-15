@@ -29,6 +29,7 @@ from lyme_gap_atlas_data.ingestion.adapters import (
     SocrataAdapter,
 )
 from lyme_gap_atlas_data.ingestion.runtime import (
+    _UPSERT_BATCH_SIZE,
     _UPSERT_CONFORMED_SQL,
     _UPSERT_RAW_SQL,
     _UPSERT_STAGING_SQL,
@@ -424,8 +425,39 @@ def test_snowflake_stage_effects_registers_artifact_and_generic_rows() -> None:
     assert artifact["wrote"] is True
     assert len(spaces.uploads) == 1
     assert load["physical_relation"] == "RAW.GOVERNED_SOURCE_RECORDS"
+    assert len(cursor.executed) == 3
+    assert cursor.executemany_calls == []
+
+
+def test_generic_projection_uses_bounded_multirow_merges() -> None:
+    definition = load_source_definition(X5J9)
+    state = RunState(
+        ingestion_run_id="run-1",
+        resource_key=definition.resource_key,
+        source_definition_version=definition.definition_version,
+        tier=Tier.B,
+        status=RunStatus.RUNNING,
+        stages=[],
+    )
+    records = [
+        {"source_id": definition.source_id, "record": {":id": str(index), "fips": "08001"}}
+        for index in range(_UPSERT_BATCH_SIZE + 1)
+    ]
+    cursor = _FakeCursor()
+    connection = _FakeConnection(cursor)
+    effects = SnowflakeStageEffects(connection_factory=lambda: connection)
+
+    result = effects.load(definition, state, records)
+
+    assert result["rows_inserted"] == _UPSERT_BATCH_SIZE + 1
+    assert result["batches"] == 2
     assert len(cursor.executed) == 2
-    assert len(cursor.executemany_calls) == 1
+    assert cursor.executemany_calls == []
+    assert all("FROM VALUES" in sql for sql, _params in cursor.executed)
+    assert [len(params or ()) for _sql, params in cursor.executed] == [
+        _UPSERT_BATCH_SIZE * 10,
+        10,
+    ]
 
 
 def test_generic_row_identity_is_stable_when_source_order_changes() -> None:

@@ -226,10 +226,19 @@ class SnowflakeStageEffects:
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
-                cursor.executemany(_UPSERT_STAGING_SQL, rows)
-                cursor.executemany(_UPSERT_CONFORMED_SQL, rows)
+                staging_batches = _execute_upsert_batches(
+                    cursor, "STAGING.GOVERNED_SOURCE_RECORDS", "normalized_at", rows
+                )
+                conformed_batches = _execute_upsert_batches(
+                    cursor, "CONFORMED.GOVERNED_SOURCE_RECORDS", "conformed_at", rows
+                )
             connection.commit()
-        return {"record_count": len(rows), "rows_inserted": len(rows), "wrote": True}
+        return {
+            "record_count": len(rows),
+            "rows_inserted": len(rows),
+            "batches": staging_batches + conformed_batches,
+            "wrote": True,
+        }
 
     def load(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
@@ -238,12 +247,15 @@ class SnowflakeStageEffects:
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
-                cursor.executemany(_UPSERT_RAW_SQL, rows)
+                batches = _execute_upsert_batches(
+                    cursor, "RAW.GOVERNED_SOURCE_RECORDS", "loaded_at", rows
+                )
             connection.commit()
         return {
             "destination": definition.destination,
             "record_count": len(rows),
             "rows_inserted": len(rows),
+            "batches": batches,
             "physical_relation": "RAW.GOVERNED_SOURCE_RECORDS",
             "wrote": True,
         }
@@ -465,12 +477,21 @@ def _stable_id(value: str) -> str:
 
 
 def _upsert_sql(relation: str, timestamp_column: str) -> str:
-    """Build the shared row projection MERGE for a known governed relation."""
+    """Build a parameterized one-or-more-row MERGE for a known relation."""
+    values = ",\n    ".join("(" + ", ".join(["%s"] * 10) + ")" for _ in range(1))
+    return _upsert_sql_for_values(relation, timestamp_column, values)
+
+
+def _upsert_sql_for_values(relation: str, timestamp_column: str, values: str) -> str:
+    """Build the shared row projection MERGE for a set of bound VALUES rows."""
     return f"""MERGE INTO {relation} target
-USING (SELECT %s AS record_id, %s AS source_id, %s AS dataset_id, %s AS resource_key,
-              %s AS source_definition_version, %s AS ingestion_run_id,
-              %s AS source_record_id, %s AS source_row_hash, PARSE_JSON(%s) AS payload,
-              %s AS retrieved_at) source
+USING (SELECT column1 AS record_id, column2 AS source_id, column3 AS dataset_id,
+              column4 AS resource_key, column5 AS source_definition_version,
+              column6 AS ingestion_run_id, column7 AS source_record_id,
+              column8 AS source_row_hash, PARSE_JSON(column9) AS payload,
+              column10 AS retrieved_at
+       FROM VALUES
+    {values}) source
 ON target.record_id=source.record_id
 WHEN MATCHED THEN UPDATE SET
   source_id=source.source_id, dataset_id=source.dataset_id,
@@ -485,8 +506,28 @@ WHEN NOT MATCHED THEN INSERT
    {timestamp_column})
   VALUES (source.record_id, source.source_id, source.dataset_id, source.resource_key,
           source.source_definition_version, source.ingestion_run_id,
-          source.source_record_id, source.source_row_hash, source.payload,
-          source.retrieved_at, CURRENT_TIMESTAMP())"""
+           source.source_record_id, source.source_row_hash, source.payload,
+           source.retrieved_at, CURRENT_TIMESTAMP())"""
+
+
+_UPSERT_BATCH_SIZE = 250
+
+
+def _execute_upsert_batches(
+    cursor: Any,
+    relation: str,
+    timestamp_column: str,
+    rows: list[tuple[Any, ...]],
+) -> int:
+    """Execute bounded multi-row MERGEs instead of one statement per source row."""
+    batch_count = 0
+    for start in range(0, len(rows), _UPSERT_BATCH_SIZE):
+        batch = rows[start : start + _UPSERT_BATCH_SIZE]
+        values = ",\n    ".join("(" + ", ".join(["%s"] * 10) + ")" for _ in batch)
+        params = tuple(value for row in batch for value in row)
+        cursor.execute(_upsert_sql_for_values(relation, timestamp_column, values), params)
+        batch_count += 1
+    return batch_count
 
 
 _UPSERT_RAW_SQL = _upsert_sql("RAW.GOVERNED_SOURCE_RECORDS", "loaded_at")
