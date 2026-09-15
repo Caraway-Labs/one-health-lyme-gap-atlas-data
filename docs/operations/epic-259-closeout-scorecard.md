@@ -28,13 +28,18 @@ separate from local tests and CI.
 - [x] #257 durable literature stages and append-only recovery boundary retained;
       no manual technical unlock added.
 - [x] #258 this scorecard records path counts and evidence boundaries.
-- [x] Local and hosted quality gates pass on release commit `098c5ca` (Quality run
+- [x] The executable runtime release commit `098c5ca` passed local and hosted
+      quality gates (Quality run
       [34919022683](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919022683)).
-- [x] DEV V070 migration and bounded live x5j9 run complete on the release
-      digest: migration run
+      The final scorecard-only follow-up commit `f7407de` also passed hosted
+      Quality and DEV migration verification.
+- [x] DEV V070 migration and bounded live x5j9 run complete for the executable
+      runtime release: migration run
       [34919495572](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919495572);
       ingestion run
       [34919615186](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919615186).
+      The final scorecard follow-up was revalidated by
+      [34920925549](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34920925549).
 - [x] The exact DEV digest `sha256:53a5b635b420e8530d4c07b46ef667b063603badd4ac355748aa2c4add904ecc`
       is promoted through protected PROD workflow
       [34919924604](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/34919924604).
