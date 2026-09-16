@@ -19,6 +19,11 @@ on:
         description: UUID bound into the operator acquisition manifest
         required: true
         type: string
+      source_kind:
+        description: Restricted workbook profile bound to the evidence envelope
+        required: true
+        type: choice
+        options: [tick, pathogen]
 
 permissions:
   contents: read
@@ -40,6 +45,7 @@ jobs:
       ENVELOPE_DIGEST: ${{ inputs.envelope_digest }}
       ENVELOPE_TAG: ${{ inputs.envelope_tag }}
       RETRIEVAL_ID: ${{ inputs.retrieval_id }}
+      SOURCE_KIND: ${{ inputs.source_kind }}
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
@@ -53,9 +59,10 @@ jobs:
           umask 077
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$ENVELOPE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          [[ "$ENVELOPE_TAG" =~ ^tick-operator-evidence-[0-9a-f-]{36}$ ]]
+          [[ "$SOURCE_KIND" = "tick" || "$SOURCE_KIND" = "pathogen" ]]
+          [[ "$ENVELOPE_TAG" =~ ^(tick|pathogen)-operator-evidence-[0-9a-f-]{36}$ ]]
           [[ "$RETRIEVAL_ID" =~ ^[0-9a-f-]{36}$ ]]
-          test "$ENVELOPE_TAG" = "tick-operator-evidence-$RETRIEVAL_ID"
+          test "$ENVELOPE_TAG" = "$SOURCE_KIND-operator-evidence-$RETRIEVAL_ID"
           baseline="$(mktemp)"
           capture="$(mktemp)"
           baseline_captured=false
@@ -96,7 +103,8 @@ jobs:
           jq \
             --arg envelope_digest "$ENVELOPE_DIGEST" \
             --arg base_digest "$IMAGE_DIGEST" \
-            --arg retrieval_id "$RETRIEVAL_ID" '
+            --arg retrieval_id "$RETRIEVAL_ID" \
+            --arg source_kind "$SOURCE_KIND" '
             (.jobs[] | select(.name == "catalog-ingestion")) as $template
             | .jobs |= map(.image.digest = $envelope_digest)
             | .jobs += [
@@ -104,7 +112,10 @@ jobs:
                 | .name = "cdc-tick-evidence-once"
                 | .kind = "PRE_DEPLOY"
                 | .image.digest = $envelope_digest
-                | .run_command = "/app/.venv/bin/atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
+                | .run_command = (if $source_kind == "pathogen"
+                    then "/app/.venv/bin/atlas-data pipeline cdc-pathogen-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
+                    else "/app/.venv/bin/atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
+                  end)
                 | del(.schedule)
                 | .envs = ((.envs // [])
                     | map(select(.key != "TICK_EVIDENCE_BASE_IMAGE_DIGEST"

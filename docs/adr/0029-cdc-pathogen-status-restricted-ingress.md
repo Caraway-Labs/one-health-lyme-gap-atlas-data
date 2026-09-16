@@ -44,9 +44,11 @@ acquisition remains subject to separate protected Tier C approval.
 
 ## Consequences
 
-- A source-specific exception is justified because ADR 0023's existing
-  operator envelope validates a different workbook layout and cannot safely
-  process this source.
+- The existing operator-envelope workflow now accepts an explicit, validated
+  `pathogen` profile alongside its original `tick` profile. The profile input,
+  short-lived registry tag, manifest endpoint, parser, and temporary runtime
+  command must agree; a county-status bundle cannot be processed as pathogen
+  evidence or vice versa.
 - The source obtains a separate profile, parser, quality tests, and evidence
   identity. It cannot be inferred from the tick county-status workbook.
 - Public provenance can describe the source and limitations without exposing

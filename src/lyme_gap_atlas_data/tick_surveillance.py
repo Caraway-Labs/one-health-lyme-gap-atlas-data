@@ -9,6 +9,7 @@ import re
 import time
 import uuid
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO
@@ -515,11 +516,12 @@ def _save_artifact(
     run_id: str,
     payload: bytes,
     media_type: str,
+    resource_key: str = RESOURCE_KEY,
 ) -> Artifact:
     artifact = create_artifact(
         payload=payload,
         environment=settings.topx_env,
-        resource_key=RESOURCE_KEY,
+        resource_key=resource_key,
         run_id=run_id,
     )
     s3.put_object(
@@ -535,14 +537,57 @@ def collect_tick_surveillance_evidence(
     sample_limit: int = 25, *, evidence_bundle_dir: Path | None = None
 ) -> dict[str, object]:
     """Create a pending DEV candidate without RAW loading, approval, or transformation."""
+    return collect_restricted_workbook_evidence(
+        sample_limit=sample_limit,
+        evidence_bundle_dir=evidence_bundle_dir,
+        profile=load_tick_profile(),
+        parser=_parse_workbook,
+        source_title="Blacklegged and western blacklegged tick county status",
+        publisher="CDC National Center for Emerging and Zoonotic Infectious Diseases",
+        code_version="cdc-tick-ixodes-evidence-v1",
+        status_semantics={
+            "Established": "Publisher cumulative established classification",
+            "Reported": "Publisher cumulative reported classification",
+            "No records": "No reported surveillance evidence; not evidence of absence",
+        },
+        limitations=(
+            "Cumulative county status through 2025-12-31; No records is not tick absence. "
+            "The workbook does not provide collection effort, abundance, life stage, or "
+            "pathogen testing. Evidence capture retained the byte-bounded publisher workbook "
+            "because no row API exists. It validated schema, keys, ordering, and status "
+            "domains across the worksheet but serialized only a bounded sample; it did not "
+            "load RAW or run the complete post-ingestion quality suite. The embedded agreement "
+            "and source citations restrict raw redistribution, require ArboNET attribution, and "
+            "require delivery of a final publication copy to CDC; the steward must review "
+            "these terms."
+        ),
+    )
+
+
+def collect_restricted_workbook_evidence(
+    *,
+    sample_limit: int,
+    evidence_bundle_dir: Path | None,
+    profile: dict[str, Any],
+    parser: Callable[[bytes, dict[str, Any], int], Any],
+    source_title: str,
+    publisher: str,
+    code_version: str,
+    status_semantics: dict[str, str],
+    limitations: str,
+) -> dict[str, object]:
+    """Create a private Tier D candidate for a reviewed workbook profile."""
     if not 1 <= sample_limit <= 100:
         raise ValueError("sample_limit must be between 1 and 100")
     settings = PipelineSettings()
     if settings.topx_env != "dev":
         raise ValueError("Tick-surveillance evidence capture is approved only for isolated DEV")
-    profile = load_tick_profile()
+    resource_key = str(profile["resource_key"])
+    source_dataset_id = str(profile["source_dataset_id"])
     landing_url = str(profile["landing_page_url"])
     workbook_url = str(profile["endpoint_template"])
+    if resource_key == "cdc_tick_ixodes_pathogen_status" and evidence_bundle_dir is None:
+        raise ValueError("Pathogen-surveillance evidence requires the private operator bundle")
     run_id = str(uuid.uuid4())
     now = datetime.now(UTC)
     profile_sha256 = hashlib.sha256(
@@ -556,8 +601,8 @@ def collect_tick_surveillance_evidence(
                 (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version,
                  config_sha256, started_at)
                 VALUES (%s, %s, 'EVIDENCE_ONLY', 'MANUAL', 'RUNNING',
-                        'cdc-tick-ixodes-evidence-v1', %s, %s)""",
-                (run_id, RESOURCE_KEY, profile_sha256, now),
+                        %s, %s, %s)""",
+                (run_id, resource_key, code_version, profile_sha256, now),
             )
         connection.commit()
         try:
@@ -587,16 +632,16 @@ def collect_tick_surveillance_evidence(
             )
             if workbook.media_type != XLSX_MEDIA_TYPE:
                 raise ValueError("CDC tick-surveillance workbook media type changed")
-            evidence = _parse_workbook(workbook.payload, profile, sample_limit)
+            evidence = parser(workbook.payload, profile, sample_limit)
             schema_payload = json.dumps(evidence.schema, sort_keys=True, separators=(",", ":"))
             schema_sha256 = hashlib.sha256(schema_payload.encode()).hexdigest()
             sample_payload = json.dumps(
                 evidence.sample, sort_keys=True, separators=(",", ":")
             ).encode()
             metadata = {
-                "title": "Blacklegged and western blacklegged tick county status",
-                "publisher": "CDC National Center for Emerging and Zoonotic Infectious Diseases",
-                "source_dataset_id": SOURCE_DATASET_ID,
+                "title": source_title,
+                "publisher": publisher,
+                "source_dataset_id": source_dataset_id,
                 "landing_page_url": landing_url,
                 "workbook_url": workbook_url,
                 "dataset_as_of": str(profile["dataset_as_of"]),
@@ -604,11 +649,7 @@ def collect_tick_surveillance_evidence(
                 "workbook_last_modified": workbook.last_modified,
                 "workbook_rows": evidence.row_count,
                 "sample_rows": len(evidence.sample),
-                "county_status_semantics": {
-                    "Established": "Publisher cumulative established classification",
-                    "Reported": "Publisher cumulative reported classification",
-                    "No records": "No reported surveillance evidence; not evidence of absence",
-                },
+                "county_status_semantics": status_semantics,
                 "license_or_terms_status": (
                     "RESTRICTED_REVIEW_REQUIRED_EMBEDDED_DATA_USE_AGREEMENT"
                 ),
@@ -630,16 +671,16 @@ def collect_tick_surveillance_evidence(
             metadata_payload = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
             s3 = _spaces_client(settings)
             landing_artifact = _save_artifact(
-                s3, settings, run_id, landing.payload, landing.media_type
+                s3, settings, run_id, landing.payload, landing.media_type, resource_key
             )
             workbook_artifact = _save_artifact(
-                s3, settings, run_id, workbook.payload, XLSX_MEDIA_TYPE
+                s3, settings, run_id, workbook.payload, XLSX_MEDIA_TYPE, resource_key
             )
             metadata_artifact = _save_artifact(
-                s3, settings, run_id, metadata_payload, "application/json"
+                s3, settings, run_id, metadata_payload, "application/json", resource_key
             )
             sample_artifact = _save_artifact(
-                s3, settings, run_id, sample_payload, "application/json"
+                s3, settings, run_id, sample_payload, "application/json", resource_key
             )
             manifest_artifact = (
                 _save_artifact(
@@ -648,22 +689,12 @@ def collect_tick_surveillance_evidence(
                     run_id,
                     bundle.manifest_payload,
                     "application/json",
+                    resource_key,
                 )
                 if bundle is not None
                 else None
             )
             assessment = Assessment(95, 95, 65, 90, 65)
-            limitations = (
-                "Cumulative county status through 2025-12-31; No records is not tick absence. "
-                "The workbook does not provide collection effort, abundance, life stage, or "
-                "pathogen testing. Evidence capture retained the byte-bounded publisher workbook "
-                "because no row API exists. It validated schema, keys, ordering, and status "
-                "domains across the worksheet but serialized only a bounded sample; it did not "
-                "load RAW or "
-                "run the complete post-ingestion quality suite. The embedded agreement and source "
-                "citations restrict raw redistribution, require ArboNET attribution, and require "
-                "delivery of a final publication copy to CDC; the steward must review these terms."
-            )
             artifact_ids = {
                 name: str(uuid.uuid4())
                 for name in ("landing", "workbook", "metadata", "sample", "manifest")
@@ -678,8 +709,8 @@ def collect_tick_surveillance_evidence(
                     SELECT %s, %s, 'CDC_WEB', %s, PARSE_JSON(%s), %s, %s, TRUE""",
                     (
                         catalog_dataset_id,
-                        RESOURCE_KEY,
-                        SOURCE_DATASET_ID,
+                        resource_key,
+                        source_dataset_id,
                         json.dumps(metadata),
                         metadata_artifact.sha256,
                         now,
@@ -694,10 +725,10 @@ def collect_tick_surveillance_evidence(
                     (
                         str(uuid.uuid4()),
                         catalog_dataset_id,
-                        RESOURCE_KEY,
+                        resource_key,
                         workbook_url,
                         landing_url,
-                        SOURCE_DATASET_ID,
+                        source_dataset_id,
                         json.dumps(
                             {
                                 "title": metadata["title"],
@@ -712,7 +743,7 @@ def collect_tick_surveillance_evidence(
                 cursor.execute(
                     "UPDATE GOVERNANCE.SOURCE_ACCESS_PROFILES SET effective_to=%s "
                     "WHERE resource_key=%s AND effective_to IS NULL",
-                    (now, RESOURCE_KEY),
+                    (now, resource_key),
                 )
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.SOURCE_ACCESS_PROFILES
@@ -722,7 +753,7 @@ def collect_tick_surveillance_evidence(
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         str(uuid.uuid4()),
-                        RESOURCE_KEY,
+                        resource_key,
                         int(profile["profile_version"]),
                         str(profile["connector_name"]),
                         workbook_url,
@@ -872,7 +903,7 @@ def collect_tick_surveillance_evidence(
                         VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)""",
                         (
                             str(uuid.uuid4()),
-                            RESOURCE_KEY,
+                            resource_key,
                             document_type,
                             document_url,
                             artifact_ids[artifact_name],
@@ -885,7 +916,7 @@ def collect_tick_surveillance_evidence(
                     (schema_snapshot_id, resource_key, schema_fingerprint, schema_payload,
                      retrieved_at)
                     SELECT %s, %s, %s, PARSE_JSON(%s), %s""",
-                    (str(uuid.uuid4()), RESOURCE_KEY, schema_sha256, schema_payload, now),
+                    (str(uuid.uuid4()), resource_key, schema_sha256, schema_payload, now),
                 )
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.DATASET_QUALITY_ASSESSMENTS
@@ -895,7 +926,7 @@ def collect_tick_surveillance_evidence(
                     VALUES (%s, %s, 'PENDING_REVIEW', 95, 95, 65, 90, 65, %s, %s, %s, %s)""",
                     (
                         str(uuid.uuid4()),
-                        RESOURCE_KEY,
+                        resource_key,
                         assessment.score,
                         assessment.recommendation,
                         limitations,
@@ -928,8 +959,8 @@ def collect_tick_surveillance_evidence(
             raise
     return {
         "ingestion_run_id": run_id,
-        "resource_key": RESOURCE_KEY,
-        "source_dataset_id": SOURCE_DATASET_ID,
+        "resource_key": resource_key,
+        "source_dataset_id": source_dataset_id,
         "sample_rows": len(evidence.sample),
         "workbook_rows": evidence.row_count,
         "landing_sha256": landing_artifact.sha256,

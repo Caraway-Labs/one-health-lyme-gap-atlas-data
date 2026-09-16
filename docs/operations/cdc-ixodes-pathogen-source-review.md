@@ -124,6 +124,22 @@ The decision requires all of the following controls:
 - Run a generic Tier B/C ingestion or publish a semantic release before the
   dedicated DEV evidence proof and protected Tier C approval.
 
+## Private DEV evidence capture
+
+The repository command `scripts/publish_tick_operator_evidence.py` uses the
+explicit `--source-kind pathogen` option for this workbook. It validates the
+private landing-page PDF and workbook locally, creates a checksum-bound,
+short-lived private image envelope, and dispatches the protected DEV workflow.
+The workflow requires the tag, source-kind input, retrieval UUID, base-image
+digest, and envelope digest to agree before it starts the
+`cdc-pathogen-surveillance-sample` command. The temporary envelope tag is
+removed and the prior DEV topology restored whether capture succeeds or fails.
+
+The evidence capture stores a private raw artifact, its manifest, metadata,
+schema fingerprint, and a 25-row review sample. It creates a `PENDING_REVIEW`
+candidate only. It creates no RAW data rows, transformations, production
+objects, schedule, source approval, or public release.
+
 ## References
 
 - [CDC Tick Surveillance Data Sets](https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html)

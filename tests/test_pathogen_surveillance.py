@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
@@ -104,3 +105,17 @@ def test_parser_rejects_status_relabeling_and_schema_changes() -> None:
             pathogen.load_pathogen_profile(),
             sample_limit=1,
         )
+
+
+def test_pathogen_capture_contract_is_private_and_profile_bound() -> None:
+    workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml").read_text(
+        encoding="utf-8"
+    )
+    cli = Path("src/lyme_gap_atlas_data/cli.py").read_text(encoding="utf-8")
+    publisher = Path("scripts/publish_tick_operator_evidence.py").read_text(encoding="utf-8")
+    assert "source_kind" in workflow
+    assert "cdc-pathogen-surveillance-sample" in workflow
+    assert '"$SOURCE_KIND-operator-evidence-$RETRIEVAL_ID"' in workflow
+    assert "cdc-pathogen-surveillance-sample" in cli
+    assert "--source-kind" in publisher
+    assert "GitHub artifact" not in workflow
