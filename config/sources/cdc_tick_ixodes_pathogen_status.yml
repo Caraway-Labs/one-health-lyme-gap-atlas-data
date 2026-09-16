@@ -1,0 +1,54 @@
+resource_key: cdc_tick_ixodes_pathogen_status
+source_dataset_id: cdc-ixodes-pathogen-status-2025
+profile_version: 1
+platform_type: HTTP_XLSX
+connector_name: HTTP_XLSX_V1
+landing_page_url: https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html
+source_description_url: https://www.cdc.gov/ticks/data-research/facts-stats/tickborne-pathogen-surveillance-1.html
+endpoint_template: https://www.cdc.gov/ticks/media/files/2026/04/Public_Use_Ixodes_Pathogens_County_Table_2026_04292026.xlsx
+workbook_sheet: Ixodes Pathogens 2025
+header_row: 2
+deterministic_order_clause: FIPS_Code ASC
+incremental_strategy: SNAPSHOT_DIFF
+onboarding_environments: [dev]
+onboarding_mode: EVIDENCE_ONLY
+sample_limit: 25
+maximum_sample_limit: 100
+maximum_workbook_bytes: 1048576
+maximum_uncompressed_bytes: 10485760
+dataset_as_of: 2025-12-31
+geography_semantics: COUNTY_PATHOGEN_STATUS
+temporal_semantics: CUMULATIVE_STATUS_THROUGH_DATE
+required_columns:
+  - FIPS_Code
+  - State
+  - County
+  - Borrelia_burgdorferi_sensu_stricto_County_Status
+  - Borrelia_burgdorferi_sensu_stricto_Data_Source
+  - Borrelia_mayonii_County_Status
+  - Borrelia_mayonii_Data_Source
+  - Borrelia_miyamotoi_County_Status
+  - Borrelia_miyamotoi_Data_Source
+  - Anaplasma_phagocytophilum_human_active_variant_County_Status
+  - Anaplasma_phagocytophilum_human_active_variant_Data_Source
+  - Ehrlichia_muris_eauclairensis_County_Status
+  - Ehrlichia_muris_eauclairensis_Data_Source
+  - Babesia_microti_County_Status
+  - Babesia_microti_Data_Source
+  - Powassan_virus_County_Status
+  - Powassan_virus_Data_Source
+allowed_status_values: [Present, No records]
+pathogen_status_columns:
+  Borrelia_burgdorferi_sensu_stricto_County_Status: Borrelia burgdorferi sensu stricto
+  Borrelia_mayonii_County_Status: Borrelia mayonii
+  Borrelia_miyamotoi_County_Status: Borrelia miyamotoi
+  Anaplasma_phagocytophilum_human_active_variant_County_Status: Anaplasma phagocytophilum human-active variant
+  Ehrlichia_muris_eauclairensis_County_Status: Ehrlichia muris eauclairensis
+  Babesia_microti_County_Status: Babesia microti
+  Powassan_virus_County_Status: Powassan virus
+restrictions:
+  - This is a Tier D requestor-restricted ArboNET source. Raw workbook bytes remain private and are never exposed through Git, workflow artifacts, logs, Streamlit, APIs, or public web pages.
+  - No records means no documented published county record. It is not pathogen absence, a negative test, prevalence, human infection incidence, individual risk, or diagnosis.
+  - The source is cumulative through the stated as-of date for pathogens identified in host-seeking Ixodes scapularis or Ixodes pacificus ticks.
+  - This source supplies no tested-tick count, positive-tick count, sampling effort, or laboratory-method detail and must use PATHOGEN_PRESENCE_STATUS, never PATHOGEN_TESTING.
+  - Release provenance must cite the CDC Tick Surveillance Data Sets page and the CDC ArboNET Tick Module. A final copy of resulting publications or presentations must be provided to CDC Division of Vector-Borne Diseases.

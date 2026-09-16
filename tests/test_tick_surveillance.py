@@ -189,6 +189,7 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert set(schema["properties"]["observation_type"]["enum"]) == {
         "VECTOR_PRESENCE_STATUS",
         "COLLECTION_ABUNDANCE",
+        "PATHOGEN_PRESENCE_STATUS",
         "PATHOGEN_TESTING",
     }
     missingness = set(schema["properties"]["missingness"]["additionalProperties"]["enum"])
@@ -196,9 +197,9 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     contract = Path("docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.md").read_text(
         encoding="utf-8"
     )
-    assert contract.count('"canonical_observation_id"') == 2
+    assert contract.count('"canonical_observation_id"') == 3
     assert "NO_RECORDS" in contract
-    assert "not evidence that ticks are absent" in contract
+    assert "not evidence that ticks or pathogens are absent" in contract
 
 
 def test_tick_profile_is_dev_only_and_pins_first_party_workbook() -> None:

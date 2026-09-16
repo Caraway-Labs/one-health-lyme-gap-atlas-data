@@ -22,7 +22,12 @@
   "properties": {
     "canonical_observation_id": {"type": "string", "minLength": 1},
     "observation_type": {
-      "enum": ["VECTOR_PRESENCE_STATUS", "COLLECTION_ABUNDANCE", "PATHOGEN_TESTING"]
+      "enum": [
+        "VECTOR_PRESENCE_STATUS",
+        "COLLECTION_ABUNDANCE",
+        "PATHOGEN_PRESENCE_STATUS",
+        "PATHOGEN_TESTING"
+      ]
     },
     "county_fips": {"type": "string", "pattern": "^[0-9]{5}$"},
     "state_fips": {"type": ["string", "null"], "pattern": "^[0-9]{2}$"},
@@ -93,6 +98,17 @@
     {
       "if": {"properties": {"observation_type": {"const": "COLLECTION_ABUNDANCE"}}},
       "then": {"required": ["ticks_collected", "reported_or_derived"]}
+    },
+    {
+      "if": {"properties": {"observation_type": {"const": "PATHOGEN_PRESENCE_STATUS"}}},
+      "then": {
+        "required": [
+          "pathogen_name",
+          "presence_status",
+          "temporal_semantics",
+          "reported_or_derived"
+        ]
+      }
     },
     {
       "if": {"properties": {"observation_type": {"const": "PATHOGEN_TESTING"}}},
