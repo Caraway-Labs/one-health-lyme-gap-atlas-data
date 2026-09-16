@@ -1,4 +1,4 @@
-"""Validate and publish one operator-captured CDC tick evidence envelope."""
+"""Validate and publish one operator-captured restricted CDC evidence envelope."""
 
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lyme_gap_atlas_data.pathogen_surveillance import (
+    load_pathogen_profile,
+    parse_pathogen_workbook,
+)
 from lyme_gap_atlas_data.tick_surveillance import (
     IMAGE_DIGEST_PATTERN,
     OPERATOR_EVIDENCE_ROUTE,
@@ -50,18 +54,26 @@ def build_manifest(
     workbook: Path,
     base_image_digest: str,
     retrieval_id: str,
+    source_kind: str,
 ) -> tuple[dict[str, object], bytes, bytes]:
-    profile = load_tick_profile()
+    if source_kind == "tick":
+        profile = load_tick_profile()
+        parser = _parse_workbook
+    elif source_kind == "pathogen":
+        profile = load_pathogen_profile()
+        parser = parse_pathogen_workbook
+    else:
+        raise ValueError("source_kind must be tick or pathogen")
     landing_payload = landing_pdf.read_bytes()
     workbook_payload = workbook.read_bytes()
     if not landing_payload or len(landing_payload) > 2_000_000:
         raise ValueError("CDC landing-page print is outside the two-megabyte bound")
     if not workbook_payload or len(workbook_payload) > int(profile["maximum_workbook_bytes"]):
-        raise ValueError("CDC tick county workbook is outside the configured byte bound")
+        raise ValueError("CDC restricted workbook is outside the configured byte bound")
     _validate_landing_page_pdf(FetchResult(landing_payload, PDF_MEDIA_TYPE, None, None))
-    evidence = _parse_workbook(workbook_payload, profile, 25)
+    evidence = parser(workbook_payload, profile, 25)
     if evidence.row_count != 3111:
-        raise ValueError("CDC tick county workbook row count changed; steward review is required")
+        raise ValueError("CDC restricted workbook row count changed; steward review is required")
     retrieved_at = max(_utc_mtime(landing_pdf), _utc_mtime(workbook))
     manifest = {
         "manifest_version": 2,
@@ -114,6 +126,7 @@ def main() -> None:
     parser.add_argument("--landing-pdf", type=Path, required=True)
     parser.add_argument("--workbook", type=Path, required=True)
     parser.add_argument("--base-image-digest", required=True)
+    parser.add_argument("--source-kind", choices=("tick", "pathogen"), default="tick")
     parser.add_argument("--publish-and-dispatch", action="store_true")
     args = parser.parse_args()
     if IMAGE_DIGEST_PATTERN.fullmatch(args.base_image_digest) is None:
@@ -124,6 +137,7 @@ def main() -> None:
         args.workbook,
         args.base_image_digest,
         retrieval_id,
+        args.source_kind,
     )
     resources = manifest["resources"]
     if not isinstance(resources, list):
@@ -133,6 +147,7 @@ def main() -> None:
     if not isinstance(landing_resource, dict) or not isinstance(workbook_resource, dict):
         raise AssertionError("manifest resources must be objects")
     summary: dict[str, object] = {
+        "source_kind": args.source_kind,
         "retrieval_id": retrieval_id,
         "landing_sha256": landing_resource["sha256"],
         "workbook_sha256": workbook_resource["sha256"],
@@ -142,8 +157,8 @@ def main() -> None:
         print(json.dumps(summary, sort_keys=True))
         return
 
-    tag = f"tick-operator-evidence-{retrieval_id}"
-    with tempfile.TemporaryDirectory(prefix="atlas-tick-evidence-") as directory:
+    tag = f"{args.source_kind}-operator-evidence-{retrieval_id}"
+    with tempfile.TemporaryDirectory(prefix=f"atlas-{args.source_kind}-evidence-") as directory:
         bundle = Path(directory)
         (bundle / "landing.pdf").write_bytes(landing_payload)
         (bundle / "workbook.xlsx").write_bytes(workbook_payload)
@@ -217,6 +232,8 @@ def main() -> None:
                 f"envelope_tag={tag}",
                 "-f",
                 f"retrieval_id={retrieval_id}",
+                "-f",
+                f"source_kind={args.source_kind}",
             ]
         )
     except subprocess.CalledProcessError:

@@ -462,11 +462,12 @@ def test_tick_evidence_creates_only_pending_review_evidence(
         run_id: str,
         payload: bytes,
         _media_type: str,
+        resource_key: str = tick.RESOURCE_KEY,
     ) -> object:
         return create_artifact(
             payload=payload,
             environment=str(local_settings.topx_env),
-            resource_key=tick.RESOURCE_KEY,
+            resource_key=resource_key,
             run_id=run_id,
         )
 

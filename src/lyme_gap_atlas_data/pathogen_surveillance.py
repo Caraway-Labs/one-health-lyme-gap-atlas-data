@@ -52,6 +52,11 @@ class PathogenWorkbookEvidence:
     blank_fips_row_count: int
     schema: dict[str, object]
 
+    @property
+    def row_count(self) -> int:
+        """Use the evidence interface shared by bounded workbook capture."""
+        return self.valid_county_row_count
+
 
 def load_pathogen_profile(path: Path = PROFILE_PATH) -> dict[str, Any]:
     """Load the exact, DEV-only profile for the reviewed pathogen workbook."""
@@ -182,4 +187,37 @@ def parse_pathogen_workbook(
             "embedded_classification_terms_validated": True,
             "full_dataset_quality_validated": False,
         },
+    )
+
+
+def collect_pathogen_surveillance_evidence(
+    sample_limit: int = 25, *, evidence_bundle_dir: Path
+) -> dict[str, object]:
+    """Retain a bounded DEV review candidate; never load RAW or publish data."""
+    # Imported here to keep the parser independent of Snowflake/Spaces imports.
+    from .tick_surveillance import collect_restricted_workbook_evidence
+
+    return collect_restricted_workbook_evidence(
+        sample_limit=sample_limit,
+        evidence_bundle_dir=evidence_bundle_dir,
+        profile=load_pathogen_profile(),
+        parser=parse_pathogen_workbook,
+        source_title="CDC ArboNET pathogen county status",
+        publisher="CDC ArboNET Tick Module",
+        code_version="cdc-pathogen-ixodes-evidence-v1",
+        status_semantics={
+            "Present": "Publisher cumulative county pathogen identification status",
+            "No records": (
+                "No documented published county record; not pathogen absence or a negative test"
+            ),
+        },
+        limitations=(
+            "Cumulative county pathogen status through 2025-12-31; No records is not pathogen "
+            "absence or a negative test. The workbook supplies no testing counts, positive counts, "
+            "sampling effort, or laboratory-method detail. It is therefore a pathogen-presence "
+            "status, not prevalence. Evidence capture retains the requestor-restricted workbook "
+            "privately, serializes only a bounded sample, creates no RAW rows, and requires a "
+            "steward review before any further use. ArboNET attribution and final-publication-copy "
+            "obligations apply."
+        ),
     )

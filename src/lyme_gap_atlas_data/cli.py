@@ -46,6 +46,7 @@ from .orchestration import (
     run_production_cdc_dbt_recovery,
     run_production_schedule,
 )
+from .pathogen_surveillance import collect_pathogen_surveillance_evidence
 from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
@@ -464,6 +465,22 @@ def cdc_tick_surveillance_sample(
     typer.echo(
         json.dumps(
             collect_tick_surveillance_evidence(
+                sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+            ),
+            default=str,
+        )
+    )
+
+
+@pipeline_app.command("cdc-pathogen-surveillance-sample")
+def cdc_pathogen_surveillance_sample(
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Capture restricted CDC pathogen evidence in DEV; never load RAW data."""
+    typer.echo(
+        json.dumps(
+            collect_pathogen_surveillance_evidence(
                 sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
             ),
             default=str,
