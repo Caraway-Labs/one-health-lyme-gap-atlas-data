@@ -8,10 +8,11 @@ Method version: `tick-surveillance-v1`
 ## Purpose and boundary
 
 This contract provides one provenance-bearing shape for heterogeneous active
-tick-surveillance observations. It supports county presence/status, collection
-abundance, and pathogen-testing evidence without pretending that unlike methods
-are equivalent. It does not define a human-disease risk score, infer tick absence
-from missing surveillance, or authorize any source for ingestion.
+tick-surveillance observations. It supports county presence/status, pathogen
+presence/status, collection abundance, and pathogen-testing evidence without
+pretending that unlike methods are equivalent. It does not define a
+human-disease risk score, infer tick or pathogen absence from missing
+surveillance, or authorize any source for ingestion.
 
 The first evidence candidate is the CDC county-status workbook for *Ixodes
 scapularis* and *Ixodes pacificus*. That workbook supplies cumulative county
@@ -30,6 +31,9 @@ types add their own requirements:
 
 - `VECTOR_PRESENCE_STATUS` requires presence status and explicit temporal
   semantics.
+- `PATHOGEN_PRESENCE_STATUS` requires pathogen, a reported county status, and
+  explicit temporal semantics. It does not imply that a tick was tested or that
+  a prevalence can be calculated.
 - `COLLECTION_ABUNDANCE` requires the reported tick count. Normalized abundance
   remains optional unless effort and unit evidence support it.
 - `PATHOGEN_TESTING` requires pathogen, ticks tested, and ticks positive.
@@ -44,8 +48,8 @@ are `PRESENT`, `NULL`, `UNKNOWN`, `SUPPRESSED`, `NOT_REPORTED`, and
 `NOT_APPLICABLE`.
 
 `NO_RECORDS` is a reported surveillance status, not a missing-value state and
-not evidence that ticks are absent. Zero collected ticks is numeric evidence only
-when the source documents a completed collection effort.
+not evidence that ticks or pathogens are absent. Zero collected ticks is numeric
+evidence only when the source documents a completed collection effort.
 
 ## Normalization rules
 
@@ -62,6 +66,9 @@ when the source documents a completed collection effort.
 6. Preserve nymph and adult observations separately. A mixed or unknown life
    stage must not be silently assigned to either season.
 7. A cumulative county status is not an annual observation or abundance trend.
+8. A pathogen-presence status is not pathogen testing: it must not populate
+   `ticks_tested`, `ticks_positive`, or `prevalence` unless the publisher
+   supplies those values and the source is mapped as `PATHOGEN_TESTING`.
 
 ## Example: CDC cumulative county status
 
@@ -132,6 +139,44 @@ different grain. It is not present in the CDC county-status workbook.
   "missingness": {},
   "quality_flags": [],
   "limitations": ["Comparable only to observations using reviewed compatible collection methods"]
+}
+```
+
+## Example: CDC cumulative pathogen county status
+
+This fixture represents the separately restricted CDC ArboNET pathogen-status
+workbook. It is a county-level, cumulative published-record status, not a
+negative test or individual health result.
+
+```json
+{
+  "canonical_observation_id": "fixture-cdc-01001-bburgdorferi-2025",
+  "observation_type": "PATHOGEN_PRESENCE_STATUS",
+  "county_fips": "01001",
+  "observation_year": 2025,
+  "surveillance_period_end": "2025-12-31",
+  "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+  "tick_species": "Ixodes scapularis or Ixodes pacificus",
+  "life_stage": "NOT_REPORTED",
+  "pathogen_name": "Borrelia burgdorferi sensu stricto",
+  "presence_status": "PRESENT",
+  "source_agency": "CDC ArboNET Tick Module",
+  "source_dataset_id": "cdc-ixodes-pathogen-status-2025",
+  "source_record_id": "fixture-source-row-01001-bburgdorferi",
+  "data_source_version_id": "fixture-source-version",
+  "ingestion_run_id": "fixture-run",
+  "artifact_id": "fixture-artifact",
+  "retrieved_at": "2026-09-16T00:00:00Z",
+  "method_version": "tick-surveillance-v1",
+  "reported_or_derived": "REPORTED",
+  "harmonization_method": "Publisher county status label normalized to uppercase vocabulary",
+  "missingness": {
+    "ticks_tested": "NOT_REPORTED",
+    "ticks_positive": "NOT_REPORTED",
+    "prevalence": "NOT_REPORTED"
+  },
+  "quality_flags": ["CUMULATIVE_STATUS", "NO_TEST_COUNTS"],
+  "limitations": ["No records is not pathogen absence or a negative test"]
 }
 ```
 

@@ -26,6 +26,7 @@ from lyme_gap_atlas_data.ingestion.source_definition import source_definition_fr
 REPO = Path(__file__).resolve().parents[1]
 X5J9 = REPO / "config" / "sources" / "cdc_x5j9_wybp.yml"
 TICK = REPO / "config" / "sources" / "cdc_tick_ixodes_county_status.yml"
+PATHOGEN = REPO / "config" / "sources" / "cdc_tick_ixodes_pathogen_status.yml"
 SVI = REPO / "config" / "sources" / "cdc_atsdr_svi_2022_county.yml"
 RUCC = REPO / "config" / "sources" / "usda_ers_rucc_2023.yml"
 X5J9_FIXTURES = REPO / "tests" / "fixtures" / "sources" / "cdc_lyme_x5j9_wybp"
@@ -44,6 +45,13 @@ def test_load_and_validate_x5j9_definition() -> None:
 
 def test_load_and_validate_tick_definition() -> None:
     definition = load_source_definition(TICK)
+    assert definition.adapter_kind is AdapterKind.HTTP_XLSX
+    result = validate_source_definition(definition)
+    assert result.ok, result.to_dict()
+
+
+def test_load_and_validate_pathogen_definition() -> None:
+    definition = load_source_definition(PATHOGEN)
     assert definition.adapter_kind is AdapterKind.HTTP_XLSX
     result = validate_source_definition(definition)
     assert result.ok, result.to_dict()
