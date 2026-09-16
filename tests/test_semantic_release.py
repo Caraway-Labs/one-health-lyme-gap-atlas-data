@@ -254,3 +254,10 @@ def test_semantic_release_workflow_is_protected_and_runs_post_operation_proof() 
     assert "SEMANTIC_RELEASE_STATUS_V" in workflow
     assert "CURRENT_RELEASE_V" in workflow
     assert "SNOWFLAKE_RUNTIME_ROLE" not in workflow
+
+
+def test_quality_secret_scan_reports_only_non_secret_finding_metadata() -> None:
+    workflow = (REPO / ".github" / "workflows" / "quality.yml").read_text(encoding="utf-8")
+    assert "--report-format json" in workflow
+    assert ".RuleID, .File, .StartLine, .Commit, .Description" in workflow
+    assert "Secret" not in workflow.split("- name: Scan Git history for secrets", 1)[1]
