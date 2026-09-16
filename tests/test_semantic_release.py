@@ -226,6 +226,7 @@ def test_migrations_and_contract_do_not_reference_alpha_database() -> None:
         for filename in (
             "V071__governed_semantic_release_storage.sql",
             "V072__governed_semantic_release_views.sql",
+            "V073__semantic_release_pipeline_runtime_schema_usage.sql",
         )
     )
     assert "ONE_HEALTH_LYME_GAP_ATLAS.PRESENTATION" not in migration_text
@@ -241,6 +242,12 @@ def test_migrations_and_contract_do_not_reference_alpha_database() -> None:
         "ALL TABLES IN SCHEMA PRESENTATION\n    TO ROLE OH_LYME_{{ ENV }}_API_RUNTIME"
         not in storage
     )
+    runtime_access = (
+        REPO / "migrations" / "V073__semantic_release_pipeline_runtime_schema_usage.sql"
+    ).read_text(encoding="utf-8")
+    assert "GRANT USAGE ON SCHEMA PRESENTATION" in runtime_access
+    assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in runtime_access
+    assert "SEMANTIC_" not in runtime_access
 
 
 def test_semantic_release_workflow_is_protected_and_runs_post_operation_proof() -> None:

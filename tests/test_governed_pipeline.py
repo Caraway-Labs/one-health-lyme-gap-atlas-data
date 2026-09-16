@@ -1681,6 +1681,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V070",
         "V071",
         "V072",
+        "V073",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1688,7 +1689,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 52
+    assert len(prod_plan) == 53
     assert "V034" not in {item["version"] for item in prod_plan}
     assert "V066" in {item["version"] for item in prod_plan}
     assert "V067" in {item["version"] for item in prod_plan}
@@ -1697,6 +1698,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "V069" in {item["version"] for item in prod_plan}
     assert "V071" in {item["version"] for item in prod_plan}
     assert "V072" in {item["version"] for item in prod_plan}
+    assert "V073" in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
     assert "V_PIPELINE_COMMAND_CENTER" in operations_console
@@ -1721,6 +1723,10 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert migration_execution_role(v072, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
         "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
     )
+    v073 = next(item for item in migrations if item.version == "V073")
+    assert migration_execution_role(v073, PROD_DATABASE) is None
+    assert "GRANT USAGE ON SCHEMA PRESENTATION" in v073.source
+    assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in v073.source
     assert migration_execution_role(migrations[0], DEV_DATABASE) is None
 
 
