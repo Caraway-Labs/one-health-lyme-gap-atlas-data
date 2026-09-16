@@ -42,7 +42,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
-VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047", "V052"}
+VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047", "V052", "V072"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
 # They are an explicit, DEV-only recovery boundary—not a general checksum bypass.

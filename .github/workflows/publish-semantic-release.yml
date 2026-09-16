@@ -1,0 +1,193 @@
+name: Build and publish governed semantic release
+
+# Epic #252 / Stories #273-278.  This workflow is the only automated entry
+# point for semantic-table build, publication, and rollback.  Production is a
+# GitHub protected environment and still requires the exact release commit plus
+# its environment approval.
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact data-repository commit that passed DEV quality and review
+        required: true
+        type: string
+      environment_name:
+        description: Target GitHub Environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - production
+      operation:
+        description: Protected semantic-release operation
+        required: true
+        default: build
+        type: choice
+        options:
+          - build
+          - publish
+          - rollback
+      manifest_path:
+        description: Reviewed source-pinned manifest path for build
+        required: false
+        default: docs/contracts/semantic-release/governed-2026-09-15-manifest.json
+        type: string
+      release_id:
+        description: Candidate release for publish or retained release for rollback
+        required: false
+        default: governed-2026-09-15
+        type: string
+      reason:
+        description: Human-readable publication or rollback reason
+        required: false
+        type: string
+      approver:
+        description: Optional named approver recorded on publication
+        required: false
+        type: string
+      confirm:
+        description: Confirm publish or rollback after human review
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-release-${{ inputs.environment_name }}
+  cancel-in-progress: false
+
+jobs:
+  semantic-release:
+    name: Protected semantic release operation
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    env:
+      TOPX_ENV: ${{ inputs.environment_name == 'production' && 'prod' || 'dev' }}
+      ENABLE_PRODUCTION_EXECUTION: ${{ inputs.environment_name == 'production' && 'true' || '' }}
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+      - name: Verify the checkout is the requested commit
+        run: |
+          set -euo pipefail
+          requested_commit="$(printf '%s' '${{ inputs.release_commit }}' | tr '[:upper:]' '[:lower:]')"
+          test "$(git rev-parse HEAD)" = "$requested_commit"
+          git merge-base --is-ancestor "$requested_commit" origin/main
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Snowflake CLI and project dependencies
+        run: |
+          python -m pip install snowflake-cli-labs==3.25.0
+          uv sync --frozen --extra dev --extra pipeline
+      - name: Run local release-contract checks
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy src
+          uv run pytest -q
+          uv run dbt parse --project-dir dbt --profiles-dir dbt
+      - name: Validate protected operation inputs
+        env:
+          OPERATION: ${{ inputs.operation }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          CONFIRM: ${{ inputs.confirm }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          [[ "${{ inputs.release_commit }}" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$RELEASE_ID" =~ ^[a-z0-9][a-z0-9-]{2,80}$ ]]
+          if [[ "$OPERATION" != "build" && "$CONFIRM" != "true" ]]; then
+            echo "::error::Publish and rollback require confirm=true after human review."
+            exit 1
+          fi
+          if [[ "$OPERATION" != "build" && -z "${REASON// }" ]]; then
+            echo "::error::Publish and rollback require a reason."
+            exit 1
+          fi
+          if [[ "$OPERATION" == "rollback" && "${{ inputs.environment_name }}" != "production" ]]; then
+            echo "::error::Rollback is restricted to the protected production environment."
+            exit 1
+          fi
+      - name: Configure and verify the protected Snowflake connection
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/oh-lyme-semantic-release-key.p8"
+          config_file="$RUNNER_TEMP/snowflake-connections.toml"
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          cat > "$config_file" <<EOF
+          [connections.oh_lyme_semantic]
+          account = "$SNOWFLAKE_ACCOUNT"
+          user = "$SNOWFLAKE_USER"
+          role = "$SNOWFLAKE_ROLE"
+          warehouse = "$SNOWFLAKE_WAREHOUSE"
+          database = "$SNOWFLAKE_DATABASE"
+          authenticator = "SNOWFLAKE_JWT"
+          private_key_path = "$key_file"
+          private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
+          EOF
+          snow --config-file "$config_file" sql -c oh_lyme_semantic \
+            -q "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
+          export SNOWFLAKE_AUTH_METHOD=key_pair
+          export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
+          if [[ "$TOPX_ENV" == "dev" ]]; then
+            uv run atlas-data pipeline reconcile-legacy-dev-migrations \
+              --database "$SNOWFLAKE_DATABASE" --commit "${{ inputs.release_commit }}" --confirm
+          else
+            uv run atlas-data pipeline reconcile-legacy-prod-migrations \
+              --database "$SNOWFLAKE_DATABASE" --commit "${{ inputs.release_commit }}" --confirm
+          fi
+          uv run atlas-data pipeline apply-migrations \
+            --database "$SNOWFLAKE_DATABASE" --commit "${{ inputs.release_commit }}" --confirm
+      - name: Build, publish, or rollback the semantic release and prove state
+        env:
+          OPERATION: ${{ inputs.operation }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          REASON: ${{ inputs.reason }}
+          APPROVER: ${{ inputs.approver }}
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/oh-lyme-semantic-release-key.p8"
+          config_file="$RUNNER_TEMP/snowflake-connections.toml"
+          trap 'rm -f "$key_file" "$config_file"' EXIT
+          test -f "$key_file"
+          test -f "$config_file"
+          export SNOWFLAKE_AUTH_METHOD=key_pair
+          export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
+          if [[ "$OPERATION" == "build" ]]; then
+            test -f "$MANIFEST_PATH"
+            manifest_release_id="$(uv run python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["release_id"])' "$MANIFEST_PATH")"
+            test "$manifest_release_id" = "$RELEASE_ID"
+            uv run atlas-data pipeline semantic-release-build --manifest "$MANIFEST_PATH"
+          elif [[ "$OPERATION" == "publish" ]]; then
+            publish_args=(--release-id "$RELEASE_ID" --reason "$REASON" --confirm)
+            if [[ -n "$APPROVER" ]]; then
+              publish_args+=(--approver "$APPROVER")
+            fi
+            uv run atlas-data pipeline semantic-release-publish "${publish_args[@]}"
+          else
+            uv run atlas-data pipeline semantic-release-rollback \
+              --release-id "$RELEASE_ID" --reason "$REASON" --confirm
+          fi
+          snow --config-file "$config_file" sql -c oh_lyme_semantic \
+            -q "SELECT release_id,status,bundle_sha256,current_release_id,county_count,observation_count,missing_observation_lineage FROM PRESENTATION.SEMANTIC_RELEASE_STATUS_V WHERE release_id='$RELEASE_ID'" --format JSON
+          if [[ "${{ inputs.operation }}" != "build" ]]; then
+            snow --config-file "$config_file" sql -c oh_lyme_semantic \
+              -q "SELECT release_id, schema_version, methodology_version, bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V" --format JSON
+          fi
