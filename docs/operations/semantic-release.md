@@ -78,6 +78,16 @@ The county query should return 3,144 rows and 3,144 distinct FIPS. The status
 view should report zero missing observation lineage values. A failed query or
 a different count is a release blocker, not a warning to work around.
 
+## Runtime-audit access correction
+
+V073 is a forward-only correction for the schema-access prerequisite of the
+bounded V072 runtime-view grants. It grants only `USAGE` on `PRESENTATION` to
+`OH_LYME_{ENV}_PIPELINE_RUNTIME`; it does not grant semantic-table reads or
+writes. In PROD, where `PRESENTATION` was bootstrapped by the documented
+one-time AccountAdmin session, apply V073 through that same bounded bootstrap
+and append its exact source checksum to the migration ledger before retrying a
+protected image promotion. Do not alter or delete the V071/V072 ledger rows.
+
 ## Rollback proof
 
 After a rollback, the `CURRENT_RELEASE_V` row must match the retained target,
