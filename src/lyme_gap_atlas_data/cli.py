@@ -50,6 +50,11 @@ from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .retrieval_corpus import build_retrieval_corpus
+from .semantic_release import (
+    build_semantic_release,
+    publish_semantic_release,
+    rollback_semantic_release,
+)
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 from .tick_surveillance import collect_tick_surveillance_evidence
@@ -222,6 +227,49 @@ def settings_check() -> None:
     settings = PipelineSettings()
     typer.echo(
         json.dumps({"environment": settings.topx_env, "database": settings.snowflake_database})
+    )
+
+
+@pipeline_app.command("semantic-release-build")
+def semantic_release_build_command(
+    manifest: Path = typer.Option(..., "--manifest", exists=True, dir_okay=False),  # noqa: B008
+) -> None:
+    """Build one source-pinned semantic release candidate."""
+    typer.echo(json.dumps(build_semantic_release(_settings(), manifest), default=str))
+
+
+@pipeline_app.command("semantic-release-publish")
+def semantic_release_publish_command(
+    release_id: str = typer.Option(..., "--release-id"),
+    reason: str = typer.Option(..., "--reason"),
+    approver: str | None = typer.Option(None, "--approver"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Publish a previously built candidate through the protected workflow."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm after release-candidate review")
+    typer.echo(
+        json.dumps(
+            publish_semantic_release(_settings(), release_id, reason=reason, approver=approver),
+            default=str,
+        )
+    )
+
+
+@pipeline_app.command("semantic-release-rollback")
+def semantic_release_rollback_command(
+    release_id: str = typer.Option(..., "--release-id"),
+    reason: str = typer.Option(..., "--reason"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Point the API back to a retained governed semantic release."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm after rollback review")
+    typer.echo(
+        json.dumps(
+            rollback_semantic_release(_settings(), release_id, reason=reason),
+            default=str,
+        )
     )
 
 

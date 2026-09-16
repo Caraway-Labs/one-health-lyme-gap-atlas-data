@@ -38,10 +38,19 @@ jobs:
       - run: uv run atlas-data provision --dry-run
       - run: uv run atlas-data load --release alpha-2026-08-06 --dry-run
       - name: Scan Git history for secrets
-        run: >-
-          docker run --rm -v "$PWD:/repo"
-          ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
-          git /repo --config /repo/.gitleaks.toml --redact --no-banner
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo" \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner \
+            --report-format json --report-path /repo/gitleaks-report.json
+          scan_status=$?
+          if [ -f gitleaks-report.json ]; then
+            jq -r '.[] | [.RuleID, .File, .StartLine, .Commit, .Description] | @tsv' \
+              gitleaks-report.json
+            rm -f gitleaks-report.json
+          fi
+          exit "$scan_status"
 
   deploy_dev:
     name: Build and deploy immutable DEV image

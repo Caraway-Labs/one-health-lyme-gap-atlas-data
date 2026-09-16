@@ -1,0 +1,103 @@
+{
+  "manifest_schema": "atlas-governed-semantic-release/v1",
+  "release_id": "governed-2026-09-15",
+  "schema_version": "1.0.0",
+  "methodology_version": "semantic-1.0.0",
+  "generated_at": "2026-09-15T00:00:00Z",
+  "scope": "US_COUNTIES",
+  "score_defaults": {
+    "ecological_share": 0.65,
+    "community_share": 0.35,
+    "low_incidence_breakpoint_per_100k": 10,
+    "missing_human_signal_weakness": 75,
+    "ecological_mix": {"tick_status": 0.6, "b_burgdorferi_in_ticks": 0.4},
+    "community_mix": {"svi": 0.5, "uninsured_percentile": 0.3, "rurality": 0.2}
+  },
+  "limitations": "This is a deterministic surveillance follow-up priority release, not a diagnosis, prediction, causal claim, exposure map, or individual risk estimate. Published human values are privacy-protected floors; no records is not absence.",
+  "sources": [
+    {
+      "source_key": "human",
+      "resource_key": "cdc_lyme_x5j9_wybp",
+      "source_id": "cdc_lyme",
+      "dataset_id": "x5j9-wybp",
+      "label": "CDC Lyme surveillance",
+      "vintage": "2023",
+      "source_url": "https://data.cdc.gov/resource/x5j9-wybp.json",
+      "note": "County-of-residence surveillance. County-linked values are published privacy-protected floors, not complete incidence estimates.",
+      "data_source_version_id": "REPLACE_WITH_APPROVED_SOURCE_VERSION",
+      "ingestion_run_id": "REPLACE_WITH_COMPLETED_RUN",
+      "artifact_id": "REPLACE_WITH_RETAINED_ARTIFACT",
+      "artifact_sha256": "REPLACE_WITH_ARTIFACT_SHA256",
+      "definition_version": 2
+    },
+    {
+      "source_key": "context_svi",
+      "resource_key": "cdc_atsdr_svi_2022_county",
+      "source_id": "cdc_atsdr_svi",
+      "dataset_id": "atsdr-svi-2022-county-layer",
+      "label": "CDC/ATSDR Social Vulnerability Index",
+      "vintage": "2022 (2018-2022 ACS)",
+      "source_url": "https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html",
+      "note": "Contextual population and vulnerability measures are not causal drivers or individual risk factors. The same reviewed source supplies county identity and geometry.",
+      "data_source_version_id": "REPLACE_WITH_APPROVED_SOURCE_VERSION",
+      "ingestion_run_id": "REPLACE_WITH_COMPLETED_RUN",
+      "artifact_id": "REPLACE_WITH_RETAINED_ARTIFACT",
+      "artifact_sha256": "REPLACE_WITH_ARTIFACT_SHA256",
+      "definition_version": 1
+    },
+    {
+      "source_key": "context_rucc",
+      "resource_key": "usda_ers_rucc_2023",
+      "source_id": "usda_ers",
+      "dataset_id": "rural-urban-continuum-codes-2023",
+      "label": "USDA ERS Rural-Urban Continuum Codes",
+      "vintage": "2023",
+      "source_url": "https://www.ers.usda.gov/data-products/rural-urban-continuum-codes/",
+      "note": "RUCC is a contextual county classification; vintages are not automatically comparable and it is not a causal or individual risk measure.",
+      "data_source_version_id": "REPLACE_WITH_APPROVED_SOURCE_VERSION",
+      "ingestion_run_id": "REPLACE_WITH_COMPLETED_RUN",
+      "artifact_id": "REPLACE_WITH_RETAINED_ARTIFACT",
+      "artifact_sha256": "REPLACE_WITH_ARTIFACT_SHA256",
+      "definition_version": 1
+    },
+    {
+      "source_key": "tick",
+      "resource_key": "REPLACE_WITH_REVIEWED_TICK_RESOURCE_KEY",
+      "source_id": "REPLACE_WITH_REVIEWED_TICK_SOURCE_ID",
+      "dataset_id": "REPLACE_WITH_REVIEWED_TICK_DATASET_ID",
+      "label": "CDC ArboNET county tick status",
+      "vintage": "REPLACE_WITH_REVIEWED_TICK_VINTAGE",
+      "source_url": "https://www.cdc.gov/",
+      "note": "Tick status is cumulative surveillance evidence; no records is not absence and status is not abundance, pathogen prevalence, diagnosis, or individual risk.",
+      "data_source_version_id": "REPLACE_WITH_APPROVED_SOURCE_VERSION",
+      "ingestion_run_id": "REPLACE_WITH_COMPLETED_RUN",
+      "artifact_id": "REPLACE_WITH_RETAINED_ARTIFACT",
+      "artifact_sha256": "REPLACE_WITH_ARTIFACT_SHA256",
+      "definition_version": 1,
+      "field_map": {
+        "fips": ["FIPSCode", "STCNTY", "fips"],
+        "scapularis_status": ["Ixodes_scapularis_County_Status", "scapularis_status"],
+        "pacificus_status": ["Ixodes_pacificus_county_status", "pacificus_status"]
+      }
+    },
+    {
+      "source_key": "pathogen",
+      "resource_key": "REPLACE_WITH_REVIEWED_PATHOGEN_RESOURCE_KEY",
+      "source_id": "REPLACE_WITH_REVIEWED_PATHOGEN_SOURCE_ID",
+      "dataset_id": "REPLACE_WITH_REVIEWED_PATHOGEN_DATASET_ID",
+      "label": "CDC ArboNET tickborne pathogen status",
+      "vintage": "REPLACE_WITH_REVIEWED_PATHOGEN_VINTAGE",
+      "source_url": "https://www.cdc.gov/",
+      "note": "This is a distinct pathogen source. It must never be inferred from the county tick-status workbook. No records is not absence and pathogen status is not individual infection risk.",
+      "data_source_version_id": "REPLACE_WITH_APPROVED_SOURCE_VERSION",
+      "ingestion_run_id": "REPLACE_WITH_COMPLETED_RUN",
+      "artifact_id": "REPLACE_WITH_RETAINED_ARTIFACT",
+      "artifact_sha256": "REPLACE_WITH_ARTIFACT_SHA256",
+      "definition_version": 1,
+      "field_map": {
+        "fips": ["FIPSCode", "STCNTY", "fips"],
+        "burgdorferi_status": ["burgdorferi_status", "Borrelia_burgdorferi_Status"]
+      }
+    }
+  ]
+}

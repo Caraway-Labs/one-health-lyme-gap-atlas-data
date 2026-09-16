@@ -76,3 +76,13 @@ regexTarget = "match"
 regexes = [
   '''ZvidGQkLaDJxRSJ2''',
 ]
+
+[[allowlists]]
+description = "Public governed source identifier in the semantic-release template, not a credential"
+paths = [
+  '''^docs/contracts/semantic-release/governed-2026-09-15-manifest\.template\.json$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^cdc_atsdr_svi_2022_county$''',
+]

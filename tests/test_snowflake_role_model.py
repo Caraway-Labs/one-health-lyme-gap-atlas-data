@@ -51,6 +51,7 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         "capture-prod-cdc-evidence",
         "run-prod-approved-ingestion",
         "run-prod-ingestion",
+        "publish-semantic-release",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (
