@@ -59,6 +59,11 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         "run-prod-approved-ingestion",
         "run-prod-ingestion",
         "publish-semantic-release",
+        # Story #299 (Epic #294): flags the repo's existing "Story #<N>
+        # complete." comment convention via a label/ping. It is not a
+        # capture/ingest workflow and never mutates Snowflake or closes an
+        # issue itself; closure stays a human decision.
+        "flag-completed-story-comment",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (

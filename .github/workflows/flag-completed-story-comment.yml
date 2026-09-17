@@ -1,0 +1,60 @@
+name: Flag completed story comment
+
+# Story #299 (Epic #294) time/motion audit finding: stories #254 and #255
+# each had their "Story #NNN complete." evidence comment posted, then sat
+# open for roughly a day and a half before an unrelated later batch closed
+# them. Nothing acted on that comment when it was posted.
+#
+# This workflow closes that gap without weakening any named risk control:
+# it never closes an issue itself (Epic #252's own acceptance gate says "a
+# story is not marked Done solely because local tests or deployment
+# succeeded"; closure remains a human governance decision). It only makes
+# the existing "Story #NNN complete." convention immediately visible via a
+# label and a ping comment, instead of relying on someone noticing it later.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  flag-if-complete:
+    if: github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Detect "Story #<N> complete." convention
+        id: detect
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          if python scripts/detect_story_complete_comment.py \
+              --issue-number "$ISSUE_NUMBER" --comment-body "$COMMENT_BODY"; then
+            echo "matched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "matched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Flag issue for closure review
+        if: steps.detect.outputs.matched == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "needs-closure-review" \
+            --repo "$REPO" \
+            --color "FBCA04" \
+            --description "Story #299: completion comment posted; awaiting human closure review." \
+            2>/dev/null || true
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "needs-closure-review"
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body \
+            "Automated (Story #299): this comment matches the repo's \"Story #<N> complete.\" convention. Labeled \`needs-closure-review\` so this does not sit open unnoticed. Closing this issue remains a human decision per Epic #252's evidence-review gate."
