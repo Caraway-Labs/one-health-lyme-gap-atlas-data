@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       diagnose_query_id:
-        description: Optional failed GRANT query ID; inspect only, without applying migrations
+        description: Optional failed migration DDL query ID; inspect only, without applying migrations
         required: false
         type: string
 permissions:
@@ -52,7 +52,7 @@ jobs:
           if [ -n "$DIAGNOSE_QUERY_ID" ]; then
             [[ "$DIAGNOSE_QUERY_ID" =~ ^[0-9a-f-]{36}$ ]]
             snow --config-file "$config_file" sql -c oh_lyme_dev \
-              -q "SELECT QUERY_ID,QUERY_TEXT,ERROR_CODE,ERROR_MESSAGE,ROLE_NAME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT=>10000)) WHERE QUERY_ID='$DIAGNOSE_QUERY_ID' AND STARTSWITH(UPPER(TRIM(QUERY_TEXT)),'GRANT ')" --format JSON
+              -q "SELECT QUERY_ID, REGEXP_SUBSTR(UPPER(LTRIM(QUERY_TEXT)), '^(CREATE|ALTER|GRANT|REVOKE)') AS STATEMENT_KIND, ERROR_CODE, REGEXP_REPLACE(ERROR_MESSAGE, '(?i)(password|secret|token|private[[:space:]_-]*key)[^[:space:],;]*', '[REDACTED]') AS REDACTED_ERROR_MESSAGE, ROLE_NAME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT=>10000)) WHERE QUERY_ID='$DIAGNOSE_QUERY_ID' AND REGEXP_LIKE(QUERY_TEXT, '(?is)^\\s*(CREATE|ALTER|GRANT|REVOKE)\\s+')" --format JSON
             exit 0
           fi
           # Migration versions, filenames, checksums, and timestamps are deployment

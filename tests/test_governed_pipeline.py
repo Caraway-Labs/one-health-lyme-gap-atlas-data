@@ -2021,6 +2021,16 @@ def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key()
     assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
 
 
+def test_dev_workflow_diagnoses_migration_ddl_without_emitting_query_text() -> None:
+    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+
+    assert "Optional failed migration DDL query ID" in workflow
+    assert "QUERY_ID, REGEXP_SUBSTR" in workflow
+    assert "REGEXP_REPLACE(ERROR_MESSAGE" in workflow
+    assert "QUERY_ID,QUERY_TEXT" not in workflow
+    assert "(CREATE|ALTER|GRANT|REVOKE)" in workflow
+
+
 def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_narrow() -> None:
     migrations = load_migrations()
     migration_sources = {item.version: item.source for item in migrations}
