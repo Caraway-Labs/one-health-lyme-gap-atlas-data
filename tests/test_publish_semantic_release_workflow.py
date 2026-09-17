@@ -20,3 +20,9 @@ def test_release_operation_creates_its_own_ephemeral_connection_files() -> None:
     assert 'private_key_path = "$key_file"' in operation
     assert 'test -f "$key_file"' not in operation
     assert 'test -f "$config_file"' not in operation
+
+
+def test_default_release_id_matches_the_reviewed_manifest() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "default: governed-2026-09-17" in workflow
