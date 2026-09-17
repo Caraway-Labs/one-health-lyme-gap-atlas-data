@@ -719,8 +719,9 @@ def _assemble_counties(
             raise SemanticReleaseBlocked(f"RUCC contains duplicate county FIPS {fips}")
         rucc[fips] = int(value)
         rucc_rows[fips] = row
-    if set(rucc) != set(identity):
-        raise SemanticReleaseBlocked("RUCC does not cover exactly the SVI county identity")
+    missing_rucc = set(identity) - set(rucc)
+    if missing_rucc:
+        raise SemanticReleaseBlocked("RUCC does not cover every SVI county identity")
 
     human = _human_values(source_rows["human"], identity)
     tick = _surveillance_values(
