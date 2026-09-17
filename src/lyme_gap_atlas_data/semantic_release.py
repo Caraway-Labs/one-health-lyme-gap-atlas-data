@@ -1583,6 +1583,11 @@ def _tick_status(scapularis: str, pacificus: str) -> str:
         return "Established"
     if "reported" in values:
         return "Reported"
+    # An accepted evidence-only coverage classification deliberately has no
+    # source-native county rows.  It must remain distinct from the publisher's
+    # affirmative "No records" value in the product-facing rollup.
+    if "unknown" in values:
+        return "Unknown"
     return "No records"
 
 
@@ -1592,7 +1597,7 @@ def _evidence_completeness(
     available = sum(
         (
             human_status == "published_count_floor",
-            tick != "No records",
+            tick in {"Established", "Reported"},
             pathogen == "Present",
             identity["svi_percentile"] is not None,
             identity["uninsured_percentile"] is not None,

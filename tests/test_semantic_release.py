@@ -376,6 +376,7 @@ def test_value_states_and_scorecard_mapping_are_explicit() -> None:
     assert _tick_status("Established", "No records") == "Established"
     assert _tick_status("No records", "Reported") == "Reported"
     assert _tick_status("No records", "No records") == "No records"
+    assert _tick_status("Unknown", "Unknown") == "Unknown"
     identity = {"svi_percentile": 0.1, "uninsured_percentile": 0.2}
     assert (
         _evidence_completeness("published_count_floor", "Established", "Present", identity, 3)
@@ -383,6 +384,10 @@ def test_value_states_and_scorecard_mapping_are_explicit() -> None:
     )
     assert (
         _evidence_completeness("no_county_linked_record", "No records", "No records", identity, 3)
+        == 50
+    )
+    assert (
+        _evidence_completeness("no_county_linked_record", "Unknown", "No records", identity, 3)
         == 50
     )
 
