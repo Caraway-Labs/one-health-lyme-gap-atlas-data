@@ -60,15 +60,18 @@ reference `OH_LYME_DEV_STREAMLIT_OWNER`, `OH_LYME_DEV_GOVERNED_VIEW_OWNER`,
 `OH_LYME_DEV_KG_PAPER_REVIEW_OWNER`, `OH_LYME_DEV_KG_LLM_BUDGET_OWNER`, or
 `OH_LYME_DEV_PIPELINE_RUNTIME` by their pre-consolidation names in their
 literal SQL text and in `migration_execution_role()`'s historical-version
-mapping in `src/lyme_gap_atlas_data/migrations.py`. This is intentional and
-correct: those migrations already applied under those exact role names and
-their checksums must never change. `GOVERNED_VIEW_OWNER`, `KG_PAPER_REVIEW_OWNER`,
-and `KG_LLM_BUDGET_OWNER` no longer exist as roles going forward (see above);
-a from-scratch replay of the full migration history against a brand new,
-never-migrated database would need those historical roles re-created first.
-This is a known, accepted limitation of forward-only, checksum-immutable
-migrations and is not expected to occur against the live, continuously
-migrated DEV/PROD databases.
+mapping in `src/lyme_gap_atlas_data/migrations.py`. Their source checksums must
+never change.
+
+The live DEV ledger had applied V001-V070 when role consolidation retired the
+legacy names, leaving V071-V073 pending. For those three pending semantic-release
+migrations only, the runner renders the retired identifiers to their accepted
+ADR 0030 successors at execution time: `GOVERNED_VIEW_OWNER` to `OWNER`,
+`PIPELINE_RUNTIME` to `RUNTIME`, and `API_RUNTIME` to `READ`. V072 also runs
+under `OWNER`. The stored migration files and ledger checksums remain unchanged;
+this narrowly bridges the live transition without recreating a retired role or
+granting owner rights to the routine runtime. All other historical migration
+role mappings remain literal and are not a replay mechanism for a new database.
 
 ## Privilege-contract tests
 
