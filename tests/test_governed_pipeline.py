@@ -1691,6 +1691,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V078",
         "V079",
         "V080",
+        "V081",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1713,6 +1714,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "V078" not in {item["version"] for item in prod_plan}
     assert "V079" not in {item["version"] for item in prod_plan}
     assert "V080" not in {item["version"] for item in prod_plan}
+    assert "V081" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
     assert "V_PIPELINE_COMMAND_CENTER" in operations_console

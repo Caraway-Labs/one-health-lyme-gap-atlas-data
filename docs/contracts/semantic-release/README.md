@@ -27,7 +27,12 @@ The API reads only these governed views:
    artifact, and artifact SHA-256. Placeholder values are rejected.
 2. A source must have an active `APPROVED` or `CONDITIONAL` version, a
    completed ingestion run, an exact retained artifact, a staged/validated
-   publication, and no failed blocking quality result.
+   publication, and no failed blocking quality result. The sole DEV exception
+   is the accepted Tier D county-status evidence path: it must instead have a
+   source/run-pinned `UNKNOWN_SOURCE_COVERAGE` classification created by the
+   owner-only procedure in V081. It contributes no source rows and renders both
+   tick statuses as `Unknown`; it cannot represent no records, absence, or a
+   successful routine ingestion.
 3. The builder requires 3,144 unique five-digit county identities and a valid
    Polygon geometry for every county. It fails closed on missing joins.
 4. Release rows and observations are immutable after candidate creation. Only

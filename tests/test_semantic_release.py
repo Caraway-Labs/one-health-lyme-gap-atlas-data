@@ -12,6 +12,7 @@ import pytest
 import lyme_gap_atlas_data.semantic_release as semantic_release
 from lyme_gap_atlas_data.semantic_release import (
     CountyRow,
+    EvidenceOnlyCoverageClassification,
     PathogenParityClassification,
     SemanticManifest,
     SemanticReleaseBlocked,
@@ -236,6 +237,50 @@ def test_pathogen_parity_classification_preserves_unknown_not_no_records(
     assert values["08003"]["parity_classification_id"] == "classification-1"
 
 
+def test_evidence_only_tick_coverage_preserves_unknown_not_no_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 2)
+    source = _source("tick")
+    identity = {"08001": {}, "08003": {}}
+    values = semantic_release._surveillance_values(
+        [],
+        source,
+        identity,
+        kind="tick",
+        evidence_only_coverage=EvidenceOnlyCoverageClassification(
+            "classification-2", 2, datetime.now(UTC)
+        ),
+    )
+    assert values["08001"]["scapularis_status"] == "Unknown"
+    assert values["08003"]["pacificus_status"] == "Unknown"
+    assert values["08003"]["coverage_classification_id"] == "classification-2"
+
+
+def test_evidence_only_tick_coverage_cannot_mask_source_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 2)
+    with pytest.raises(SemanticReleaseBlocked, match="count does not match"):
+        semantic_release._surveillance_values(
+            [
+                _row(
+                    {
+                        "FIPSCode": "08001",
+                        "Ixodes_scapularis_County_Status": "Established",
+                        "Ixodes_pacificus_county_status": "No records",
+                    }
+                )
+            ],
+            _source("tick"),
+            {"08001": {}, "08003": {}},
+            kind="tick",
+            evidence_only_coverage=EvidenceOnlyCoverageClassification(
+                "classification-2", 2, datetime.now(UTC)
+            ),
+        )
+
+
 def test_bundle_hash_is_deterministic() -> None:
     manifest = _manifest()
     county = CountyRow(values=("test-release", "08001", "Adams"), lineage={})
@@ -249,6 +294,7 @@ def test_migrations_and_contract_do_not_reference_alpha_database() -> None:
             "V071__governed_semantic_release_storage.sql",
             "V072__governed_semantic_release_views.sql",
             "V073__semantic_release_pipeline_runtime_schema_usage.sql",
+            "V081__dev_evidence_only_tick_coverage_classification.sql",
         )
     )
     assert "ONE_HEALTH_LYME_GAP_ATLAS.PRESENTATION" not in migration_text
@@ -270,6 +316,12 @@ def test_migrations_and_contract_do_not_reference_alpha_database() -> None:
     assert "GRANT USAGE ON SCHEMA PRESENTATION" in runtime_access
     assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in runtime_access
     assert "SEMANTIC_" not in runtime_access
+    tick_coverage = (
+        REPO / "migrations" / "V081__dev_evidence_only_tick_coverage_classification.sql"
+    ).read_text(encoding="utf-8")
+    assert "cdc_tick_ixodes_county_status" in tick_coverage
+    assert "reported_county_count NUMBER NOT NULL" in tick_coverage
+    assert "EVIDENCE_ONLY_SOURCE_COVERAGE_CLASSIFICATIONS" in tick_coverage
 
 
 def test_semantic_release_workflow_is_protected_and_runs_post_operation_proof() -> None:
