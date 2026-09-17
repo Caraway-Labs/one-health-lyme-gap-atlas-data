@@ -428,6 +428,26 @@ def test_evidence_bundle_fails_closed_on_runtime_digest_mismatch(
         tick._load_evidence_bundle(bundle_dir, profile())
 
 
+def test_capture_failure_details_are_stage_aware_and_redacted() -> None:
+    classification, diagnostic = tick._failure_details(
+        ValueError("SPACES_SECRET_ACCESS_KEY=not-for-the-ledger"),
+        "private_artifact_retention",
+    )
+
+    assert classification == "EVIDENCE_CAPTURE_FAILED"
+    assert diagnostic == (
+        "CDC tick-surveillance evidence capture failed during "
+        "private_artifact_retention; error_type=ValueError; review protected logs"
+    )
+    assert "SPACES_SECRET_ACCESS_KEY" not in diagnostic
+    assert "not-for-the-ledger" not in diagnostic
+
+    validation_classification, _ = tick._failure_details(
+        ValueError("schema changed"), "source_validation"
+    )
+    assert validation_classification == "SOURCE_VALIDATION_FAILED"
+
+
 def test_evidence_bundle_rejects_duplicate_manifest_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

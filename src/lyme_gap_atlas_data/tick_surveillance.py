@@ -170,13 +170,25 @@ def _fetch_bytes(
     raise AssertionError("unreachable")
 
 
-def _failure_classification(error: Exception) -> str:
-    """Return a bounded, non-secret classification for retained failure evidence."""
+def _failure_details(error: Exception, stage: str) -> tuple[str, str]:
+    """Return a bounded, non-secret classification and diagnostic for failed capture."""
+    if stage not in {
+        "source_validation",
+        "private_artifact_retention",
+        "governance_registration",
+    }:
+        raise ValueError("CDC evidence failure stage is not approved")
     if isinstance(error, httpx.HTTPStatusError):
-        return f"HTTP_{error.response.status_code}"
-    if isinstance(error, ValueError):
-        return "SOURCE_VALIDATION_FAILED"
-    return "EVIDENCE_CAPTURE_FAILED"
+        classification = f"HTTP_{error.response.status_code}"
+    elif stage == "source_validation" and isinstance(error, ValueError):
+        classification = "SOURCE_VALIDATION_FAILED"
+    else:
+        classification = "EVIDENCE_CAPTURE_FAILED"
+    return (
+        classification,
+        "CDC tick-surveillance evidence capture failed during "
+        f"{stage}; error_type={type(error).__name__}; review protected logs",
+    )
 
 
 def _validate_landing_page(result: FetchResult) -> None:
@@ -605,6 +617,7 @@ def collect_restricted_workbook_evidence(
                 (run_id, resource_key, code_version, profile_sha256, now),
             )
         connection.commit()
+        capture_stage = "source_validation"
         try:
             bundle = (
                 _load_evidence_bundle(evidence_bundle_dir, profile)
@@ -669,6 +682,7 @@ def collect_restricted_workbook_evidence(
                 "operator": (bundle.manifest.get("operator") if bundle is not None else None),
             }
             metadata_payload = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+            capture_stage = "private_artifact_retention"
             s3 = _spaces_client(settings)
             landing_artifact = _save_artifact(
                 s3, settings, run_id, landing.payload, landing.media_type, resource_key
@@ -699,6 +713,7 @@ def collect_restricted_workbook_evidence(
                 name: str(uuid.uuid4())
                 for name in ("landing", "workbook", "metadata", "sample", "manifest")
             }
+            capture_stage = "governance_registration"
             connection.autocommit(False)
             with connection.cursor() as cursor:
                 catalog_dataset_id = str(uuid.uuid4())
@@ -942,6 +957,7 @@ def collect_restricted_workbook_evidence(
             connection.commit()
         except Exception as error:
             connection.rollback()
+            classification, redacted_error = _failure_details(error, capture_stage)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """UPDATE GOVERNANCE.INGESTION_RUNS
@@ -950,8 +966,8 @@ def collect_restricted_workbook_evidence(
                     WHERE ingestion_run_id=%s""",
                     (
                         datetime.now(UTC),
-                        _failure_classification(error),
-                        "CDC tick-surveillance evidence capture failed; review protected logs",
+                        classification,
+                        redacted_error,
                         run_id,
                     ),
                 )
