@@ -65,6 +65,37 @@ def test_prod_historical_operation_requires_exact_prod_runtime(
     assert any("CURRENT_DATABASE" in call.args[0] for call in cursor.execute.call_args_list)
 
 
+def test_dev_historical_operation_requires_consolidated_dev_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guards against reverting Story #297's rename to OH_LYME_DEV_RUNTIME."""
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="dev"))
+    connection, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.return_value = (
+        "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        "OH_LYME_DEV_RUNTIME",
+    )
+    with historical.historical_operation():
+        pass
+    assert any("CURRENT_DATABASE" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_dev_historical_operation_rejects_pre_consolidation_role_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="dev"))
+    _, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.return_value = (
+        "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        "OH_LYME_DEV_PIPELINE_RUNTIME",
+    )
+    with (
+        pytest.raises(ValueError, match="isolated environment runtime"),
+        historical.historical_operation(),
+    ):
+        pass
+
+
 def test_prod_historical_operation_rejects_dev_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

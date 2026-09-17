@@ -28,7 +28,7 @@ def main():
             user, role, database, warehouse = cursor.fetchone()
             if (database, role) != (
                 "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
-                "OH_LYME_DEV_PIPELINE_RUNTIME",
+                "OH_LYME_DEV_RUNTIME",
             ):
                 raise ValueError("Historical fixtures require DEV runtime")
             print(f"HISTORICAL_FIXTURE_CONTEXT {user} {role} {database} {warehouse}")

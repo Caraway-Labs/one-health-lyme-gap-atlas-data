@@ -16,7 +16,7 @@ class PipelineSettings(BaseSettings):
     snowflake_database: str = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     snowflake_account: str = ""
     snowflake_user: str = ""
-    snowflake_role: str = "OH_LYME_DEV_PIPELINE_RUNTIME"
+    snowflake_role: str = "OH_LYME_DEV_RUNTIME"
     snowflake_warehouse: str = "OH_LYME_DEV_INGEST_XS_WH"
     snowflake_private_key_path: Path | None = None
     snowflake_private_key_b64: SecretStr | None = None

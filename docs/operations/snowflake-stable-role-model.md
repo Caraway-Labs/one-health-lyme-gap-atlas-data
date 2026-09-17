@@ -1,34 +1,44 @@
-# Stable Snowflake role model for simplified ingestion (Epic #223 / Story #229).
+# Stable Snowflake role model (Epic #223 / Story #229; consolidated by Epic #294 / ADR 0030)
 
-> **Status note (2026-09-16, Epic #294):** the table below has drifted from
-> the live account. A read-only audit found 11 DEV and 9 PROD custom roles —
-> `DATA_STEWARD`, `APPROVAL_VIEWER`, `SECURITY_ADMIN`, and
-> `MIGRATION_DEPLOYER` exist in Snowflake today but are not listed here at
-> all. See [role-inventory-dev.md](role-inventory-dev.md),
-> [role-inventory-prod.md](role-inventory-prod.md), and
-> [role-classification.md](role-classification.md) for the full reconciled
-> inventory and the two ADR options under consideration in
-> [Story #296](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/296).
-> This document's table is superseded once that ADR is `Accepted`; until then
-> it remains the last agreed baseline for what Epic #223 intended.
+## Current model (as of Story #297, DEV; Story #298 mirrors this to PROD)
 
-## Goal
+[ADR 0030](../adr/0030-snowflake-role-model-simplification.md) consolidated
+the drifted 11-DEV/9-PROD role inventory documented in
+[role-inventory-dev.md](role-inventory-dev.md) and
+[role-inventory-prod.md](role-inventory-prod.md) into 5 roles per environment:
+
+| Role | Capability | Notes |
+|---|---|---|
+| `OH_LYME_{ENV}_RUNTIME` | Ingestion + dbt transform runtime | Renamed from `PIPELINE_RUNTIME`; grants unchanged. Never holds an owner-rights grant beyond `USAGE`. |
+| `OH_LYME_{ENV}_OWNER` | Owner-rights: Tier D source and literature steward decisions, governed/explorer views, budget procedures | Merges `GOVERNED_VIEW_OWNER`, `KG_PAPER_REVIEW_OWNER`, and (DEV only) `KG_LLM_BUDGET_OWNER`. Holds `OH_LYME_{ENV}_STREAMLIT_OWNER` via role membership (see below) rather than owning Streamlit objects directly. |
+| `OH_LYME_{ENV}_STREAMLIT_OWNER` | Owns the 2 Streamlit apps and their internal stages | **Retained as its own role**, not merged, because Snowflake does not support `GRANT`/`REVOKE OWNERSHIP ON STREAMLIT`. `OH_LYME_{ENV}_OWNER` is granted this role (role-hierarchy nesting) so a session using `OWNER` still has full effective access; the object's registered owner in `SHOW GRANTS`/Streamlit metadata remains this role. |
+| `OH_LYME_{ENV}_READ` | Read-only: PMC/KG recovery audit, reserved API-read boundary | Merges `PMC_AUDITOR` and the (dormant, zero-holder) `API_RUNTIME` grants. Both were already read-only. |
+| `OH_LYME_{ENV}_MIGRATION_DEPLOYER` | Schema DDL / one-time deploy identity | Unchanged. Now also holds `OH_LYME_{ENV}_OWNER` directly (replacing the removed `SECURITY_ADMIN` indirection role, whose only purpose was `USAGE ON ROLE {ENV}_STREAMLIT_OWNER`). |
+
+Removed entirely (no successor object, zero functional loss):
+`OH_LYME_{ENV}_DATA_STEWARD`, `OH_LYME_{ENV}_APPROVAL_VIEWER` (unused
+duplicates, zero git references), `OH_LYME_{ENV}_SECURITY_ADMIN`
+(undocumented indirection, replaced by a direct role grant).
+
+Net: 11 DEV roles -> 5; 9 PROD roles -> 5 (once Story #298 mirrors this to
+PROD). The 2 legacy Alpha POC roles (`OH_LYME_API_READER`,
+`OH_LYME_DATA_LOADER`) are unaffected and out of scope.
+
+## Retained invariants (unchanged by this consolidation)
+
+- Ingestion runtime never holds an owner-rights grant beyond `USAGE` — the
+  scheduled job can never call `SP_RECORD_SOURCE_REVIEW_DECISION` or
+  `SP_RECORD_PAPER_REVIEW_BATCH`.
+- Owner-rights procedures remain separated from the runtime role.
+- DEV and PROD roles, credentials, and warehouses remain fully independent
+  (ADR 0006).
+- The migration/deployment identity remains distinct from the routine
+  scheduled runtime.
+
+## Goal (unchanged from Epic #223)
 
 Routine public-source onboarding must not create a new Snowflake role or a
 source-specific owner procedure solely for orchestration.
-
-## Minimal stable role model (as designed by Epic #223 — see status note above for drift)
-
-| Capability | Role pattern | Notes |
-|---|---|---|
-| Ingestion runtime | `OH_LYME_{ENV}_PIPELINE_RUNTIME` | Acquire/load/checkpoint/quality |
-| Transformation runtime | same pipeline runtime + dbt warehouse usage | No per-source transform role |
-| Governed read | `OH_LYME_{ENV}_GOVERNED_VIEW_OWNER` / API reader roles | Read-only products |
-| Application/API read | `OH_LYME_{ENV}_API_RUNTIME` | Public API boundary |
-| Streamlit owner | `OH_LYME_{ENV}_STREAMLIT_OWNER` | Tier D decisions only |
-| Deployment/migration | dedicated migration identity | One-time platform bootstrap |
-| KG paper review owner | `OH_LYME_{ENV}_KG_PAPER_REVIEW_OWNER` | Literature steward procs |
-| PMC audit | `OH_LYME_{ENV}_PMC_AUDITOR` / `ATLAS_DEV_PMC_AUDIT` | Read-only recovery audit |
 
 ## Generic objects (prefer these)
 
@@ -43,10 +53,22 @@ source-specific owner procedure solely for orchestration.
 - New source-specific orchestration-only procedures
 - Rewriting approval allowlists solely to unlock Tier B technical stages
 
-## Rare changes requiring AccountAdmin / ownership handoff
+## Historical migrations reference the pre-consolidation role names
 
-Documented only in `docs/operations/deployment-promotion.md` (procedure owner
-bootstraps such as historical V056/V059). Not part of normal source onboarding.
+Migrations `V041`-`V073` are checksum-locked and immutable; several
+reference `OH_LYME_DEV_STREAMLIT_OWNER`, `OH_LYME_DEV_GOVERNED_VIEW_OWNER`,
+`OH_LYME_DEV_KG_PAPER_REVIEW_OWNER`, `OH_LYME_DEV_KG_LLM_BUDGET_OWNER`, or
+`OH_LYME_DEV_PIPELINE_RUNTIME` by their pre-consolidation names in their
+literal SQL text and in `migration_execution_role()`'s historical-version
+mapping in `src/lyme_gap_atlas_data/migrations.py`. This is intentional and
+correct: those migrations already applied under those exact role names and
+their checksums must never change. `GOVERNED_VIEW_OWNER`, `KG_PAPER_REVIEW_OWNER`,
+and `KG_LLM_BUDGET_OWNER` no longer exist as roles going forward (see above);
+a from-scratch replay of the full migration history against a brand new,
+never-migrated database would need those historical roles re-created first.
+This is a known, accepted limitation of forward-only, checksum-immutable
+migrations and is not expected to occur against the live, continuously
+migrated DEV/PROD databases.
 
 ## Privilege-contract tests
 

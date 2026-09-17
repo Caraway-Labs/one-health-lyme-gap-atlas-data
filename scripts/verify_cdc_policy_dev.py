@@ -68,10 +68,7 @@ def main():
                 "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
             )
             user, role, database, warehouse = cursor.fetchone()
-            if (
-                database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
-                or role != "OH_LYME_DEV_PIPELINE_RUNTIME"
-            ):
+            if database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV" or role != "OH_LYME_DEV_RUNTIME":
                 raise ValueError("Fixture requires the isolated DEV runtime identity")
             print(
                 f"DEV_FIXTURE_CONTEXT user={user} role={role} "
