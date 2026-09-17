@@ -62,9 +62,9 @@ DECLARE
   current_database_name VARCHAR; row_count NUMBER; distinct_fips NUMBER; invalid_count NUMBER; artifact_id VARCHAR; source_version_id VARCHAR;
 BEGIN
   SELECT CURRENT_DATABASE() INTO :current_database_name;
-  IF current_database_name <> 'ONE_HEALTH_LYME_GAP_ATLAS_DEV' THEN RAISE invalid_environment; END IF;
-  IF INGESTION_RUN_ID IS NULL OR EVIDENCE_RUN_ID IS NULL OR WORKBOOK_SHA256 IS NULL
-     OR LENGTH(WORKBOOK_SHA256) <> 64 OR RAW_ROWS IS NULL OR RETRIEVED_AT IS NULL THEN
+  IF (current_database_name <> 'ONE_HEALTH_LYME_GAP_ATLAS_DEV') THEN RAISE invalid_environment; END IF;
+  IF (INGESTION_RUN_ID IS NULL OR EVIDENCE_RUN_ID IS NULL OR WORKBOOK_SHA256 IS NULL
+     OR LENGTH(WORKBOOK_SHA256) <> 64 OR RAW_ROWS IS NULL OR RETRIEVED_AT IS NULL) THEN
     RAISE invalid_input;
   END IF;
   SELECT artifact_id INTO :artifact_id
@@ -73,20 +73,20 @@ BEGIN
     AND artifact_type = 'SOURCE_WORKBOOK_EVIDENCE'
     AND sha256 = :WORKBOOK_SHA256
   QUALIFY ROW_NUMBER() OVER (ORDER BY created_at DESC) = 1;
-  IF artifact_id IS NULL THEN RAISE missing_evidence; END IF;
+  IF (artifact_id IS NULL) THEN RAISE missing_evidence; END IF;
   SELECT data_source_version_id INTO :source_version_id
   FROM GOVERNANCE.DATA_SOURCE_VERSIONS
   WHERE resource_key = 'cdc_tick_ixodes_pathogen_status'
     AND status IN ('APPROVED', 'CONDITIONAL') AND retired_at IS NULL
   QUALIFY ROW_NUMBER() OVER (ORDER BY created_at DESC) = 1;
-  IF source_version_id IS NULL THEN RAISE missing_approval; END IF;
+  IF (source_version_id IS NULL) THEN RAISE missing_approval; END IF;
   SELECT COUNT(*), COUNT(DISTINCT value:fips::VARCHAR) INTO :row_count, :distinct_fips
   FROM TABLE(FLATTEN(INPUT => :RAW_ROWS));
   SELECT COUNT(*) INTO :invalid_count FROM TABLE(FLATTEN(INPUT => :RAW_ROWS))
   WHERE NOT REGEXP_LIKE(value:fips::VARCHAR, '^[0-9]{5}$')
      OR value:burgdorferi_status::VARCHAR NOT IN ('Present', 'No records')
      OR NOT REGEXP_LIKE(value:source_row_hash::VARCHAR, '^[0-9a-f]{64}$');
-  IF row_count < 1 OR row_count <> distinct_fips OR invalid_count <> 0 THEN RAISE invalid_rows; END IF;
+  IF (row_count < 1 OR row_count <> distinct_fips OR invalid_count <> 0) THEN RAISE invalid_rows; END IF;
 
   BEGIN TRANSACTION;
   INSERT INTO RAW.RESTRICTED_CDC_PATHOGEN_WORKBOOK_ROWS
