@@ -24,6 +24,12 @@ on:
         required: true
         type: choice
         options: [tick, pathogen]
+      operation:
+        description: Evidence-only review capture or the approved private pathogen derivation
+        required: true
+        default: evidence
+        type: choice
+        options: [evidence, derive]
 
 permissions:
   contents: read
@@ -46,6 +52,7 @@ jobs:
       ENVELOPE_TAG: ${{ inputs.envelope_tag }}
       RETRIEVAL_ID: ${{ inputs.retrieval_id }}
       SOURCE_KIND: ${{ inputs.source_kind }}
+      OPERATION: ${{ inputs.operation }}
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
@@ -60,6 +67,8 @@ jobs:
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$ENVELOPE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$SOURCE_KIND" = "tick" || "$SOURCE_KIND" = "pathogen" ]]
+          [[ "$OPERATION" = "evidence" || "$OPERATION" = "derive" ]]
+          [[ "$OPERATION" != "derive" || "$SOURCE_KIND" = "pathogen" ]]
           [[ "$ENVELOPE_TAG" =~ ^(tick|pathogen)-operator-evidence-[0-9a-f-]{36}$ ]]
           [[ "$RETRIEVAL_ID" =~ ^[0-9a-f-]{36}$ ]]
           test "$ENVELOPE_TAG" = "$SOURCE_KIND-operator-evidence-$RETRIEVAL_ID"
@@ -104,7 +113,8 @@ jobs:
             --arg envelope_digest "$ENVELOPE_DIGEST" \
             --arg base_digest "$IMAGE_DIGEST" \
             --arg retrieval_id "$RETRIEVAL_ID" \
-            --arg source_kind "$SOURCE_KIND" '
+            --arg source_kind "$SOURCE_KIND" \
+            --arg operation "$OPERATION" '
             (.jobs[] | select(.name == "catalog-ingestion")) as $template
             | .jobs |= map(.image.digest = $envelope_digest)
             | .jobs += [
@@ -112,7 +122,9 @@ jobs:
                 | .name = "cdc-tick-evidence-once"
                 | .kind = "PRE_DEPLOY"
                 | .image.digest = $envelope_digest
-                | .run_command = (if $source_kind == "pathogen"
+                | .run_command = (if $source_kind == "pathogen" and $operation == "derive"
+                    then "/app/.venv/bin/atlas-data pipeline cdc-pathogen-restricted-dev-capture-and-ingest --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
+                    elif $source_kind == "pathogen"
                     then "/app/.venv/bin/atlas-data pipeline cdc-pathogen-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
                     else "/app/.venv/bin/atlas-data pipeline cdc-tick-surveillance-sample --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence"
                   end)

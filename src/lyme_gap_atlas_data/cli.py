@@ -46,7 +46,11 @@ from .orchestration import (
     run_production_cdc_dbt_recovery,
     run_production_schedule,
 )
-from .pathogen_surveillance import collect_pathogen_surveillance_evidence
+from .pathogen_surveillance import (
+    capture_and_ingest_restricted_pathogen_dev,
+    collect_pathogen_surveillance_evidence,
+    ingest_restricted_pathogen_dev,
+)
 from .pmc_extraction_worker import run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
@@ -484,6 +488,40 @@ def cdc_pathogen_surveillance_sample(
                 sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
             ),
             default=str,
+        )
+    )
+
+
+@pipeline_app.command("cdc-pathogen-restricted-dev-ingest")
+def cdc_pathogen_restricted_dev_ingest(
+    evidence_run_id: str = typer.Option(..., "--evidence-run-id"),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Derive restricted CDC pathogen county status in DEV; never print source rows."""
+    typer.echo(
+        json.dumps(
+            ingest_restricted_pathogen_dev(
+                evidence_bundle_dir=Path(evidence_bundle_dir), evidence_run_id=evidence_run_id
+            ),
+            default=str,
+            sort_keys=True,
+        )
+    )
+
+
+@pipeline_app.command("cdc-pathogen-restricted-dev-capture-and-ingest")
+def cdc_pathogen_restricted_dev_capture_and_ingest(
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Run private evidence then restricted DEV derivation; never print source rows."""
+    typer.echo(
+        json.dumps(
+            capture_and_ingest_restricted_pathogen_dev(
+                sample_limit=sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+            ),
+            default=str,
+            sort_keys=True,
         )
     )
 

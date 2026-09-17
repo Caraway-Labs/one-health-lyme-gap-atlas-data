@@ -436,11 +436,24 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
     if run is None or str(run[0]) not in {"COMPLETED", "SUCCEEDED"}:
         raise SemanticReleaseBlocked(f"Source {source.source_key} lacks a completed ingestion run")
 
-    cursor.execute(
-        """SELECT sha256 FROM GOVERNANCE.RAW_ARTIFACTS
-        WHERE artifact_id=%s AND ingestion_run_id=%s AND sha256=%s""",
-        (source.artifact_id, source.ingestion_run_id, source.artifact_sha256),
-    )
+    if source.source_key == "pathogen":
+        # The restricted derivation run references a private, prior evidence run.
+        # Do not require that artifact to be copied into the derivative run.
+        cursor.execute(
+            """SELECT a.sha256 FROM GOVERNANCE.RAW_ARTIFACTS a
+            WHERE a.artifact_id=%s AND a.sha256=%s
+              AND EXISTS (
+                SELECT 1 FROM CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS
+                WHERE ingestion_run_id=%s AND evidence_run_id=a.ingestion_run_id
+              )""",
+            (source.artifact_id, source.artifact_sha256, source.ingestion_run_id),
+        )
+    else:
+        cursor.execute(
+            """SELECT sha256 FROM GOVERNANCE.RAW_ARTIFACTS
+            WHERE artifact_id=%s AND ingestion_run_id=%s AND sha256=%s""",
+            (source.artifact_id, source.ingestion_run_id, source.artifact_sha256),
+        )
     artifact = cursor.fetchone()
     if artifact is None:
         raise SemanticReleaseBlocked(
@@ -477,11 +490,20 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
             f"Source {source.source_key} lacks staged publication evidence"
         )
 
-    cursor.execute(
-        """SELECT MAX(created_at) FROM GOVERNANCE.INGESTION_REQUESTS
-        WHERE ingestion_run_id=%s AND status_code BETWEEN 200 AND 299""",
-        (source.ingestion_run_id,),
-    )
+    if source.source_key == "pathogen":
+        cursor.execute(
+            """SELECT MAX(created_at) FROM GOVERNANCE.INGESTION_REQUESTS
+            WHERE ingestion_run_id=%s
+              AND (status_code BETWEEN 200 AND 299
+                   OR request_purpose='PRIVATE_OPERATOR_VERIFIED_WORKBOOK')""",
+            (source.ingestion_run_id,),
+        )
+    else:
+        cursor.execute(
+            """SELECT MAX(created_at) FROM GOVERNANCE.INGESTION_REQUESTS
+            WHERE ingestion_run_id=%s AND status_code BETWEEN 200 AND 299""",
+            (source.ingestion_run_id,),
+        )
     retrieved = cursor.fetchone()
     if retrieved is None or retrieved[0] is None:
         raise SemanticReleaseBlocked(f"Source {source.source_key} lacks retrieval evidence")
@@ -507,6 +529,31 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "source_record_id",
             "data_source_version_id",
             "ingestion_run_id",
+            "retrieved_at",
+        )
+    elif source.source_key == "pathogen":
+        cursor.execute(
+            """SELECT conformed_record_id, resource_key, resource_key, resource_key,
+                    source_definition_version, ingestion_run_id, source_record_id,
+                    source_row_hash,
+                    OBJECT_CONSTRUCT('FIPSCode', county_fips,
+                                     'burgdorferi_status', burgdorferi_status,
+                                     'coverage_state', coverage_state),
+                    retrieved_at
+            FROM CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS
+            WHERE resource_key=%s AND ingestion_run_id=%s AND source_definition_version=%s""",
+            (source.resource_key, source.ingestion_run_id, source.definition_version),
+        )
+        columns = (
+            "record_id",
+            "source_id",
+            "dataset_id",
+            "resource_key",
+            "source_definition_version",
+            "ingestion_run_id",
+            "source_record_id",
+            "source_row_hash",
+            "payload",
             "retrieved_at",
         )
     else:
