@@ -2029,6 +2029,8 @@ def test_dev_workflow_diagnoses_migration_ddl_without_emitting_query_text() -> N
     assert "REGEXP_REPLACE(ERROR_MESSAGE" in workflow
     assert "QUERY_ID,QUERY_TEXT" not in workflow
     assert "(CREATE|ALTER|GRANT|REVOKE)" in workflow
+    assert "(?is)" not in workflow
+    assert "UPPER(LTRIM(QUERY_TEXT))" in workflow
 
 
 def test_knowledge_graph_migrations_keep_runtime_privileges_and_history_access_narrow() -> None:
