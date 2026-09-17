@@ -34,7 +34,9 @@ The API reads only these governed views:
    tick statuses as `Unknown`; it cannot represent no records, absence, or a
    successful routine ingestion.
 3. The builder requires 3,144 unique five-digit county identities and a valid
-   Polygon geometry for every county. It fails closed on missing joins.
+   EPSG:4326 GeoJSON `Polygon` or `MultiPolygon` geometry for every county. It
+   preserves the publisher geometry without Atlas-side transformation and fails
+   closed on missing joins.
 4. Release rows and observations are immutable after candidate creation. Only
    the current-release pointer and append-only release events change during
    publication or rollback.

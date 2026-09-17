@@ -181,6 +181,50 @@ def test_assembly_preserves_lineage_and_source_native_missingness(
     assert any(row[2] == "burgdorferi_status" and row[11] == "NO_RECORDS" for row in observations)
 
 
+def test_assembly_preserves_source_native_multipolygon_geometry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 1)
+    manifest = _manifest()
+    gates = {
+        source.source_key: SourceGate(source, datetime(2026, 9, 15, tzinfo=UTC))
+        for source in manifest.sources
+    }
+    source_rows = {
+        "context_svi": [
+            _row(
+                {
+                    "STCNTY": "08001",
+                    "COUNTY": "Adams County",
+                    "ST_ABBR": "CO",
+                    "STATE": "Colorado",
+                    "E_TOTPOP": 100,
+                    "RPL_THEMES": 0.5,
+                    "EPL_UNINSUR": 0.25,
+                    "EP_UNINSUR": 5,
+                    "geometry": {"type": "MultiPolygon", "coordinates": []},
+                }
+            )
+        ],
+        "context_rucc": [_row({"FIPS": "08001", "Attribute": "RUCC_2023", "Value": "4"})],
+        "human": [],
+        "tick": [
+            _row(
+                {
+                    "FIPSCode": "08001",
+                    "Ixodes_scapularis_County_Status": "Established",
+                    "Ixodes_pacificus_county_status": "No records",
+                }
+            )
+        ],
+        "pathogen": [_row({"FIPSCode": "08001", "burgdorferi_status": "No records"})],
+    }
+
+    counties, _ = _assemble_counties(manifest, source_rows, gates)
+
+    assert '"type":"MultiPolygon"' in counties[0].values[20]
+
+
 def test_invalid_state_unallocated_human_row_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

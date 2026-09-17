@@ -678,8 +678,11 @@ def _assemble_counties(
         if fips in identity:
             raise SemanticReleaseBlocked(f"SVI identity contains duplicate county FIPS {fips}")
         geometry = record.get("geometry")
-        if not isinstance(geometry, dict) or geometry.get("type") != "Polygon":
-            raise SemanticReleaseBlocked(f"SVI geometry for {fips} is not a Polygon")
+        if not isinstance(geometry, dict) or geometry.get("type") not in {
+            "Polygon",
+            "MultiPolygon",
+        }:
+            raise SemanticReleaseBlocked(f"SVI geometry for {fips} is not a county polygon")
         state = _text_or(record.get("ST_ABBR"), "").upper()
         state_name = _text_or(record.get("STATE"), "")
         if not re.fullmatch(r"[A-Z]{2}", state) or not state_name:
