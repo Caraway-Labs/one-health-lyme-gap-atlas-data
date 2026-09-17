@@ -187,14 +187,25 @@ Implement the 15 governance entities and dataset-specific RAW standard columns d
 
 ### Codex local Snowflake CLI authentication
 
-- Codex uses the installed Snowflake CLI and the local `BVB26657_PAT` named
-  connection with `authenticator = "PROGRAMMATIC_ACCESS_TOKEN"`; it must not
-  use browser, OAuth, password, or external-browser authentication as a
-  fallback.
-- The PAT is role-restricted, stored only in a local token file outside the
-  repository, and referenced by `token_file_path` in the user-level Snowflake
-  CLI connection configuration. Do not place the token in `.env`, source
-  control, command-line arguments, output, or logs.
+- Codex uses the installed Snowflake CLI with a named connection scoped to
+  the least privilege the task needs, all using
+  `authenticator = "PROGRAMMATIC_ACCESS_TOKEN"`; it must not use browser,
+  OAuth, password, or external-browser authentication as a fallback. Epic
+  #294 / Story #300 found the originally documented default,
+  `BVB26657_PAT`, was unrestricted and resolved to `ACCOUNTADMIN`; the
+  default for routine DEV read/inspection work is now `ATLAS_DEV_READ`
+  (`OH_LYME_DEV_READ`, role-restricted). See the data repo's
+  `docs/operations/connection-inventory.md` for the full connection table.
+  `BVB26657_PAT` remains available, unrestricted, for an explicitly
+  authorized administrative action that genuinely needs `ACCOUNTADMIN`.
+- Each PAT is stored only in a local token file outside the repository and
+  referenced by `token_file_path` in the user-level Snowflake CLI connection
+  configuration. Do not place the token in `.env`, source control,
+  command-line arguments, output, or logs. Snowflake refuses to let a
+  PAT-authenticated session mint a new PAT for the same user, so a rotation
+  always requires the account owner to run
+  `ALTER USER ... ADD PROGRAMMATIC ACCESS TOKEN ... ROLE_RESTRICTION = '...'`
+  interactively and hand the resulting secret to the agent.
 - Default Codex access is DEV and least privilege. Before an action, run a
   read-only query through the named connection to confirm effective user,
   role, database, and warehouse. Production, migrations, grants, or other

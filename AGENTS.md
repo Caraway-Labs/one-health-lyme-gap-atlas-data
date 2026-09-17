@@ -26,10 +26,29 @@ pipeline code, Snowflake DDL, source configuration, or deployment files.
 - Commit blank environment templates only. Do not log credentials, artifact
   contents, or unredacted request data.
 - For Codex-initiated Snowflake inspection or administration, use `snow` with
-  the local `BVB26657_PAT` named PAT connection. First run a bounded read-only
-  query that reports the effective user, role, database, and warehouse. A
-  missing or expired PAT is a blocker; never trigger an interactive browser
-  login as a substitute.
+  a named connection scoped to the least privilege the task needs (Epic #294 /
+  Story #300 connection-surface reconciliation; see
+  `docs/operations/connection-inventory.md` for the full "which connection do
+  I use for X" table):
+  - `ATLAS_DEV_READ` (`OH_LYME_DEV_READ`) is the **default** for routine
+    DEV read/inspection work (PMC audit, migration-ledger checks, general
+    reads).
+  - `ATLAS_DEV_OWNER` (`OH_LYME_DEV_OWNER`) for DEV Streamlit deploy,
+    governed-view/budget-procedure owner actions, and literature/paper-review
+    steward decisions.
+  - `ATLAS_PROD_MIGRATOR`, `ATLAS_PROD_OWNER`, and `ATLAS_PROD_RUNTIME_AUDIT`
+    are the PROD equivalents; PROD actions still require explicit user scope
+    and authorization for that specific action.
+  - `BVB26657_PAT` (`ACCOUNTADMIN`) is **reserved, not the default** — use it
+    only for an explicitly authorized administrative action that genuinely
+    needs `ACCOUNTADMIN` (e.g. a cross-role `SHOW GRANTS` sweep).
+  First run a bounded read-only query that reports the effective user, role,
+  database, and warehouse. A missing or expired PAT is a blocker; never
+  trigger an interactive browser login as a substitute. Snowflake also
+  refuses to let a PAT-authenticated session mint a new PAT for that same
+  user, so PAT rotation always requires the account owner to run the
+  `ALTER USER ... ADD PROGRAMMATIC ACCESS TOKEN` statement interactively and
+  hand you the resulting secret.
 - Use a DEV, least-privilege connection by default. Production, migrations,
   roles/grants, and other privilege changes require explicit user scope and
   authorization for that specific action.
@@ -39,7 +58,9 @@ pipeline code, Snowflake DDL, source configuration, or deployment files.
   workflow has applied the relevant migration. Do not create a second worker,
   use production configuration, or copy secrets between environments.
 - For PMC runtime verification, first inspect the approved paper and migration
-  ledger through `ATLAS_DEV_PMC_AUDIT`, then run at most the owner-approved
+  ledger through `ATLAS_DEV_READ` (renamed from `ATLAS_DEV_PMC_AUDIT` in
+  Story #300; same role, `OH_LYME_DEV_READ`), then run at most the
+  owner-approved
   bounded service invocation. Verify afterward that OAI-PMH retrieval,
   budget reservation, redacted artifacts, extraction attempts, and graph
   receipts each have the expected ledger evidence. A failed budget reservation

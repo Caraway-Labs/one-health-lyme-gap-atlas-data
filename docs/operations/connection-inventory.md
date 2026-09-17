@@ -1,86 +1,108 @@
-# `snow` CLI connection-surface audit (Epic #294, Story #295)
+# `snow` CLI connection-surface audit and reconciliation (Epic #294, Stories #295 and #300)
 
-Captured 2026-09-16 from `snow connection list` (local `connections.toml`) plus
-a bounded read-only `SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(),
-CURRENT_WAREHOUSE()` per connection. No connection was created, modified, or
-removed.
+Story #295 captured the pre-consolidation inventory on 2026-09-16 (12 named
+connections). Story #300 reconciled the client-side `snow` connection surface
+to the role model [ADR 0030](../adr/0030-snowflake-role-model-simplification.md)
+accepted and Stories #297/#298 implemented. **No Snowflake role, grant, or
+user was created, altered, or dropped by Story #300** beyond the PAT rotation
+described below (a client-authorized action, not a governance-scoped
+role/grant change); everything else was local `connections.toml` editing and
+documentation.
 
-## Inventory
+## Final connection surface (10 named connections, down from 12)
 
-| Connection | Authenticator | Resolved role (verified live) | Purpose |
-|---|---|---|---|
-| `MM06468` | OAuth (browser) | interactive human | Personal interactive login, second account |
-| `BVB26657` | OAuth (browser) | interactive human | Personal interactive login, primary account |
-| `BVB26657_PAT` | PAT | **`ACCOUNTADMIN`** (verified live) | Documented in `AGENTS.md` as the default for agent-initiated Snowflake work |
-| `BVB26657_STREAMLIT_OWNER_PAT` | PAT | `OH_LYME_DEV_STREAMLIT_OWNER` (verified live) | DEV Streamlit app deploy/owner actions |
-| `BVB26657_SECURITY_ADMIN_PAT` | PAT | presumed `OH_LYME_DEV_SECURITY_ADMIN` (name implies; not re-verified live in this pass) | One-time DEV security-admin bootstrap actions |
-| `BVB26657_ACCOUNTADMIN_PAT` | PAT | presumed `ACCOUNTADMIN` | One-time DEV account-admin bootstrap actions |
-| `ATLAS_PROD_MIGRATOR` | PAT | presumed `OH_LYME_PROD_MIGRATION_DEPLOYER` | PROD schema migration deploys |
-| `ATLAS_PROD_STREAMLIT_OWNER` | PAT | presumed `OH_LYME_PROD_STREAMLIT_OWNER` | PROD Streamlit app deploy/owner actions |
-| `ATLAS_PROD_RUNTIME_AUDIT` | PAT | `OH_LYME_PROD_PIPELINE_RUNTIME` (verified live) | Read-only PROD runtime audit/verification |
-| `ATLAS_RESUME_MIGRATOR` | PAT | `ACCOUNTADMIN` (declared in connection params) | Migration-ledger recovery/resume |
-| `ATLAS_DEV_PMC_AUDIT` | PAT | `OH_LYME_DEV_PMC_AUDITOR` (declared) | DEV PMC extraction recovery audit |
-| `ATLAS_DEV_PMC_REVIEW_OWNER` | PAT | `OH_LYME_DEV_KG_PAPER_REVIEW_OWNER` (declared) | DEV literature/KG paper-review owner-rights actions |
+| Connection | Role (verified live) | Purpose |
+|---|---|---|
+| `MM06468` | interactive human | Personal interactive login, second account (out of scope for this epic) |
+| `BVB26657` | interactive human | Personal interactive login, primary account |
+| `ATLAS_DEV_READ` | `OH_LYME_DEV_READ` (verified live) | **Default for routine agent-initiated DEV read/inspection work** (PMC/migration-ledger audit, general read checks) |
+| `ATLAS_DEV_OWNER` | `OH_LYME_DEV_OWNER` (verified live) | DEV owner-rights: Streamlit deploy, governed-view/budget-procedure ownership, literature/paper-review steward decisions |
+| `ATLAS_PROD_MIGRATOR` | `OH_LYME_PROD_MIGRATION_DEPLOYER` (verified live) | PROD schema migration deploys |
+| `ATLAS_PROD_OWNER` | `OH_LYME_PROD_OWNER` (verified live) | PROD owner-rights: Streamlit deploy (confirmed via `SHOW STREAMLITS` returning both apps through the nested `STREAMLIT_OWNER` role grant), governed-view/budget-procedure ownership, literature/paper-review |
+| `ATLAS_PROD_RUNTIME_AUDIT` | `OH_LYME_PROD_RUNTIME` (verified live, unchanged from Story #298) | Read-only PROD runtime audit/verification |
+| `BVB26657_PAT` | `ACCOUNTADMIN` (unchanged; verified live in Story #295) | **Reserved, not default.** Only for explicitly authorized administrative/inventory work that genuinely needs `ACCOUNTADMIN` (e.g. a future full `SHOW GRANTS` sweep). No longer the routine agent default — see "Fixed: the over-privileged default" below. |
+| `BVB26657_ACCOUNTADMIN_PAT` | presumed `ACCOUNTADMIN` (found expired in Story #295; not re-verified) | One-time DEV account-admin bootstrap actions. Left untouched — expired-PAT rotation for an intentionally exceptional, rarely-used credential is an owner decision, not part of this story's routine-surface scope. |
+| `ATLAS_RESUME_MIGRATOR` | `ACCOUNTADMIN` (declared in connection params) | Migration-ledger recovery/resume — intentionally exceptional, left untouched |
 
-**12 named connections** (2 interactive + 10 PAT-based) are required today to
-operate this one pipeline across its lifecycle: routine ingestion, dbt,
-Streamlit deploys, migrations, PMC recovery audit, and one-time bootstrap.
+## Which connection do I use for X?
 
-## Key finding: the documented default connection is over-privileged
+| Task | Connection |
+|---|---|
+| Routine DEV read/inspection (PMC audit, migration-ledger check, general `SELECT`) | `ATLAS_DEV_READ` |
+| DEV Streamlit app deploy, governed-view/budget-procedure owner action, literature/paper-review decision | `ATLAS_DEV_OWNER` |
+| DEV schema migration | Protected `deploy-dev.yml` workflow (service credential, not a personal `snow` connection) |
+| PROD schema migration | `ATLAS_PROD_MIGRATOR` |
+| PROD Streamlit app deploy, governed-view/budget-procedure owner action, literature/paper-review decision | `ATLAS_PROD_OWNER` |
+| Read-only PROD runtime identity/audit check | `ATLAS_PROD_RUNTIME_AUDIT` |
+| Migration-ledger recovery/resume (exceptional) | `ATLAS_RESUME_MIGRATOR` |
+| A genuinely account-admin-level one-off (new role/grant bootstrap, cross-role `SHOW GRANTS` sweep) — requires explicit user authorization for that specific action | `BVB26657_PAT` |
+| Interactive human login | `BVB26657` (primary) / `MM06468` (secondary account) |
 
-`AGENTS.md` (workspace and data-repo) names `BVB26657_PAT` as the default
-connection for Codex/agent-initiated Snowflake work, with the explicit
-instruction to "use a DEV, least-privilege connection by default." Live
-verification shows it resolves to `ACCOUNTADMIN`, not a DEV runtime or
-governed-read role — the connection's `role` parameter is unset in
-`connections.toml`, so it falls back to the user's account default role.
+## Retired connections (redundant after role consolidation)
 
-This is a real governance gap independent of this epic's role-count decision:
-today, any agent following the documented default for a "quick read-only
-check" is actually authenticating as `ACCOUNTADMIN`. It is the reason this
-inventory pass itself had to use `BVB26657_PAT` for the full `SHOW GRANTS`
-sweep (a scoped role cannot see another role's grants without `MANAGE GRANTS`),
-which is a legitimate one-time use — but it should not be the *default* for
-routine work. Story #300 fixes this by either setting an explicit low-privilege
-`role` on `BVB26657_PAT` or introducing a dedicated `BVB26657_DEV_READONLY`-style
-connection and updating `AGENTS.md` to point to it.
+- `BVB26657_STREAMLIT_OWNER_PAT` — retired. `OH_LYME_DEV_OWNER` is granted
+  `OH_LYME_DEV_STREAMLIT_OWNER` via role-hierarchy membership (Story #297), so
+  a session authenticated as `OWNER` already has full Streamlit deploy access;
+  `ATLAS_DEV_OWNER` replaces it.
+- `ATLAS_PROD_STREAMLIT_OWNER` — retired for the same reason on the PROD side
+  (Story #298's mirrored role grant). Verified live: `ATLAS_PROD_OWNER`'s
+  `SHOW STREAMLITS` returns both `GOVERNED_DATA_EXPLORER` and
+  `SOURCE_APPROVAL_CONSOLE`.
+- `BVB26657_SECURITY_ADMIN_PAT` — retired. `OH_LYME_DEV_SECURITY_ADMIN` was
+  dropped in Story #297 (the "eliminate this indirection" finding in
+  [role-classification.md](role-classification.md)); the connection's target
+  role no longer exists.
+- `ATLAS_DEV_PMC_AUDIT` — replaced by `ATLAS_DEV_READ` (same role,
+  `OH_LYME_DEV_READ`, renamed to reflect its broadened, non-PMC-specific
+  scope; its underlying PAT was invalid after Story #297's role rename and
+  needed rotation anyway).
+- `ATLAS_DEV_PMC_REVIEW_OWNER` — replaced by `ATLAS_DEV_OWNER` (same role,
+  `OH_LYME_DEV_OWNER`, renamed for the same reason).
 
-## Connections mapped to role classification
+## Fixed: the over-privileged default
 
-Cross-referencing [role-inventory-dev.md](role-inventory-dev.md) and
-[role-inventory-prod.md](role-inventory-prod.md):
+Story #295 found that `AGENTS.md` (workspace and data-repo) named
+`BVB26657_PAT` as the default connection for agent-initiated Snowflake work,
+despite it resolving to `ACCOUNTADMIN`. Story #300 fixes this at the
+documentation level (both `AGENTS.md` files now point to `ATLAS_DEV_READ` as
+the default for routine work) and confirmed the fix could not be done by
+simply editing `BVB26657_PAT`'s `role` parameter: Snowflake Programmatic
+Access Tokens carry an optional `ROLE_RESTRICTION` set at mint time, and this
+particular PAT was minted unrestricted (defaulting to the account default
+role, `ACCOUNTADMIN`), not restricted to a role that could be swapped
+client-side. A client-side `role` override against an unrestricted-but-wrong
+default still authenticates as the account default; a `role` override against
+a *restricted* PAT for a role other than its restriction fails outright
+(confirmed live: `snow sql -c BVB26657_PAT --role OH_LYME_DEV_READ ...` →
+"Role ... is not permitted for the credentials being used"). The only fix is
+a newly minted, role-restricted PAT — `ATLAS_DEV_READ`, minted with
+`ROLE_RESTRICTION = 'OH_LYME_DEV_READ'`.
 
-- Connections exist for every **active, load-bearing** role category except
-  `KG_LLM_BUDGET_OWNER` and `GOVERNED_VIEW_OWNER` (both are only ever assumed
-  transiently by the migration-deployer connections via `COPY CURRENT GRANTS`,
-  never given their own named connection).
-- No connection exists for `API_RUNTIME` (DEV or PROD) or
-  `PROD_KG_PAPER_REVIEW_OWNER` — consistent with those roles being dormant/
-  reserved rather than actively operated today.
-- No connection exists for `DATA_STEWARD` or `APPROVAL_VIEWER` (DEV or PROD) —
-  consistent with the finding that these four roles are unused duplicates.
-- `BVB26657_SECURITY_ADMIN_PAT` and `BVB26657_ACCOUNTADMIN_PAT` are both
-  labeled "one-time" by their token file paths
-  (`atlas-dev-security-admin-one-time.pat`, `atlas-dev-accountadmin-one-time.pat`),
-  meaning even the connection-naming convention already recognizes these as
-  exceptional, not routine, identities.
+Note for future PAT rotations: Snowflake refuses to mint a new PAT for a user
+while authenticated *as that same user via an existing PAT*
+(`099413 (38002): Cannot use a programmatic access token as the
+authentication method to modify programmatic access tokens for the same
+user`). Combined with `AGENTS.md`'s prohibition on agent-initiated
+interactive/OAuth authentication, this means an agent cannot self-service a
+future PAT rotation for this account — the account owner must run the
+`ALTER USER ... ADD PROGRAMMATIC ACCESS TOKEN ... ROLE_RESTRICTION = '...'`
+statement interactively (as happened for this story's four new PATs) and hand
+the resulting secret to the agent to wire into `connections.toml`.
 
-## Implication for the ADR options (Story #296)
+`BVB26657_PAT` itself is left pointed at its existing `ACCOUNTADMIN` PAT,
+unchanged — it is not deleted, only demoted from "default" to "reserved,
+explicitly-authorized-use-only" in both `AGENTS.md` files, so an
+already-authorized future admin action (e.g. a full cross-role `SHOW GRANTS`
+sweep like Story #295's) still has a working credential without requiring a
+fresh mint.
 
-Whichever role-count option the product owner picks, the number of *named
-connections* a developer/agent must hold is a direct, measurable consequence:
+## Scorecard: before / after
 
-- A true 2-role model (`DEV_ALL`, `PROD_ALL`) would reduce the above to
-  roughly 4 connections (1 interactive + 1 DEV PAT + 1 PROD PAT + 1 legacy
-  Alpha POC), the largest reduction, at the cost of the separation-of-duties
-  controls itemized in [role-classification.md](role-classification.md).
-- The ~4-roles-per-environment consolidated option would reduce the above to
-  roughly 6-7 connections (runtime, approval/steward, governed-read/API,
-  migration/deploy, per environment, plus interactive) while keeping
-  "runtime never approves" and "owner-rights separated from runtime" intact.
-- Either option can independently retire `BVB26657_SECURITY_ADMIN_PAT`,
-  `BVB26657_ACCOUNTADMIN_PAT`, and the standalone `SECURITY_ADMIN` roles per
-  the "eliminate this indirection" finding in
-  [role-classification.md](role-classification.md), and can delete
-  `DATA_STEWARD`/`APPROVAL_VIEWER` in both environments immediately with zero
-  functional risk (see that document's "no-regret deletions" section).
+| Metric | Before (Story #295) | After (Story #300) |
+|---|---|---|
+| Named `snow` connections | 12 | 10 |
+| Custom Snowflake roles | 22 | 8 (Stories #297/#298, unchanged by this story) |
+| Documented agent default resolves to | `ACCOUNTADMIN` | `OH_LYME_DEV_READ` |
+| Dead/invalid PATs in `connections.toml` | 2 (`ATLAS_DEV_PMC_AUDIT`, `ATLAS_DEV_PMC_REVIEW_OWNER`, both invalidated by Story #297's role rename) | 0 |
+| PROD connections resolving to an unintended default role | 1 (`ATLAS_PROD_MIGRATOR` → `ACCOUNTADMIN` instead of `OH_LYME_PROD_MIGRATION_DEPLOYER`) | 0 |
+| Named ADR 0005/0006/0027 controls dropped by this story | n/a | **0** |
