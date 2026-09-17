@@ -179,7 +179,7 @@ def parse_pathogen_workbook(
             "workbook_sheet": sheet.title,
             "header_row": header_row,
             "headers": list(headers),
-            "dataset_as_of": profile["dataset_as_of"],
+            "dataset_as_of": str(profile["dataset_as_of"]),
             "temporal_semantics": profile["temporal_semantics"],
             "allowed_status_values": list(profile["allowed_status_values"]),
             "pathogen_status_columns": profile["pathogen_status_columns"],
