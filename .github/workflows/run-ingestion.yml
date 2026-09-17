@@ -139,13 +139,11 @@ jobs:
           from lyme_gap_atlas_shared.settings import SnowflakeSettings
           from lyme_gap_atlas_shared.snowflake import connect
 
-          # Per-environment runtime role names, not a single template: DEV was
-          # renamed to OH_LYME_DEV_RUNTIME by Story #297 (Epic #294 / ADR 0030);
-          # PROD stays on the pre-consolidation name until Story #298 executes
-          # the equivalent PROD rename.
+          # Per-environment runtime role names (ADR 0030 / Epic #294). DEV was
+          # renamed by Story #297; PROD by this Story #298 change.
           runtime_role_by_environment = {
               "DEV": "OH_LYME_DEV_RUNTIME",
-              "PROD": "OH_LYME_PROD_PIPELINE_RUNTIME",
+              "PROD": "OH_LYME_PROD_RUNTIME",
           }
           environment = os.environ["TOPX_ENV"].upper()
           expected_user = f"OH_LYME_{environment}_PIPELINE_SVC"

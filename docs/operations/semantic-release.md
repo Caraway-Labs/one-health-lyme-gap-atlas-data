@@ -40,7 +40,7 @@ SHA-256. Do not commit credentials or private workbook bytes.
 
 ## PROD Snowflake proof queries
 
-Use the read-only `OH_LYME_PROD_PIPELINE_RUNTIME` audit connection for these
+Use the read-only `OH_LYME_PROD_RUNTIME` audit connection for these
 queries. It is sufficient for the release tables after the protected
 migrations. Do not use `ACCOUNTADMIN` for routine proof.
 

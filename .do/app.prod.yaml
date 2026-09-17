@@ -21,7 +21,7 @@ jobs:
       - key: SNOWFLAKE_DATABASE
         value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
       - key: SNOWFLAKE_ROLE
-        value: OH_LYME_PROD_PIPELINE_RUNTIME
+        value: OH_LYME_PROD_RUNTIME
       - key: SNOWFLAKE_WAREHOUSE
         value: OH_LYME_PROD_INGEST_XS_WH
       - key: SNOWFLAKE_AUTH_METHOD
@@ -77,7 +77,7 @@ jobs:
       - key: SNOWFLAKE_DATABASE
         value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
       - key: SNOWFLAKE_ROLE
-        value: OH_LYME_PROD_PIPELINE_RUNTIME
+        value: OH_LYME_PROD_RUNTIME
       - key: SNOWFLAKE_WAREHOUSE
         value: OH_LYME_PROD_INGEST_XS_WH
       - key: SNOWFLAKE_AUTH_METHOD
@@ -135,7 +135,7 @@ jobs:
       - key: SNOWFLAKE_DATABASE
         value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
       - key: SNOWFLAKE_ROLE
-        value: OH_LYME_PROD_PIPELINE_RUNTIME
+        value: OH_LYME_PROD_RUNTIME
       - key: SNOWFLAKE_WAREHOUSE
         value: OH_LYME_PROD_INGEST_XS_WH
       - key: SNOWFLAKE_AUTH_METHOD
@@ -197,7 +197,7 @@ jobs:
       - key: SNOWFLAKE_DATABASE
         value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
       - key: SNOWFLAKE_ROLE
-        value: OH_LYME_PROD_PIPELINE_RUNTIME
+        value: OH_LYME_PROD_RUNTIME
       - key: SNOWFLAKE_WAREHOUSE
         value: OH_LYME_PROD_INGEST_XS_WH
       - key: SNOWFLAKE_AUTH_METHOD
@@ -263,7 +263,7 @@ jobs:
       - key: SNOWFLAKE_DATABASE
         value: ONE_HEALTH_LYME_GAP_ATLAS_PROD
       - key: SNOWFLAKE_ROLE
-        value: OH_LYME_PROD_PIPELINE_RUNTIME
+        value: OH_LYME_PROD_RUNTIME
       - key: SNOWFLAKE_WAREHOUSE
         value: OH_LYME_PROD_INGEST_XS_WH
       - key: SNOWFLAKE_AUTH_METHOD

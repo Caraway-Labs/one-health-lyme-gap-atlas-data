@@ -54,15 +54,32 @@ def test_direct_loader_cannot_bypass_environment_boundary(monkeypatch: pytest.Mo
 def test_prod_historical_operation_requires_exact_prod_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Guards Story #298's rename to OH_LYME_PROD_RUNTIME."""
     monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
     connection, cursor = connection_fixture(monkeypatch)
     cursor.fetchone.return_value = (
         "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
-        "OH_LYME_PROD_PIPELINE_RUNTIME",
+        "OH_LYME_PROD_RUNTIME",
     )
     with historical.historical_operation():
         pass
     assert any("CURRENT_DATABASE" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_prod_historical_operation_rejects_pre_consolidation_role_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(historical, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
+    _, cursor = connection_fixture(monkeypatch)
+    cursor.fetchone.return_value = (
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "OH_LYME_PROD_PIPELINE_RUNTIME",
+    )
+    with (
+        pytest.raises(ValueError, match="isolated environment runtime"),
+        historical.historical_operation(),
+    ):
+        pass
 
 
 def test_dev_historical_operation_requires_consolidated_dev_runtime(
