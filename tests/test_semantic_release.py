@@ -95,6 +95,19 @@ def test_template_is_not_executable_until_reviewed() -> None:
         load_manifest(TEMPLATE)
 
 
+def test_release_generated_at_is_coerced_to_immutable_storage_type() -> None:
+    class CapturingCursor:
+        statement = ""
+
+        def execute(self, statement: str, _parameters: tuple[object, ...]) -> None:
+            self.statement = statement
+
+    cursor = CapturingCursor()
+    semantic_release._insert_release(cursor, _manifest(), "a" * 64)
+
+    assert "TO_TIMESTAMP_LTZ(%s)" in cursor.statement
+
+
 def test_tick_and_pathogen_are_distinct_contract_slots() -> None:
     manifest = _manifest()
     assert manifest.source("tick").resource_key != manifest.source("pathogen").resource_key

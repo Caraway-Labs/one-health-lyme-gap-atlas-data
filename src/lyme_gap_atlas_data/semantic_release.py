@@ -1103,7 +1103,7 @@ def _insert_release(cursor: Any, manifest: SemanticManifest, bundle_sha256: str)
         """INSERT INTO PRESENTATION.SEMANTIC_RELEASES
         (release_id, schema_version, generated_at, scope, bundle_sha256,
          score_defaults, methodology_version, limitations, status, source_manifest, created_by)
-        SELECT %s, %s, TO_TIMESTAMP_TZ(%s), %s, %s, PARSE_JSON(%s), %s, %s,
+        SELECT %s, %s, TO_TIMESTAMP_LTZ(%s), %s, %s, PARSE_JSON(%s), %s, %s,
                'CANDIDATE', PARSE_JSON(%s), CURRENT_USER()""",
         (
             manifest.release_id,
