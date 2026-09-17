@@ -1402,8 +1402,8 @@ def _insert_counties(cursor: Any, release_id: str, counties: Sequence[CountyRow]
          state_unallocated_records_2023, tick_status, scapularis_status, pacificus_status,
          burgdorferi_status, svi_percentile, uninsured_percentile, uninsured_percent,
          rucc_2023, evidence_completeness, geometry_json, lineage)
-        SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-               PARSE_JSON(%s),PARSE_JSON(%s)""",
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                PARSE_JSON(%s),PARSE_JSON(%s))""",
         [row.values for row in counties],
     )
 
@@ -1417,7 +1417,7 @@ def _insert_observations(
          ingestion_run_id, artifact_id, source_record_id, source_row_hash, value, value_state,
          retrieved_at, geography_semantics, temporal_window, transformation_version,
          quality_state, limitations)
-        SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s""",
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s)""",
         [(row[0], release_id, *row[2:]) for row in observations],
     )
 

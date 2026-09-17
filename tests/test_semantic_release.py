@@ -108,6 +108,13 @@ def test_release_generated_at_is_coerced_to_immutable_storage_type() -> None:
     assert "TO_TIMESTAMP_LTZ(%s)" in cursor.statement
 
 
+def test_bulk_semantic_rows_use_values_for_connector_batch_binding() -> None:
+    module = Path("src/lyme_gap_atlas_data/semantic_release.py").read_text(encoding="utf-8")
+
+    assert "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s," in module
+    assert "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s)" in module
+
+
 def test_tick_and_pathogen_are_distinct_contract_slots() -> None:
     manifest = _manifest()
     assert manifest.source("tick").resource_key != manifest.source("pathogen").resource_key
