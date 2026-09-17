@@ -1395,31 +1395,59 @@ def _insert_hierarchy(cursor: Any, manifest: SemanticManifest) -> None:
 
 
 def _insert_counties(cursor: Any, release_id: str, counties: Sequence[CountyRow]) -> None:
-    cursor.executemany(
+    _execute_bound_value_batches(
+        cursor,
         """INSERT INTO PRESENTATION.SEMANTIC_COUNTY_ATLAS
         (release_id, fips, county, state, state_name, population, in_contiguous_tick_scope,
          human_status, case_count_floor_2023, incidence_floor_2023,
          state_unallocated_records_2023, tick_status, scapularis_status, pacificus_status,
          burgdorferi_status, svi_percentile, uninsured_percentile, uninsured_percent,
          rucc_2023, evidence_completeness, geometry_json, lineage)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                PARSE_JSON(%s),PARSE_JSON(%s))""",
+        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+               PARSE_JSON($21),PARSE_JSON($22)
+        FROM VALUES""",
         [row.values for row in counties],
+        row_width=22,
+        batch_size=50,
     )
 
 
 def _insert_observations(
     cursor: Any, release_id: str, observations: Sequence[tuple[Any, ...]]
 ) -> None:
-    cursor.executemany(
+    _execute_bound_value_batches(
+        cursor,
         """INSERT INTO PRESENTATION.SEMANTIC_OBSERVATIONS
         (observation_id, release_id, measure_id, fips, source_key, source_version_id,
          ingestion_run_id, artifact_id, source_record_id, source_row_hash, value, value_state,
          retrieved_at, geography_semantics, temporal_window, transformation_version,
          quality_state, limitations)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s)""",
+        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,PARSE_JSON($11),$12,$13,$14,$15,$16,$17,$18
+        FROM VALUES""",
         [(row[0], release_id, *row[2:]) for row in observations],
+        row_width=18,
+        batch_size=500,
     )
+
+
+def _execute_bound_value_batches(
+    cursor: Any,
+    statement_prefix: str,
+    rows: Sequence[tuple[Any, ...]],
+    *,
+    row_width: int,
+    batch_size: int,
+) -> None:
+    """Execute bounded, client-bound VALUES batches without driver SQL rewriting."""
+    if not rows:
+        return
+    if any(len(row) != row_width for row in rows):
+        raise ValueError("Semantic bulk-insert row width does not match its statement")
+    placeholder_row = f"({','.join('%s' for _ in range(row_width))})"
+    for offset in range(0, len(rows), batch_size):
+        batch = rows[offset : offset + batch_size]
+        parameters = tuple(value for row in batch for value in row)
+        cursor.execute(f"{statement_prefix} {','.join(placeholder_row for _ in batch)}", parameters)
 
 
 def _assert_release_absent(cursor: Any, release_id: str) -> None:
