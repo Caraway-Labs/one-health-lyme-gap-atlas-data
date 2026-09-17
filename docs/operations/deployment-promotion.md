@@ -226,13 +226,28 @@ through a temporary non-routable pre-deploy job, and removes that temporary
 topology afterward. It must never be used to re-ingest the source. See ADR
 0017 for the exact guardrails and required post-run validation.
 
-Completed production-runtime controls:
+## Current production-runtime status
 
-1. Separate PROD Snowflake, Spaces, service identity, and non-routable App
-   Platform job are provisioned. Its production-only secrets remain stored in
-   App Platform, and `PROD_APP_ID` is configured as a GitHub production
-   environment variable.
-2. The production workflow fetches the existing App Platform specification
+The protected promotion workflow is present, but the production runtime is
+**not ready for governed ingestion or semantic publication**. Its latest
+protected run failed closed because the production environment does not provide
+the required runtime Snowflake identity and private Spaces settings. Do not
+work around this by copying DEV settings, using a browser-authenticated
+connection, or placing a secret in the repository. The account owner must
+provision the production-only values through the protected environment/App
+Platform configuration, then rerun the least-privilege preflight.
+
+The required non-secret configuration categories are:
+
+1. runtime Snowflake user, role, encrypted private-key material, and key
+   passphrase; and
+2. private Spaces region, endpoint, bucket, prefix, access-key ID, and secret
+   access key.
+
+The exact missing-variable evidence and owner action are recorded in Epic #252
+story [#274](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/274).
+After this configuration is present, the production workflow fetches the
+existing App Platform specification
    without emitting it, confirms the intended scheduled jobs, and updates only
    their immutable image digest. This preserves provider-encrypted secrets and
    all other production job settings.
