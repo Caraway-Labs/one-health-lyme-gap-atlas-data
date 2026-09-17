@@ -28,6 +28,14 @@ on:
         description: Exact commit reviewed for this protected execution
         required: true
         type: string
+      source_version_id:
+        description: Active approved source-version UUID bound to this execution
+        required: true
+        type: string
+      source_decision_id:
+        description: Immutable human-review decision UUID that approved the source version
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -58,6 +66,9 @@ jobs:
       SPACES_PREFIX: ${{ secrets.SPACES_PREFIX }}
       SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
       SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+      SOURCE_DEFINITION: ${{ inputs.source_definition }}
+      SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+      SOURCE_DECISION_ID: ${{ inputs.source_decision_id }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify reviewed commit and definition
@@ -72,7 +83,7 @@ jobs:
         run: uv sync --extra dev --extra pipeline --locked
       - name: Validate definition
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
-      - name: Verify protected PROD runtime identity
+      - name: Verify protected PROD runtime identity and approved source decision
         run: |
           set -euo pipefail
           for required_var in \
@@ -104,16 +115,34 @@ jobs:
           export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
 
           uv run python - <<'PY'
+          import os
+          import uuid
+          from pathlib import Path
+
           from lyme_gap_atlas_shared.settings import SnowflakeSettings
           from lyme_gap_atlas_shared.snowflake import connect
+          from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 
           settings = SnowflakeSettings()
+          source_version_id = str(uuid.UUID(os.environ["SOURCE_VERSION_ID"]))
+          source_decision_id = str(uuid.UUID(os.environ["SOURCE_DECISION_ID"]))
+          definition = load_source_definition(Path(os.environ["SOURCE_DEFINITION"]))
           with connect(settings) as connection, connection.cursor() as cursor:
               cursor.execute(
                   "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), "
                   "CURRENT_WAREHOUSE()"
               )
               identity = cursor.fetchone()
+              cursor.execute(
+                  """SELECT v.resource_key, v.status, v.approved_decision_id, v.retired_at,
+                            d.decision
+                     FROM GOVERNANCE.DATA_SOURCE_VERSIONS v
+                     JOIN GOVERNANCE.MANUAL_REVIEW_DECISIONS d
+                       ON d.manual_review_decision_id = v.approved_decision_id
+                     WHERE v.data_source_version_id = %s""",
+                  (source_version_id,),
+              )
+              approval = cursor.fetchone()
           expected = (
               "OH_LYME_PROD_PIPELINE_SVC",
               "OH_LYME_PROD_RUNTIME",
@@ -129,6 +158,19 @@ jobs:
               raise SystemExit(
                   "Protected Tier C ingestion requires the dedicated PROD "
                   "pipeline service identity."
+              )
+          if approval is None:
+              raise SystemExit("Protected Tier C ingestion requires a recorded source decision.")
+          if (
+              approval[0] != definition.resource_key
+              or approval[1] not in {"APPROVED", "CONDITIONAL"}
+              or approval[2] != source_decision_id
+              or approval[3] is not None
+              or approval[4] not in {"APPROVED", "APPROVED_WITH_CONDITIONS"}
+          ):
+              raise SystemExit(
+                  "Protected Tier C ingestion requires the supplied active approved "
+                  "source version and immutable source decision."
               )
           PY
       - name: Execute canonical Tier C run or resume

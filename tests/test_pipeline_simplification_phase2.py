@@ -461,10 +461,15 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert 'ENABLE_PRODUCTION_EXECUTION: "true"' in prod_workflow
     assert "release_commit" in prod_workflow
     assert 'test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"' in prod_workflow
+    assert "source_version_id" in prod_workflow
+    assert "source_decision_id" in prod_workflow
     assert "SNOWFLAKE_RUNTIME_USER" in prod_workflow
     assert "SNOWFLAKE_RUNTIME_ROLE" in prod_workflow
     assert "OH_LYME_PROD_PIPELINE_SVC" in prod_workflow
     assert "OH_LYME_PROD_RUNTIME" in prod_workflow
+    assert "GOVERNANCE.DATA_SOURCE_VERSIONS" in prod_workflow
+    assert "GOVERNANCE.MANUAL_REVIEW_DECISIONS" in prod_workflow
+    assert "requires the supplied active approved" in prod_workflow
     assert "--tier C" in prod_workflow
     assert "run-production-schedule" not in prod_workflow
 
