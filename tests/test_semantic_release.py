@@ -111,8 +111,29 @@ def test_release_generated_at_is_coerced_to_immutable_storage_type() -> None:
 def test_bulk_semantic_rows_use_values_for_connector_batch_binding() -> None:
     module = Path("src/lyme_gap_atlas_data/semantic_release.py").read_text(encoding="utf-8")
 
-    assert "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s," in module
-    assert "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s)" in module
+    assert "PARSE_JSON($21),PARSE_JSON($22)\n        FROM VALUES" in module
+    assert "PARSE_JSON($11),$12,$13,$14,$15,$16,$17,$18\n        FROM VALUES" in module
+
+
+def test_bound_value_batches_keep_values_parameterized_and_bounded() -> None:
+    class CapturingCursor:
+        calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def execute(self, statement: str, parameters: tuple[object, ...]) -> None:
+            self.calls.append((statement, parameters))
+
+    cursor = CapturingCursor()
+    semantic_release._execute_bound_value_batches(
+        cursor,
+        "INSERT INTO example SELECT $1, PARSE_JSON($2) FROM VALUES",
+        [("one", "{}"), ("two", "{}")],
+        row_width=2,
+        batch_size=1,
+    )
+
+    assert len(cursor.calls) == 2
+    assert cursor.calls[0][0].endswith("VALUES (%s,%s)")
+    assert cursor.calls[0][1] == ("one", "{}")
 
 
 def test_tick_and_pathogen_are_distinct_contract_slots() -> None:
