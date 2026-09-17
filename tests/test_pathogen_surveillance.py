@@ -140,9 +140,18 @@ def test_pathogen_review_console_is_dev_only_and_does_not_expose_workbook() -> N
     assert "requestor-restricted" in review.source
     assert "RAW_ARTIFACTS" not in review.source
     assert "No records is not pathogen absence" in review.source
+    procedure = migrations["V075"]
+    assert migration_execution_role(procedure, DEV_DATABASE) is None
+    assert "cdc_tick_ixodes_pathogen_status" in procedure.source
+    assert (
+        "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION" in procedure.source
+    )
     with pytest.raises(ValueError, match="DEV-only"):
         render_migration(review, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     assert "V074" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "V075" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
 
