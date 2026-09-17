@@ -307,6 +307,25 @@ def test_explicitly_geography_unavailable_human_rows_are_not_allocated() -> None
     assert values["08001"]["state_unallocated"] == 0
 
 
+def test_pathogen_source_scope_superset_is_not_allocated_to_canonical_counties() -> None:
+    source = _source("pathogen")
+    identity = {"08001": {}}
+    classification = PathogenParityClassification(
+        "classification", 0, datetime(2026, 9, 15, tzinfo=UTC)
+    )
+    values = semantic_release._surveillance_values(
+        [
+            _row({"FIPSCode": "08001", "burgdorferi_status": "No records"}),
+            _row({"FIPSCode": "01001", "burgdorferi_status": "Present"}),
+        ],
+        source,
+        identity,
+        kind="pathogen",
+        pathogen_parity=classification,
+    )
+    assert set(values) == {"08001"}
+
+
 def test_value_states_and_scorecard_mapping_are_explicit() -> None:
     assert _value_state(None) == "MISSING"
     assert _value_state(0) == "ZERO"
