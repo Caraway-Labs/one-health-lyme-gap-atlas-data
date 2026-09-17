@@ -27,14 +27,13 @@ from .settings import PipelineSettings
 
 ENDPOINT = "https://data.cdc.gov/resource/qtbi-xd4i.json"
 METADATA = "https://data.cdc.gov/api/views/qtbi-xd4i"
-# Per-environment runtime role names, not a single f"OH_LYME_{ENV}_..." template,
-# because DEV and PROD are renamed on different schedules (ADR 0030 / Epic #294):
-# DEV was renamed to OH_LYME_DEV_RUNTIME in Story #297; PROD remains
-# OH_LYME_PROD_PIPELINE_RUNTIME until Story #298's protected promotion executes
-# the equivalent PROD rename.
+# Per-environment runtime role names (ADR 0030 / Epic #294). DEV was renamed
+# to OH_LYME_DEV_RUNTIME in Story #297; PROD is renamed to OH_LYME_PROD_RUNTIME
+# by this Story #298 change, applied together with the live protected PROD
+# role rename (see docs/operations/prod-role-consolidation-runbook.md).
 RUNTIME_ROLE_BY_ENVIRONMENT = {
     "DEV": "OH_LYME_DEV_RUNTIME",
-    "PROD": "OH_LYME_PROD_PIPELINE_RUNTIME",
+    "PROD": "OH_LYME_PROD_RUNTIME",
 }
 CANDIDATE = "STAGING.CDC_LYME_HISTORICAL_CANDIDATE"
 RETAINED = "CONFORMED.CDC_HISTORICAL_VALIDATED_SNAPSHOTS"

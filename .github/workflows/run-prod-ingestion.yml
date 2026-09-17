@@ -116,7 +116,7 @@ jobs:
               identity = cursor.fetchone()
           expected = (
               "OH_LYME_PROD_PIPELINE_SVC",
-              "OH_LYME_PROD_PIPELINE_RUNTIME",
+              "OH_LYME_PROD_RUNTIME",
               "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
               settings.snowflake_warehouse,
           )

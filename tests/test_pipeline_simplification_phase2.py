@@ -447,7 +447,7 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE" in workflow
     assert "OH_LYME_{environment}_PIPELINE_SVC" in workflow
     assert "OH_LYME_DEV_RUNTIME" in workflow
-    assert "OH_LYME_PROD_PIPELINE_RUNTIME" in workflow
+    assert "OH_LYME_PROD_RUNTIME" in workflow
     assert "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE()" in workflow
     assert "secrets.SNOWFLAKE_USER" not in workflow
     assert "secrets.SNOWFLAKE_ROLE" not in workflow
@@ -464,7 +464,7 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "SNOWFLAKE_RUNTIME_USER" in prod_workflow
     assert "SNOWFLAKE_RUNTIME_ROLE" in prod_workflow
     assert "OH_LYME_PROD_PIPELINE_SVC" in prod_workflow
-    assert "OH_LYME_PROD_PIPELINE_RUNTIME" in prod_workflow
+    assert "OH_LYME_PROD_RUNTIME" in prod_workflow
     assert "--tier C" in prod_workflow
     assert "run-production-schedule" not in prod_workflow
 
