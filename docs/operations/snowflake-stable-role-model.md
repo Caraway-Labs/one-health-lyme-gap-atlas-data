@@ -1,11 +1,23 @@
 # Stable Snowflake role model for simplified ingestion (Epic #223 / Story #229).
 
+> **Status note (2026-09-16, Epic #294):** the table below has drifted from
+> the live account. A read-only audit found 11 DEV and 9 PROD custom roles —
+> `DATA_STEWARD`, `APPROVAL_VIEWER`, `SECURITY_ADMIN`, and
+> `MIGRATION_DEPLOYER` exist in Snowflake today but are not listed here at
+> all. See [role-inventory-dev.md](role-inventory-dev.md),
+> [role-inventory-prod.md](role-inventory-prod.md), and
+> [role-classification.md](role-classification.md) for the full reconciled
+> inventory and the two ADR options under consideration in
+> [Story #296](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/296).
+> This document's table is superseded once that ADR is `Accepted`; until then
+> it remains the last agreed baseline for what Epic #223 intended.
+
 ## Goal
 
 Routine public-source onboarding must not create a new Snowflake role or a
 source-specific owner procedure solely for orchestration.
 
-## Minimal stable role model
+## Minimal stable role model (as designed by Epic #223 — see status note above for drift)
 
 | Capability | Role pattern | Notes |
 |---|---|---|
