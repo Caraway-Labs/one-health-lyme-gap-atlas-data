@@ -36,7 +36,10 @@ The API reads only these governed views:
 3. The builder requires 3,144 unique five-digit county identities and a valid
    EPSG:4326 GeoJSON `Polygon` or `MultiPolygon` geometry for every county. It
    preserves the publisher geometry without Atlas-side transformation and fails
-   closed on missing joins.
+   closed on missing joins. A contextual source may retain valid additional
+   source-native county rows outside this release identity, but it must cover
+   every canonical county; the builder never manufactures values for a missing
+   canonical join.
 4. Release rows and observations are immutable after candidate creation. Only
    the current-release pointer and append-only release events change during
    publication or rollback.

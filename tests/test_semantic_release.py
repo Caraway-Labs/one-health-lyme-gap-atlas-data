@@ -143,7 +143,10 @@ def test_assembly_preserves_lineage_and_source_native_missingness(
                 }
             )
         ],
-        "context_rucc": [_row({"FIPS": "08001", "Attribute": "RUCC_2023", "Value": "4"})],
+        "context_rucc": [
+            _row({"FIPS": "08001", "Attribute": "RUCC_2023", "Value": "4"}),
+            _row({"FIPS": "01001", "Attribute": "RUCC_2023", "Value": "8"}),
+        ],
         "human": [
             _row(
                 {"state": "Colorado"},
@@ -179,6 +182,41 @@ def test_assembly_preserves_lineage_and_source_native_missingness(
     assert len(observations) == 14
     assert any(row[2] == "scapularis_status" and row[11] == "OBSERVED" for row in observations)
     assert any(row[2] == "burgdorferi_status" and row[11] == "NO_RECORDS" for row in observations)
+
+
+def test_assembly_rejects_a_missing_canonical_rucc_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 1)
+    manifest = _manifest()
+    gates = {
+        source.source_key: SourceGate(source, datetime(2026, 9, 15, tzinfo=UTC))
+        for source in manifest.sources
+    }
+    source_rows = {
+        "context_svi": [
+            _row(
+                {
+                    "STCNTY": "08001",
+                    "COUNTY": "Adams County",
+                    "ST_ABBR": "CO",
+                    "STATE": "Colorado",
+                    "E_TOTPOP": 100,
+                    "RPL_THEMES": 0.5,
+                    "EPL_UNINSUR": 0.25,
+                    "EP_UNINSUR": 5,
+                    "geometry": {"type": "Polygon", "coordinates": []},
+                }
+            )
+        ],
+        "context_rucc": [_row({"FIPS": "01001", "Attribute": "RUCC_2023", "Value": "8"})],
+        "human": [],
+        "tick": [],
+        "pathogen": [],
+    }
+
+    with pytest.raises(SemanticReleaseBlocked, match="does not cover every"):
+        _assemble_counties(manifest, source_rows, gates)
 
 
 def test_assembly_preserves_source_native_multipolygon_geometry(
