@@ -1,4 +1,4 @@
-"""Privilege and workflow policy contracts for Epic #223."""
+"""Privilege and workflow policy contracts for Epic #223 and Epic #294 / ADR 0030."""
 
 from __future__ import annotations
 
@@ -6,12 +6,19 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO / ".github" / "workflows"
+# Epic #294 / ADR 0030 consolidated model: PIPELINE_RUNTIME was renamed to
+# RUNTIME; STREAMLIT_OWNER, GOVERNED_VIEW_OWNER, KG_PAPER_REVIEW_OWNER, and
+# KG_LLM_BUDGET_OWNER merged into OWNER; PMC_AUDITOR and the reserved
+# API_RUNTIME grants merged into READ. STREAMLIT_OWNER is retained as its own
+# role (nested under OWNER via role hierarchy) because Snowflake does not
+# support GRANT/REVOKE OWNERSHIP ON STREAMLIT, so Streamlit app ownership
+# cannot be transferred to another role.
 STABLE_ROLES = {
-    "OH_LYME_{ENV}_PIPELINE_RUNTIME",
+    "OH_LYME_{ENV}_RUNTIME",
+    "OH_LYME_{ENV}_OWNER",
+    "OH_LYME_{ENV}_READ",
+    "OH_LYME_{ENV}_MIGRATION_DEPLOYER",
     "OH_LYME_{ENV}_STREAMLIT_OWNER",
-    "OH_LYME_{ENV}_GOVERNED_VIEW_OWNER",
-    "OH_LYME_{ENV}_API_RUNTIME",
-    "OH_LYME_{ENV}_KG_PAPER_REVIEW_OWNER",
 }
 
 

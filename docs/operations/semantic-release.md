@@ -8,7 +8,7 @@ does not read RAW, STAGING, CONFORMED, or the retained Alpha POC database.
 
 1. Use the successful GitHub Actions DEV Quality run and DEV deployment run as
    the automated-runtime evidence. A personal Snowflake account does not need
-   `OH_LYME_DEV_PIPELINE_RUNTIME`.
+   `OH_LYME_DEV_RUNTIME`.
 2. Review the source approval records and the exact DEV run, artifact, and
    quality evidence for every manifest source.
 3. Review the generated candidate manifest and bundle SHA-256. The candidate

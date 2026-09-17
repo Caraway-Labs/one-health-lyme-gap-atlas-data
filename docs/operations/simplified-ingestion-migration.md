@@ -38,7 +38,7 @@ and the role already assigned to that principal:
 | GitHub secret | Required value |
 |---|---|
 | `SNOWFLAKE_RUNTIME_USER` | `OH_LYME_DEV_PIPELINE_SVC` |
-| `SNOWFLAKE_RUNTIME_ROLE` | `OH_LYME_DEV_PIPELINE_RUNTIME` |
+| `SNOWFLAKE_RUNTIME_ROLE` | `OH_LYME_DEV_RUNTIME` |
 | `SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64` | Encrypted PKCS#8 PEM body for that service user; do not include PEM headers |
 | `SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE` | Passphrase for that key |
 

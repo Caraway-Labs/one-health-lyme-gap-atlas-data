@@ -153,6 +153,52 @@ views using the Streamlit owner role before deploying either app. A rollback
 redeploys prior app source and revokes app usage if necessary; it does not
 delete ingestion or provenance records.
 
+### DEV role-model consolidation bootstrap (Epic #294 / ADR 0030)
+
+On 2026-09-16, an explicitly authorized AccountAdmin session (`BVB26657_PAT`,
+which the Story #295 connection audit found already resolves to
+`ACCOUNTADMIN`; the dedicated one-time `BVB26657_ACCOUNTADMIN_PAT` token was
+found expired at execution time and was not used) executed the role
+consolidation specified by [ADR 0030](../adr/0030-snowflake-role-model-simplification.md):
+
+1. Created `OH_LYME_DEV_OWNER` and `OH_LYME_DEV_READ`.
+2. Applied 132 deduplicated `GRANT` statements generated directly from a live
+   `SHOW GRANTS TO ROLE` export of `STREAMLIT_OWNER`, `GOVERNED_VIEW_OWNER`,
+   `KG_PAPER_REVIEW_OWNER`, `KG_LLM_BUDGET_OWNER` (-> `OWNER`) and
+   `PMC_AUDITOR`, `API_RUNTIME` (-> `READ`), including `GRANT OWNERSHIP ...
+   COPY CURRENT GRANTS` for every table/view/procedure/stage those source
+   roles owned.
+3. Discovered that Snowflake does not support `GRANT`/`REVOKE OWNERSHIP ON
+   STREAMLIT` (`Unsupported feature` error). `OH_LYME_DEV_STREAMLIT_OWNER`
+   therefore could not be merged by ownership transfer and was **not**
+   dropped; instead it was granted to `OH_LYME_DEV_OWNER` via role membership
+   (`GRANT ROLE OH_LYME_DEV_STREAMLIT_OWNER TO ROLE OH_LYME_DEV_OWNER`) so a
+   session using `OWNER` has full effective access to the Streamlit apps
+   without Snowflake's metadata "owner" column changing. This is a disclosed
+   deviation from ADR 0030's original design (which assumed a literal
+   6-role-into-2-role merge); the net DEV role count is 5, not 4.
+4. Granted `OH_LYME_DEV_OWNER` to `MATTHEWCARAWAY`,
+   `OH_LYME_DEV_STREAMLIT_DEPLOY_SVC`, `OH_LYME_DEV_MIGRATION_DEPLOY_SVC`, and
+   to `OH_LYME_DEV_MIGRATION_DEPLOYER` directly (replacing the
+   `SECURITY_ADMIN` indirection). Granted `OH_LYME_DEV_READ` to
+   `MATTHEWCARAWAY`.
+5. Renamed `OH_LYME_DEV_PIPELINE_RUNTIME` to `OH_LYME_DEV_RUNTIME` with
+   `ALTER ROLE ... RENAME TO`, which preserves all existing grants.
+6. Dropped `OH_LYME_DEV_GOVERNED_VIEW_OWNER`, `OH_LYME_DEV_KG_PAPER_REVIEW_OWNER`,
+   `OH_LYME_DEV_KG_LLM_BUDGET_OWNER`, `OH_LYME_DEV_PMC_AUDITOR`,
+   `OH_LYME_DEV_API_RUNTIME`, `OH_LYME_DEV_DATA_STEWARD`,
+   `OH_LYME_DEV_APPROVAL_VIEWER`, and `OH_LYME_DEV_SECURITY_ADMIN`.
+
+Verified via `SHOW ROLES LIKE 'OH_LYME_DEV%'` (5 roles remain: `RUNTIME`,
+`OWNER`, `READ`, `STREAMLIT_OWNER`, `MIGRATION_DEPLOYER`) and `SHOW GRANTS
+OF ROLE` for `OWNER`/`READ` confirming the expected holders. Local `snow`
+connections `ATLAS_DEV_PMC_AUDIT` and `ATLAS_DEV_PMC_REVIEW_OWNER` had their
+`role` parameter updated to `OH_LYME_DEV_READ`/`OH_LYME_DEV_OWNER`, but their
+underlying PATs were minted scoped to the now-dropped roles and are now
+invalid (`Programmatic access token is invalid`); they require rotation,
+tracked under Story #300. This bootstrap does not touch PROD; Story #298
+mirrors it there behind the ADR-0006 protected-promotion gate.
+
 ### V042 CDC evidence-runtime grant repair
 
 V042 grants the pipeline runtime only the governance writes used by the
