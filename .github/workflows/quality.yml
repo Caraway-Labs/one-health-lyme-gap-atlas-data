@@ -114,6 +114,9 @@ jobs:
                   repository: "pipeline",
                   digest: $digest
                 }
+              | .envs = ((.envs // [])
+                  | map(select(.key != "SNOWFLAKE_ROLE"))
+                  + [{key: "SNOWFLAKE_ROLE", scope: "RUN_AND_BUILD_TIME", value: "OH_LYME_DEV_RUNTIME"}])
             )
           ' /tmp/dev-app.json > /tmp/dev-app-image.json
           test "$(jq '[.jobs[] | select(.name == "catalog-ingestion")] | length' /tmp/dev-app-image.json)" = "1"
