@@ -7,10 +7,10 @@ Issue: #256
 ## Purpose and boundary
 
 This review records the evidence and product/data-steward decision for the
-distinct CDC ArboNET pathogen-status workbook. It authorizes only the
-restricted, private, DEV evidence path described in ADR 0029. It does not make
-the workbook public, authorize unrestricted redistribution, or authorize a
-PROD load.
+distinct CDC ArboNET pathogen-status workbook. It authorizes the restricted,
+private DEV evidence path described in ADR 0029 and the owner-rights DEV
+derivation boundary in ADR 0031. It does not make the workbook public,
+authorize unrestricted redistribution, or authorize a PROD load.
 
 The workbook is not the CDC county-status workbook for *Ixodes scapularis* and
 *Ixodes pacificus*. It must never be used as a substitute for that source, and
@@ -96,9 +96,9 @@ The decision requires all of the following controls:
    prepare and provide its final copy to CDC Division of Vector-Borne Diseases
    at `ticksurveillance@cdc.gov`. No external transmission is authorized by
    this engineering decision.
-5. Keep the source as Tier D. The DEV evidence capture must be bounded and
-   private; any PROD write or public semantic release requires separate
-   protected Tier C approval.
+5. Keep the source as Tier D. The DEV evidence capture and ADR-0031
+   derivation must be bounded and private; any PROD write or public semantic
+   release requires separate protected Tier C approval.
 
 ## Engineering gates after this decision
 
@@ -121,8 +121,8 @@ The decision requires all of the following controls:
 - Convert the seven status fields into `PATHOGEN_TESTING` observations.
 - Upload the reviewed workbook to GitHub, a public endpoint, or an unapproved
   shared system.
-- Run a generic Tier B/C ingestion or publish a semantic release before the
-  dedicated DEV evidence proof and protected Tier C approval.
+- Run generic Tier B/C ingestion or publish a semantic release before the
+  dedicated DEV derivation/parity proof and protected Tier C approval.
 
 ## Private DEV evidence capture
 
@@ -136,9 +136,13 @@ digest, and envelope digest to agree before it starts the
 removed and the prior DEV topology restored whether capture succeeds or fails.
 
 The evidence capture stores a private raw artifact, its manifest, metadata,
-schema fingerprint, and a 25-row review sample. It creates a `PENDING_REVIEW`
-candidate only. It creates no RAW data rows, transformations, production
-objects, schedule, source approval, or public release.
+schema fingerprint, and a 25-row review sample. Evidence-only operation
+creates a `PENDING_REVIEW` candidate only. With the explicit protected
+`derive` operation after an approved source version, ADR 0031 permits the
+private DEV procedure to retain source-faithful restricted RAW/STAGING rows
+and create only the derived *B. burgdorferi sensu stricto* county-status
+CONFORMED projection. That projection is not public and remains blocked from
+semantic release until the 3,144-county parity delta is classified.
 
 ## References
 

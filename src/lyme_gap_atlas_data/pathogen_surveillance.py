@@ -6,15 +6,23 @@ logs, or otherwise publishes the requestor-restricted workbook bytes.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+import uuid
 import zipfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
+from lyme_gap_atlas_shared.settings import SnowflakeSettings
+from lyme_gap_atlas_shared.snowflake import connect
 from openpyxl import load_workbook  # type: ignore[import-untyped]
+
+from .settings import PipelineSettings
 
 RESOURCE_KEY = "cdc_tick_ixodes_pathogen_status"
 SOURCE_DATASET_ID = "cdc-ixodes-pathogen-status-2025"
@@ -56,6 +64,18 @@ class PathogenWorkbookEvidence:
     def row_count(self) -> int:
         """Use the evidence interface shared by bounded workbook capture."""
         return self.valid_county_row_count
+
+
+@dataclass(frozen=True)
+class RestrictedPathogenRow:
+    """One source-faithful restricted row, retained only inside the private loader."""
+
+    source_row_number: int
+    fips: str
+    burgdorferi_status: str
+    burgdorferi_source: str | None
+    source_row_hash: str
+    raw: dict[str, object]
 
 
 def load_pathogen_profile(path: Path = PROFILE_PATH) -> dict[str, Any]:
@@ -221,3 +241,151 @@ def collect_pathogen_surveillance_evidence(
             "obligations apply."
         ),
     )
+
+
+def restricted_pathogen_rows(
+    payload: bytes, profile: dict[str, Any]
+) -> tuple[PathogenWorkbookEvidence, list[RestrictedPathogenRow]]:
+    """Validate then prepare rows for the owner-rights DEV-only procedure.
+
+    This function deliberately has no logging or serialization side effects.
+    Its callers must keep the returned values inside the private envelope
+    process and send them only as bound parameters to the restricted procedure.
+    """
+    evidence = parse_pathogen_workbook(payload, profile, sample_limit=1)
+    workbook = load_workbook(BytesIO(payload), read_only=True, data_only=True)
+    sheet = workbook[profile["workbook_sheet"]]
+    header_row = int(profile["header_row"])
+    headers = tuple(
+        str(value) if value is not None else ""
+        for value in next(sheet.iter_rows(min_row=header_row, max_row=header_row, values_only=True))
+    )
+    rows: list[RestrictedPathogenRow] = []
+    for source_row_number, values in enumerate(
+        sheet.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1
+    ):
+        if not any(value is not None for value in values):
+            continue
+        raw = dict(zip(headers, values, strict=True))
+        fips = raw["FIPS_Code"]
+        if fips is None or fips == "":
+            continue
+        # parse_pathogen_workbook already verified type, ordering, and vocabulary.
+        assert isinstance(fips, str)
+        canonical_raw = json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+        rows.append(
+            RestrictedPathogenRow(
+                source_row_number=source_row_number,
+                fips=fips,
+                burgdorferi_status=str(raw["Borrelia_burgdorferi_sensu_stricto_County_Status"]),
+                burgdorferi_source=_optional_text(
+                    raw["Borrelia_burgdorferi_sensu_stricto_Data_Source"]
+                ),
+                source_row_hash=hashlib.sha256(canonical_raw.encode("utf-8")).hexdigest(),
+                raw=raw,
+            )
+        )
+    if len(rows) != evidence.valid_county_row_count:
+        raise ValueError("CDC pathogen workbook row count changed during private preparation")
+    return evidence, rows
+
+
+def ingest_restricted_pathogen_dev(
+    *, evidence_bundle_dir: Path, evidence_run_id: str
+) -> dict[str, object]:
+    """Load the approved derived output through the DEV owner-rights boundary."""
+    if PipelineSettings().topx_env != "dev":
+        raise ValueError("Restricted pathogen derivation is approved only for isolated DEV")
+    if not re.fullmatch(r"[0-9a-f-]{36}", evidence_run_id):
+        raise ValueError("evidence_run_id must be a UUID")
+    # Importing the private bundle verifier here avoids expanding its public interface.
+    from .tick_surveillance import _load_evidence_bundle
+
+    profile = load_pathogen_profile()
+    bundle = _load_evidence_bundle(evidence_bundle_dir, profile)
+    evidence, rows = restricted_pathogen_rows(bundle.workbook.payload, profile)
+    payload = json.dumps(
+        [
+            {
+                "source_row_number": row.source_row_number,
+                "fips": row.fips,
+                "burgdorferi_status": row.burgdorferi_status,
+                "burgdorferi_source": row.burgdorferi_source,
+                "source_row_hash": row.source_row_hash,
+                "raw": row.raw,
+            }
+            for row in rows
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    # Snowflake VARIANT has a 16 MB practical ceiling.  Refuse rather than chunk
+    # restricted rows, because a partial load would break source-faithful lineage.
+    if len(payload.encode("utf-8")) > 14_000_000:
+        raise ValueError("Restricted pathogen payload exceeds the reviewed procedure bound")
+    run_id = str(uuid.uuid4())
+    retrieved_at = str(bundle.manifest["retrieved_at"])
+    workbook_sha256 = hashlib.sha256(bundle.workbook.payload).hexdigest()
+    settings = SnowflakeSettings()
+    with connect(settings) as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                    (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version,
+                     config_sha256, started_at)
+                    VALUES (%s, 'cdc_tick_ixodes_pathogen_status', 'RESTRICTED_FULL_DEV',
+                            'MANUAL', 'RUNNING',
+                            'cdc-pathogen-restricted-derivation-v1', %s, %s)""",
+                    (
+                        run_id,
+                        hashlib.sha256(
+                            yaml.safe_dump(profile, sort_keys=True).encode("utf-8")
+                        ).hexdigest(),
+                        datetime.now(UTC),
+                    ),
+                )
+                cursor.execute(
+                    """CALL GOVERNANCE.SP_LOAD_RESTRICTED_PATHOGEN_DEV(
+                    %s, %s, %s, PARSE_JSON(%s), %s)""",
+                    (run_id, evidence_run_id, workbook_sha256, payload, retrieved_at),
+                )
+                result = cursor.fetchone()
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    procedure_result = result[0] if result is not None else None
+    return {
+        "ingestion_run_id": run_id,
+        "evidence_run_id": evidence_run_id,
+        "workbook_sha256": workbook_sha256,
+        "source_count": evidence.valid_county_row_count,
+        "blank_fips_row_count": evidence.blank_fips_row_count,
+        "status": "PENDING_PARITY_CLASSIFICATION",
+        "procedure_result": procedure_result,
+    }
+
+
+def capture_and_ingest_restricted_pathogen_dev(
+    *, sample_limit: int, evidence_bundle_dir: Path
+) -> dict[str, object]:
+    """Run the private evidence and derivation steps without exposing source rows."""
+    evidence = collect_pathogen_surveillance_evidence(
+        sample_limit=sample_limit, evidence_bundle_dir=evidence_bundle_dir
+    )
+    evidence_run_id = evidence.get("ingestion_run_id")
+    if not isinstance(evidence_run_id, str):
+        raise ValueError("Restricted evidence capture did not return an ingestion run ID")
+    derivation = ingest_restricted_pathogen_dev(
+        evidence_bundle_dir=evidence_bundle_dir, evidence_run_id=evidence_run_id
+    )
+    return {"evidence": evidence, "derivation": derivation}
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

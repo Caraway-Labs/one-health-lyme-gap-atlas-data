@@ -95,6 +95,25 @@ def test_parser_counts_blank_fips_rows_but_rejects_invalid_values() -> None:
         )
 
 
+def test_restricted_rows_keep_source_faithful_lineage_inside_private_loader() -> None:
+    row = (
+        "01001",
+        "State",
+        "County",
+        *sum((["Present", "Restricted source category"] for _ in range(7)), []),
+    )
+    evidence, rows = pathogen.restricted_pathogen_rows(
+        workbook_bytes(rows=[row]), pathogen.load_pathogen_profile()
+    )
+    assert evidence.valid_county_row_count == 1
+    assert len(rows) == 1
+    assert rows[0].fips == "01001"
+    assert rows[0].burgdorferi_status == "Present"
+    assert rows[0].burgdorferi_source == "Restricted source category"
+    assert len(rows[0].source_row_hash) == 64
+    assert rows[0].raw["State"] == "State"
+
+
 def test_parser_rejects_status_relabeling_and_schema_changes() -> None:
     bad_status = ("01001", "State", "County", *sum((["Absent", "source"] for _ in range(7)), []))
     with pytest.raises(ValueError, match="unreviewed pathogen-status"):
@@ -158,3 +177,36 @@ def test_pathogen_review_console_is_dev_only_and_does_not_expose_workbook() -> N
     console = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
     assert 'source_labels["cdc_tick_ixodes_pathogen_status"]' in console
     assert "private workbook is not displayed, exported, or published here" in console
+
+
+def test_restricted_derivation_boundary_is_dev_only_and_procedure_only_for_runtime() -> None:
+    from lyme_gap_atlas_data.migrations import (
+        DEV_DATABASE,
+        load_migrations,
+        migration_plan,
+        render_migration,
+    )
+
+    migration = {item.version: item for item in load_migrations()}["V077"]
+    source = migration.source
+    assert "RAW.RESTRICTED_CDC_PATHOGEN_WORKBOOK_ROWS" in source
+    assert "STAGING.RESTRICTED_CDC_PATHOGEN_WORKBOOK_ROWS" in source
+    assert "CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS" in source
+    assert "EXECUTE AS OWNER" in source
+    assert "GRANT USAGE ON PROCEDURE" in source
+    assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in source
+    assert "GRANT SELECT ON TABLE STAGING.RESTRICTED" not in source
+    assert "GRANT SELECT ON TABLE CONFORMED.RESTRICTED" not in source
+    assert "V077" in {item["version"] for item in migration_plan(DEV_DATABASE)}
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+
+
+def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> None:
+    workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "operation:" in workflow
+    assert "options: [evidence, derive]" in workflow
+    assert '"$OPERATION" != "derive" || "$SOURCE_KIND" = "pathogen"' in workflow
+    assert "cdc-pathogen-restricted-dev-capture-and-ingest" in workflow

@@ -187,4 +187,8 @@ version, terms, geography/time semantics, source-record identity, method mapping
 and missingness behavior. Source-specific tests must cover identifiers, domains,
 units, duplicate handling, effort denominators, positive/tested reconciliation,
 and provenance. Evidence-only onboarding cannot populate RAW, STAGING,
-CONFORMED, ANALYTICS, or FEATURE_STORE relations.
+CONFORMED, ANALYTICS, or FEATURE_STORE relations. The only current exception is
+the private DEV-only CDC pathogen boundary in ADR 0031: it may retain
+source-faithful restricted RAW/STAGING rows and emits only its approved derived
+county-status CONFORMED projection. It remains unavailable to API, Streamlit,
+and public delivery pending protected parity and Tier C release gates.

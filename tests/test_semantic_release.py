@@ -97,6 +97,10 @@ def test_tick_and_pathogen_are_distinct_contract_slots() -> None:
     manifest = _manifest()
     assert manifest.source("tick").resource_key != manifest.source("pathogen").resource_key
 
+    module = Path("src/lyme_gap_atlas_data/semantic_release.py").read_text(encoding="utf-8")
+    assert "RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS" in module
+    assert "PRIVATE_OPERATOR_VERIFIED_WORKBOOK" in module
+
     document = json.loads(TEMPLATE.read_text(encoding="utf-8"))
     for source_index, source in enumerate(document["sources"]):
         for field, value in list(source.items()):
