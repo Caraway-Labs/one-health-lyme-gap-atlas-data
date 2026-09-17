@@ -844,6 +844,14 @@ def _human_values(
         elif fips.casefold() in {"unknown", "suppressed", "not reported"}:
             state = _state_code(payload.get("state"))
             if state is None:
+                if str(payload.get("state") or "").strip().casefold() in {
+                    "unknown",
+                    "suppressed",
+                }:
+                    # The source explicitly withholds geography for these rows.
+                    # They remain in the immutable source artifact but cannot be
+                    # allocated to a state or county presentation record.
+                    continue
                 raise SemanticReleaseBlocked(
                     "Human surveillance has a state-unallocated row without a valid state"
                 )

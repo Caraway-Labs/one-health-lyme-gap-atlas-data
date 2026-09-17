@@ -282,6 +282,31 @@ def test_invalid_state_unallocated_human_row_fails_closed(
         )
 
 
+def test_explicitly_geography_unavailable_human_rows_are_not_allocated() -> None:
+    identity = {"08001": {"state": "CO", "population": 100}}
+    values = semantic_release._human_values(
+        [
+            {
+                "county_fips": "Unknown",
+                "report_year": 2023,
+                "frequency": 1,
+                "case_status": "Confirmed",
+                "payload": {"state": "Unknown"},
+            },
+            {
+                "county_fips": "Suppressed",
+                "report_year": 2023,
+                "frequency": 2,
+                "case_status": "Probable",
+                "payload": {"state": "Suppressed"},
+            },
+        ],
+        identity,
+    )
+
+    assert values["08001"]["state_unallocated"] == 0
+
+
 def test_value_states_and_scorecard_mapping_are_explicit() -> None:
     assert _value_state(None) == "MISSING"
     assert _value_state(0) == "ZERO"

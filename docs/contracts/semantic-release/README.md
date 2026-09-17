@@ -40,6 +40,9 @@ The API reads only these governed views:
    source-native county rows outside this release identity, but it must cover
    every canonical county; the builder never manufactures values for a missing
    canonical join.
+   Human-surveillance rows explicitly marked with `Unknown` or `Suppressed`
+   state geography remain in their immutable source artifact but are not
+   allocated to a county or state presentation record.
 4. Release rows and observations are immutable after candidate creation. Only
    the current-release pointer and append-only release events change during
    publication or rollback.
