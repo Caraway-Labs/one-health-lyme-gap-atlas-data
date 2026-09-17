@@ -287,6 +287,9 @@ if current_database in {
     }
     if current_database.endswith("_DEV"):
         source_labels["cdc_tick_ixodes_county_status"] = "CDC ticks | county status through 2025"
+        source_labels["cdc_tick_ixodes_pathogen_status"] = (
+            "CDC ArboNET ticks | pathogen status through 2025"
+        )
     CDC_RESOURCE_KEY = st.sidebar.selectbox(
         "Source to review", options=list(source_labels), format_func=lambda key: source_labels[key]
     )
@@ -308,6 +311,12 @@ elif CDC_RESOURCE_KEY == "cdc_tick_ixodes_county_status":
         "Cumulative county tick-surveillance status through December 31, 2025. "
         "No records means no reported surveillance evidence; it is not evidence of absence. "
         "This evidence capture contains a bounded review sample and cannot run ingestion."
+    )
+elif CDC_RESOURCE_KEY == "cdc_tick_ixodes_pathogen_status":
+    st.warning(
+        "Requestor-restricted CDC ArboNET pathogen status through December 31, 2025. "
+        "No records is not pathogen absence, a negative test, prevalence, human infection incidence, "
+        "individual risk, or diagnosis. The private workbook is not displayed, exported, or published here."
     )
 st.info("This console cannot run discovery, ingestion, retries, or transformations.")
 recorded_decision = st.session_state.pop("recorded_decision", None)
