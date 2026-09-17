@@ -88,6 +88,16 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "Public CDC/ATSDR source identifier in the canonical pathogen parity migration, not a credential"
+paths = [
+  '''^migrations/V085__dev_pathogen_parity_canonical_coverage\.sql$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^cdc_atsdr_svi_2022_county$''',
+]
+
+[[allowlists]]
 description = "Reviewed immutable source-artifact digests in the governed semantic manifest, not credentials"
 paths = [
   '''^docs/contracts/semantic-release/governed-2026-09-15-manifest\.json$''',

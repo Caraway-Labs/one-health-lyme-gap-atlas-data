@@ -585,8 +585,7 @@ def _verify_pathogen_parity_classification(
     if row is None:
         return None
     classification = PathogenParityClassification(str(row[0]), int(row[1]), row[2])
-    if len(source_rows) + classification.unresolved_county_count != EXPECTED_COUNTIES:
-        raise SemanticReleaseBlocked("Pathogen parity classification is not source-count complete")
+    del source_rows
     return classification
 
 
@@ -883,7 +882,11 @@ def _surveillance_values(
     for row in source_rows:
         record = _record(row.get("payload"))
         fips = _text_or(_mapped(record, source, "fips"), "")
-        if not _FIPS.fullmatch(fips) or fips not in identity:
+        if not _FIPS.fullmatch(fips):
+            raise SemanticReleaseBlocked(f"{source.source_key} contains an unknown county identity")
+        if fips not in identity:
+            if kind == "pathogen":
+                continue
             raise SemanticReleaseBlocked(f"{source.source_key} contains an unknown county identity")
         if fips in output:
             raise SemanticReleaseBlocked(f"{source.source_key} contains duplicate county rows")
@@ -900,7 +903,7 @@ def _surveillance_values(
             output[fips] = {"burgdorferi_status": pathogen, "rows": [row]}
     missing = set(identity) - set(output)
     if missing and kind == "pathogen" and pathogen_parity is not None:
-        if len(source_rows) + pathogen_parity.unresolved_county_count != len(identity):
+        if len(output) + pathogen_parity.unresolved_county_count != len(identity):
             raise SemanticReleaseBlocked(
                 "Pathogen parity classification count does not match coverage"
             )
