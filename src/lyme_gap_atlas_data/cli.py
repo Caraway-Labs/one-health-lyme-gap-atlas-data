@@ -14,6 +14,13 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
+from .alpha_parity import (
+    build_report,
+    fetch_current_release_metadata,
+    fetch_current_semantic_rows,
+    fetch_current_source_metadata,
+    write_report,
+)
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
 from .cdc_operations import check_cdc_metadata, check_cdc_overdue, verify_cdc_ready
@@ -276,6 +283,29 @@ def semantic_release_rollback_command(
             default=str,
         )
     )
+
+
+@pipeline_app.command("alpha-parity-report")
+def alpha_parity_report_command(
+    release_id: str = typer.Option(..., "--release-id"),
+    bundle_sha256: str = typer.Option(..., "--bundle-sha256"),
+    methodology_version: str = typer.Option(..., "--methodology-version"),
+    snowflake_connection: str = typer.Option("ATLAS_DEV_READ", "--snowflake-connection"),
+    alpha_bundle: Path = typer.Option(..., "--alpha-bundle", exists=True, dir_okay=False),  # noqa: B008
+    output: Path = typer.Option(..., "--output"),  # noqa: B008
+) -> None:
+    """Create a metadata-only full-county Alpha parity report using a read-only connection."""
+    report = build_report(
+        alpha_bundle,
+        fetch_current_semantic_rows(snowflake_connection, release_id),
+        release_id=release_id,
+        bundle_sha256=bundle_sha256,
+        methodology_version=methodology_version,
+        source_metadata=fetch_current_source_metadata(snowflake_connection),
+        release_metadata=fetch_current_release_metadata(snowflake_connection),
+    )
+    write_report(output, report)
+    typer.echo(json.dumps({"output": str(output), "cutover_eligible": report["cutover_eligible"]}))
 
 
 @pipeline_app.command("preflight")
