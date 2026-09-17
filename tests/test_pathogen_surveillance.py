@@ -246,6 +246,15 @@ def test_restricted_derivation_owner_can_write_only_required_governance_outputs_
         render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
 
 
+def test_restricted_pathogen_parity_classification_is_dev_only_and_unknown() -> None:
+    from lyme_gap_atlas_data.migrations import DEV_DATABASE, load_migrations, migration_plan
+
+    migration = {item.version: item for item in load_migrations()}["V080"]
+    assert "UNKNOWN_SOURCE_COVERAGE" in migration.source
+    assert "SP_CLASSIFY_RESTRICTED_PATHOGEN_PARITY_DEV" in migration.source
+    assert "V080" in {item["version"] for item in migration_plan(DEV_DATABASE)}
+
+
 def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> None:
     workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml").read_text(
         encoding="utf-8"
