@@ -135,7 +135,7 @@ def test_pathogen_review_console_is_dev_only_and_does_not_expose_workbook() -> N
 
     migrations = {migration.version: migration for migration in load_migrations()}
     review = migrations["V074"]
-    assert migration_execution_role(review, DEV_DATABASE) == "OH_LYME_DEV_STREAMLIT_OWNER"
+    assert migration_execution_role(review, DEV_DATABASE) is None
     assert "cdc_tick_ixodes_pathogen_status" in review.source
     assert "requestor-restricted" in review.source
     assert "RAW_ARTIFACTS" not in review.source
