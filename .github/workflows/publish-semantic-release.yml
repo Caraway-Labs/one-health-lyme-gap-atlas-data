@@ -36,7 +36,7 @@ on:
       release_id:
         description: Candidate release for publish or retained release for rollback
         required: false
-        default: governed-2026-09-15
+        default: governed-2026-09-17
         type: string
       reason:
         description: Human-readable publication or rollback reason
