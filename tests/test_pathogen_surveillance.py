@@ -291,6 +291,27 @@ def test_evidence_only_tick_coverage_owner_reads_only_its_validation_ledgers() -
         render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
 
 
+def test_semantic_runtime_reads_only_the_tick_coverage_classification() -> None:
+    from lyme_gap_atlas_data.migrations import (
+        DEV_DATABASE,
+        load_migrations,
+        migration_plan,
+        render_migration,
+    )
+
+    migration = {item.version: item for item in load_migrations()}["V083"]
+    assert (
+        "GRANT SELECT ON TABLE GOVERNANCE.EVIDENCE_ONLY_SOURCE_COVERAGE_CLASSIFICATIONS"
+        in migration.source
+    )
+    assert "OH_LYME_DEV_RUNTIME" in migration.source
+    assert "RESTRICTED_CDC_PATHOGEN" not in migration.source
+    assert "GOVERNED_SOURCE_RECORDS" not in migration.source
+    assert "V083" in {item["version"] for item in migration_plan(DEV_DATABASE)}
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+
+
 def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> None:
     workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml").read_text(
         encoding="utf-8"
