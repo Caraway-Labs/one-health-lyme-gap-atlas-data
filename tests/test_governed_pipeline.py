@@ -1684,6 +1684,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V073",
         "V074",
         "V075",
+        "V076",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1701,6 +1702,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "V071" in {item["version"] for item in prod_plan}
     assert "V072" in {item["version"] for item in prod_plan}
     assert "V073" in {item["version"] for item in prod_plan}
+    assert "V076" not in {item["version"] for item in prod_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
     assert "V_PIPELINE_COMMAND_CENTER" in operations_console
@@ -1735,6 +1737,15 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert migration_execution_role(v073, PROD_DATABASE) is None
     assert "GRANT USAGE ON SCHEMA PRESENTATION" in v073.source
     assert "OH_LYME_{{ ENV }}_PIPELINE_RUNTIME" in v073.source
+    v076 = next(item for item in migrations if item.version == "V076")
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(v076, PROD_DATABASE)
+    assert "SP_RECORD_CONTEXT_SOURCE_SEMANTIC_DECISION" in v076.source
+    assert "cdc_atsdr_svi_2022_county" in v076.source
+    assert "usda_ers_rucc_2023" in v076.source
+    assert "INGESTION_RUN_CHECKPOINTS" in v076.source
+    assert "INGESTION_PUBLICATIONS" in v076.source
+    assert "EXECUTE AS OWNER" in v076.source
     assert migration_execution_role(migrations[0], DEV_DATABASE) is None
 
 
