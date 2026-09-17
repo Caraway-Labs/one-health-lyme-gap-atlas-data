@@ -27,6 +27,15 @@ from .settings import PipelineSettings
 
 ENDPOINT = "https://data.cdc.gov/resource/qtbi-xd4i.json"
 METADATA = "https://data.cdc.gov/api/views/qtbi-xd4i"
+# Per-environment runtime role names, not a single f"OH_LYME_{ENV}_..." template,
+# because DEV and PROD are renamed on different schedules (ADR 0030 / Epic #294):
+# DEV was renamed to OH_LYME_DEV_RUNTIME in Story #297; PROD remains
+# OH_LYME_PROD_PIPELINE_RUNTIME until Story #298's protected promotion executes
+# the equivalent PROD rename.
+RUNTIME_ROLE_BY_ENVIRONMENT = {
+    "DEV": "OH_LYME_DEV_RUNTIME",
+    "PROD": "OH_LYME_PROD_PIPELINE_RUNTIME",
+}
 CANDIDATE = "STAGING.CDC_LYME_HISTORICAL_CANDIDATE"
 RETAINED = "CONFORMED.CDC_HISTORICAL_VALIDATED_SNAPSHOTS"
 
@@ -116,7 +125,7 @@ def historical_operation() -> Iterator[str]:
         environment = settings.topx_env.upper()
         expected = (
             f"ONE_HEALTH_LYME_GAP_ATLAS_{environment}",
-            f"OH_LYME_{environment}_PIPELINE_RUNTIME",
+            RUNTIME_ROLE_BY_ENVIRONMENT[environment],
         )
         if context != expected:
             raise ValueError("Historical operations require the isolated environment runtime")
