@@ -223,6 +223,29 @@ def test_restricted_derivation_owner_can_record_its_terminal_run_state_only_in_d
         render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
 
 
+def test_restricted_derivation_owner_can_write_only_required_governance_outputs_in_dev() -> None:
+    from lyme_gap_atlas_data.migrations import (
+        DEV_DATABASE,
+        load_migrations,
+        migration_plan,
+        render_migration,
+    )
+
+    migration = {item.version: item for item in load_migrations()}["V079"]
+    for table_name in (
+        "INGESTION_REQUESTS",
+        "DATA_QUALITY_RESULTS",
+        "INGESTION_PUBLICATIONS",
+    ):
+        assert (
+            f"GRANT INSERT ON TABLE GOVERNANCE.{table_name} TO ROLE "
+            "OH_LYME_DEV_MIGRATION_DEPLOYER" in migration.source
+        )
+    assert "V079" in {item["version"] for item in migration_plan(DEV_DATABASE)}
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+
+
 def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> None:
     workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml").read_text(
         encoding="utf-8"

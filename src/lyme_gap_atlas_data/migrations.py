@@ -42,6 +42,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V076",
     "V077",
     "V078",
+    "V079",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
