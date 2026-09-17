@@ -122,3 +122,30 @@ def test_pathogen_capture_contract_is_private_and_profile_bound() -> None:
     assert "cdc-pathogen-surveillance-sample" in cli
     assert "--source-kind" in publisher
     assert "GitHub artifact" not in workflow
+
+
+def test_pathogen_review_console_is_dev_only_and_does_not_expose_workbook() -> None:
+    from lyme_gap_atlas_data.migrations import (
+        DEV_DATABASE,
+        load_migrations,
+        migration_execution_role,
+        migration_plan,
+        render_migration,
+    )
+
+    migrations = {migration.version: migration for migration in load_migrations()}
+    review = migrations["V074"]
+    assert migration_execution_role(review, DEV_DATABASE) == "OH_LYME_DEV_STREAMLIT_OWNER"
+    assert "cdc_tick_ixodes_pathogen_status" in review.source
+    assert "requestor-restricted" in review.source
+    assert "RAW_ARTIFACTS" not in review.source
+    assert "No records is not pathogen absence" in review.source
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(review, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    assert "V074" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+
+    console = Path("streamlit_approval/streamlit_app.py").read_text(encoding="utf-8")
+    assert 'source_labels["cdc_tick_ixodes_pathogen_status"]' in console
+    assert "private workbook is not displayed, exported, or published here" in console
