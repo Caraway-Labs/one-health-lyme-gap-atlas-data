@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -70,6 +71,8 @@ def test_parser_preserves_distinct_pathogen_status_semantics() -> None:
     assert evidence.schema["observation_type"] == "PATHOGEN_PRESENCE_STATUS"
     assert evidence.schema["embedded_data_use_agreement_validated"] is True
     assert evidence.schema["full_dataset_quality_validated"] is False
+    assert evidence.schema["dataset_as_of"] == "2025-12-31"
+    json.dumps(evidence.schema, sort_keys=True, separators=(",", ":"))
 
 
 def test_parser_counts_blank_fips_rows_but_rejects_invalid_values() -> None:
