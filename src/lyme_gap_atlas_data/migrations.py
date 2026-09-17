@@ -45,6 +45,12 @@ PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052"}
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
 VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047", "V052", "V072"}
+# Epic #294 consolidated the three role names below before the checksum-locked
+# semantic-release migrations could be applied to the live DEV ledger.  Do not
+# edit those source files: their source checksum is the ledger contract.  This
+# is a deliberately narrow execution-time compatibility rendering for the
+# pending V071-V073 transition only.
+SEMANTIC_RELEASE_ROLE_COMPATIBILITY_VERSIONS = {"V071", "V072", "V073"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
 # They are an explicit, DEV-only recovery boundary—not a general checksum bypass.
@@ -131,6 +137,21 @@ def render_migration(migration: Migration, database: str) -> str:
     rendered = migration.source.replace("{{ DATABASE }}", database).replace(
         "{{ ENV }}", environment
     )
+    if migration.version in SEMANTIC_RELEASE_ROLE_COMPATIBILITY_VERSIONS:
+        rendered = (
+            rendered.replace(
+                f"OH_LYME_{environment}_GOVERNED_VIEW_OWNER",
+                f"OH_LYME_{environment}_OWNER",
+            )
+            .replace(
+                f"OH_LYME_{environment}_PIPELINE_RUNTIME",
+                f"OH_LYME_{environment}_RUNTIME",
+            )
+            .replace(
+                f"OH_LYME_{environment}_API_RUNTIME",
+                f"OH_LYME_{environment}_READ",
+            )
+        )
     if "ONE_HEALTH_LYME_GAP_ATLAS;" in rendered:
         raise ValueError("The Alpha POC database is not a migration target")
     return rendered
@@ -168,6 +189,8 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
         return "OH_LYME_PROD_STREAMLIT_OWNER"
+    if migration.version == "V072":
+        return f"OH_LYME_{match.group(1)}_OWNER"
     if migration.version not in VIEW_OWNER_MIGRATION_VERSIONS:
         return None
     return f"OH_LYME_{match.group(1)}_GOVERNED_VIEW_OWNER"

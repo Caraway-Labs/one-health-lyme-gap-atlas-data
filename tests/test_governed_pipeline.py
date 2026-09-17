@@ -1721,10 +1721,16 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
     )
     v072 = next(item for item in migrations if item.version == "V072")
-    assert migration_execution_role(v072, DEV_DATABASE) == "OH_LYME_DEV_GOVERNED_VIEW_OWNER"
-    assert migration_execution_role(v072, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == (
-        "OH_LYME_PROD_GOVERNED_VIEW_OWNER"
-    )
+    assert migration_execution_role(v072, DEV_DATABASE) == "OH_LYME_DEV_OWNER"
+    assert migration_execution_role(v072, "ONE_HEALTH_LYME_GAP_ATLAS_PROD") == "OH_LYME_PROD_OWNER"
+    for version in ("V071", "V072", "V073"):
+        rendered = render_migration(
+            next(item for item in migrations if item.version == version), DEV_DATABASE
+        )
+        assert "OH_LYME_DEV_GOVERNED_VIEW_OWNER" not in rendered
+        assert "OH_LYME_DEV_PIPELINE_RUNTIME" not in rendered
+        assert "OH_LYME_DEV_API_RUNTIME" not in rendered
+        assert "OH_LYME_DEV_OWNER" in rendered or version == "V073"
     v073 = next(item for item in migrations if item.version == "V073")
     assert migration_execution_role(v073, PROD_DATABASE) is None
     assert "GRANT USAGE ON SCHEMA PRESENTATION" in v073.source
