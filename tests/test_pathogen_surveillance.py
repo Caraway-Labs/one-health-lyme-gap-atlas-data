@@ -255,6 +255,22 @@ def test_restricted_pathogen_parity_classification_is_dev_only_and_unknown() -> 
     assert "V080" in {item["version"] for item in migration_plan(DEV_DATABASE)}
 
 
+def test_evidence_only_tick_coverage_classification_is_dev_only_and_unknown() -> None:
+    from lyme_gap_atlas_data.migrations import (
+        DEV_DATABASE,
+        load_migrations,
+        migration_plan,
+        render_migration,
+    )
+
+    migration = {item.version: item for item in load_migrations()}["V081"]
+    assert "UNKNOWN_SOURCE_COVERAGE" in migration.source
+    assert "SP_CLASSIFY_EVIDENCE_ONLY_TICK_COVERAGE_DEV" in migration.source
+    assert "V081" in {item["version"] for item in migration_plan(DEV_DATABASE)}
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+
+
 def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> None:
     workflow = Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml").read_text(
         encoding="utf-8"

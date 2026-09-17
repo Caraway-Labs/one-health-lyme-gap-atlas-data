@@ -93,6 +93,13 @@ class PathogenParityClassification:
 
 
 @dataclass(frozen=True)
+class EvidenceOnlyCoverageClassification:
+    classification_id: str
+    unresolved_county_count: int
+    approved_at: Any
+
+
+@dataclass(frozen=True)
 class CountyRow:
     values: tuple[Any, ...]
     lineage: dict[str, Any]
@@ -171,8 +178,15 @@ def build_semantic_release(
                 pathogen_parity = _verify_pathogen_parity_classification(
                     cursor, manifest.source("pathogen"), source_rows["pathogen"]
                 )
+                tick_coverage = _verify_evidence_only_coverage_classification(
+                    cursor, manifest.source("tick")
+                )
                 counties, observations = _assemble_counties(
-                    manifest, source_rows, gates, pathogen_parity=pathogen_parity
+                    manifest,
+                    source_rows,
+                    gates,
+                    pathogen_parity=pathogen_parity,
+                    tick_coverage=tick_coverage,
                 )
                 if len(counties) != EXPECTED_COUNTIES:
                     raise SemanticReleaseBlocked(
@@ -472,6 +486,10 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
             f"Source {source.source_key} artifact checksum is not retained"
         )
 
+    evidence_only_coverage = _verify_evidence_only_coverage_classification(cursor, source)
+    if evidence_only_coverage is not None:
+        return SourceGate(source=source, retrieved_at=evidence_only_coverage.approved_at)
+
     cursor.execute(
         """SELECT COUNT(*), COUNT_IF(severity='BLOCKING' AND status='FAILED')
         FROM GOVERNANCE.DATA_QUALITY_RESULTS WHERE ingestion_run_id=%s""",
@@ -520,6 +538,36 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
     if retrieved is None or retrieved[0] is None:
         raise SemanticReleaseBlocked(f"Source {source.source_key} lacks retrieval evidence")
     return SourceGate(source=source, retrieved_at=retrieved[0])
+
+
+def _verify_evidence_only_coverage_classification(
+    cursor: Any, source: SemanticSource
+) -> EvidenceOnlyCoverageClassification | None:
+    """Return the approved all-unknown exception for the Tier D tick evidence path."""
+    if source.source_key != "tick":
+        return None
+    cursor.execute(
+        """SELECT classification_id, canonical_count, reported_county_count,
+                  unresolved_county_count, approved_at
+        FROM GOVERNANCE.EVIDENCE_ONLY_SOURCE_COVERAGE_CLASSIFICATIONS
+        WHERE resource_key=%s AND data_source_version_id=%s AND ingestion_run_id=%s
+          AND classification='UNKNOWN_SOURCE_COVERAGE'
+        QUALIFY ROW_NUMBER() OVER (ORDER BY approved_at DESC) = 1""",
+        (source.resource_key, source.data_source_version_id, source.ingestion_run_id),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    classification = EvidenceOnlyCoverageClassification(str(row[0]), int(row[3]), row[4])
+    if int(row[1]) != EXPECTED_COUNTIES or int(row[2]) != 0:
+        raise SemanticReleaseBlocked(
+            "Evidence-only tick coverage classification is not all-unknown"
+        )
+    if classification.unresolved_county_count != EXPECTED_COUNTIES:
+        raise SemanticReleaseBlocked(
+            "Evidence-only tick coverage classification is not county-complete"
+        )
+    return classification
 
 
 def _verify_pathogen_parity_classification(
@@ -618,6 +666,7 @@ def _assemble_counties(
     gates: Mapping[str, SourceGate],
     *,
     pathogen_parity: PathogenParityClassification | None = None,
+    tick_coverage: EvidenceOnlyCoverageClassification | None = None,
 ) -> tuple[list[CountyRow], list[tuple[Any, ...]]]:
     identity_source = manifest.source("context_svi")
     identity: dict[str, dict[str, Any]] = {}
@@ -671,7 +720,13 @@ def _assemble_counties(
         raise SemanticReleaseBlocked("RUCC does not cover exactly the SVI county identity")
 
     human = _human_values(source_rows["human"], identity)
-    tick = _surveillance_values(source_rows["tick"], manifest.source("tick"), identity, kind="tick")
+    tick = _surveillance_values(
+        source_rows["tick"],
+        manifest.source("tick"),
+        identity,
+        kind="tick",
+        evidence_only_coverage=tick_coverage,
+    )
     pathogen = _surveillance_values(
         source_rows["pathogen"],
         manifest.source("pathogen"),
@@ -705,6 +760,8 @@ def _assemble_counties(
             lineage["pathogen"]["parity_classification_id"] = pathogen_item[
                 "parity_classification_id"
             ]
+        if tick_item.get("coverage_classification_id"):
+            lineage["tick"]["coverage_classification_id"] = tick_item["coverage_classification_id"]
         counties.append(
             CountyRow(
                 values=(
@@ -807,6 +864,7 @@ def _surveillance_values(
     *,
     kind: str,
     pathogen_parity: PathogenParityClassification | None = None,
+    evidence_only_coverage: EvidenceOnlyCoverageClassification | None = None,
 ) -> dict[str, dict[str, Any]]:
     source_rows = list(rows)
     output: dict[str, dict[str, Any]] = {}
@@ -844,6 +902,23 @@ def _surveillance_values(
                     }
                 ],
                 "parity_classification_id": pathogen_parity.classification_id,
+            }
+    if missing and kind == "tick" and evidence_only_coverage is not None:
+        if len(source_rows) + evidence_only_coverage.unresolved_county_count != len(identity):
+            raise SemanticReleaseBlocked(
+                "Evidence-only tick coverage classification count does not match coverage"
+            )
+        for fips in missing:
+            output[fips] = {
+                "scapularis_status": "Unknown",
+                "pacificus_status": "Unknown",
+                "rows": [
+                    {
+                        "source_record_id": evidence_only_coverage.classification_id,
+                        "retrieved_at": evidence_only_coverage.approved_at,
+                    }
+                ],
+                "coverage_classification_id": evidence_only_coverage.classification_id,
             }
     if set(output) != set(identity):
         raise SemanticReleaseBlocked(
