@@ -86,3 +86,13 @@ regexTarget = "match"
 regexes = [
   '''^cdc_atsdr_svi_2022_county$''',
 ]
+
+[[allowlists]]
+description = "Reviewed immutable source-artifact digests in the governed semantic manifest, not credentials"
+paths = [
+  '''^docs/contracts/semantic-release/governed-2026-09-15-manifest\.json$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^(c00584e1a940f31369ad130f6e67c8bdc2526794f86a81289e106dba67e0b68e|dc042342a2e5abc108af67b439ec04c86da8b61f9bdd1cf1b1e5ee0462dea7b2|ec455ee2a8bc5fc8e070575ea5bee7dce46fc6037f8c3449cbf56e8b45331fa7|e35a5066a7c77b2e79c50f315a18e042405ab7baa8a414a1a907792bb25d2adc|68baef5f20b1e41821d0e6955cbb1809262e0f3624e387e88c04f6ddb0266f2f)$''',
+]
