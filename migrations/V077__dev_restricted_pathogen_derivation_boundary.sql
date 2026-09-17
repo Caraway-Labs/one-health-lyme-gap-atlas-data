@@ -59,9 +59,10 @@ DECLARE
   missing_evidence EXCEPTION (-20103, 'Approved restricted evidence artifact was not found');
   missing_approval EXCEPTION (-20104, 'No active approved pathogen source version exists');
   invalid_rows EXCEPTION (-20105, 'Restricted pathogen rows failed closed validation');
-  row_count NUMBER; distinct_fips NUMBER; invalid_count NUMBER; artifact_id VARCHAR; source_version_id VARCHAR;
+  current_database_name VARCHAR; row_count NUMBER; distinct_fips NUMBER; invalid_count NUMBER; artifact_id VARCHAR; source_version_id VARCHAR;
 BEGIN
-  IF CURRENT_DATABASE() <> 'ONE_HEALTH_LYME_GAP_ATLAS_DEV' THEN RAISE invalid_environment; END IF;
+  SELECT CURRENT_DATABASE() INTO :current_database_name;
+  IF current_database_name <> 'ONE_HEALTH_LYME_GAP_ATLAS_DEV' THEN RAISE invalid_environment; END IF;
   IF INGESTION_RUN_ID IS NULL OR EVIDENCE_RUN_ID IS NULL OR WORKBOOK_SHA256 IS NULL
      OR LENGTH(WORKBOOK_SHA256) <> 64 OR RAW_ROWS IS NULL OR RETRIEVED_AT IS NULL THEN
     RAISE invalid_input;
