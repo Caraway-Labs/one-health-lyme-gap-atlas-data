@@ -12,6 +12,7 @@ import pytest
 import lyme_gap_atlas_data.semantic_release as semantic_release
 from lyme_gap_atlas_data.semantic_release import (
     CountyRow,
+    PathogenParityClassification,
     SemanticManifest,
     SemanticReleaseBlocked,
     SemanticSource,
@@ -216,6 +217,23 @@ def test_value_states_and_scorecard_mapping_are_explicit() -> None:
         _evidence_completeness("no_county_linked_record", "No records", "No records", identity, 3)
         == 50
     )
+
+
+def test_pathogen_parity_classification_preserves_unknown_not_no_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 2)
+    source = _source("pathogen")
+    identity = {"08001": {}, "08003": {}}
+    values = semantic_release._surveillance_values(
+        [_row({"FIPSCode": "08001", "burgdorferi_status": "Present"})],
+        source,
+        identity,
+        kind="pathogen",
+        pathogen_parity=PathogenParityClassification("classification-1", 1, datetime.now(UTC)),
+    )
+    assert values["08003"]["burgdorferi_status"] == "Unknown"
+    assert values["08003"]["parity_classification_id"] == "classification-1"
 
 
 def test_bundle_hash_is_deterministic() -> None:

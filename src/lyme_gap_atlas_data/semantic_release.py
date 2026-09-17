@@ -86,6 +86,13 @@ class SourceGate:
 
 
 @dataclass(frozen=True)
+class PathogenParityClassification:
+    classification_id: str
+    unresolved_county_count: int
+    approved_at: Any
+
+
+@dataclass(frozen=True)
 class CountyRow:
     values: tuple[Any, ...]
     lineage: dict[str, Any]
@@ -161,7 +168,12 @@ def build_semantic_release(
                     source.source_key: _read_source_rows(cursor, source)
                     for source in manifest.sources
                 }
-                counties, observations = _assemble_counties(manifest, source_rows, gates)
+                pathogen_parity = _verify_pathogen_parity_classification(
+                    cursor, manifest.source("pathogen"), source_rows["pathogen"]
+                )
+                counties, observations = _assemble_counties(
+                    manifest, source_rows, gates, pathogen_parity=pathogen_parity
+                )
                 if len(counties) != EXPECTED_COUNTIES:
                     raise SemanticReleaseBlocked(
                         f"Semantic release requires {EXPECTED_COUNTIES} counties; "
@@ -510,6 +522,26 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
     return SourceGate(source=source, retrieved_at=retrieved[0])
 
 
+def _verify_pathogen_parity_classification(
+    cursor: Any, source: SemanticSource, source_rows: Sequence[dict[str, Any]]
+) -> PathogenParityClassification | None:
+    cursor.execute(
+        """SELECT classification_id, unresolved_county_count, approved_at
+        FROM GOVERNANCE.RESTRICTED_PATHOGEN_PARITY_CLASSIFICATIONS
+        WHERE resource_key=%s AND data_source_version_id=%s AND ingestion_run_id=%s
+          AND classification='UNKNOWN_SOURCE_COVERAGE'
+        QUALIFY ROW_NUMBER() OVER (ORDER BY approved_at DESC) = 1""",
+        (source.resource_key, source.data_source_version_id, source.ingestion_run_id),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    classification = PathogenParityClassification(str(row[0]), int(row[1]), row[2])
+    if len(source_rows) + classification.unresolved_county_count != EXPECTED_COUNTIES:
+        raise SemanticReleaseBlocked("Pathogen parity classification is not source-count complete")
+    return classification
+
+
 def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any]]:
     columns: tuple[str, ...]
     if source.source_key == "human":
@@ -584,6 +616,8 @@ def _assemble_counties(
     manifest: SemanticManifest,
     source_rows: Mapping[str, list[dict[str, Any]]],
     gates: Mapping[str, SourceGate],
+    *,
+    pathogen_parity: PathogenParityClassification | None = None,
 ) -> tuple[list[CountyRow], list[tuple[Any, ...]]]:
     identity_source = manifest.source("context_svi")
     identity: dict[str, dict[str, Any]] = {}
@@ -639,7 +673,11 @@ def _assemble_counties(
     human = _human_values(source_rows["human"], identity)
     tick = _surveillance_values(source_rows["tick"], manifest.source("tick"), identity, kind="tick")
     pathogen = _surveillance_values(
-        source_rows["pathogen"], manifest.source("pathogen"), identity, kind="pathogen"
+        source_rows["pathogen"],
+        manifest.source("pathogen"),
+        identity,
+        kind="pathogen",
+        pathogen_parity=pathogen_parity,
     )
     counties: list[CountyRow] = []
     observations: list[tuple[Any, ...]] = []
@@ -663,6 +701,10 @@ def _assemble_counties(
             "context_svi": _lineage(identity_source, [item["identity_row"]]),
             "context_rucc": _lineage(rucc_source, [rucc_rows[fips]]),
         }
+        if pathogen_item.get("parity_classification_id"):
+            lineage["pathogen"]["parity_classification_id"] = pathogen_item[
+                "parity_classification_id"
+            ]
         counties.append(
             CountyRow(
                 values=(
@@ -764,9 +806,11 @@ def _surveillance_values(
     identity: Mapping[str, dict[str, Any]],
     *,
     kind: str,
+    pathogen_parity: PathogenParityClassification | None = None,
 ) -> dict[str, dict[str, Any]]:
+    source_rows = list(rows)
     output: dict[str, dict[str, Any]] = {}
-    for row in rows:
+    for row in source_rows:
         record = _record(row.get("payload"))
         fips = _text_or(_mapped(record, source, "fips"), "")
         if not _FIPS.fullmatch(fips) or fips not in identity:
@@ -784,6 +828,23 @@ def _surveillance_values(
         else:
             pathogen = _required_status(record, source, "burgdorferi_status")
             output[fips] = {"burgdorferi_status": pathogen, "rows": [row]}
+    missing = set(identity) - set(output)
+    if missing and kind == "pathogen" and pathogen_parity is not None:
+        if len(source_rows) + pathogen_parity.unresolved_county_count != len(identity):
+            raise SemanticReleaseBlocked(
+                "Pathogen parity classification count does not match coverage"
+            )
+        for fips in missing:
+            output[fips] = {
+                "burgdorferi_status": "Unknown",
+                "rows": [
+                    {
+                        "source_record_id": pathogen_parity.classification_id,
+                        "retrieved_at": pathogen_parity.approved_at,
+                    }
+                ],
+                "parity_classification_id": pathogen_parity.classification_id,
+            }
     if set(output) != set(identity):
         raise SemanticReleaseBlocked(
             f"{source.source_key} does not provide explicit county coverage"
