@@ -243,6 +243,7 @@ def main() -> None:
                 f"retrieval_id={retrieval_id}",
                 "-f",
                 f"source_kind={args.source_kind}",
+                "-f",
                 f"operation={args.operation}",
             ]
         )

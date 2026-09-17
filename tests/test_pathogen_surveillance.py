@@ -141,7 +141,7 @@ def test_pathogen_capture_contract_is_private_and_profile_bound() -> None:
     assert "cdc-pathogen-surveillance-sample" in cli
     assert "--source-kind" in publisher
     assert "--operation" in publisher
-    assert 'f"operation={args.operation}"' in publisher
+    assert '"-f",\n                f"operation={args.operation}"' in publisher
     assert 'args.operation == "derive" and args.source_kind != "pathogen"' in publisher
     assert "GitHub artifact" not in workflow
 
