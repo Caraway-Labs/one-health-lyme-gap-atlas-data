@@ -127,10 +127,18 @@ def main() -> None:
     parser.add_argument("--workbook", type=Path, required=True)
     parser.add_argument("--base-image-digest", required=True)
     parser.add_argument("--source-kind", choices=("tick", "pathogen"), default="tick")
+    parser.add_argument(
+        "--operation",
+        choices=("evidence", "derive"),
+        default="evidence",
+        help="Bounded evidence review, or the separately approved private pathogen derivation.",
+    )
     parser.add_argument("--publish-and-dispatch", action="store_true")
     args = parser.parse_args()
     if IMAGE_DIGEST_PATTERN.fullmatch(args.base_image_digest) is None:
         raise ValueError("base image digest must be an immutable sha256 digest")
+    if args.operation == "derive" and args.source_kind != "pathogen":
+        raise ValueError("derive operation is permitted only for the pathogen source")
     retrieval_id = str(uuid.uuid4())
     manifest, landing_payload, workbook_payload = build_manifest(
         args.landing_pdf,
@@ -148,6 +156,7 @@ def main() -> None:
         raise AssertionError("manifest resources must be objects")
     summary: dict[str, object] = {
         "source_kind": args.source_kind,
+        "operation": args.operation,
         "retrieval_id": retrieval_id,
         "landing_sha256": landing_resource["sha256"],
         "workbook_sha256": workbook_resource["sha256"],
@@ -234,6 +243,7 @@ def main() -> None:
                 f"retrieval_id={retrieval_id}",
                 "-f",
                 f"source_kind={args.source_kind}",
+                f"operation={args.operation}",
             ]
         )
     except subprocess.CalledProcessError:
