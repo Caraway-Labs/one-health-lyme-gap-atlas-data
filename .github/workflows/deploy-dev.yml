@@ -52,7 +52,7 @@ jobs:
           if [ -n "$DIAGNOSE_QUERY_ID" ]; then
             [[ "$DIAGNOSE_QUERY_ID" =~ ^[0-9a-f-]{36}$ ]]
             snow --config-file "$config_file" sql -c oh_lyme_dev \
-              -q "SELECT QUERY_ID, REGEXP_SUBSTR(UPPER(LTRIM(QUERY_TEXT)), '^(CREATE|ALTER|GRANT|REVOKE)') AS STATEMENT_KIND, ERROR_CODE, REGEXP_REPLACE(ERROR_MESSAGE, '(?i)(password|secret|token|private[[:space:]_-]*key)[^[:space:],;]*', '[REDACTED]') AS REDACTED_ERROR_MESSAGE, ROLE_NAME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT=>10000)) WHERE QUERY_ID='$DIAGNOSE_QUERY_ID' AND REGEXP_LIKE(UPPER(LTRIM(QUERY_TEXT)), '^(CREATE|ALTER|GRANT|REVOKE)[[:space:]]+')" --format JSON
+              -q "SELECT QUERY_ID, REGEXP_SUBSTR(UPPER(QUERY_TEXT), '(CREATE|ALTER|GRANT|REVOKE|USE)') AS STATEMENT_KIND, ERROR_CODE, REGEXP_REPLACE(ERROR_MESSAGE, '(?i)(password|secret|token|private[[:space:]_-]*key)[^[:space:],;]*', '[REDACTED]') AS REDACTED_ERROR_MESSAGE, ROLE_NAME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT=>10000)) WHERE QUERY_ID='$DIAGNOSE_QUERY_ID' AND REGEXP_LIKE(UPPER(QUERY_TEXT), '(CREATE|ALTER|GRANT|REVOKE|USE)[[:space:]]+')" --format JSON
             exit 0
           fi
           # Migration versions, filenames, checksums, and timestamps are deployment
