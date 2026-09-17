@@ -25,4 +25,4 @@ def test_release_operation_creates_its_own_ephemeral_connection_files() -> None:
 def test_default_release_id_matches_the_reviewed_manifest() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "default: governed-2026-09-17" in workflow
+    assert "default: governed-2026-09-17-unknown-coverage" in workflow

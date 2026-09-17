@@ -1,6 +1,6 @@
 {
   "manifest_schema": "atlas-governed-semantic-release/v1",
-  "release_id": "governed-2026-09-17",
+  "release_id": "governed-2026-09-17-unknown-coverage",
   "schema_version": "1.0.0",
   "methodology_version": "semantic-1.0.0",
   "generated_at": "2026-09-17T19:00:00Z",
