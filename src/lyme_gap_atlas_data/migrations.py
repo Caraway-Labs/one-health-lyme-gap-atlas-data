@@ -152,7 +152,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
     match = DATABASE_PATTERN.fullmatch(database)
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
-    if migration.version in {"V044", "V053", "V074"}:
+    if migration.version in {"V044", "V053"}:
         if database != DEV_DATABASE:
             raise ValueError("DEV source-review view migration is DEV-only")
         return "OH_LYME_DEV_STREAMLIT_OWNER"
