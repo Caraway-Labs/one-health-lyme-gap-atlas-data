@@ -28,7 +28,8 @@ from lyme_gap_atlas_data.tick_surveillance import (
 )
 
 REGISTRY_IMAGE = "registry.digitalocean.com/oh-lyme-data/pipeline"
-WORKFLOW = "capture-dev-cdc-tick-surveillance-operator.yml"
+DEV_WORKFLOW = "capture-dev-cdc-tick-surveillance-operator.yml"
+PROD_WORKFLOW = "capture-prod-cdc-restricted-operator.yml"
 
 
 def _sha256(payload: bytes) -> str:
@@ -127,6 +128,7 @@ def main() -> None:
     parser.add_argument("--workbook", type=Path, required=True)
     parser.add_argument("--base-image-digest", required=True)
     parser.add_argument("--source-kind", choices=("tick", "pathogen"), default="tick")
+    parser.add_argument("--environment", choices=("dev", "prod"), default="dev")
     parser.add_argument(
         "--operation",
         choices=("evidence", "derive"),
@@ -134,11 +136,17 @@ def main() -> None:
         help="Bounded evidence review, or the separately approved private pathogen derivation.",
     )
     parser.add_argument("--publish-and-dispatch", action="store_true")
+    parser.add_argument(
+        "--evidence-run-id",
+        help="Previously approved evidence run; required for the production derivation step.",
+    )
     args = parser.parse_args()
     if IMAGE_DIGEST_PATTERN.fullmatch(args.base_image_digest) is None:
         raise ValueError("base image digest must be an immutable sha256 digest")
     if args.operation == "derive" and args.source_kind != "pathogen":
         raise ValueError("derive operation is permitted only for the pathogen source")
+    if args.environment == "prod" and args.operation == "derive" and not args.evidence_run_id:
+        raise ValueError("production derivation requires --evidence-run-id after steward approval")
     retrieval_id = str(uuid.uuid4())
     manifest, landing_payload, workbook_payload = build_manifest(
         args.landing_pdf,
@@ -157,6 +165,7 @@ def main() -> None:
     summary: dict[str, object] = {
         "source_kind": args.source_kind,
         "operation": args.operation,
+        "environment": args.environment,
         "retrieval_id": retrieval_id,
         "landing_sha256": landing_resource["sha256"],
         "workbook_sha256": workbook_resource["sha256"],
@@ -230,7 +239,7 @@ def main() -> None:
                 "gh",
                 "workflow",
                 "run",
-                WORKFLOW,
+                PROD_WORKFLOW if args.environment == "prod" else DEV_WORKFLOW,
                 "--ref",
                 "main",
                 "-f",
@@ -245,6 +254,11 @@ def main() -> None:
                 f"source_kind={args.source_kind}",
                 "-f",
                 f"operation={args.operation}",
+                *(
+                    [f"evidence_run_id={args.evidence_run_id}"]
+                    if args.environment == "prod" and args.operation == "derive"
+                    else []
+                ),
             ]
         )
     except subprocess.CalledProcessError:

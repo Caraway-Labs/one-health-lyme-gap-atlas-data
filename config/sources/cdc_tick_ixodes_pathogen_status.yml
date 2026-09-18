@@ -10,7 +10,7 @@ workbook_sheet: Ixodes Pathogens 2025
 header_row: 2
 deterministic_order_clause: FIPS_Code ASC
 incremental_strategy: SNAPSHOT_DIFF
-onboarding_environments: [dev]
+onboarding_environments: [dev, prod]
 onboarding_mode: EVIDENCE_ONLY
 sample_limit: 25
 maximum_sample_limit: 100

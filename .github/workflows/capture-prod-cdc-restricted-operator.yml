@@ -1,0 +1,105 @@
+name: Capture operator-provided PROD restricted CDC evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact reviewed immutable production image digest
+        required: true
+        type: string
+      envelope_digest:
+        description: Immutable private operator-envelope digest
+        required: true
+        type: string
+      envelope_tag:
+        description: Temporary private registry tag to remove after the operation
+        required: true
+        type: string
+      retrieval_id:
+        description: UUID recorded in the operator acquisition manifest
+        required: true
+        type: string
+      source_kind:
+        description: Restricted CDC workbook profile
+        required: true
+        type: choice
+        options: [tick, pathogen]
+      operation:
+        description: Capture evidence or derive an already approved pathogen candidate
+        required: true
+        type: choice
+        options: [evidence, derive]
+      evidence_run_id:
+        description: Approved production evidence run (required for derive)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cdc-restricted-operator-envelope
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Run private CDC envelope then restore PROD topology
+    environment: production
+    runs-on: ubuntu-latest
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      ENVELOPE_DIGEST: ${{ inputs.envelope_digest }}
+      ENVELOPE_TAG: ${{ inputs.envelope_tag }}
+      RETRIEVAL_ID: ${{ inputs.retrieval_id }}
+      SOURCE_KIND: ${{ inputs.source_kind }}
+      OPERATION: ${{ inputs.operation }}
+      EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Validate, run once, and restore exact production topology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          [[ -n "$PROD_APP_ID" ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$ENVELOPE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$ENVELOPE_TAG" =~ ^(tick|pathogen)-operator-evidence-[0-9a-f-]{36}$ ]]
+          [[ "$RETRIEVAL_ID" =~ ^[0-9a-f-]{36}$ ]]
+          [[ "$ENVELOPE_TAG" = "$SOURCE_KIND-operator-evidence-$RETRIEVAL_ID" ]]
+          [[ "$SOURCE_KIND" = tick || "$SOURCE_KIND" = pathogen ]]
+          [[ "$OPERATION" = evidence || "$OPERATION" = derive ]]
+          [[ "$OPERATION" != derive || "$SOURCE_KIND" = pathogen ]]
+          [[ "$OPERATION" != derive || "$EVIDENCE_RUN_ID" =~ ^[0-9a-f-]{36}$ ]]
+          baseline="$(mktemp)"; capture="$(mktemp)"; baseline_captured=false
+          restore() {
+            status=$?; set +e
+            if [ "$baseline_captured" = true ]; then
+              doctl apps update "$PROD_APP_ID" --spec "$baseline" --wait --format ID,ActiveDeployment.ID --no-header || status=1
+            fi
+            doctl registry repository delete-tag pipeline "$ENVELOPE_TAG" --force || status=1
+            rm -f "$baseline" "$capture"; trap - EXIT; exit "$status"
+          }
+          trap restore EXIT
+          tag_digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "$ENVELOPE_TAG" '.[] | select(.tags | index($tag)) | .digest')"
+          test "$tag_digest" = "$ENVELOPE_DIGEST"
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline"
+          test "$(jq '[.jobs[] | select(.name == "approved-source-ingestion")] | length' "$baseline")" = 1
+          test "$(jq '[.jobs[] | select(.kind == "PRE_DEPLOY")] | length' "$baseline")" = 0
+          test "$(jq -r '.jobs[] | select(.name == "approved-source-ingestion") | .image.digest' "$baseline")" = "$IMAGE_DIGEST"
+          baseline_captured=true
+          jq --arg envelope "$ENVELOPE_DIGEST" --arg base "$IMAGE_DIGEST" --arg source "$SOURCE_KIND" --arg operation "$OPERATION" --arg evidence "$EVIDENCE_RUN_ID" --arg retrieval "$RETRIEVAL_ID" '
+            (.jobs[] | select(.name == "approved-source-ingestion")) as $template
+            | .jobs |= map(.image.digest = $envelope)
+            | .jobs += [$template | .name = "cdc-restricted-operator-once" | .kind = "PRE_DEPLOY" | .image.digest = $envelope | del(.schedule) | .run_command = (if $operation == "derive" then "/app/.venv/bin/atlas-data pipeline cdc-pathogen-restricted-prod-ingest --evidence-run-id " + $evidence + " --evidence-bundle-dir /run/atlas-tick-evidence" else "/app/.venv/bin/atlas-data pipeline cdc-restricted-prod-evidence --source-kind " + $source + " --sample-limit 25 --evidence-bundle-dir /run/atlas-tick-evidence" end) | .envs = ((.envs // []) | map(select(.key != "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" and .key != "TICK_EVIDENCE_BASE_IMAGE_DIGEST" and .key != "TICK_EVIDENCE_ENVELOPE_DIGEST")) + [{key:"RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE",scope:"RUN_TIME",value:"true"},{key:"ENABLE_PRODUCTION_EXECUTION",scope:"RUN_TIME",value:"true"},{key:"TICK_EVIDENCE_BASE_IMAGE_DIGEST",scope:"RUN_TIME",value:$base},{key:"TICK_EVIDENCE_ENVELOPE_DIGEST",scope:"RUN_TIME",value:$envelope},{key:"TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID",scope:"RUN_TIME",value:$retrieval}])]
+          ' "$baseline" > "$capture"
+          test "$(jq -r '.jobs[].image.digest' "$capture" | sort -u)" = "$ENVELOPE_DIGEST"
+          doctl apps update "$PROD_APP_ID" --spec "$capture" --wait --format ID,ActiveDeployment.ID --no-header
+          echo "Restricted operator operation completed; restoring exact production topology."

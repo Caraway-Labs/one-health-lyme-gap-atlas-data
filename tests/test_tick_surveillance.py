@@ -202,11 +202,11 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert "not evidence that ticks or pathogens are absent" in contract
 
 
-def test_tick_profile_is_dev_only_and_pins_first_party_workbook() -> None:
+def test_tick_profile_is_governed_envelope_only_and_pins_first_party_workbook() -> None:
     source = profile()
     assert source["resource_key"] == tick.RESOURCE_KEY
     assert source["connector_name"] == "HTTP_XLSX_V1"
-    assert source["onboarding_environments"] == ["dev"]
+    assert source["onboarding_environments"] == ["dev", "prod"]
     assert str(source["endpoint_template"]).startswith("https://www.cdc.gov/")
     assert source["deterministic_order_clause"] == "FIPSCode ASC"
 
@@ -274,13 +274,13 @@ def test_workbook_parser_fails_closed_on_unreviewed_structure(
         )
 
 
-def test_tick_evidence_rejects_non_dev_before_network_or_storage(
+def test_tick_evidence_rejects_unprotected_prod_before_network_or_storage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(tick, "PipelineSettings", lambda: SimpleNamespace(topx_env="prod"))
     fetch = MagicMock()
     monkeypatch.setattr(tick, "_fetch_bytes", fetch)
-    with pytest.raises(ValueError, match="only for isolated DEV"):
+    with pytest.raises(ValueError, match="protected operator envelope"):
         tick.collect_tick_surveillance_evidence()
     fetch.assert_not_called()
 
