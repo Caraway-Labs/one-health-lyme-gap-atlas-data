@@ -375,5 +375,6 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "V088" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V089" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "cdc-tick-restricted-prod-ingest" in workflow
+    assert '"SNOWFLAKE_ROLE",scope:"RUN_TIME",value:"OH_LYME_PROD_RUNTIME"' in workflow
     assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
     assert migration_execution_role(migration, PROD_DATABASE) is None
