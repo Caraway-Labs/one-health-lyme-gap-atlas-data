@@ -54,8 +54,18 @@ class AlphaParityError(ValueError):
     """Raised when an input cannot prove the full county-level comparison."""
 
 
-def fetch_current_semantic_rows(connection: str, release_id: str) -> list[dict[str, Any]]:
-    """Read the active public semantic view through a named, read-only connection."""
+def fetch_current_semantic_rows(
+    connection: str,
+    release_id: str,
+    *,
+    candidate: bool = False,
+    database: str | None = None,
+    warehouse: str | None = None,
+) -> list[dict[str, Any]]:
+    """Read either the public release view or one protected candidate release."""
+    source = (
+        "PRESENTATION.SEMANTIC_COUNTY_ATLAS" if candidate else "PRESENTATION.CURRENT_COUNTY_ATLAS_V"
+    )
     query = (
         """
 SELECT OBJECT_CONSTRUCT_KEEP_NULL(
@@ -70,18 +80,14 @@ SELECT OBJECT_CONSTRUCT_KEEP_NULL(
   'uninsured_percent', uninsured_percent, 'rucc_2023', rucc_2023,
   'evidence_completeness', evidence_completeness, 'geometry', geometry_json
 ) AS county_record
-FROM PRESENTATION.CURRENT_COUNTY_ATLAS_V
+FROM """
+        + source
+        + """
 WHERE release_id = '"""
         + _sql_literal(release_id)
         + "' ORDER BY fips"
     )
-    result = subprocess.run(
-        ["snow", "sql", "-c", connection, "-q", query, "--format", "JSON"],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    result = _run_read_query(connection, query, database=database, warehouse=warehouse)
     if result.returncode:
         raise AlphaParityError("The read-only semantic query failed; no report was generated")
     try:
@@ -93,28 +99,27 @@ WHERE release_id = '"""
     return rows
 
 
-def fetch_current_source_metadata(connection: str) -> list[dict[str, Any]]:
-    """Read the source metadata that is actually exposed by the public view."""
+def fetch_current_source_metadata(
+    connection: str,
+    release_id: str | None = None,
+    *,
+    database: str | None = None,
+    warehouse: str | None = None,
+) -> list[dict[str, Any]]:
+    """Read public metadata or metadata pinned to one protected candidate."""
+    source = (
+        "PRESENTATION.CURRENT_SOURCE_METADATA_V"
+        if release_id is None
+        else "PRESENTATION.SEMANTIC_DATA_SOURCES"
+    )
+    release_filter = (
+        "" if release_id is None else " WHERE release_id = '" + _sql_literal(release_id) + "'"
+    )
     query = (
         "SELECT source_key, label, vintage, source_url, note "
-        "FROM PRESENTATION.CURRENT_SOURCE_METADATA_V ORDER BY source_key"
+        f"FROM {source}{release_filter} ORDER BY source_key"
     )
-    result = subprocess.run(
-        [
-            "snow",
-            "sql",
-            "-c",
-            connection,
-            "-q",
-            query,
-            "--format",
-            "JSON",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    result = _run_read_query(connection, query, database=database, warehouse=warehouse)
     if result.returncode:
         raise AlphaParityError(
             "The read-only source metadata query failed; no report was generated"
@@ -129,19 +134,27 @@ def fetch_current_source_metadata(connection: str) -> list[dict[str, Any]]:
         ) from error
 
 
-def fetch_current_release_metadata(connection: str) -> dict[str, Any]:
-    """Read the public release identifier, defaults, method, and limitations."""
+def fetch_current_release_metadata(
+    connection: str,
+    release_id: str | None = None,
+    *,
+    database: str | None = None,
+    warehouse: str | None = None,
+) -> dict[str, Any]:
+    """Read public release metadata or metadata pinned to one protected candidate."""
+    source = (
+        "PRESENTATION.CURRENT_RELEASE_V" if release_id is None else "PRESENTATION.SEMANTIC_RELEASES"
+    )
+    release_filter = (
+        "" if release_id is None else " WHERE release_id = '" + _sql_literal(release_id) + "'"
+    )
+    status_field = ", status" if release_id is not None else ""
     query = (
         "SELECT release_id, schema_version, generated_at, scope, bundle_sha256, "
-        "score_defaults, methodology_version, limitations FROM PRESENTATION.CURRENT_RELEASE_V"
+        "score_defaults, methodology_version, limitations"
+        f"{status_field} FROM {source}{release_filter}"
     )
-    result = subprocess.run(
-        ["snow", "sql", "-c", connection, "-q", query, "--format", "JSON"],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    result = _run_read_query(connection, query, database=database, warehouse=warehouse)
     if result.returncode:
         raise AlphaParityError(
             "The read-only release metadata query failed; no report was generated"
@@ -150,6 +163,8 @@ def fetch_current_release_metadata(connection: str) -> dict[str, Any]:
         rows = json.loads(result.stdout)
         row = rows[0] if rows and isinstance(rows[0], dict) else rows[0][0]
         normalized = {key.lower(): value for key, value in row.items()}
+        if release_id is not None and normalized.get("status") != "CANDIDATE":
+            raise AlphaParityError("Candidate parity requires a CANDIDATE semantic release")
         score_defaults = normalized.get("score_defaults")
         if isinstance(score_defaults, str):
             normalized["score_defaults"] = json.loads(score_defaults)
@@ -158,6 +173,24 @@ def fetch_current_release_metadata(connection: str) -> dict[str, Any]:
         raise AlphaParityError(
             "The release metadata query returned an unexpected JSON shape"
         ) from error
+
+
+def _run_read_query(
+    connection: str, query: str, *, database: str | None, warehouse: str | None
+) -> subprocess.CompletedProcess[str]:
+    """Run one parity read without inheriting an unverified session context."""
+    command = ["snow", "sql", "-c", connection, "-q", query, "--format", "JSON"]
+    if database:
+        command.extend(["--database", database])
+    if warehouse:
+        command.extend(["--warehouse", warehouse])
+    return subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def build_report(

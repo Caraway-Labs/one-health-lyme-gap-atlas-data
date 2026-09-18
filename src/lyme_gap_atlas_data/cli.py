@@ -292,18 +292,48 @@ def alpha_parity_report_command(
     bundle_sha256: str = typer.Option(..., "--bundle-sha256"),
     methodology_version: str = typer.Option(..., "--methodology-version"),
     snowflake_connection: str = typer.Option("ATLAS_DEV_READ", "--snowflake-connection"),
+    candidate: bool = typer.Option(
+        False,
+        "--candidate",
+        help=(
+            "Read one non-public candidate through a protected connection; "
+            "never exposes it to the API."
+        ),
+    ),
+    candidate_database: str = typer.Option("", "--candidate-database"),
+    candidate_warehouse: str = typer.Option("", "--candidate-warehouse"),
     alpha_bundle: Path = typer.Option(..., "--alpha-bundle", exists=True, dir_okay=False),  # noqa: B008
     output: Path = typer.Option(..., "--output"),  # noqa: B008
 ) -> None:
     """Create a metadata-only full-county Alpha parity report using a read-only connection."""
+    if candidate and (not candidate_database or not candidate_warehouse):
+        raise typer.BadParameter(
+            "Candidate parity requires --candidate-database and --candidate-warehouse"
+        )
     report = build_report(
         alpha_bundle,
-        fetch_current_semantic_rows(snowflake_connection, release_id),
+        fetch_current_semantic_rows(
+            snowflake_connection,
+            release_id,
+            candidate=candidate,
+            database=candidate_database or None,
+            warehouse=candidate_warehouse or None,
+        ),
         release_id=release_id,
         bundle_sha256=bundle_sha256,
         methodology_version=methodology_version,
-        source_metadata=fetch_current_source_metadata(snowflake_connection),
-        release_metadata=fetch_current_release_metadata(snowflake_connection),
+        source_metadata=fetch_current_source_metadata(
+            snowflake_connection,
+            release_id if candidate else None,
+            database=candidate_database or None,
+            warehouse=candidate_warehouse or None,
+        ),
+        release_metadata=fetch_current_release_metadata(
+            snowflake_connection,
+            release_id if candidate else None,
+            database=candidate_database or None,
+            warehouse=candidate_warehouse or None,
+        ),
     )
     write_report(output, report)
     typer.echo(json.dumps({"output": str(output), "cutover_eligible": report["cutover_eligible"]}))

@@ -1,0 +1,463 @@
+{
+  "alpha_bundle_sha256": "dd7408c7ce0f8c55623c3319cec813c0e28f3b0c81929197b1958f2a4a47be7c",
+  "alpha_release_id": "alpha-2026-08-06",
+  "classification_complete": true,
+  "coverage": {
+    "alpha_count": 3144,
+    "missing_from_semantic": [],
+    "semantic_count": 3144,
+    "shared_count": 3144,
+    "unexpected_in_semantic": []
+  },
+  "cutover_eligible": false,
+  "field_comparisons": [
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "065bdc533307f738139dbdaa71eb1943d3c8028c9391b53348c27437afac5f69",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "fips",
+      "semantic_value_hash": "065bdc533307f738139dbdaa71eb1943d3c8028c9391b53348c27437afac5f69"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "a788b552defa64a41bac7d1e4dcba6f05ff3b221166b5ca39eb99e03a77c9a47",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "county",
+      "semantic_value_hash": "a788b552defa64a41bac7d1e4dcba6f05ff3b221166b5ca39eb99e03a77c9a47"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "4c8f487a99d270d0bbdf0b99cf5d07b47a02ea57ba6202766bb040fc05047506",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "state",
+      "semantic_value_hash": "4c8f487a99d270d0bbdf0b99cf5d07b47a02ea57ba6202766bb040fc05047506"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "45d94e5e07307602b4bcc480230d9ac7c2024199e21405d0e771132ebb082881",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "state_name",
+      "semantic_value_hash": "45d94e5e07307602b4bcc480230d9ac7c2024199e21405d0e771132ebb082881"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "7742f95f30109715f1a2fbb8e3e9cb573b6dc38e4b5570496124876b70f842d5",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "population",
+      "semantic_value_hash": "7742f95f30109715f1a2fbb8e3e9cb573b6dc38e4b5570496124876b70f842d5"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "f091e5e7547a73238a308cb13f0d5b40667bad6e747679dcc314ab9df8c42f17",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "in_contiguous_tick_scope",
+      "semantic_value_hash": "f091e5e7547a73238a308cb13f0d5b40667bad6e747679dcc314ab9df8c42f17"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "41765935a5a249c44272ee24c0aba2fdb97e8ba037927be925b497e79834f177",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "human_status",
+      "semantic_value_hash": "41765935a5a249c44272ee24c0aba2fdb97e8ba037927be925b497e79834f177"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "f0bf46063768077d4077af9fa1dd63690f537fe5bc312fece2b590bcc5f1a7d0",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "case_count_floor_2023",
+      "semantic_value_hash": "f0bf46063768077d4077af9fa1dd63690f537fe5bc312fece2b590bcc5f1a7d0"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "8b2b23f8dec8527993873e2af50045dd5a6323b8f77a9f43495b4f4c867461fb",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "incidence_floor_2023",
+      "semantic_value_hash": "8b2b23f8dec8527993873e2af50045dd5a6323b8f77a9f43495b4f4c867461fb"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "6d56a7cfabaa7943077db08ed513d4ddca7c49f9dfefb405f9309dfb353fd56f",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "state_unallocated_records_2023",
+      "semantic_value_hash": "6d56a7cfabaa7943077db08ed513d4ddca7c49f9dfefb405f9309dfb353fd56f"
+    },
+    {
+      "affected_fips_hash": "594ad16fb294fd70b70e20fb20fd647fe0e22fc26165389906defa943e7b9a5e",
+      "affected_fips_sample": [
+        "02013",
+        "02016",
+        "02020",
+        "02050",
+        "02060",
+        "02063",
+        "02066",
+        "02068",
+        "02070",
+        "02090",
+        "02100",
+        "02105",
+        "02110",
+        "02122",
+        "02130",
+        "02150",
+        "02158",
+        "02164",
+        "02170",
+        "02180",
+        "02185",
+        "02188",
+        "02195",
+        "02198",
+        "02220"
+      ],
+      "alpha_value_hash": "9171777835c5c0eac10196891752809547696c1564120e71e99f1b5a12cbce67",
+      "approval": "PENDING",
+      "category": "MISSINGNESS_VALUE_STATE",
+      "difference_count": 35,
+      "field": "tick_status",
+      "semantic_value_hash": "bf7fbb2b7d844e594e68359dd2a271316f54f16ea31d4e2c8ba056f4f91421cc"
+    },
+    {
+      "affected_fips_hash": "594ad16fb294fd70b70e20fb20fd647fe0e22fc26165389906defa943e7b9a5e",
+      "affected_fips_sample": [
+        "02013",
+        "02016",
+        "02020",
+        "02050",
+        "02060",
+        "02063",
+        "02066",
+        "02068",
+        "02070",
+        "02090",
+        "02100",
+        "02105",
+        "02110",
+        "02122",
+        "02130",
+        "02150",
+        "02158",
+        "02164",
+        "02170",
+        "02180",
+        "02185",
+        "02188",
+        "02195",
+        "02198",
+        "02220"
+      ],
+      "alpha_value_hash": "048a880482f718a4104896c3c0cee8c93b477734fef9b1ab1ddb64406f704fe9",
+      "approval": "PENDING",
+      "category": "MISSINGNESS_VALUE_STATE",
+      "difference_count": 35,
+      "field": "scapularis_status",
+      "semantic_value_hash": "7cfc2b462b2e409ba852d7d5a41180a76f5df4d6701495ae86905706fb98f0f4"
+    },
+    {
+      "affected_fips_hash": "594ad16fb294fd70b70e20fb20fd647fe0e22fc26165389906defa943e7b9a5e",
+      "affected_fips_sample": [
+        "02013",
+        "02016",
+        "02020",
+        "02050",
+        "02060",
+        "02063",
+        "02066",
+        "02068",
+        "02070",
+        "02090",
+        "02100",
+        "02105",
+        "02110",
+        "02122",
+        "02130",
+        "02150",
+        "02158",
+        "02164",
+        "02170",
+        "02180",
+        "02185",
+        "02188",
+        "02195",
+        "02198",
+        "02220"
+      ],
+      "alpha_value_hash": "cde6ef84e951758facc14831553970b2b657939bb21b881b465cbdda51ca62b4",
+      "approval": "PENDING",
+      "category": "MISSINGNESS_VALUE_STATE",
+      "difference_count": 35,
+      "field": "pacificus_status",
+      "semantic_value_hash": "7b2a5497a1e63db05b1b8a4fabab36e9a5183c2b4148642bad013225995a62e9"
+    },
+    {
+      "affected_fips_hash": "594ad16fb294fd70b70e20fb20fd647fe0e22fc26165389906defa943e7b9a5e",
+      "affected_fips_sample": [
+        "02013",
+        "02016",
+        "02020",
+        "02050",
+        "02060",
+        "02063",
+        "02066",
+        "02068",
+        "02070",
+        "02090",
+        "02100",
+        "02105",
+        "02110",
+        "02122",
+        "02130",
+        "02150",
+        "02158",
+        "02164",
+        "02170",
+        "02180",
+        "02185",
+        "02188",
+        "02195",
+        "02198",
+        "02220"
+      ],
+      "alpha_value_hash": "cd9fdce863adbc3c74753c68c804e030e2246bc19206732365c7b452cc8bbd0e",
+      "approval": "PENDING",
+      "category": "MISSINGNESS_VALUE_STATE",
+      "difference_count": 35,
+      "field": "burgdorferi_status",
+      "semantic_value_hash": "c99713f3b64fef98dcf60cafb0d3a88d90f2c2be94328d9120e202f997a057a3"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "a5bb872518f6f5e0b5f1d57467606f1cdf11c76cd1383ae6d2cc06fce1ebe9f9",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "svi_percentile",
+      "semantic_value_hash": "a5bb872518f6f5e0b5f1d57467606f1cdf11c76cd1383ae6d2cc06fce1ebe9f9"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "b2c1534ccc8f139b240b0f944f5cbfa9c1d7cbbad40fb76303aab1fdb306e089",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "uninsured_percentile",
+      "semantic_value_hash": "b2c1534ccc8f139b240b0f944f5cbfa9c1d7cbbad40fb76303aab1fdb306e089"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "9690253f86e24824813792a4e1b6e5ee9c4c6f5a4c32c4d52dbc32f39268c287",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "uninsured_percent",
+      "semantic_value_hash": "9690253f86e24824813792a4e1b6e5ee9c4c6f5a4c32c4d52dbc32f39268c287"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "00e7bb2098c707754adb4a977d1d2868aecd259d5dd33712bd637d92e30d9063",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "rucc_2023",
+      "semantic_value_hash": "00e7bb2098c707754adb4a977d1d2868aecd259d5dd33712bd637d92e30d9063"
+    },
+    {
+      "affected_fips_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "affected_fips_sample": [],
+      "alpha_value_hash": "87b6cc18d14d049b65febc3be7d65ff01d6e4a06b7bcd9939464f880c79795cb",
+      "approval": "NOT_REQUIRED",
+      "category": null,
+      "difference_count": 0,
+      "field": "evidence_completeness",
+      "semantic_value_hash": "87b6cc18d14d049b65febc3be7d65ff01d6e4a06b7bcd9939464f880c79795cb"
+    },
+    {
+      "affected_fips_hash": "ba266129400da64c872e9a6128c3bd5b2ab157aaf1b80c7c35ffc6810cabe498",
+      "affected_fips_sample": [
+        "02013",
+        "02100",
+        "08005",
+        "08013",
+        "08014",
+        "08031",
+        "45077",
+        "51059",
+        "51121",
+        "51153"
+      ],
+      "alpha_value_hash": "637379ca020e882f051c018775ebad21ef9e844b3b6629f18f4c07d29b22e7cf",
+      "approval": "PENDING",
+      "category": "GEOMETRY",
+      "difference_count": 10,
+      "field": "geometry",
+      "semantic_value_hash": "a5004959f9f3523ff8234cfea57cae7b38cefd092e93b38886557db8010f7b3c"
+    },
+    {
+      "affected_fips_hash": "9f5b2de7367c4c23a2652509adee5d3f4b61395df655b999825fc8b895329544",
+      "affected_fips_sample": [
+        "01003",
+        "06073",
+        "06087",
+        "12009",
+        "12015",
+        "12086",
+        "12099",
+        "17031",
+        "17179",
+        "18089",
+        "18097",
+        "18127",
+        "18141",
+        "18157",
+        "21015",
+        "26017",
+        "26049",
+        "26125",
+        "32003",
+        "37081",
+        "39043",
+        "39049",
+        "39133",
+        "41047",
+        "51550"
+      ],
+      "alpha_value_hash": "e6c123ba1caff8b48f8dd0814a47cffbdaf7f3689beb1844aa11821fccc91acb",
+      "approval": "PENDING",
+      "category": "MISSINGNESS_VALUE_STATE",
+      "difference_count": 25,
+      "field": "default",
+      "semantic_value_hash": "58a5a0642d318eddbdc1314eef2b3c803604eaa5d723af3424114425e956d405"
+    }
+  ],
+  "interpretation": [
+    "Published county-linked values are floors, not true incidence.",
+    "No records is not absence.",
+    "Ecological status is not individual infection risk or diagnosis.",
+    "The score is a surveillance follow-up priority, not a prediction or causal claim."
+  ],
+  "release_metadata_comparison": [
+    {
+      "alpha_value_hash": "bbc2ae2fbadad0ef628a5f1ba74bd5279b87e8e9a87525600819c541147ae257",
+      "approval": "PENDING",
+      "category": "METHODOLOGY",
+      "different": true,
+      "field": "release_id",
+      "semantic_value_hash": "67340f63c6f7a9bb32eb71662f30ddff183988fd51969efe6addf4e24a7e413f"
+    },
+    {
+      "alpha_value_hash": "08b8b986de3e69ac65cb590acf0b2b9bd12a97da05bc3c0551c2be86917fee91",
+      "approval": "PENDING",
+      "category": "METHODOLOGY",
+      "different": true,
+      "field": "schema_version",
+      "semantic_value_hash": "39fe4a40977d0585fd5704359e3685b0ada5cf5ee061e5d97385601d120cd0ec"
+    },
+    {
+      "alpha_value_hash": "d29e9792f016e4e10349808ed8643514ef629e10be94f6639df8fd4109220b41",
+      "approval": "PENDING",
+      "category": "METHODOLOGY",
+      "different": true,
+      "field": "methodology_version",
+      "semantic_value_hash": "47de2d696c185bba41143a39e1c51c05e86ae9af968fff6dc544c21a553b7c97"
+    },
+    {
+      "alpha_value_hash": "4ac939400d1ad198759647634cbf699f83f53c356968c227d11c7781d8bd4391",
+      "approval": "PENDING",
+      "category": "GEOGRAPHY_SCOPE",
+      "different": true,
+      "field": "scope",
+      "semantic_value_hash": "42588b037ebb9e4db162d6ce1ea025efe6ecf2251428473132e5c07c2de50dc9"
+    },
+    {
+      "alpha_value_hash": "c99a72bf0cfc6e5474eb7a5a089fc5f544f11937a601019a2680896a81b7408a",
+      "approval": "NOT_REQUIRED",
+      "category": "METHODOLOGY",
+      "different": false,
+      "field": "score_defaults",
+      "semantic_value_hash": "c99a72bf0cfc6e5474eb7a5a089fc5f544f11937a601019a2680896a81b7408a"
+    },
+    {
+      "alpha_value_hash": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "approval": "PENDING",
+      "category": "METHODOLOGY",
+      "different": true,
+      "field": "limitations",
+      "semantic_value_hash": "72b6552036e9ccea9c9e2b90edd791893a2a4886f87fa0688ec95808bb62a6fe"
+    }
+  ],
+  "report_schema": "atlas-alpha-parity-report/v1",
+  "semantic_bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026",
+  "semantic_methodology_version": "semantic-1.0.0",
+  "semantic_release_id": "governed-2026-09-18-unknown-coverage",
+  "signoff": {
+    "data_steward": "PENDING",
+    "engineering": "PENDING",
+    "product_owner": "PENDING"
+  },
+  "source_metadata_comparison": {
+    "differences": [
+      {
+        "approval": "PENDING",
+        "category": "SOURCE_REVISION",
+        "source_key": "human"
+      },
+      {
+        "approval": "PENDING",
+        "category": "SOURCE_REVISION",
+        "source_key": "pathogen"
+      },
+      {
+        "approval": "PENDING",
+        "category": "SOURCE_REVISION",
+        "source_key": "rurality"
+      },
+      {
+        "approval": "PENDING",
+        "category": "SOURCE_REVISION",
+        "source_key": "svi"
+      },
+      {
+        "approval": "PENDING",
+        "category": "SOURCE_REVISION",
+        "source_key": "tick"
+      }
+    ],
+    "missing_semantic_source_keys": [],
+    "unclassified": []
+  },
+  "unclassified_differences": []
+}
