@@ -469,6 +469,9 @@ def test_phase2_generic_migration_and_workflow_preserve_the_governed_boundary() 
     assert "OH_LYME_PROD_RUNTIME" in prod_workflow
     assert "GOVERNANCE.DATA_SOURCE_VERSIONS" in prod_workflow
     assert "GOVERNANCE.MANUAL_REVIEW_DECISIONS" not in prod_workflow
+    assert "complete encrypted PKCS#8 PEM" in prod_workflow
+    assert "BEGIN ENCRYPTED PRIVATE KEY" not in prod_workflow
+    assert 'base64 --wrap=0 "$key_file"' not in prod_workflow
     assert "requires the supplied active approved" in prod_workflow
     assert "--tier C" in prod_workflow
     assert "run-production-schedule" not in prod_workflow
