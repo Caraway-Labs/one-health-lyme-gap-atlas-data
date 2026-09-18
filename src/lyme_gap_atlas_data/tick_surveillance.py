@@ -66,6 +66,18 @@ class WorkbookEvidence:
 
 
 @dataclass(frozen=True)
+class RestrictedTickRow:
+    """One source-faithful restricted row, retained only inside a private loader."""
+
+    source_row_number: int
+    fips: str
+    scapularis_status: str
+    pacificus_status: str
+    source_row_hash: str
+    raw: dict[str, object]
+
+
+@dataclass(frozen=True)
 class AcquisitionBundle:
     landing: FetchResult
     workbook: FetchResult
@@ -520,6 +532,122 @@ def _parse_workbook(payload: bytes, profile: dict[str, Any], sample_limit: int) 
         "full_dataset_quality_validated": False,
     }
     return WorkbookEvidence(sample, row_count, schema)
+
+
+def restricted_tick_rows(
+    payload: bytes, profile: dict[str, Any]
+) -> tuple[WorkbookEvidence, list[RestrictedTickRow]]:
+    """Validate and prepare private full-workbook rows without logging them."""
+    evidence = _parse_workbook(payload, profile, sample_limit=1)
+    workbook = load_workbook(BytesIO(payload), read_only=True, data_only=True)
+    sheet = workbook[str(profile["workbook_sheet"])]
+    header_row = int(profile["header_row"])
+    headers = tuple(
+        str(value) if value is not None else ""
+        for value in next(sheet.iter_rows(min_row=header_row, max_row=header_row, values_only=True))
+    )
+    rows: list[RestrictedTickRow] = []
+    for source_row_number, values in enumerate(
+        sheet.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1
+    ):
+        if not any(value is not None for value in values):
+            continue
+        raw = dict(zip(headers, values, strict=True))
+        fips = raw["FIPSCode"]
+        assert isinstance(fips, str)
+        canonical_raw = json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+        rows.append(
+            RestrictedTickRow(
+                source_row_number=source_row_number,
+                fips=fips,
+                scapularis_status=str(raw["Ixodes_scapularis_County_Status"]),
+                pacificus_status=str(raw["Ixodes_pacificus_county_status"]),
+                source_row_hash=hashlib.sha256(canonical_raw.encode("utf-8")).hexdigest(),
+                raw=raw,
+            )
+        )
+    if len(rows) != evidence.row_count:
+        raise ValueError("CDC tick workbook row count changed during private preparation")
+    return evidence, rows
+
+
+def ingest_restricted_tick(*, evidence_bundle_dir: Path, evidence_run_id: str) -> dict[str, object]:
+    """Derive restricted tick county status only through the owner-rights boundary."""
+    pipeline_settings = PipelineSettings()
+    if pipeline_settings.topx_env != "prod":
+        raise ValueError("Restricted tick derivation is limited to the protected PROD envelope")
+    if os.getenv("RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE") != "true" or not getattr(
+        pipeline_settings, "enable_production_execution", False
+    ):
+        raise ValueError(
+            "Production restricted derivation requires the protected operator envelope"
+        )
+    if not re.fullmatch(r"[0-9a-f-]{36}", evidence_run_id):
+        raise ValueError("evidence_run_id must be a UUID")
+    profile = load_tick_profile()
+    bundle = _load_evidence_bundle(evidence_bundle_dir, profile)
+    evidence, rows = restricted_tick_rows(bundle.workbook.payload, profile)
+    payload = json.dumps(
+        [
+            {
+                "source_row_number": row.source_row_number,
+                "fips": row.fips,
+                "scapularis_status": row.scapularis_status,
+                "pacificus_status": row.pacificus_status,
+                "source_row_hash": row.source_row_hash,
+                "raw": row.raw,
+            }
+            for row in rows
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    if len(payload.encode("utf-8")) > 14_000_000:
+        raise ValueError("Restricted tick payload exceeds the reviewed procedure bound")
+    run_id = str(uuid.uuid4())
+    workbook_sha256 = hashlib.sha256(bundle.workbook.payload).hexdigest()
+    procedure_name = "GOVERNANCE.SP_LOAD_RESTRICTED_TICK_PROD"
+    with connect(SnowflakeSettings()) as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO GOVERNANCE.INGESTION_RUNS
+                    (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version,
+                     config_sha256, started_at)
+                    VALUES (%s, 'cdc_tick_ixodes_county_status', 'RESTRICTED_FULL_PROD',
+                            'MANUAL', 'RUNNING', 'cdc-tick-restricted-derivation-v1', %s, %s)""",
+                    (
+                        run_id,
+                        hashlib.sha256(
+                            yaml.safe_dump(profile, sort_keys=True).encode("utf-8")
+                        ).hexdigest(),
+                        datetime.now(UTC),
+                    ),
+                )
+                cursor.execute(
+                    f"CALL {procedure_name}(%s, %s, %s, PARSE_JSON(%s), %s)",
+                    (
+                        run_id,
+                        evidence_run_id,
+                        workbook_sha256,
+                        payload,
+                        str(bundle.manifest["retrieved_at"]),
+                    ),
+                )
+                result = cursor.fetchone()
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return {
+        "ingestion_run_id": run_id,
+        "evidence_run_id": evidence_run_id,
+        "workbook_sha256": workbook_sha256,
+        "source_count": evidence.row_count,
+        "status": "STAGED",
+        "procedure_result": result[0] if result is not None else None,
+    }
 
 
 def _save_artifact(
