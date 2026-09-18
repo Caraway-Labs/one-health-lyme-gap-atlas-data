@@ -363,6 +363,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     select_binding_migration = {item.version: item for item in load_migrations()}["V092"]
     tick_parity_migration = {item.version: item for item in load_migrations()}["V093"]
     quality_migration = {item.version: item for item in load_migrations()}["V095"]
+    retrieval_migration = {item.version: item for item in load_migrations()}["V096"]
     assert "environment: production" in workflow
     assert "PROD_APP_ID: ${{ vars.PROD_APP_ID }}" in workflow
     assert "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" in workflow
@@ -381,6 +382,9 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "COUNT(DISTINCT county_fips)" in quality_migration.source
     assert "rule_id='restricted_pathogen_source_rows'" in quality_migration.source
     assert "GRANT SELECT ON TABLE CONFORMED.RESTRICTED" not in quality_migration.source
+    assert "SP_RECORD_RESTRICTED_PATHOGEN_RETRIEVAL_PROD" in retrieval_migration.source
+    assert "SOURCE_WORKBOOK_EVIDENCE" in retrieval_migration.source
+    assert "GRANT SELECT ON TABLE CONFORMED.RESTRICTED" not in retrieval_migration.source
     assert "SP_RECORD_RESTRICTED_SOURCE_REVIEW_PROD" in caller_rights_migration.source
     assert "EXECUTE AS CALLER" in caller_rights_migration.source
     assert (
@@ -411,6 +415,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "V093" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V094" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V095" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "V096" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "cdc-tick-restricted-prod-ingest" in workflow
     assert '"SNOWFLAKE_ROLE",scope:"RUN_TIME",value:"OH_LYME_PROD_RUNTIME"' in workflow
     assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
@@ -420,6 +425,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
 def test_prod_pathogen_derivation_records_aggregate_quality_after_owner_load() -> None:
     module = Path("src/lyme_gap_atlas_data/pathogen_surveillance.py").read_text(encoding="utf-8")
     assert "SP_RECORD_RESTRICTED_PATHOGEN_QUALITY_PROD" in module
+    assert "SP_RECORD_RESTRICTED_PATHOGEN_RETRIEVAL_PROD" in module
     assert 'if pipeline_settings.topx_env == "prod"' in module
 
 
