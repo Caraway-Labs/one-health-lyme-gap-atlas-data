@@ -95,7 +95,10 @@ jobs:
           uv run ruff check .
           uv run ruff format --check .
           uv run mypy src
-          uv run pytest -q
+          # The test suite deliberately proves that production execution is
+          # fail-closed.  Run it outside the production execution environment;
+          # the protected Snowflake actions below retain their production gate.
+          TOPX_ENV=dev ENABLE_PRODUCTION_EXECUTION='' uv run pytest -q
           uv run dbt parse --project-dir dbt --profiles-dir dbt
       - name: Validate protected operation inputs
         env:
