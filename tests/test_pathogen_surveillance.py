@@ -360,6 +360,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     release_gate_migration = {item.version: item for item in load_migrations()}["V089"]
     caller_rights_migration = {item.version: item for item in load_migrations()}["V090"]
     variant_binding_migration = {item.version: item for item in load_migrations()}["V091"]
+    select_binding_migration = {item.version: item for item in load_migrations()}["V092"]
     assert "environment: production" in workflow
     assert "PROD_APP_ID: ${{ vars.PROD_APP_ID }}" in workflow
     assert "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" in workflow
@@ -386,6 +387,10 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
         "VALUES(:decision_id,:RESOURCE_KEY,:DECISION,:RATIONALE,:CONDITIONS"
         not in variant_binding_migration.source
     )
+    assert (
+        "SELECT :decision_id,:RESOURCE_KEY,:DECISION,:RATIONALE,:CONDITIONS"
+        in select_binding_migration.source
+    )
     assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in migration.source
     assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in migration.source
     assert "V087" in {item["version"] for item in migration_plan(PROD_DATABASE)}
@@ -393,6 +398,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "V089" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V090" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V091" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "V092" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "cdc-tick-restricted-prod-ingest" in workflow
     assert '"SNOWFLAKE_ROLE",scope:"RUN_TIME",value:"OH_LYME_PROD_RUNTIME"' in workflow
     assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
