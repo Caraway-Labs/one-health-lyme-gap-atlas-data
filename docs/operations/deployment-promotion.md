@@ -120,6 +120,20 @@ ownership back to `OH_LYME_DEV_KG_PAPER_REVIEW_OWNER` with `COPY CURRENT GRANTS`
 It replaces the ambiguous `DECISION` parameter with prefixed names while
 preserving the existing signature and atomic steward-decision boundary.
 
+### PROD V090 restricted-source review caller-rights bootstrap
+
+V090 changes the Epic #252 restricted-source decision procedure to execute as
+its steward caller. Before the protected production promotion that applies
+V090, an explicitly authorized AccountAdmin session must grant only `UPDATE`
+on `GOVERNANCE.DATA_SOURCE_VERSIONS` to
+`OH_LYME_PROD_STREAMLIT_OWNER`. The normal production migration deployer must
+not receive grant-administration rights merely to make this one-time change.
+Verify the resulting grant with `SHOW GRANTS ON TABLE
+GOVERNANCE.DATA_SOURCE_VERSIONS`; do not grant RAW, STAGING, CONFORMED, or
+procedure-ownership privileges. After V090 is ledgered, use the production
+owner connection to exercise the procedure and confirm that the pipeline
+runtime still lacks procedure usage.
+
 ### DEV V056 PMC budget-procedure owner bootstrap
 
 V056 restores the fail-closed PMC extraction budget procedure under the dedicated
