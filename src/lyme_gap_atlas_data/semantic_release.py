@@ -100,6 +100,15 @@ class EvidenceOnlyCoverageClassification:
 
 
 @dataclass(frozen=True)
+class TickParityClassification:
+    """Owner-approved PROD classification for omitted tick counties."""
+
+    classification_id: str
+    unresolved_county_count: int
+    approved_at: Any
+
+
+@dataclass(frozen=True)
 class CountyRow:
     values: tuple[Any, ...]
     lineage: dict[str, Any]
@@ -167,8 +176,18 @@ def build_semantic_release(
         try:
             with connection.cursor() as cursor:
                 _assert_release_absent(cursor, manifest.release_id)
+                use_dev_tick_evidence_exception = (
+                    settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+                )
+                use_prod_tick_parity = (
+                    settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+                )
                 gates = {
-                    source.source_key: _verify_source_gate(cursor, source)
+                    source.source_key: _verify_source_gate(
+                        cursor,
+                        source,
+                        allow_dev_tick_evidence_exception=use_dev_tick_evidence_exception,
+                    )
                     for source in manifest.sources
                 }
                 source_rows = {
@@ -179,7 +198,14 @@ def build_semantic_release(
                     cursor, manifest.source("pathogen"), source_rows["pathogen"]
                 )
                 tick_coverage = _verify_evidence_only_coverage_classification(
-                    cursor, manifest.source("tick")
+                    cursor,
+                    manifest.source("tick"),
+                    enabled=use_dev_tick_evidence_exception,
+                )
+                tick_parity = _verify_tick_parity_classification(
+                    cursor,
+                    manifest.source("tick"),
+                    enabled=use_prod_tick_parity,
                 )
                 counties, observations = _assemble_counties(
                     manifest,
@@ -187,6 +213,7 @@ def build_semantic_release(
                     gates,
                     pathogen_parity=pathogen_parity,
                     tick_coverage=tick_coverage,
+                    tick_parity=tick_parity,
                 )
                 if len(counties) != EXPECTED_COUNTIES:
                     raise SemanticReleaseBlocked(
@@ -444,7 +471,9 @@ def _source_from_mapping(value: Any) -> SemanticSource:
     )
 
 
-def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
+def _verify_source_gate(
+    cursor: Any, source: SemanticSource, *, allow_dev_tick_evidence_exception: bool = False
+) -> SourceGate:
     cursor.execute(
         """SELECT status, approved_decision_id, retired_at
         FROM GOVERNANCE.DATA_SOURCE_VERSIONS
@@ -492,7 +521,9 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
             f"Source {source.source_key} artifact checksum is not retained"
         )
 
-    evidence_only_coverage = _verify_evidence_only_coverage_classification(cursor, source)
+    evidence_only_coverage = _verify_evidence_only_coverage_classification(
+        cursor, source, enabled=allow_dev_tick_evidence_exception
+    )
     if evidence_only_coverage is not None:
         return SourceGate(source=source, retrieved_at=evidence_only_coverage.approved_at)
 
@@ -547,10 +578,10 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
 
 
 def _verify_evidence_only_coverage_classification(
-    cursor: Any, source: SemanticSource
+    cursor: Any, source: SemanticSource, *, enabled: bool = True
 ) -> EvidenceOnlyCoverageClassification | None:
     """Return the approved all-unknown exception for the Tier D tick evidence path."""
-    if source.source_key != "tick":
+    if source.source_key != "tick" or not enabled:
         return None
     cursor.execute(
         """SELECT classification_id, canonical_count, reported_county_count,
@@ -574,6 +605,26 @@ def _verify_evidence_only_coverage_classification(
             "Evidence-only tick coverage classification is not county-complete"
         )
     return classification
+
+
+def _verify_tick_parity_classification(
+    cursor: Any, source: SemanticSource, *, enabled: bool
+) -> TickParityClassification | None:
+    """Return the approved PROD missing-county classification for tick rows."""
+    if source.source_key != "tick" or not enabled:
+        return None
+    cursor.execute(
+        """SELECT classification_id, unresolved_county_count, approved_at
+        FROM GOVERNANCE.RESTRICTED_TICK_PARITY_CLASSIFICATIONS
+        WHERE resource_key=%s AND data_source_version_id=%s AND ingestion_run_id=%s
+          AND classification='UNKNOWN_SOURCE_COVERAGE'
+        QUALIFY ROW_NUMBER() OVER (ORDER BY approved_at DESC) = 1""",
+        (source.resource_key, source.data_source_version_id, source.ingestion_run_id),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return TickParityClassification(str(row[0]), int(row[1]), row[2])
 
 
 def _verify_pathogen_parity_classification(
@@ -717,6 +768,7 @@ def _assemble_counties(
     *,
     pathogen_parity: PathogenParityClassification | None = None,
     tick_coverage: EvidenceOnlyCoverageClassification | None = None,
+    tick_parity: TickParityClassification | None = None,
 ) -> tuple[list[CountyRow], list[tuple[Any, ...]]]:
     identity_source = manifest.source("context_svi")
     identity: dict[str, dict[str, Any]] = {}
@@ -780,6 +832,7 @@ def _assemble_counties(
         identity,
         kind="tick",
         evidence_only_coverage=tick_coverage,
+        tick_parity=tick_parity,
     )
     pathogen = _surveillance_values(
         source_rows["pathogen"],
@@ -927,6 +980,7 @@ def _surveillance_values(
     kind: str,
     pathogen_parity: PathogenParityClassification | None = None,
     evidence_only_coverage: EvidenceOnlyCoverageClassification | None = None,
+    tick_parity: TickParityClassification | None = None,
 ) -> dict[str, dict[str, Any]]:
     source_rows = list(rows)
     output: dict[str, dict[str, Any]] = {}
@@ -985,6 +1039,21 @@ def _surveillance_values(
                     }
                 ],
                 "coverage_classification_id": evidence_only_coverage.classification_id,
+            }
+    if missing and kind == "tick" and tick_parity is not None:
+        if len(output) + tick_parity.unresolved_county_count != len(identity):
+            raise SemanticReleaseBlocked("Tick parity classification count does not match coverage")
+        for fips in missing:
+            output[fips] = {
+                "scapularis_status": "Unknown",
+                "pacificus_status": "Unknown",
+                "rows": [
+                    {
+                        "source_record_id": tick_parity.classification_id,
+                        "retrieved_at": tick_parity.approved_at,
+                    }
+                ],
+                "parity_classification_id": tick_parity.classification_id,
             }
     if set(output) != set(identity):
         raise SemanticReleaseBlocked(

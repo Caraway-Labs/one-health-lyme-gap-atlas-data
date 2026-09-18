@@ -18,6 +18,7 @@ from lyme_gap_atlas_data.semantic_release import (
     SemanticReleaseBlocked,
     SemanticSource,
     SourceGate,
+    TickParityClassification,
     _assemble_counties,
     _bundle_sha256,
     _evidence_completeness,
@@ -476,6 +477,45 @@ def test_evidence_only_tick_coverage_cannot_mask_source_rows(
                 "classification-2", 2, datetime.now(UTC)
             ),
         )
+
+
+def test_prod_tick_parity_classification_preserves_unknown_not_no_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 2)
+    source = _source("tick")
+    identity = {"08001": {}, "08003": {}}
+    values = semantic_release._surveillance_values(
+        [
+            _row(
+                {
+                    "FIPSCode": "08001",
+                    "Ixodes_scapularis_County_Status": "Established",
+                    "Ixodes_pacificus_county_status": "No records",
+                }
+            )
+        ],
+        source,
+        identity,
+        kind="tick",
+        tick_parity=TickParityClassification("classification-3", 1, datetime.now(UTC)),
+    )
+    assert values["08003"]["scapularis_status"] == "Unknown"
+    assert values["08003"]["pacificus_status"] == "Unknown"
+    assert values["08003"]["parity_classification_id"] == "classification-3"
+
+
+def test_prod_tick_parity_classification_is_not_queried_in_dev() -> None:
+    class Cursor:
+        def execute(self, *_: object) -> None:
+            raise AssertionError("DEV builds must not query the production parity ledger")
+
+    assert (
+        semantic_release._verify_tick_parity_classification(
+            Cursor(), _source("tick"), enabled=False
+        )
+        is None
+    )
 
 
 def test_bundle_hash_is_deterministic() -> None:
