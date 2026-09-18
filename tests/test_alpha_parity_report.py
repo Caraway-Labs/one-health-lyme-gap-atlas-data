@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 
+from lyme_gap_atlas_data import alpha_parity
 from lyme_gap_atlas_data.alpha_parity import AlphaParityError, build_report
 
 
@@ -89,3 +91,45 @@ def test_report_refuses_incomplete_county_coverage(tmp_path: Path) -> None:
             source_metadata=[],
             release_metadata={},
         )
+
+
+def test_candidate_reader_uses_only_release_scoped_semantic_relations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[str] = []
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: object) -> CompletedProcess[str]:
+        commands.append(command)
+        query = command[command.index("-q") + 1]
+        queries.append(query)
+        stdout = (
+            '[{"RELEASE_ID":"candidate-1","BUNDLE_SHA256":"a","STATUS":"CANDIDATE"}]'
+            if "SEMANTIC_RELEASES" in query
+            else "[]"
+        )
+        return CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setattr(alpha_parity.subprocess, "run", fake_run)
+
+    alpha_parity.fetch_current_semantic_rows(
+        "ATLAS_PROD_MIGRATOR",
+        "candidate-1",
+        candidate=True,
+        database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        warehouse="OH_LYME_PROD_INGEST_XS_WH",
+    )
+    alpha_parity.fetch_current_source_metadata("ATLAS_PROD_MIGRATOR", "candidate-1")
+    alpha_parity.fetch_current_release_metadata("ATLAS_PROD_MIGRATOR", "candidate-1")
+
+    assert "PRESENTATION.SEMANTIC_COUNTY_ATLAS" in queries[0]
+    assert "PRESENTATION.SEMANTIC_DATA_SOURCES" in queries[1]
+    assert "PRESENTATION.SEMANTIC_RELEASES" in queries[2]
+    assert all("CURRENT_" not in query for query in queries)
+    assert all("candidate-1" in query for query in queries)
+    assert commands[0][-4:] == [
+        "--database",
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "--warehouse",
+        "OH_LYME_PROD_INGEST_XS_WH",
+    ]

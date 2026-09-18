@@ -35,3 +35,12 @@ The public interpretation remains: published county-linked values are floors,
 not true incidence; no records are not absence; ecological status is not
 individual infection risk or diagnosis; and the score is a surveillance
 follow-up priority, not a prediction or causal claim.
+
+## Candidate evidence
+
+Before publication, the parity command may read one named candidate release
+using the existing protected migration connection and `--candidate`. It reads
+only the candidate's semantic county, source-metadata, and release-metadata
+relations; it produces the same metadata-only report and does not expose a
+candidate through the browser or API. Public release comparison continues to
+use the bounded current-release views.
