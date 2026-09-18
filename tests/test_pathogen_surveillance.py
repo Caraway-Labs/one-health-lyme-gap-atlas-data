@@ -344,7 +344,12 @@ def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> N
 
 
 def test_production_restricted_operator_path_is_protected_and_restores_topology() -> None:
-    from lyme_gap_atlas_data.migrations import PROD_DATABASE, load_migrations, migration_plan
+    from lyme_gap_atlas_data.migrations import (
+        PROD_DATABASE,
+        load_migrations,
+        migration_execution_role,
+        migration_plan,
+    )
 
     workflow = Path(".github/workflows/capture-prod-cdc-restricted-operator.yml").read_text(
         encoding="utf-8"
@@ -360,3 +365,4 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in migration.source
     assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in migration.source
     assert "V087" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert migration_execution_role(migration, PROD_DATABASE) is None
