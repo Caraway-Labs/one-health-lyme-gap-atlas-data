@@ -393,6 +393,33 @@ def test_pathogen_source_scope_superset_is_not_allocated_to_canonical_counties()
     assert set(values) == {"08001"}
 
 
+def test_tick_source_scope_superset_is_not_allocated_to_canonical_counties() -> None:
+    source = _source("tick")
+    identity = {"08001": {}}
+    values = semantic_release._surveillance_values(
+        [
+            _row(
+                {
+                    "FIPSCode": "08001",
+                    "Ixodes_scapularis_County_Status": "Established",
+                    "Ixodes_pacificus_county_status": "No records",
+                }
+            ),
+            _row(
+                {
+                    "FIPSCode": "01001",
+                    "Ixodes_scapularis_County_Status": "Reported",
+                    "Ixodes_pacificus_county_status": "No records",
+                }
+            ),
+        ],
+        source,
+        identity,
+        kind="tick",
+    )
+    assert set(values) == {"08001"}
+
+
 def test_value_states_and_scorecard_mapping_are_explicit() -> None:
     assert _value_state(None) == "MISSING"
     assert _value_state(0) == "ZERO"
