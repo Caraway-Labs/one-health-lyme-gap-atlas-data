@@ -56,6 +56,10 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         "run-dev-cdc-dbt-recovery",
         "run-prod-cdc-dbt-recovery",
         "capture-prod-cdc-evidence",
+        # Epic #252: one generic, protected metadata/evidence candidate
+        # path for the two committed routine-public contextual definitions.
+        # It cannot create a source version or ingest source rows.
+        "capture-prod-routine-public-evidence",
         "run-prod-approved-ingestion",
         "run-prod-ingestion",
         "publish-semantic-release",
