@@ -503,6 +503,8 @@ def test_dev_image_deployment_updates_every_scheduled_job() -> None:
 
 def test_production_promotion_only_updates_an_existing_secret_preserving_app() -> None:
     workflow = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    assert 'map(select(.key != "SNOWFLAKE_ROLE"))' in workflow
+    assert 'value: "OH_LYME_PROD_RUNTIME"' in workflow
     assert 'doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"' in workflow
     assert 'doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait' in workflow
     assert ".image.digest = $image_digest" in workflow

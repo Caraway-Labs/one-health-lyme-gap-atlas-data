@@ -122,6 +122,11 @@ jobs:
               else error("production jobs must all be scheduled") end
             | if ([.jobs[] | select(.image.registry_type == "DOCR" and .image.repository == "pipeline")] | length) == 6 then .
               else error("production jobs do not all use the pipeline image") end
-            | .jobs |= map(.image.digest = $image_digest)
+            | .jobs |= map(
+                .image.digest = $image_digest
+                | .envs = ((.envs // [])
+                    | map(select(.key != "SNOWFLAKE_ROLE"))
+                    + [{key: "SNOWFLAKE_ROLE", scope: "RUN_AND_BUILD_TIME", value: "OH_LYME_PROD_RUNTIME"}])
+              )
           ' "$prod_spec" > "$next_spec"
           doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait
