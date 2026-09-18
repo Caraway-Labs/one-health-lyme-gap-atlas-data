@@ -403,3 +403,9 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert '"SNOWFLAKE_ROLE",scope:"RUN_TIME",value:"OH_LYME_PROD_RUNTIME"' in workflow
     assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
     assert migration_execution_role(migration, PROD_DATABASE) is None
+
+
+def test_restricted_operator_publisher_passes_the_derivation_evidence_input() -> None:
+    publisher = Path("scripts/publish_tick_operator_evidence.py").read_text(encoding="utf-8")
+
+    assert '["-f", f"evidence_run_id={args.evidence_run_id}"]' in publisher

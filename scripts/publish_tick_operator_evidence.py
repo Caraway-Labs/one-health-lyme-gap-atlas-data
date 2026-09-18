@@ -253,7 +253,7 @@ def main() -> None:
                 "-f",
                 f"operation={args.operation}",
                 *(
-                    [f"evidence_run_id={args.evidence_run_id}"]
+                    ["-f", f"evidence_run_id={args.evidence_run_id}"]
                     if args.environment == "prod" and args.operation == "derive"
                     else []
                 ),
