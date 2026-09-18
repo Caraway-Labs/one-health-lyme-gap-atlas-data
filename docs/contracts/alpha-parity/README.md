@@ -44,3 +44,12 @@ only the candidate's semantic county, source-metadata, and release-metadata
 relations; it produces the same metadata-only report and does not expose a
 candidate through the browser or API. Public release comparison continues to
 use the bounded current-release views.
+
+## Approval records
+
+Candidate parity reports are frozen evidence. A later human sign-off is stored
+in a separate release-specific `*-approvals.json` record that binds the
+report's canonical UTF-8/LF SHA-256 and semantic bundle digest. It must name
+the data-steward, product-owner, and engineering decisions and must state
+explicitly that sign-off neither publishes a candidate nor replaces the CDC
+final-copy delivery attestation required by ADR 0033.

@@ -10,6 +10,8 @@ REPO = Path(__file__).resolve().parents[1]
 BASELINE_DIR = REPO / "docs" / "contracts" / "alpha-parity"
 MANIFEST = BASELINE_DIR / "alpha-2026-08-06-baseline.json"
 CHECKSUM = BASELINE_DIR / "alpha-2026-08-06-baseline.sha256"
+RELEASE_REPORT = BASELINE_DIR / "governed-2026-09-18-unknown-coverage-report.json"
+RELEASE_APPROVAL = BASELINE_DIR / "governed-2026-09-18-unknown-coverage-approvals.json"
 
 
 def test_alpha_baseline_is_checksum_bound_and_metadata_only() -> None:
@@ -64,3 +66,28 @@ def test_alpha_baseline_covers_counties_fields_sources_and_allowed_differences()
         "METHODOLOGY",
         "DEFECT",
     }
+
+
+def test_candidate_parity_approval_binds_frozen_report_and_all_required_roles() -> None:
+    report_bytes = RELEASE_REPORT.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")
+    report = json.loads(report_bytes)
+    approval = json.loads(RELEASE_APPROVAL.read_text(encoding="utf-8"))
+
+    assert approval["approval_schema"] == "atlas-alpha-parity-approval/v1"
+    assert approval["semantic_release_id"] == report["semantic_release_id"]
+    assert approval["semantic_bundle_sha256"] == report["semantic_bundle_sha256"]
+    assert approval["classification_complete"] is True
+    assert approval["parity_report"]["path"] == str(RELEASE_REPORT.relative_to(REPO)).replace(
+        "\\", "/"
+    )
+    assert (
+        approval["parity_report"]["canonical_utf8_lf_sha256"]
+        == hashlib.sha256(report_bytes).hexdigest()
+    )
+    assert approval["approvals"] == {
+        "data_steward": "APPROVED",
+        "product_owner": "APPROVED",
+        "engineering": "APPROVED",
+    }
+    assert "does not publish" in " ".join(approval["limitations"])
+    assert "CDC final-copy delivery" in " ".join(approval["limitations"])
