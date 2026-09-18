@@ -49,11 +49,11 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         "monitor-cdc-operations",
         "capture-dev-cdc-historical",
         "capture-prod-cdc-historical",
-            "capture-dev-cdc-tick-surveillance-operator",
-            # Epic #252: protected one-shot production envelope for the two
-            # requestor-restricted CDC workbooks. It restores topology and
-            # removes its private image tag on every exit path.
-            "capture-prod-cdc-restricted-operator",
+        "capture-dev-cdc-tick-surveillance-operator",
+        # Epic #252: protected one-shot production envelope for the two
+        # requestor-restricted CDC workbooks. It restores topology and
+        # removes its private image tag on every exit path.
+        "capture-prod-cdc-restricted-operator",
         "ingest-dev-cdc-historical",
         "ingest-prod-cdc-historical",
         "rollback-prod-cdc-historical",

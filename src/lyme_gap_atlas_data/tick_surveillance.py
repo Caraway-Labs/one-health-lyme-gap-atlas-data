@@ -597,10 +597,7 @@ def collect_restricted_workbook_evidence(
             "Restricted workbook evidence capture is limited to the governed "
             "DEV or PROD environments"
         )
-    if (
-        settings.topx_env == "prod"
-        and os.getenv("RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE") != "true"
-    ):
+    if settings.topx_env == "prod" and os.getenv("RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE") != "true":
         raise ValueError("Production restricted evidence requires the protected operator envelope")
     if settings.topx_env == "prod" and not getattr(settings, "enable_production_execution", False):
         raise ValueError("Production restricted evidence requires ENABLE_PRODUCTION_EXECUTION=true")
