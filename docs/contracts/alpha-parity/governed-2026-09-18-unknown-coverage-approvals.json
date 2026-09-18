@@ -1,0 +1,23 @@
+{
+  "approval_schema": "atlas-alpha-parity-approval/v1",
+  "semantic_release_id": "governed-2026-09-18-unknown-coverage",
+  "semantic_bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026",
+  "parity_report": {
+    "path": "docs/contracts/alpha-parity/governed-2026-09-18-unknown-coverage-report.json",
+    "canonical_utf8_lf_sha256": "33b6e3a8e60b9bf669e91657a2595c48f704765cac261f0f29640a26c411099b"
+  },
+  "classification_complete": true,
+  "approved_by": "MATTHEWCARAWAY",
+  "approved_at": "2026-09-18T13:52:48Z",
+  "approvals": {
+    "data_steward": "APPROVED",
+    "product_owner": "APPROVED",
+    "engineering": "APPROVED"
+  },
+  "scope": "The classified Alpha-versus-semantic differences in the bound parity report for this release only.",
+  "limitations": [
+    "This approval does not attest CDC final-copy delivery for requestor-restricted sources.",
+    "This approval does not publish the candidate or move the current-release pointer.",
+    "Published county-linked values remain floors, not true incidence; no records is not absence; ecological status is not individual infection risk or diagnosis; and the score is a surveillance follow-up priority, not a prediction or causal claim."
+  ]
+}
