@@ -990,7 +990,7 @@ def _surveillance_values(
         if not _FIPS.fullmatch(fips):
             raise SemanticReleaseBlocked(f"{source.source_key} contains an unknown county identity")
         if fips not in identity:
-            if kind == "pathogen":
+            if kind in {"pathogen", "tick"}:
                 continue
             raise SemanticReleaseBlocked(f"{source.source_key} contains an unknown county identity")
         if fips in output:
