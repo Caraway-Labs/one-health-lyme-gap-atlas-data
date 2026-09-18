@@ -31,6 +31,7 @@ jobs:
     environment: production
     env:
       TOPX_ENV: prod
+      ENABLE_PRODUCTION_EXECUTION: "true"
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}

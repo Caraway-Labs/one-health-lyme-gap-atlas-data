@@ -139,6 +139,7 @@ def test_protected_evidence_workflow_is_narrow_and_never_ingests_rows() -> None:
         encoding="utf-8"
     )
     assert "environment: production" in workflow
+    assert 'ENABLE_PRODUCTION_EXECUTION: "true"' in workflow
     assert "cdc_atsdr_svi_2022_county.yml" in workflow
     assert "usda_ers_rucc_2023.yml" in workflow
     assert "capture-routine-public-evidence" in workflow
