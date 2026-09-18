@@ -1702,6 +1702,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V087",
         "V088",
         "V089",
+        "V090",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1709,7 +1710,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 57
+    assert len(prod_plan) == 58
     assert "V034" not in {item["version"] for item in prod_plan}
     assert "V066" in {item["version"] for item in prod_plan}
     assert "V067" in {item["version"] for item in prod_plan}
@@ -1723,6 +1724,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "V087" in {item["version"] for item in prod_plan}
     assert "V088" in {item["version"] for item in prod_plan}
     assert "V089" in {item["version"] for item in prod_plan}
+    assert "V090" in {item["version"] for item in prod_plan}
     assert "V076" not in {item["version"] for item in prod_plan}
     assert "V077" not in {item["version"] for item in prod_plan}
     assert "V078" not in {item["version"] for item in prod_plan}

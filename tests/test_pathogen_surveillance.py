@@ -358,6 +358,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     migration = {item.version: item for item in load_migrations()}["V087"]
     tick_migration = {item.version: item for item in load_migrations()}["V088"]
     release_gate_migration = {item.version: item for item in load_migrations()}["V089"]
+    caller_rights_migration = {item.version: item for item in load_migrations()}["V090"]
     assert "environment: production" in workflow
     assert "PROD_APP_ID: ${{ vars.PROD_APP_ID }}" in workflow
     assert "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" in workflow
@@ -369,11 +370,16 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "RESTRICTED_CDC_TICK_COUNTY_STATUS" in tick_migration.source
     assert "SP_RECORD_RESTRICTED_FINAL_COPY_PROD" in release_gate_migration.source
     assert "RESTRICTED_PATHOGEN_PARITY_CLASSIFICATIONS" in release_gate_migration.source
+    assert "GRANT UPDATE ON TABLE GOVERNANCE.DATA_SOURCE_VERSIONS" in caller_rights_migration.source
+    assert "OH_LYME_PROD_STREAMLIT_OWNER" in caller_rights_migration.source
+    assert "SP_RECORD_RESTRICTED_SOURCE_REVIEW_PROD" in caller_rights_migration.source
+    assert "EXECUTE AS CALLER" in caller_rights_migration.source
     assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in migration.source
     assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in migration.source
     assert "V087" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V088" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V089" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "V090" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "cdc-tick-restricted-prod-ingest" in workflow
     assert '"SNOWFLAKE_ROLE",scope:"RUN_TIME",value:"OH_LYME_PROD_RUNTIME"' in workflow
     assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
