@@ -51,10 +51,10 @@ def workbook_bytes(
     return output.getvalue()
 
 
-def test_pathogen_profile_is_private_dev_evidence_only() -> None:
+def test_pathogen_profile_is_private_governed_envelope_evidence_only() -> None:
     profile = pathogen.load_pathogen_profile()
     assert profile["resource_key"] == pathogen.RESOURCE_KEY
-    assert profile["onboarding_environments"] == ["dev"]
+    assert profile["onboarding_environments"] == ["dev", "prod"]
     assert profile["onboarding_mode"] == "EVIDENCE_ONLY"
     assert profile["allowed_status_values"] == ["Present", "No records"]
     assert profile["landing_page_url"].startswith("https://www.cdc.gov/")
@@ -341,3 +341,22 @@ def test_pathogen_derivation_workflow_requires_explicit_private_operation() -> N
     assert "options: [evidence, derive]" in workflow
     assert '"$OPERATION" != "derive" || "$SOURCE_KIND" = "pathogen"' in workflow
     assert "cdc-pathogen-restricted-dev-capture-and-ingest" in workflow
+
+
+def test_production_restricted_operator_path_is_protected_and_restores_topology() -> None:
+    from lyme_gap_atlas_data.migrations import PROD_DATABASE, load_migrations, migration_plan
+
+    workflow = Path(".github/workflows/capture-prod-cdc-restricted-operator.yml").read_text(
+        encoding="utf-8"
+    )
+    migration = {item.version: item for item in load_migrations()}["V087"]
+    assert "environment: production" in workflow
+    assert "PROD_APP_ID: ${{ vars.PROD_APP_ID }}" in workflow
+    assert "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" in workflow
+    assert "delete-tag pipeline" in workflow
+    assert "approved-source-ingestion" in workflow
+    assert "GitHub artifact" not in workflow
+    assert "SP_LOAD_RESTRICTED_PATHOGEN_PROD" in migration.source
+    assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in migration.source
+    assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in migration.source
+    assert "V087" in {item["version"] for item in migration_plan(PROD_DATABASE)}

@@ -9,7 +9,7 @@ workbook_sheet: Ixodes records 2025
 header_row: 2
 deterministic_order_clause: FIPSCode ASC
 incremental_strategy: SNAPSHOT_DIFF
-onboarding_environments: [dev]
+onboarding_environments: [dev, prod]
 onboarding_mode: EVIDENCE_ONLY
 sample_limit: 25
 maximum_sample_limit: 100
@@ -28,7 +28,7 @@ required_columns:
   - Ixodes_pacificus_data_source
 allowed_status_values: [Established, Reported, No records]
 restrictions:
-  - Evidence capture retrieves the publisher workbook under a strict byte bound because the source offers no row-level API; it stores no RAW rows and runs no transformations.
+  - Evidence capture retrieves the publisher workbook under a strict byte bound because the source offers no row-level API; it stores no RAW rows and runs no transformations unless the separately reviewed production operator-envelope procedure is invoked.
   - No records means no reported surveillance evidence and must never be interpreted as tick absence.
   - County status is cumulative through the stated as-of date and is not an annual abundance measure.
   - Reported and established are publisher classifications, not infection prevalence or human disease risk.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import uuid
 import zipfile
@@ -96,8 +97,10 @@ def load_pathogen_profile(path: Path = PROFILE_PATH) -> dict[str, Any]:
     }
     if any(profile.get(key) != value for key, value in expected.items()):
         raise ValueError("Pathogen-surveillance profile does not match the reviewed source")
-    if profile.get("onboarding_environments") != ["dev"]:
-        raise ValueError("Pathogen-surveillance onboarding must remain DEV-only")
+    if profile.get("onboarding_environments") != ["dev", "prod"]:
+        raise ValueError(
+            "Pathogen-surveillance profile must name the approved DEV and PROD envelopes"
+        )
     return profile
 
 
@@ -290,12 +293,20 @@ def restricted_pathogen_rows(
     return evidence, rows
 
 
-def ingest_restricted_pathogen_dev(
+def ingest_restricted_pathogen(
     *, evidence_bundle_dir: Path, evidence_run_id: str
 ) -> dict[str, object]:
-    """Load the approved derived output through the DEV owner-rights boundary."""
-    if PipelineSettings().topx_env != "dev":
-        raise ValueError("Restricted pathogen derivation is approved only for isolated DEV")
+    """Load derived output only through the environment's owner-rights boundary."""
+    pipeline_settings = PipelineSettings()
+    if pipeline_settings.topx_env not in {"dev", "prod"}:
+        raise ValueError("Restricted pathogen derivation is limited to governed DEV or PROD")
+    if pipeline_settings.topx_env == "prod" and (
+        os.getenv("RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE") != "true"
+        or not getattr(pipeline_settings, "enable_production_execution", False)
+    ):
+        raise ValueError(
+            "Production restricted derivation requires the protected operator envelope"
+        )
     if not re.fullmatch(r"[0-9a-f-]{36}", evidence_run_id):
         raise ValueError("evidence_run_id must be a UUID")
     # Importing the private bundle verifier here avoids expanding its public interface.
@@ -327,6 +338,7 @@ def ingest_restricted_pathogen_dev(
     run_id = str(uuid.uuid4())
     retrieved_at = str(bundle.manifest["retrieved_at"])
     workbook_sha256 = hashlib.sha256(bundle.workbook.payload).hexdigest()
+    procedure_name = f"GOVERNANCE.SP_LOAD_RESTRICTED_PATHOGEN_{pipeline_settings.topx_env.upper()}"
     settings = SnowflakeSettings()
     with connect(settings) as connection:
         try:
@@ -335,11 +347,16 @@ def ingest_restricted_pathogen_dev(
                     """INSERT INTO GOVERNANCE.INGESTION_RUNS
                     (ingestion_run_id, resource_key, run_mode, trigger_type, status, code_version,
                      config_sha256, started_at)
-                    VALUES (%s, 'cdc_tick_ixodes_pathogen_status', 'RESTRICTED_FULL_DEV',
+                    VALUES (%s, 'cdc_tick_ixodes_pathogen_status', %s,
                             'MANUAL', 'RUNNING',
                             'cdc-pathogen-restricted-derivation-v1', %s, %s)""",
                     (
                         run_id,
+                        (
+                            "RESTRICTED_FULL_PROD"
+                            if pipeline_settings.topx_env == "prod"
+                            else "RESTRICTED_FULL_DEV"
+                        ),
                         hashlib.sha256(
                             yaml.safe_dump(profile, sort_keys=True).encode("utf-8")
                         ).hexdigest(),
@@ -347,8 +364,7 @@ def ingest_restricted_pathogen_dev(
                     ),
                 )
                 cursor.execute(
-                    """CALL GOVERNANCE.SP_LOAD_RESTRICTED_PATHOGEN_DEV(
-                    %s, %s, %s, PARSE_JSON(%s), %s)""",
+                    f"CALL {procedure_name}(%s, %s, %s, PARSE_JSON(%s), %s)",
                     (run_id, evidence_run_id, workbook_sha256, payload, retrieved_at),
                 )
                 result = cursor.fetchone()
@@ -366,6 +382,17 @@ def ingest_restricted_pathogen_dev(
         "status": "PENDING_PARITY_CLASSIFICATION",
         "procedure_result": procedure_result,
     }
+
+
+def ingest_restricted_pathogen_dev(
+    *, evidence_bundle_dir: Path, evidence_run_id: str
+) -> dict[str, object]:
+    """Backward-compatible DEV entrypoint for the approved private derivation."""
+    if PipelineSettings().topx_env != "dev":
+        raise ValueError("This compatibility entrypoint is DEV-only")
+    return ingest_restricted_pathogen(
+        evidence_bundle_dir=evidence_bundle_dir, evidence_run_id=evidence_run_id
+    )
 
 
 def capture_and_ingest_restricted_pathogen_dev(

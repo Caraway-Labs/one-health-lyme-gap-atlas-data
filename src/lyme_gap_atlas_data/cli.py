@@ -56,6 +56,7 @@ from .orchestration import (
 from .pathogen_surveillance import (
     capture_and_ingest_restricted_pathogen_dev,
     collect_pathogen_surveillance_evidence,
+    ingest_restricted_pathogen,
     ingest_restricted_pathogen_dev,
 )
 from .pmc_extraction_worker import run_pmc_extraction
@@ -549,6 +550,43 @@ def cdc_pathogen_restricted_dev_capture_and_ingest(
         json.dumps(
             capture_and_ingest_restricted_pathogen_dev(
                 sample_limit=sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+            ),
+            default=str,
+            sort_keys=True,
+        )
+    )
+
+
+@pipeline_app.command("cdc-restricted-prod-evidence")
+def cdc_restricted_prod_evidence(
+    source_kind: str = typer.Option(..., "--source-kind"),
+    sample_limit: int = typer.Option(25, "--sample-limit", min=1, max=100),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Capture a bounded candidate in the protected production operator envelope."""
+    if source_kind == "tick":
+        result = collect_tick_surveillance_evidence(
+            sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+        )
+    elif source_kind == "pathogen":
+        result = collect_pathogen_surveillance_evidence(
+            sample_limit, evidence_bundle_dir=Path(evidence_bundle_dir)
+        )
+    else:
+        raise typer.BadParameter("source-kind must be tick or pathogen")
+    typer.echo(json.dumps(result, default=str, sort_keys=True))
+
+
+@pipeline_app.command("cdc-pathogen-restricted-prod-ingest")
+def cdc_pathogen_restricted_prod_ingest(
+    evidence_run_id: str = typer.Option(..., "--evidence-run-id"),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Derive restricted pathogen status in the protected production envelope."""
+    typer.echo(
+        json.dumps(
+            ingest_restricted_pathogen(
+                evidence_bundle_dir=Path(evidence_bundle_dir), evidence_run_id=evidence_run_id
             ),
             default=str,
             sort_keys=True,

@@ -106,8 +106,8 @@ def load_tick_profile(path: Path = PROFILE_PATH) -> dict[str, Any]:
     }
     if any(profile.get(key) != value for key, value in expected.items()):
         raise ValueError("Tick-surveillance source profile does not match the reviewed CDC source")
-    if profile.get("onboarding_environments") != ["dev"]:
-        raise ValueError("Tick-surveillance evidence onboarding must remain DEV-only")
+    if profile.get("onboarding_environments") != ["dev", "prod"]:
+        raise ValueError("Tick-surveillance profile must name the approved DEV and PROD envelopes")
     return profile
 
 
@@ -592,8 +592,15 @@ def collect_restricted_workbook_evidence(
     if not 1 <= sample_limit <= 100:
         raise ValueError("sample_limit must be between 1 and 100")
     settings = PipelineSettings()
-    if settings.topx_env != "dev":
-        raise ValueError("Tick-surveillance evidence capture is approved only for isolated DEV")
+    if settings.topx_env not in {"dev", "prod"}:
+        raise ValueError(
+            "Restricted workbook evidence capture is limited to the governed "
+            "DEV or PROD environments"
+        )
+    if settings.topx_env == "prod" and os.getenv("RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE") != "true":
+        raise ValueError("Production restricted evidence requires the protected operator envelope")
+    if settings.topx_env == "prod" and not getattr(settings, "enable_production_execution", False):
+        raise ValueError("Production restricted evidence requires ENABLE_PRODUCTION_EXECUTION=true")
     resource_key = str(profile["resource_key"])
     source_dataset_id = str(profile["source_dataset_id"])
     landing_url = str(profile["landing_page_url"])
