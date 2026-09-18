@@ -370,10 +370,12 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "RESTRICTED_CDC_TICK_COUNTY_STATUS" in tick_migration.source
     assert "SP_RECORD_RESTRICTED_FINAL_COPY_PROD" in release_gate_migration.source
     assert "RESTRICTED_PATHOGEN_PARITY_CLASSIFICATIONS" in release_gate_migration.source
-    assert "GRANT UPDATE ON TABLE GOVERNANCE.DATA_SOURCE_VERSIONS" in caller_rights_migration.source
-    assert "OH_LYME_PROD_STREAMLIT_OWNER" in caller_rights_migration.source
     assert "SP_RECORD_RESTRICTED_SOURCE_REVIEW_PROD" in caller_rights_migration.source
     assert "EXECUTE AS CALLER" in caller_rights_migration.source
+    assert (
+        "GRANT UPDATE ON TABLE GOVERNANCE.DATA_SOURCE_VERSIONS"
+        not in caller_rights_migration.source
+    )
     assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in migration.source
     assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in migration.source
     assert "V087" in {item["version"] for item in migration_plan(PROD_DATABASE)}
