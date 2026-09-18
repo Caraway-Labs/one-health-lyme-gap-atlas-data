@@ -366,6 +366,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     retrieval_migration = {item.version: item for item in load_migrations()}["V096"]
     tick_parity_fix_migration = {item.version: item for item in load_migrations()}["V097"]
     pathogen_parity_fix_migration = {item.version: item for item in load_migrations()}["V098"]
+    semantic_operator_migration = {item.version: item for item in load_migrations()}["V099"]
     assert "environment: production" in workflow
     assert "PROD_APP_ID: ${{ vars.PROD_APP_ID }}" in workflow
     assert "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" in workflow
@@ -391,6 +392,9 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "cdc_atsdr_svi_2022_county" in tick_parity_fix_migration.source
     assert "COUNT(p.county_fips)" in pathogen_parity_fix_migration.source
     assert "cdc_atsdr_svi_2022_county" in pathogen_parity_fix_migration.source
+    assert "OH_LYME_{{ ENV }}_MIGRATION_DEPLOYER" in semantic_operator_migration.source
+    assert "GRANT SELECT ON ALL TABLES" not in semantic_operator_migration.source
+    assert "DELETE ON TABLE" not in semantic_operator_migration.source
     assert "SP_RECORD_RESTRICTED_SOURCE_REVIEW_PROD" in caller_rights_migration.source
     assert "EXECUTE AS CALLER" in caller_rights_migration.source
     assert (
@@ -424,6 +428,7 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "V096" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V097" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "V098" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "V099" in {item["version"] for item in migration_plan(PROD_DATABASE)}
     assert "cdc-tick-restricted-prod-ingest" in workflow
     assert '"SNOWFLAKE_ROLE",scope:"RUN_TIME",value:"OH_LYME_PROD_RUNTIME"' in workflow
     assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
