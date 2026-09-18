@@ -15,6 +15,7 @@ paths = [
   '''^migrations/V0(49__prod_historical_cdc_review|50__prod_historical_cdc_decision)\.sql$''',
   '''^migrations/V05[12]__prod_historical_cdc_(storage|explorer)\.sql$''',
   '''^migrations/V054__dev_tick_surveillance_decision\.sql$''',
+  '''^migrations/V086__prod_routine_public_semantic_source_admission\.sql$''',
 ]
 regexTarget = "secret"
 regexes = ['''^cdc_lyme_qtbi_xd4i$''']

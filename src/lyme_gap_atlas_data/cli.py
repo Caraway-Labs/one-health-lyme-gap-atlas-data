@@ -787,6 +787,21 @@ def source_run(
         raise typer.Exit(code=1)
 
 
+@source_app.command("capture-routine-public-evidence")
+def source_capture_routine_public_evidence(
+    definition: str = typer.Option(..., "--definition"),
+) -> None:
+    """Create a PROD review candidate; never creates a source version or loads rows."""
+    from .source_evidence import collect_routine_public_source_evidence_from_path
+
+    typer.echo(
+        json.dumps(
+            collect_routine_public_source_evidence_from_path(definition),
+            indent=2,
+        )
+    )
+
+
 @source_app.command("dev-smoke")
 def source_dev_smoke(
     definition: str = typer.Option(_DEFAULT_X5J9_DEFINITION, "--definition"),

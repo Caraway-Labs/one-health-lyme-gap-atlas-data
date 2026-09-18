@@ -1,0 +1,83 @@
+name: Capture protected PROD routine-public source evidence
+
+# Epic #252: create an auditable review candidate for the two contextual
+# public sources. This path never creates a source version or loads RAW rows.
+on:
+  workflow_dispatch:
+    inputs:
+      source_definition:
+        description: Reviewed routine-public SourceDefinition
+        required: true
+        type: choice
+        options:
+          - config/sources/cdc_atsdr_svi_2022_county.yml
+          - config/sources/usda_ers_rucc_2023.yml
+      release_commit:
+        description: Exact reviewed commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-routine-public-evidence-${{ inputs.source_definition }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Protected routine-public evidence candidate
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      TOPX_ENV: prod
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_AUTH_METHOD: key_pair
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
+      SPACES_REGION: ${{ secrets.SPACES_REGION }}
+      SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+      SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+      SPACES_PREFIX: ${{ secrets.SPACES_PREFIX }}
+      SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify reviewed definition
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"
+          case "${{ inputs.source_definition }}" in
+            config/sources/cdc_atsdr_svi_2022_county.yml|config/sources/usda_ers_rucc_2023.yml) ;;
+            *) echo "::error::Definition is not admitted to this protected evidence path"; exit 1 ;;
+          esac
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install package
+        run: uv sync --extra pipeline --locked
+      - name: Validate definition and production runtime identity
+        run: |
+          set -euo pipefail
+          uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+          uv run python - <<'PY'
+          from lyme_gap_atlas_shared.settings import SnowflakeSettings
+          from lyme_gap_atlas_shared.snowflake import connect
+
+          settings = SnowflakeSettings()
+          with connect(settings) as connection, connection.cursor() as cursor:
+              cursor.execute("SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE()")
+              identity = cursor.fetchone()
+          expected = ("OH_LYME_PROD_PIPELINE_SVC", "OH_LYME_PROD_RUNTIME", "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+          if identity != expected:
+              raise SystemExit("Protected evidence requires the dedicated PROD runtime identity.")
+          print("Verified protected PROD runtime identity.")
+          PY
+      - name: Capture immutable candidate evidence
+        run: |
+          uv run atlas-data source capture-routine-public-evidence \
+            --definition "${{ inputs.source_definition }}"
