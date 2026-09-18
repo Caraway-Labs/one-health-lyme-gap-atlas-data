@@ -241,6 +241,68 @@ def test_workbook_parser_validates_rows_beyond_serialized_sample() -> None:
         tick._parse_workbook(workbook_bytes(rows=rows), profile(), 25)
 
 
+def test_restricted_tick_rows_preserve_source_statuses_and_row_hashes() -> None:
+    evidence, rows = tick.restricted_tick_rows(workbook_bytes(), profile())
+
+    assert evidence.row_count == 30
+    assert len(rows) == 30
+    assert rows[0].fips == "01001"
+    assert rows[0].scapularis_status == "Established"
+    assert rows[0].pacificus_status == "Reported"
+    assert len(rows[0].source_row_hash) == 64
+    assert rows[0].raw["FIPSCode"] == "01001"
+
+
+def test_restricted_tick_derivation_requires_protected_prod_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle_dir = write_operator_evidence_bundle(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        tick,
+        "PipelineSettings",
+        lambda: SimpleNamespace(topx_env="prod", enable_production_execution=False),
+    )
+    connection = MagicMock()
+    monkeypatch.setattr(tick, "connect", lambda _: connection)
+
+    with pytest.raises(ValueError, match="protected operator envelope"):
+        tick.ingest_restricted_tick(
+            evidence_bundle_dir=bundle_dir,
+            evidence_run_id="12345678-1234-4234-8234-123456789abc",
+        )
+
+    connection.assert_not_called()
+
+
+def test_restricted_tick_derivation_uses_owner_rights_procedure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle_dir = write_operator_evidence_bundle(tmp_path, monkeypatch)
+    monkeypatch.setenv("RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE", "true")
+    monkeypatch.setattr(
+        tick,
+        "PipelineSettings",
+        lambda: SimpleNamespace(topx_env="prod", enable_production_execution=True),
+    )
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ({"semantic_release_state": "PENDING_FINAL_COPY"},)
+    monkeypatch.setattr(tick, "connect", lambda _: connection)
+
+    result = tick.ingest_restricted_tick(
+        evidence_bundle_dir=bundle_dir,
+        evidence_run_id="12345678-1234-4234-8234-123456789abc",
+    )
+
+    assert result["status"] == "STAGED"
+    statements = [call.args[0] for call in cursor.execute.call_args_list]
+    assert "RESTRICTED_FULL_PROD" in statements[0]
+    assert "CALL GOVERNANCE.SP_LOAD_RESTRICTED_TICK_PROD" in statements[1]
+    assert "RAW.RESTRICTED" not in "\n".join(statements)
+    connection.commit.assert_called_once()
+
+
 @pytest.mark.parametrize(
     ("headers", "rows", "message"),
     [

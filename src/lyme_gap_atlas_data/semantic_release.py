@@ -265,6 +265,10 @@ def publish_semantic_release(
                     raise SemanticReleaseBlocked(
                         "Candidate does not satisfy the frozen county and observation counts"
                     )
+                cursor.execute("SELECT CURRENT_DATABASE()")
+                database_row = cursor.fetchone()
+                if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    _verify_restricted_final_copy_attestations(cursor, release_id)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"
@@ -462,14 +466,16 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
     if run is None or str(run[0]) not in {"COMPLETED", "SUCCEEDED"}:
         raise SemanticReleaseBlocked(f"Source {source.source_key} lacks a completed ingestion run")
 
-    if source.source_key == "pathogen":
+    if source.source_key in {"tick", "pathogen"}:
         # The restricted derivation run references a private, prior evidence run.
         # Do not require that artifact to be copied into the derivative run.
         cursor.execute(
             """SELECT a.sha256 FROM GOVERNANCE.RAW_ARTIFACTS a
             WHERE a.artifact_id=%s AND a.sha256=%s
               AND EXISTS (
-                SELECT 1 FROM CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS
+                SELECT 1 FROM CONFORMED.RESTRICTED_CDC_"""
+            + ("TICK" if source.source_key == "tick" else "PATHOGEN")
+            + """_COUNTY_STATUS
                 WHERE ingestion_run_id=%s AND evidence_run_id=a.ingestion_run_id
               )""",
             (source.artifact_id, source.artifact_sha256, source.ingestion_run_id),
@@ -520,7 +526,7 @@ def _verify_source_gate(cursor: Any, source: SemanticSource) -> SourceGate:
             f"Source {source.source_key} lacks staged publication evidence"
         )
 
-    if source.source_key == "pathogen":
+    if source.source_key in {"tick", "pathogen"}:
         cursor.execute(
             """SELECT MAX(created_at) FROM GOVERNANCE.INGESTION_REQUESTS
             WHERE ingestion_run_id=%s
@@ -610,16 +616,28 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "ingestion_run_id",
             "retrieved_at",
         )
-    elif source.source_key == "pathogen":
+    elif source.source_key in {"tick", "pathogen"}:
+        status_object_fields = (
+            "'Ixodes_scapularis_County_Status', scapularis_status, "
+            "'Ixodes_pacificus_county_status', pacificus_status"
+            if source.source_key == "tick"
+            else "'burgdorferi_status', burgdorferi_status"
+        )
+        table_name = (
+            "CONFORMED.RESTRICTED_CDC_TICK_COUNTY_STATUS"
+            if source.source_key == "tick"
+            else "CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS"
+        )
         cursor.execute(
             """SELECT conformed_record_id, resource_key, resource_key, resource_key,
                     source_definition_version, ingestion_run_id, source_record_id,
                     source_row_hash,
-                    OBJECT_CONSTRUCT('FIPSCode', county_fips,
-                                     'burgdorferi_status', burgdorferi_status,
-                                     'coverage_state', coverage_state),
-                    retrieved_at
-            FROM CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS
+                    OBJECT_CONSTRUCT('FIPSCode', county_fips, """
+            + status_object_fields
+            + """, 'coverage_state', coverage_state), retrieved_at
+            FROM """
+            + table_name
+            + """
             WHERE resource_key=%s AND ingestion_run_id=%s AND source_definition_version=%s""",
             (source.resource_key, source.ingestion_run_id, source.definition_version),
         )
@@ -657,6 +675,39 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "retrieved_at",
         )
     return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+
+def _verify_restricted_final_copy_attestations(cursor: Any, release_id: str) -> None:
+    """Require owner-recorded CDC final-copy delivery before PROD publication."""
+    cursor.execute(
+        """SELECT COUNT(DISTINCT resource_key)
+        FROM PRESENTATION.SEMANTIC_DATA_SOURCES
+        WHERE release_id=%s
+          AND resource_key IN ('cdc_tick_ixodes_county_status',
+                               'cdc_tick_ixodes_pathogen_status')""",
+        (release_id,),
+    )
+    required = cursor.fetchone()
+    if required is None or int(required[0]) == 0:
+        return
+    cursor.execute(
+        """SELECT COUNT(DISTINCT a.resource_key)
+        FROM GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS a
+        JOIN PRESENTATION.SEMANTIC_DATA_SOURCES s
+          ON s.release_id=a.semantic_release_id
+         AND s.resource_key=a.resource_key
+         AND s.source_version_id=a.data_source_version_id
+        WHERE a.semantic_release_id=%s
+          AND a.resource_key IN ('cdc_tick_ixodes_county_status',
+                                 'cdc_tick_ixodes_pathogen_status')""",
+        (release_id,),
+    )
+    attested = cursor.fetchone()
+    if attested is None or int(attested[0]) != int(required[0]):
+        raise SemanticReleaseBlocked(
+            "PROD publication requires a final-copy delivery attestation for every "
+            "restricted CDC source"
+        )
 
 
 def _assemble_counties(

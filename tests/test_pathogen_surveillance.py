@@ -142,7 +142,8 @@ def test_pathogen_capture_contract_is_private_and_profile_bound() -> None:
     assert "--source-kind" in publisher
     assert "--operation" in publisher
     assert '"-f",\n                f"operation={args.operation}"' in publisher
-    assert 'args.operation == "derive" and args.source_kind != "pathogen"' in publisher
+    assert 'args.operation == "derive" and args.source_kind != "pathogen"' not in publisher
+    assert "private restricted derivation" in publisher
     assert "GitHub artifact" not in workflow
 
 
@@ -355,6 +356,8 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
         encoding="utf-8"
     )
     migration = {item.version: item for item in load_migrations()}["V087"]
+    tick_migration = {item.version: item for item in load_migrations()}["V088"]
+    release_gate_migration = {item.version: item for item in load_migrations()}["V089"]
     assert "environment: production" in workflow
     assert "PROD_APP_ID: ${{ vars.PROD_APP_ID }}" in workflow
     assert "RESTRICTED_CDC_PROD_OPERATOR_ENVELOPE" in workflow
@@ -362,7 +365,15 @@ def test_production_restricted_operator_path_is_protected_and_restores_topology(
     assert "approved-source-ingestion" in workflow
     assert "GitHub artifact" not in workflow
     assert "SP_LOAD_RESTRICTED_PATHOGEN_PROD" in migration.source
+    assert "SP_LOAD_RESTRICTED_TICK_PROD" in tick_migration.source
+    assert "RESTRICTED_CDC_TICK_COUNTY_STATUS" in tick_migration.source
+    assert "SP_RECORD_RESTRICTED_FINAL_COPY_PROD" in release_gate_migration.source
+    assert "RESTRICTED_PATHOGEN_PARITY_CLASSIFICATIONS" in release_gate_migration.source
     assert "GRANT SELECT ON TABLE RAW.RESTRICTED" not in migration.source
     assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in migration.source
     assert "V087" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "V088" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "V089" in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    assert "cdc-tick-restricted-prod-ingest" in workflow
+    assert '"$OPERATION" != derive || "$SOURCE_KIND" = pathogen' not in workflow
     assert migration_execution_role(migration, PROD_DATABASE) is None

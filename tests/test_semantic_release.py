@@ -142,7 +142,9 @@ def test_tick_and_pathogen_are_distinct_contract_slots() -> None:
 
     module = Path("src/lyme_gap_atlas_data/semantic_release.py").read_text(encoding="utf-8")
     assert "RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS" in module
+    assert "RESTRICTED_CDC_TICK_COUNTY_STATUS" in module
     assert "PRIVATE_OPERATOR_VERIFIED_WORKBOOK" in module
+    assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in module
 
     document = json.loads(TEMPLATE.read_text(encoding="utf-8"))
     for source_index, source in enumerate(document["sources"]):
@@ -159,6 +161,29 @@ def test_tick_and_pathogen_are_distinct_contract_slots() -> None:
             load_manifest(temporary)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def test_prod_final_copy_gate_requires_every_restricted_source_attestation() -> None:
+    class Cursor:
+        def __init__(self, responses: list[tuple[int, ...]]) -> None:
+            self.responses = iter(responses)
+            self.statements: list[str] = []
+
+        def execute(self, statement: str, _parameters: tuple[str, ...]) -> None:
+            self.statements.append(statement)
+
+        def fetchone(self) -> tuple[int, ...]:
+            return next(self.responses)
+
+    blocked_cursor = Cursor([(2,), (1,)])
+    with pytest.raises(SemanticReleaseBlocked, match="final-copy"):
+        semantic_release._verify_restricted_final_copy_attestations(
+            blocked_cursor, "candidate-release"
+        )
+
+    allowed_cursor = Cursor([(2,), (2,)])
+    semantic_release._verify_restricted_final_copy_attestations(allowed_cursor, "candidate-release")
+    assert "RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS" in allowed_cursor.statements[1]
 
 
 def test_assembly_preserves_lineage_and_source_native_missingness(

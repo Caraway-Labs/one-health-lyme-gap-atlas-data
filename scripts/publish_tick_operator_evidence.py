@@ -133,7 +133,7 @@ def main() -> None:
         "--operation",
         choices=("evidence", "derive"),
         default="evidence",
-        help="Bounded evidence review, or the separately approved private pathogen derivation.",
+        help="Bounded evidence review, or a separately approved private restricted derivation.",
     )
     parser.add_argument("--publish-and-dispatch", action="store_true")
     parser.add_argument(
@@ -143,8 +143,6 @@ def main() -> None:
     args = parser.parse_args()
     if IMAGE_DIGEST_PATTERN.fullmatch(args.base_image_digest) is None:
         raise ValueError("base image digest must be an immutable sha256 digest")
-    if args.operation == "derive" and args.source_kind != "pathogen":
-        raise ValueError("derive operation is permitted only for the pathogen source")
     if args.environment == "prod" and args.operation == "derive" and not args.evidence_run_id:
         raise ValueError("production derivation requires --evidence-run-id after steward approval")
     retrieval_id = str(uuid.uuid4())

@@ -70,7 +70,7 @@ from .semantic_release import (
 )
 from .settings import PipelineSettings
 from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
-from .tick_surveillance import collect_tick_surveillance_evidence
+from .tick_surveillance import collect_tick_surveillance_evidence, ingest_restricted_tick
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
 
@@ -586,6 +586,23 @@ def cdc_pathogen_restricted_prod_ingest(
     typer.echo(
         json.dumps(
             ingest_restricted_pathogen(
+                evidence_bundle_dir=Path(evidence_bundle_dir), evidence_run_id=evidence_run_id
+            ),
+            default=str,
+            sort_keys=True,
+        )
+    )
+
+
+@pipeline_app.command("cdc-tick-restricted-prod-ingest")
+def cdc_tick_restricted_prod_ingest(
+    evidence_run_id: str = typer.Option(..., "--evidence-run-id"),
+    evidence_bundle_dir: str = typer.Option(..., "--evidence-bundle-dir"),
+) -> None:
+    """Derive restricted tick status in the protected production envelope."""
+    typer.echo(
+        json.dumps(
+            ingest_restricted_tick(
                 evidence_bundle_dir=Path(evidence_bundle_dir), evidence_run_id=evidence_run_id
             ),
             default=str,

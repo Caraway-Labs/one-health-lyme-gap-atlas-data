@@ -50,7 +50,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V084",
     "V085",
 }
-PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052", "V086", "V087"}
+PROD_ONLY_MIGRATION_VERSIONS = {"V049", "V050", "V051", "V052", "V086", "V087", "V088", "V089"}
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
