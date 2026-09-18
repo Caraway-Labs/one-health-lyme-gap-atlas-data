@@ -62,6 +62,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V093",
     "V094",
     "V095",
+    "V096",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner

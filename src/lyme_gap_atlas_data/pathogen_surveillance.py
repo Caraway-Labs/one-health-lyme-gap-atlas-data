@@ -370,6 +370,11 @@ def ingest_restricted_pathogen(
                 result = cursor.fetchone()
                 if pipeline_settings.topx_env == "prod":
                     cursor.execute(
+                        "CALL GOVERNANCE.SP_RECORD_RESTRICTED_PATHOGEN_RETRIEVAL_PROD(%s)",
+                        (run_id,),
+                    )
+                    cursor.fetchone()
+                    cursor.execute(
                         "CALL GOVERNANCE.SP_RECORD_RESTRICTED_PATHOGEN_QUALITY_PROD(%s)",
                         (run_id,),
                     )
