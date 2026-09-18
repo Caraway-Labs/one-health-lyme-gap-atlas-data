@@ -199,7 +199,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
         return "OH_LYME_PROD_STREAMLIT_OWNER"
-    if migration.version in {"V086", "V087"}:
+    if migration.version == "V086":
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
