@@ -32,7 +32,10 @@ The API reads only these governed views:
    source/run-pinned `UNKNOWN_SOURCE_COVERAGE` classification created by the
    owner-only procedure in V081. It contributes no source rows and renders both
    tick statuses as `Unknown`; it cannot represent no records, absence, or a
-   successful routine ingestion.
+   successful routine ingestion. A production restricted tick derivation uses
+   its source-native rows; if it omits canonical counties, a separate
+   owner-recorded, source/run-pinned production parity classification is
+   required and renders only those counties as `Unknown`.
 3. The builder requires 3,144 unique five-digit county identities and a valid
    EPSG:4326 GeoJSON `Polygon` or `MultiPolygon` geometry for every county. It
    preserves the publisher geometry without Atlas-side transformation and fails
