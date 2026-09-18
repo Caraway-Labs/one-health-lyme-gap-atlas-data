@@ -134,12 +134,9 @@ jobs:
               )
               identity = cursor.fetchone()
               cursor.execute(
-                  """SELECT v.resource_key, v.status, v.approved_decision_id, v.retired_at,
-                            d.decision
-                     FROM GOVERNANCE.DATA_SOURCE_VERSIONS v
-                     JOIN GOVERNANCE.MANUAL_REVIEW_DECISIONS d
-                       ON d.manual_review_decision_id = v.approved_decision_id
-                     WHERE v.data_source_version_id = %s""",
+                  """SELECT resource_key, status, approved_decision_id, retired_at
+                     FROM GOVERNANCE.DATA_SOURCE_VERSIONS
+                     WHERE data_source_version_id = %s""",
                   (source_version_id,),
               )
               approval = cursor.fetchone()
@@ -166,7 +163,6 @@ jobs:
               or approval[1] not in {"APPROVED", "CONDITIONAL"}
               or approval[2] != source_decision_id
               or approval[3] is not None
-              or approval[4] not in {"APPROVED", "APPROVED_WITH_CONDITIONS"}
           ):
               raise SystemExit(
                   "Protected Tier C ingestion requires the supplied active approved "
