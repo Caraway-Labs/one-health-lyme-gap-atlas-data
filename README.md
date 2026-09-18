@@ -101,20 +101,19 @@ bounded acquisition. It persists eleven blocking checks, restores the prior
 six-job topology, and has a separate retained-snapshot rollback workflow. It
 does not add an unattended historical refresh schedule.
 
-The next DEV-only evidence candidate is the CDC county-status workbook for
-*Ixodes scapularis* and *Ixodes pacificus*. Run
-`pipeline cdc-tick-surveillance-sample` only through the protected DEV evidence
-workflow. Under ADR 0023, a repository-owned local CLI validates the operator's
-browser print and county-status workbook, then transports them in a checksum-bound,
-short-lived private OCI envelope; raw bytes never enter GitHub and GitHub receives
-no Snowflake or Spaces credentials. The DEV runtime independently verifies and
-retains the operator landing-page print, acquisition manifest, byte-bounded
-publisher workbook, embedded terms, and a 25-row deterministic review sample as
-private artifacts. It creates a
-`PENDING_REVIEW` candidate but writes no RAW rows, runs no dbt models, records
-no steward decision, and has no PROD or scheduled path.
-The separately supplied pathogen-status workbook is not part of this candidate;
-it requires its own canonical mapping and governed decision.
+The CDC county-status workbook for *Ixodes scapularis* and *Ixodes pacificus*
+and the separately supplied pathogen-status workbook are requestor-restricted
+sources. Under ADR 0023 and ADR 0033, the repository-owned local CLI validates
+the operator's browser print and workbook, then transports them in a
+checksum-bound, short-lived private OCI envelope; raw bytes never enter GitHub
+and GitHub receives no Snowflake or Spaces credentials. DEV capture creates a
+`PENDING_REVIEW` candidate only. The separate, protected production
+operator-envelope workflow may capture a production candidate; pathogen
+derivation additionally requires the previously approved evidence run. Neither
+source has a schedule or a generic Tier B/C path. Before any public semantic
+publication, the owner must record the required CDC final-copy delivery
+attestation. The tick and pathogen workbooks remain distinct source and
+steward-review items.
 The canonical mapping contract is
 [`canonical-tick-surveillance-v1.md`](docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.md).
 
