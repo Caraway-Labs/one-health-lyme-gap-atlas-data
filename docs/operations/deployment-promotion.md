@@ -242,29 +242,19 @@ topology afterward. It must never be used to re-ingest the source. See ADR
 
 ## Current production-runtime status
 
-The protected promotion workflow is present, but the production runtime is
-**not ready for governed ingestion or semantic publication**. Its latest
-protected run failed closed because the production environment does not provide
-the required runtime Snowflake identity and private Spaces settings. Do not
-work around this by copying DEV settings, using a browser-authenticated
-connection, or placing a secret in the repository. The account owner must
-provision the production-only values through the protected environment/App
-Platform configuration, then rerun the least-privilege preflight.
+Historical warnings in this section about an unconfigured production runtime
+are superseded by the first governed semantic publication. The protected
+workflow [run 35362701191](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/35362701191)
+published `governed-2026-09-18-unknown-coverage` on 2026-09-18 with 3,144
+counties, 44,016 observations, zero missing observation lineage, and bundle
+`038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026`.
 
-The required non-secret configuration categories are:
-
-1. runtime Snowflake user, role, encrypted private-key material, and key
-   passphrase; and
-2. private Spaces region, endpoint, bucket, prefix, access-key ID, and secret
-   access key.
-
-The exact missing-variable evidence and owner action are recorded in Epic #252
-story [#274](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/274).
-After this configuration is present, the production workflow fetches the
-existing App Platform specification
-   without emitting it, confirms the intended scheduled jobs, and updates only
-   their immutable image digest. This preserves provider-encrypted secrets and
-   all other production job settings.
+That publication does not make every source an unattended job. Operators must
+continue to use protected environment approvals, least-privilege identities,
+and provider-managed encrypted configuration. Do not copy DEV credentials,
+print an App Platform specification, or place credentials in the repository.
+Before any future production operation, perform the documented runtime
+preflight and confirm the intended image digest without exposing secret values.
 
 The approved live PROD operational topology contains exactly six scheduled
 jobs: `catalog-discovery`, `approved-source-ingestion`,
@@ -276,22 +266,12 @@ in the provisioning template are not part of the current live PROD topology;
 an image promotion must not create them implicitly. Adding those jobs requires
 a separately reviewed topology change and live provisioning evidence.
 
-Still required before a full-production ingestion can run:
-
-1. Run the protected `Capture PROD CDC evidence for steward review` workflow
-   from `main`. It uses the existing production runtime's encrypted settings to
-   create only the bounded `x5j9-wybp` evidence candidate, verifies the
-   one-shot job invocation, and restores the exact prior app specification.
-   It cannot approve, full-ingest, run dbt, or promote an image. See ADR 0015.
-2. Review and record the immutable PROD steward decision in the PROD
-   `SOURCE_APPROVAL_CONSOLE`.
-3. Run the protected `Run approved governed ingestion in PROD` workflow from
-   `main`. It verifies that the active PROD digest appears in DEV deployment
-   history, requires a recorded metadata-check ID, runs the explicitly authorized
-   full refresh once as a temporary
-   pre-deploy job, and restores the exact prior app specification. See ADR
-   0016.
-4. Exercise a DEV rollback by redeploying a previously approved digest.
+For each future full-production ingestion, use the source-specific protected
+workflow and its recorded approval rather than treating this release as a
+generic permission to refresh every source. Tier D restricted tick and pathogen
+sources remain manual-only, checksum-bound operator-envelope paths; they have
+no unattended schedule. A future release must retain the same manifest,
+quality, approval, and rollback evidence described above.
 
 The checked-in `.do/app.prod.yaml` is the production job specification. It
 runs metadata-only CDC checks monthly. An operator-authorized full refresh invokes

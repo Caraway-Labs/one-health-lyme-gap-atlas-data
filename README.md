@@ -6,7 +6,10 @@ The repository contains two deliberately separate capabilities:
   release; it continues to support the existing API and is not migrated.
 - **Governed pipeline:** catalog discovery, source approval, immutable
   artifacts, provenance, source-faithful RAW loading, and dbt through
-  `CONFORMED` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV`.
+  `CONFORMED` in isolated DEV and PROD environments. Its product-facing
+  semantic boundary is the published production release
+  `governed-2026-09-18-unknown-coverage`; the Alpha POC remains an immutable
+  reference and is never an automatic fallback.
 
 The governed pipeline contract is in `docs/contracts/catalog-to-snowflake/`.
 See workspace ADR 0005 and data ADR 0027 (tiered operating model) before
@@ -15,6 +18,23 @@ and `atlas-data runs` — see
 [simplified ingestion migration](docs/operations/simplified-ingestion-migration.md).
 Deployment and DEV-to-PROD promotion are governed by workspace ADR 0006 and
 the [deployment runbook](docs/operations/deployment-promotion.md).
+
+## Current governed release and operations
+
+The first governed production release was published on 2026-09-18:
+`governed-2026-09-18-unknown-coverage`, bundle
+`038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026`.
+It contains 3,144 canonical counties and 44,016 observations with zero missing
+observation lineage. The Python API reads only the PROD `PRESENTATION`
+current-release, source-metadata, and county-atlas views. It does not read the
+Alpha database, RAW, STAGING, or CONFORMED relations.
+
+Operations are source-specific. The daily CDC monitor is enabled for its
+approved metadata-only scope; protected, manual, and restricted sources do not
+become scheduled solely because a semantic release exists. Follow the
+[semantic-release runbook](docs/operations/semantic-release.md) for runtime
+proof and the first-cutover recovery boundary before any release, rollback, or
+source refresh.
 
 The knowledge-graph pipeline uses the protected `graph_runtime` Neo4j
 Community identity described in the knowledge-graph repository's ADR 0008.

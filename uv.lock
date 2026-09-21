@@ -994,6 +994,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pyyaml" },
     { name = "typer" },
+    { name = "tzdata" },
 ]
 
 [package.optional-dependencies]
@@ -1020,6 +1021,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9,<1" },
     { name = "typer", specifier = ">=0.15,<1" },
+    { name = "tzdata", specifier = ">=2025.2,<2027" },
 ]
 provides-extras = ["dev", "pipeline"]
 
