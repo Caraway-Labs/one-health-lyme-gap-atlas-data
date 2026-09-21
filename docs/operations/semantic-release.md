@@ -93,3 +93,36 @@ protected image promotion. Do not alter or delete the V071/V072 ledger rows.
 After a rollback, the `CURRENT_RELEASE_V` row must match the retained target,
 and the most recent event must be `ROLLBACK` with a human-readable reason.
 The prior release remains retained in `SEMANTIC_RELEASES`; it is not deleted.
+
+### First governed-release cutover
+
+The first governed release, `governed-2026-09-18-unknown-coverage`, was
+published without an earlier governed release. Its initial publication event
+therefore has `previous_release_id = NULL`. Do **not** invoke semantic-release
+rollback merely to test this condition: a rollback target must be a distinct,
+retained `PUBLISHED` release, and this first release has none.
+
+The first-cutover recovery boundary is deliberately split:
+
+1. **Serving recovery:** restore the previously verified API deployment only
+   when the current API deployment is unhealthy. Confirm that the restored
+   deployment still uses `OH_LYME_PROD_READ` and
+   `ONE_HEALTH_LYME_GAP_ATLAS_PROD`, then run `/health/ready`, metadata, and a
+   representative county request. This changes application code only; it does
+   not change the governed release pointer.
+2. **Data recovery:** use the protected semantic-release `rollback` operation
+   only after a later, retained governed release exists and a human has
+   reviewed its manifest, bundle, and reason. Verify the pointer and append-only
+   event record afterwards.
+3. **Alpha boundary:** `ONE_HEALTH_LYME_GAP_ATLAS` is an immutable reference,
+   not an automatic rollback target. Returning public traffic to Alpha would
+   be a separate product and production decision with its own approval,
+   deployment evidence, public communication, and restoration plan.
+
+For a rehearsal, record the API deployment identifiers, verify the platform's
+previous-deployment relationship and automatic-fallback state, and execute
+serving recovery only in an approved non-production environment unless a
+production recovery is required by an active incident. Re-deploy the approved
+governed artifact after the rehearsal and attach health, metadata, and runtime
+query evidence. Never rewrite release events, delete retained artifacts, or
+alter the Alpha POC while rehearsing recovery.
