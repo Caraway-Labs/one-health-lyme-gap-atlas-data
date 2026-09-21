@@ -1,0 +1,35 @@
+version: 1
+role_aliases:
+  migration_deployer: OH_LYME_{ENV}_MIGRATION_DEPLOYER
+  runtime: OH_LYME_{ENV}_RUNTIME
+  read: OH_LYME_{ENV}_READ
+  owner: OH_LYME_{ENV}_OWNER
+operations:
+  forward_migration:
+    execution_mode: protected_workflow
+    executor: migration_deployer
+    required_migrations: [V071]
+    object_capabilities: [GOVERNANCE.SCHEMA_MIGRATIONS:SELECT]
+    authority: migration_deployer
+    approval: protected_deploy
+  governed_source_run:
+    execution_mode: runtime
+    executor: runtime
+    required_migrations: [V069]
+    object_capabilities: [GOVERNANCE.INGESTION_RUNS:INSERT]
+    authority: owner
+    approval: tier_policy
+  semantic_release:
+    execution_mode: protected_workflow
+    executor: owner
+    required_migrations: [V071, V072, V073]
+    object_capabilities: [PRESENTATION.GOVERNED_RELEASES:INSERT]
+    authority: migration_deployer
+    approval: protected_publication
+  api_read:
+    execution_mode: service_runtime
+    executor: read
+    required_migrations: [V072]
+    object_capabilities: [PRESENTATION.V_COUNTY_ATLAS_CURRENT:SELECT]
+    authority: migration_deployer
+    approval: published_release

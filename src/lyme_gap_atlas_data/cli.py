@@ -47,6 +47,12 @@ from .migrations import (
     reconcile_legacy_dev_migrations,
     reconcile_legacy_prod_migrations,
 )
+from .operation_capabilities import (
+    assess_operation,
+    inspect_live_facts,
+    load_contract,
+    operation_plan,
+)
 from .orchestration import (
     run_cdc_dbt_recovery,
     run_discovery,
@@ -340,9 +346,34 @@ def alpha_parity_report_command(
 
 
 @pipeline_app.command("preflight")
-def preflight() -> None:
-    """Verify DEV configuration and bounded external connectivity safely."""
-    typer.echo(json.dumps(run_preflight()))
+def preflight(
+    operation: str | None = typer.Option(None, "--operation"),
+    environment: str = typer.Option("dev", "--environment"),
+    inspect_live: bool = typer.Option(
+        False,
+        "--inspect-live",
+        help="Explicitly collect only current identity and migration-ledger facts.",
+    ),
+    snowflake_connection: str | None = typer.Option(
+        None,
+        "--snowflake-connection",
+        help="Named snow CLI connection for explicitly authorized read-only inspection.",
+    ),
+) -> None:
+    """Run legacy connectivity checks or a non-mutating governed-operation readiness check."""
+    if operation is None:
+        typer.echo(json.dumps(run_preflight()))
+        return
+    contract = load_contract()
+    plan = operation_plan(contract, operation=operation, environment=environment)
+    observed = inspect_live_facts(snowflake_connection, plan=plan) if inspect_live else None
+    typer.echo(
+        json.dumps(
+            assess_operation(
+                contract, operation=operation, environment=environment, observed=observed
+            )
+        )
+    )
 
 
 @pipeline_app.command("discover")

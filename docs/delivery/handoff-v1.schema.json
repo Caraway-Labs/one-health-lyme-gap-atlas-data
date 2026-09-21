@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas evidence handoff v1",
+  "type": "object",
+  "required": ["outcome", "starting_commit", "date", "scope", "non_goals", "workload", "verification"],
+  "properties": {
+    "outcome": {"type": "string", "minLength": 1},
+    "starting_commit": {"type": "string", "minLength": 7},
+    "date": {"type": "string", "format": "date"},
+    "scope": {"type": "string", "minLength": 1},
+    "non_goals": {"type": "string", "minLength": 1},
+    "workload": {
+      "type": "object",
+      "required": ["requested_sha", "workflow_head_sha", "tested_artifact", "deployed_artifact", "semantic_bundle", "api_contract"],
+      "properties": {
+        "requested_sha": {"$ref": "#/$defs/evidence"},
+        "workflow_head_sha": {"$ref": "#/$defs/evidence"},
+        "tested_artifact": {"$ref": "#/$defs/evidence"},
+        "deployed_artifact": {"$ref": "#/$defs/evidence"},
+        "semantic_bundle": {"$ref": "#/$defs/evidence"},
+        "api_contract": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["local_tests", "ci", "deployment", "live_functional"],
+      "additionalProperties": false,
+      "properties": {
+        "local_tests": {"$ref": "#/$defs/evidence"},
+        "ci": {"$ref": "#/$defs/evidence"},
+        "deployment": {"$ref": "#/$defs/evidence"},
+        "live_functional": {"$ref": "#/$defs/evidence"}
+      }
+    }
+  },
+  "$defs": {"evidence": {"type": "object", "required": ["state", "reference"], "properties": {"state": {"enum": ["PASS", "FAIL", "UNKNOWN"]}, "reference": {"type": "string", "minLength": 1}}}}
+}

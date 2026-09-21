@@ -2,8 +2,8 @@
 
 The repository contains two deliberately separate capabilities:
 
-- **Alpha POC loader:** idempotent provisioning/loading for the current exact
-  release; it continues to support the existing API and is not migrated.
+- **Alpha POC loader:** idempotent provisioning/loading for an immutable
+  historical reference; it is not migrated and is never an API fallback.
 - **Governed pipeline:** catalog discovery, source approval, immutable
   artifacts, provenance, source-faithful RAW loading, and dbt through
   `CONFORMED` in isolated DEV and PROD environments. Its product-facing
