@@ -1,0 +1,21 @@
+{
+  "outcome": "Validate a Tier B DEV source-run plan without starting ingestion.",
+  "starting_commit": "b61442c",
+  "date": "2026-09-21",
+  "scope": "Offline contract and preflight validation only.",
+  "non_goals": "No source acquisition, approval, deployment, or grant change.",
+  "workload": {
+    "requested_sha": {"state": "PASS", "reference": "b61442c"},
+    "workflow_head_sha": {"state": "UNKNOWN", "reference": "offline example; no workflow dispatched"},
+    "tested_artifact": {"state": "UNKNOWN", "reference": "not built for this offline example"},
+    "deployed_artifact": {"state": "UNKNOWN", "reference": "not deployed"},
+    "semantic_bundle": {"state": "UNKNOWN", "reference": "not applicable to source-run planning"},
+    "api_contract": {"state": "UNKNOWN", "reference": "no API contract change"}
+  },
+  "verification": {
+    "local_tests": {"state": "PASS", "reference": "tests/test_operation_capabilities.py"},
+    "ci": {"state": "UNKNOWN", "reference": "not dispatched"},
+    "deployment": {"state": "UNKNOWN", "reference": "not applicable to offline contract work"},
+    "live_functional": {"state": "UNKNOWN", "reference": "requires separately authorized DEV inspection"}
+  }
+}

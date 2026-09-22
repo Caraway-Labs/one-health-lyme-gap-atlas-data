@@ -1,0 +1,21 @@
+{
+  "outcome": "Assess a semantic-release publication plan without publishing a release.",
+  "starting_commit": "b61442c",
+  "date": "2026-09-21",
+  "scope": "Contract and readiness evidence for docs/contracts/semantic-release/.",
+  "non_goals": "No protected publication, release-pointer change, deployment, or API cutover.",
+  "workload": {
+    "requested_sha": {"state": "PASS", "reference": "b61442c"},
+    "workflow_head_sha": {"state": "UNKNOWN", "reference": "no protected publication workflow dispatched"},
+    "tested_artifact": {"state": "UNKNOWN", "reference": "not built for this planning example"},
+    "deployed_artifact": {"state": "UNKNOWN", "reference": "not deployed"},
+    "semantic_bundle": {"state": "UNKNOWN", "reference": "docs/contracts/semantic-release/governed-2026-09-15-manifest.template.json"},
+    "api_contract": {"state": "UNKNOWN", "reference": "API contract is owned by one-health-lyme-gap-atlas-api"}
+  },
+  "verification": {
+    "local_tests": {"state": "PASS", "reference": "tests/test_semantic_release.py"},
+    "ci": {"state": "UNKNOWN", "reference": "no release workflow dispatched"},
+    "deployment": {"state": "UNKNOWN", "reference": "protected deployment not authorized"},
+    "live_functional": {"state": "UNKNOWN", "reference": "release publication not authorized"}
+  }
+}
