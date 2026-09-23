@@ -207,6 +207,26 @@
       "then": {"required": ["pathogen_name", "ticks_tested", "ticks_positive", "reported_or_derived"]}
     },
     {
+      "if": {"properties": {"observation_type": {"enum": ["VECTOR_PRESENCE_STATUS", "PATHOGEN_PRESENCE_STATUS"]}}},
+      "then": {
+        "not": {
+          "anyOf": [
+            {"required": ["collection_effort_value"]},
+            {"required": ["collection_effort_unit"]},
+            {"required": ["area_sampled_hectares"]},
+            {"required": ["distance_sampled_meters"]},
+            {"required": ["duration_sampled_minutes"]},
+            {"required": ["ticks_collected"]},
+            {"required": ["abundance_value"]},
+            {"required": ["abundance_unit"]},
+            {"required": ["ticks_tested"]},
+            {"required": ["ticks_positive"]},
+            {"required": ["prevalence"]}
+          ]
+        }
+      }
+    },
+    {
       "if": {"properties": {"native_sampling_grain": {"const": "SITE_EVENT"}}, "required": ["native_sampling_grain"]},
       "then": {"required": ["sampling_site", "sampling_event", "source_geography", "county_relationship"]}
     },

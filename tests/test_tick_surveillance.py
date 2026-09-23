@@ -21,7 +21,10 @@ from lyme_gap_atlas_data.migrations import (
     migration_plan,
     render_migration,
 )
-from lyme_gap_atlas_data.tick_contract import canonical_observation_id
+from lyme_gap_atlas_data.tick_contract import (
+    canonical_observation_id,
+    validate_canonical_observation,
+)
 from lyme_gap_atlas_data.tick_normalization import convert_value, normalize_value
 
 
@@ -211,6 +214,120 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert "NO_RECORDS" in contract
     assert "not evidence that ticks or pathogens are absent" in contract
     assert "NOT_COUNTY_REPRESENTATIVE" in contract
+
+
+def test_no_records_is_a_presence_status_not_effort_missingness() -> None:
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    status = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[0]["record"]
+    status["presence_status"] = "NO_RECORDS"
+    validator = Draft202012Validator(schema)
+
+    assert list(validator.iter_errors(status)) == []
+    status["missingness"] = {"collection_effort_value": "NO_RECORDS"}
+    assert list(validator.iter_errors(status))
+
+
+@pytest.mark.parametrize(
+    ("observation_type", "forbidden_field", "value"),
+    [
+        ("VECTOR_PRESENCE_STATUS", "collection_effort_value", 1.0),
+        ("VECTOR_PRESENCE_STATUS", "collection_effort_unit", "square metre"),
+        ("VECTOR_PRESENCE_STATUS", "area_sampled_hectares", 1.0),
+        ("VECTOR_PRESENCE_STATUS", "distance_sampled_meters", 100.0),
+        ("VECTOR_PRESENCE_STATUS", "duration_sampled_minutes", 60.0),
+        ("VECTOR_PRESENCE_STATUS", "ticks_collected", 1),
+        ("VECTOR_PRESENCE_STATUS", "abundance_value", 1.0),
+        ("VECTOR_PRESENCE_STATUS", "abundance_unit", "ticks per hectare"),
+        ("VECTOR_PRESENCE_STATUS", "ticks_tested", 1),
+        ("VECTOR_PRESENCE_STATUS", "ticks_positive", 1),
+        ("VECTOR_PRESENCE_STATUS", "prevalence", 0.5),
+        ("PATHOGEN_PRESENCE_STATUS", "collection_effort_value", 1.0),
+        ("PATHOGEN_PRESENCE_STATUS", "collection_effort_unit", "square metre"),
+        ("PATHOGEN_PRESENCE_STATUS", "area_sampled_hectares", 1.0),
+        ("PATHOGEN_PRESENCE_STATUS", "distance_sampled_meters", 100.0),
+        ("PATHOGEN_PRESENCE_STATUS", "duration_sampled_minutes", 60.0),
+        ("PATHOGEN_PRESENCE_STATUS", "ticks_collected", 1),
+        ("PATHOGEN_PRESENCE_STATUS", "abundance_value", 1.0),
+        ("PATHOGEN_PRESENCE_STATUS", "abundance_unit", "ticks per hectare"),
+        ("PATHOGEN_PRESENCE_STATUS", "ticks_tested", 1),
+        ("PATHOGEN_PRESENCE_STATUS", "ticks_positive", 1),
+        ("PATHOGEN_PRESENCE_STATUS", "prevalence", 0.5),
+    ],
+)
+def test_status_observations_reject_fabricated_quantitative_fields(
+    observation_type: str, forbidden_field: str, value: float | int | str
+) -> None:
+    """Independent contract cases: status is not collection or testing evidence."""
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    status = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[0]["record"]
+    status["observation_type"] = observation_type
+    if observation_type == "PATHOGEN_PRESENCE_STATUS":
+        status["pathogen_name"] = "Borrelia burgdorferi sensu stricto"
+    status[forbidden_field] = value
+
+    assert list(Draft202012Validator(schema).iter_errors(status))
+
+
+def test_status_observations_reject_null_quantitative_field_presence() -> None:
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    status = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[0]["record"]
+    status["collection_effort_value"] = None
+
+    assert list(Draft202012Validator(schema).iter_errors(status))
+
+
+def test_quantitative_observation_types_retain_their_legitimate_fields() -> None:
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    collection = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[1]["record"]
+    collection.update(
+        {
+            "collection_effort_value": 1.0,
+            "collection_effort_unit": "square metre",
+            "abundance_value": 3.0,
+            "abundance_unit": "ticks per square metre",
+        }
+    )
+    testing = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[-1]["record"]
+
+    validator = Draft202012Validator(schema)
+    assert list(validator.iter_errors(collection)) == []
+    assert list(validator.iter_errors(testing)) == []
 
 
 def test_tick_surveillance_documentation_is_current_and_examples_validate() -> None:
@@ -635,6 +752,96 @@ def test_normalization_contract_envelope_retains_mapping_provenance() -> None:
     )
     assert list(Draft202012Validator(schema).iter_errors(record)) == []
     assert record["normalization"]["mappings"]["test_result"]["source_value"] == "positive"
+
+
+def test_pathogen_testing_rejects_positive_count_above_tested_denominator() -> None:
+    """Independent contract fixture: a pathogen numerator cannot exceed its stratum denominator."""
+    record = {
+        "canonical_observation_id": "fixture-invalid-pathogen-counts",
+        "observation_type": "PATHOGEN_TESTING",
+        "tick_species": "Ixodes scapularis",
+        "pathogen_name": "Borrelia burgdorferi sensu stricto",
+        "ticks_tested": 1,
+        "ticks_positive": 2,
+        "source_agency": "fixture-state-agency",
+        "source_dataset_id": "fixture-pathogen-testing",
+        "source_record_id": "fixture-row-invalid-counts",
+        "data_source_version_id": "fixture-version",
+        "ingestion_run_id": "fixture-run",
+        "artifact_id": "fixture-artifact",
+        "retrieved_at": "2026-09-23T00:00:00Z",
+        "method_version": "tick-surveillance-v1.2",
+        "reported_or_derived": "REPORTED",
+        "quality_flags": [],
+    }
+    with pytest.raises(ValueError, match="cannot exceed"):
+        validate_canonical_observation(record)
+
+
+@pytest.mark.parametrize(("ticks_tested", "ticks_positive"), [(1, 0), (1, 1)])
+def test_canonical_pathogen_testing_accepts_valid_numerator_denominator_pairs(
+    ticks_tested: int, ticks_positive: int
+) -> None:
+    validate_canonical_observation(
+        {
+            "observation_type": "PATHOGEN_TESTING",
+            "source_agency": "fixture-state-agency",
+            "source_dataset_id": "fixture-pathogen-testing",
+            "ticks_tested": ticks_tested,
+            "ticks_positive": ticks_positive,
+        }
+    )
+
+
+@pytest.mark.parametrize("ticks_tested", [0, None])
+def test_pathogen_testing_rejects_prevalence_without_a_positive_tested_denominator(
+    ticks_tested: int | None,
+) -> None:
+    """Independent contract cases: no denominator means no prevalence."""
+    with pytest.raises(ValueError, match="prevalence"):
+        validate_canonical_observation(
+            {
+                "observation_type": "PATHOGEN_TESTING",
+                "ticks_tested": ticks_tested,
+                "ticks_positive": 0,
+                "prevalence": 0.0,
+            }
+        )
+
+
+def test_pathogen_testing_rejects_prevalence_without_tested_field() -> None:
+    with pytest.raises(ValueError, match="prevalence"):
+        validate_canonical_observation(
+            {
+                "observation_type": "PATHOGEN_TESTING",
+                "ticks_positive": 0,
+                "prevalence": 0.0,
+            }
+        )
+
+
+@pytest.mark.parametrize("prevalence", [0.0, 0.25])
+def test_pathogen_testing_accepts_prevalence_with_positive_tested_denominator(
+    prevalence: float,
+) -> None:
+    validate_canonical_observation(
+        {
+            "observation_type": "PATHOGEN_TESTING",
+            "ticks_tested": 1,
+            "ticks_positive": 0,
+            "prevalence": prevalence,
+        }
+    )
+
+
+def test_pathogen_testing_accepts_no_prevalence() -> None:
+    validate_canonical_observation(
+        {
+            "observation_type": "PATHOGEN_TESTING",
+            "ticks_tested": 1,
+            "ticks_positive": 1,
+        }
+    )
 
 
 def test_site_event_contract_fixtures_preserve_geography_and_lineage() -> None:
