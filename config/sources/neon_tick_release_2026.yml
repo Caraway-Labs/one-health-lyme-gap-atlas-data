@@ -29,7 +29,7 @@ required_columns:
   - testingID
   - testPathogenName
 quality_rules:
-  - rule_id: neon_required_native_rows
+  - rule_id: neon_canonical_record_count
     severity: BLOCKING
   - rule_id: neon_value_state_preservation
     severity: BLOCKING
