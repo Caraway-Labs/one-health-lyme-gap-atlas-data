@@ -224,3 +224,15 @@ def test_committed_dev_fixture_is_synthetic_and_calculable() -> None:
     assert fixture["ingestion_run_id"] == "run-one"
     assert fixture["artifact_id"] == "artifact-one"
     assert _document(DENSITY, fixture)["value"] == 2
+
+
+def test_dev_fixture_workflow_pins_runtime_role_and_database() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1]
+        / ".github/workflows/verify-infected-tick-result-dev.yml"
+    ).read_text(encoding="utf-8")
+    assert "SNOWFLAKE_ROLE: OH_LYME_DEV_RUNTIME" in workflow
+    assert "SNOWFLAKE_DATABASE: ONE_HEALTH_LYME_GAP_ATLAS_DEV" in workflow
+    assert "SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}" in workflow
+    assert "environment: dev" in workflow
+    assert "production" not in workflow
