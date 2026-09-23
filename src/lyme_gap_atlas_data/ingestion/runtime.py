@@ -159,12 +159,21 @@ class SnowflakeStageEffects:
                         Body=source_artifact.payload,
                         ContentType=source_artifact.media_type,
                     )
-                    artifact_id = f"{definition.resource_key}:{artifact.sha256[:32]}"
                     request_id = f"{state.ingestion_run_id}:ACQUIRE:{sequence}"
+                    # A package may include byte-identical members from distinct
+                    # source requests. Preserve their individual request lineage
+                    # while retaining the original stable ID for legacy single
+                    # artifact adapters.
+                    artifact_id = (
+                        f"{definition.resource_key}:{artifact.sha256[:32]}"
+                        if len(artifacts) == 1
+                        else f"{definition.resource_key}:{state.ingestion_run_id}:{sequence}:"
+                        f"{artifact.sha256[:32]}"
+                    )
                     cursor.execute(
                         """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
                     USING (SELECT %s AS ingestion_request_id, %s AS ingestion_run_id,
-                                  1 AS request_sequence, 'SOURCE_ACQUIRE' AS request_purpose,
+                                  %s AS request_sequence, %s AS request_purpose,
                                   %s AS endpoint, PARSE_JSON(%s) AS redacted_request,
                                   200 AS status_code, %s AS response_sha256,
                                   %s AS retrieved_row_count, %s AS created_at) source
@@ -201,7 +210,7 @@ class SnowflakeStageEffects:
                         """MERGE INTO GOVERNANCE.RAW_ARTIFACTS target
                     USING (SELECT %s AS artifact_id, %s AS ingestion_run_id,
                                   %s AS ingestion_request_id, %s AS artifact_uri,
-                                  'SOURCE_PAYLOAD' AS artifact_type, %s AS media_type,
+                                  %s AS artifact_type, %s AS media_type,
                                   %s AS byte_count, %s AS sha256, %s AS retention_class,
                                   %s AS created_at) source
                     ON target.artifact_id=source.artifact_id
