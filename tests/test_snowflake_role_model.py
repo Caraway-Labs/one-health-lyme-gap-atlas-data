@@ -72,6 +72,9 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         # capture/ingest workflow and never mutates Snowflake or closes an
         # issue itself; closure stays a human decision.
         "flag-completed-story-comment",
+        # Story #169: manual DEV-only synthetic derived-result persistence
+        # verification; it acquires no source and has no PROD path.
+        "verify-infected-tick-result-dev",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (

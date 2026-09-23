@@ -1,0 +1,52 @@
+name: Verify infected-tick derived result DEV staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infected-tick-derived-result-dev
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      TOPX_ENV: dev
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_AUTH_METHOD: key_pair
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev --locked
+      - name: Verify one synthetic metric and immutable replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required_var in SNOWFLAKE_USER SNOWFLAKE_ROLE SNOWFLAKE_PRIVATE_KEY_B64 SNOWFLAKE_PRIVATE_KEY_PASSPHRASE; do
+            if [ -z "${!required_var:-}" ]; then
+              echo "::error::Missing required runtime configuration: $required_var"
+              exit 1
+            fi
+          done
+          key_file="$RUNNER_TEMP/oh-lyme-infected-tick-key.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
+          uv run python scripts/verify_infected_tick_result_dev.py
