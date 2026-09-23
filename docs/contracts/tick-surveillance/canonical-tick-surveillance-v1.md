@@ -1,9 +1,10 @@
 # Canonical tick-surveillance observation contract v1
 
-Status: Proposed for steward review
+Status: Proposed for steward review; v1.1 site/event extension prepared by Story #385
 Owner: Atlas data stewardship and engineering
 Schema: `canonical-tick-surveillance-v1.schema.json`
-Method version: `tick-surveillance-v1`
+Method versions: `tick-surveillance-v1` (legacy county status) and
+`tick-surveillance-v1.1` (backward-compatible site/event extension)
 
 ## Purpose and boundary
 
@@ -24,7 +25,7 @@ provenance contract.
 ## Required fields
 
 Every canonical record requires a stable canonical observation ID, observation
-type, five-character county FIPS, scientific tick species, source agency and
+type, scientific tick species, source agency and
 dataset/record identifiers, governed source version, ingestion run, immutable
 artifact, retrieval timestamp, method version, and quality flags. Observation
 types add their own requirements:
@@ -37,6 +38,65 @@ types add their own requirements:
 - `COLLECTION_ABUNDANCE` requires the reported tick count. Normalized abundance
   remains optional unless effort and unit evidence support it.
 - `PATHOGEN_TESTING` requires pathogen, ticks tested, and ticks positive.
+
+`county_fips` remains required for the existing county-native
+`VECTOR_PRESENCE_STATUS` and `PATHOGEN_PRESENCE_STATUS` mappings. It is not a
+required field for an observation whose native grain is a sampling site/event.
+No loader may synthesize it from a site name, coordinate, or a broad coverage
+claim.
+
+## Site, event, replicate, and geography extension (v1.1)
+
+For `native_sampling_grain: SITE_EVENT`, the canonical record must retain
+`sampling_site`, `sampling_event`, `source_geography`, and
+`county_relationship`. `sampling_site` retains the publisher's stable site
+and, when supplied, plot/location identifiers. `sampling_event` retains the
+publisher event plus sample, subsample, test, batch, and replicate identifiers
+when they exist. These are source-native identifiers; they are not Atlas
+vocabulary normalization and must not be replaced by labels from #386.
+
+`source_geography` is the publisher-reported location/geometry, CRS, and
+uncertainty. `harmonized_geography` is optional and records only a transparent
+format/identifier harmonization. `county_relationship` is the separate,
+derived relationship to a canonical county. Its allowed states are:
+
+| State | County FIPS | Required behavior |
+| --- | --- | --- |
+| `SOURCE_REPORTED_COUNTY` | present | retain source-reported county and source/version provenance |
+| `ATLAS_DERIVED_MATCH` | present | retain mapping method, version, and crosswalk artifact |
+| `UNMAPPED` | null | retain source site/event; do not invent a county |
+| `AMBIGUOUS` | null | retain the attempted mapping provenance; do not choose one county |
+
+Every site/event county relationship has
+`representativeness: NOT_COUNTY_REPRESENTATIVE`. It is a provenance-bearing
+join, never evidence about unsampled county area. Any downstream county
+aggregate is a separately versioned derived observation and must retain the
+source observation ID, site, event, mapping status/method/version/artifact, and
+this limitation.
+
+### Canonical identity
+
+Canonical identity is deterministic over source dataset and frozen source
+version, immutable source-record identity, observation type, and all applicable
+native site/event/sample/subsample/test/replicate identifiers plus reported
+strata (species, life stage, collection method, pathogen, and any other
+source-supported dimension). County FIPS is deliberately excluded from this
+natural-key behavior. A changed event, replicate, source-record revision, or
+applicable stratum produces a distinct observation identity; repeated events
+at one location therefore cannot collide. The reference helper
+`tick_contract.canonical_observation_id` implements this serialization without
+making scientific equivalence decisions.
+
+## Compatibility and migration
+
+The v1 schema is evolved additively: existing `tick-surveillance-v1`
+county-status records remain valid and retain their current IDs, FIPS behavior,
+and downstream consumers. New site/event records use
+`tick-surveillance-v1.1`; no existing record is rewritten and no Snowflake DDL
+or production migration is part of this contract-only story. A future adapter
+must persist both the legacy top-level `county_fips` (when applicable) and the
+separate v1.1 `county_relationship`, verify equality where both are present,
+and block rather than silently resolve a conflict.
 
 ## Optional fields and missingness
 
