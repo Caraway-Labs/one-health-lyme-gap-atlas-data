@@ -35,10 +35,11 @@ class NormalizationResult:
     registry_id: str
     registry_version: str
     source_context: dict[str, str]
+    disposition: str | None = None
 
     def as_contract_value(self) -> dict[str, object]:
         """Return the provenance-bearing representation carried by the contract."""
-        return {
+        value: dict[str, object] = {
             "source_value": self.source_value,
             "canonical_id": self.canonical_id,
             "canonical_label": self.canonical_label,
@@ -48,6 +49,9 @@ class NormalizationResult:
             "registry_version": self.registry_version,
             "source_context": self.source_context,
         }
+        if self.disposition is not None:
+            value["disposition"] = self.disposition
+        return value
 
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
@@ -110,6 +114,9 @@ def normalize_value(
         registry_id=current["registry_id"],
         registry_version=current["registry_version"],
         source_context=context,
+        disposition=(
+            str(rule["disposition"]) if isinstance(rule.get("disposition"), str) else None
+        ),
     )
 
 

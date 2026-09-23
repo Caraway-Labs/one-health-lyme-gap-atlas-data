@@ -220,7 +220,7 @@ def test_governed_normalization_registry_is_independently_schema_valid() -> None
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(registry)) == []
-    assert registry["registry_version"] == "1.0.2"
+    assert registry["registry_version"] == "1.0.3"
     assert "comparability" in " ".join(registry["scope"]["non_goals"]).lower()
 
 
@@ -237,7 +237,7 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     assert cdc.canonical_label == "Ixodes scapularis"
     assert cdc.as_contract_value()["source_value"] == "Ixodes_scapularis"
     assert cdc.mapping_rule_id == "TAXON_CDC_SCAPULARIS_V1"
-    assert cdc.registry_version == "1.0.2"
+    assert cdc.registry_version == "1.0.3"
 
     aggregate = normalize_value(
         field="tick_taxon",
@@ -250,6 +250,41 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     assert aggregate.canonical_id != cdc.canonical_id
 
 
+def test_neon_amblyomma_mapping_is_exact_and_source_context_specific() -> None:
+    context = {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10093.001",
+        "source_version": "RELEASE-2026",
+    }
+    approved = normalize_value(field="tick_taxon", source_value="Amblyomma americanum", **context)
+    altered_case = normalize_value(
+        field="tick_taxon", source_value="Amblyomma Americanum", **context
+    )
+    wrong_context = normalize_value(
+        field="tick_taxon",
+        source_value="Amblyomma americanum",
+        publisher="NSF NEON",
+        dataset_id="DP1.10092.001",
+        source_version="RELEASE-2026",
+    )
+    ixodes = normalize_value(field="tick_taxon", source_value="Ixodes scapularis", **context)
+
+    assert (approved.status, approved.canonical_id, approved.mapping_rule_id) == (
+        "APPROVED",
+        "AMBLYOMMA_AMERICANUM",
+        "TAXON_NEON_AMERICANUM_V1",
+    )
+    assert (altered_case.status, altered_case.canonical_id, altered_case.mapping_rule_id) == (
+        "UNKNOWN",
+        None,
+        None,
+    )
+    assert (wrong_context.status, wrong_context.canonical_id) == ("UNKNOWN", None)
+    assert (ixodes.status, ixodes.canonical_id, ixodes.mapping_rule_id) == (
+        "APPROVED",
+        "IXODES_SCAPULARIS",
+        "TAXON_NEON_SCAPULARIS_V1",
+    )
 def test_neon_life_stage_mappings_are_exact_and_preserve_approved_casing() -> None:
     context = {
         "publisher": "NSF NEON",
@@ -270,7 +305,11 @@ def test_neon_life_stage_mappings_are_exact_and_preserve_approved_casing() -> No
         "NYMPH",
         "LIFE_STAGE_NEON_NYMPH_CAPITALIZED_V1",
     )
-    assert (unapproved_case.status, unapproved_case.canonical_id, unapproved_case.mapping_rule_id) == (
+    assert (
+        unapproved_case.status,
+        unapproved_case.canonical_id,
+        unapproved_case.mapping_rule_id,
+    ) == (
         "UNKNOWN",
         None,
         None,
@@ -309,6 +348,73 @@ def test_governed_normalization_fails_closed_for_unknown_taxa_and_pathogens() ->
         source_version="RELEASE-2026",
     )
     assert (unknown_pathogen.status, unknown_pathogen.canonical_id) == ("UNKNOWN", None)
+
+
+def test_neon_pathogen_mappings_are_exact_and_source_context_specific() -> None:
+    context = {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10092.001",
+        "source_version": "RELEASE-2026",
+    }
+    expected = {
+        "Anaplasma phagocytophilum": "ANAPLASMA_PHAGOCYTOPHILUM",
+        "Babesia microti": "BABESIA_MICROTI",
+        "Borrelia mayonii": "BORRELIA_MAYONII",
+        "Borrelia miyamotoi": "BORRELIA_MIYAMOTOI",
+        "Ehrlichia muris-like": "EHRLICHIA_MURIS_LIKE_AGENT",
+        "Borrelia sp.": "BORRELIA_SP",
+    }
+
+    results = {
+        source_value: normalize_value(field="pathogen_target", source_value=source_value, **context)
+        for source_value in expected
+    }
+
+    assert {value: result.canonical_id for value, result in results.items()} == expected
+    assert results["Ehrlichia muris-like"].mapping_rule_id == (
+        "PATHOGEN_NEON_EHRLICHIA_MURIS_LIKE_V1"
+    )
+    assert results["Borrelia sp."].canonical_id not in {
+        "BORRELIA_BURGDORFERI_SENSU_LATO",
+        "BORRELIA_MAYONII",
+        "BORRELIA_MIYAMOTOI",
+    }
+
+    altered = normalize_value(field="pathogen_target", source_value="Borrelia Sp.", **context)
+    wrong_context = normalize_value(
+        field="pathogen_target",
+        source_value="Borrelia sp.",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    assert (altered.status, altered.canonical_id) == ("UNKNOWN", None)
+    assert (wrong_context.status, wrong_context.canonical_id) == ("UNKNOWN", None)
+
+
+def test_neon_non_pathogen_assays_are_retained_as_governed_dispositions() -> None:
+    context = {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10092.001",
+        "source_version": "RELEASE-2026",
+    }
+    qc = normalize_value(field="pathogen_target", source_value="HardTick DNA Quality", **context)
+    identification = normalize_value(
+        field="pathogen_target", source_value="Ixodes pacificus", **context
+    )
+
+    assert (qc.status, qc.canonical_id, qc.disposition) == (
+        "UNSUPPORTED",
+        None,
+        "NON_PATHOGEN_ASSAY_QC",
+    )
+    assert (identification.status, identification.canonical_id, identification.disposition) == (
+        "UNSUPPORTED",
+        None,
+        "NON_PATHOGEN_TICK_IDENTIFICATION",
+    )
+    assert qc.as_contract_value()["disposition"] == "NON_PATHOGEN_ASSAY_QC"
+    assert identification.as_contract_value()["source_value"] == "Ixodes pacificus"
 
 
 def test_method_vocabulary_normalizes_lexically_without_comparability_decision() -> None:
