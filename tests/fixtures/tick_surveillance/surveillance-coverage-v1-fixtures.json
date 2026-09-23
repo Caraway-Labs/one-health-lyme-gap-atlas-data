@@ -1,0 +1,31 @@
+{
+  "methodology_version": "surveillance-coverage-v1",
+  "evidence_basis": "INDEPENDENT_SYNTHETIC_METHODOLOGY_EXPECTATIONS",
+  "cases": [
+    {"id": "county-reported", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"complete_snapshot": true, "county_fips": "01001", "publisher_status": "ESTABLISHED", "temporal_semantics": "CUMULATIVE_THROUGH_DATE"}, "expected_state": "REPORTED_STATUS", "must_not_claim": ["ANNUAL_COVERAGE", "ACTIVE_SAMPLING"]},
+    {"id": "county-absent", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"complete_snapshot": true, "in_publisher_scope": true, "county_fips": "01003", "matched_rows": 0}, "expected_state": "NOT_REPORTED_IN_DATASET", "must_not_claim": ["UNSAMPLED", "BIOLOGICAL_ABSENCE"]},
+    {"id": "county-no-records", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"complete_snapshot": true, "county_fips": "01005", "publisher_status": "NO_RECORDS"}, "expected_state": "PUBLISHER_NO_RECORDS", "must_not_claim": ["BIOLOGICAL_ABSENCE"]},
+    {"id": "county-duplicate-identical", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"county_fips": "01007", "rows": ["ESTABLISHED", "ESTABLISHED"], "same_revision": true}, "expected_state": "REPORTED_STATUS", "expected_canonical_count": 1},
+    {"id": "county-revision-conflict", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"county_fips": "01009", "rows": ["ESTABLISHED", "REPORTED"], "revision_selection_approved": false}, "expected_state": "UNKNOWN"},
+    {"id": "county-unresolved-fips", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"source_geography": "publisher-row-x", "county_fips": null}, "expected_state": "UNKNOWN", "expected_canonical_count": 0},
+    {"id": "county-source-only", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"source_geography": "noncanonical-source-place", "in_publisher_scope": false}, "expected_state": "NOT_APPLICABLE", "expected_canonical_count": 0},
+    {"id": "county-stale", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"county_fips": "01011", "publisher_status": "ESTABLISHED", "quality_reasons": ["STALE_OR_REVISION_SENSITIVE"]}, "expected_state": "REPORTED_STATUS", "expected_reasons": ["STALE_OR_REVISION_SENSITIVE"], "must_not_claim": ["CURRENT_YEAR_COVERAGE"]},
+    {"id": "county-source-unavailable", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"source_version_available": false}, "expected_state": "UNAVAILABLE"},
+    {"id": "site-sampled", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"completed_event": true, "effort_square_metres": 100, "ticks_collected": 4}, "expected_state": "SAMPLED_EVENT", "must_not_claim": ["COUNTY_COVERED"]},
+    {"id": "site-valid-zero", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"completed_event": true, "effort_square_metres": 100, "ticks_collected": 0}, "expected_state": "SAMPLED_EVENT", "must_not_claim": ["UNSAMPLED", "BIOLOGICAL_ABSENCE"]},
+    {"id": "site-missing-effort", "construct": "ACTIVE_EFFORT_DOCUMENTATION", "facts": {"effort_square_metres": null}, "expected_state": "MISSING_EFFORT"},
+    {"id": "site-zero-effort", "construct": "ACTIVE_EFFORT_DOCUMENTATION", "facts": {"effort_square_metres": 0}, "expected_state": "ZERO_EFFORT"},
+    {"id": "site-impractical", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"samplingImpractical": true, "ticks_collected": 0}, "expected_state": "SAMPLING_IMPRACTICAL", "must_not_claim": ["SAMPLED_ZERO"]},
+    {"id": "site-unmapped", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"completed_event": true, "effort_square_metres": 100, "county_relationship": "UNMAPPED"}, "expected_state": "SAMPLED_EVENT", "expected_reasons": ["UNMAPPED_SITE_GEOGRAPHY", "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE"]},
+    {"id": "site-ambiguous", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"completed_event": true, "effort_square_metres": 100, "county_relationship": "AMBIGUOUS"}, "expected_state": "SAMPLED_EVENT", "expected_reasons": ["AMBIGUOUS_SITE_GEOGRAPHY", "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE"]},
+    {"id": "site-repeated-events", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"same_site": true, "events": ["event-a", "event-b"]}, "expected_state": "SAMPLED_EVENT", "expected_output_count": 2, "must_not_claim": ["TEMPORAL_CONTINUITY"]},
+    {"id": "site-partial-period", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"observed_event_dates": ["2016-05-01"], "expected_cadence_approved": false}, "expected_state": "SAMPLED_EVENT", "must_not_claim": ["PERIOD_COMPLETE", "MISSING_SCHEDULED_EVENT"]},
+    {"id": "test-missing-denominator", "construct": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY", "facts": {"ticks_tested": null}, "expected_state": "MISSING_TEST_DENOMINATOR"},
+    {"id": "test-valid-zero-positive", "construct": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY", "facts": {"ticks_tested": 1, "ticks_positive": 0, "individual_test": true}, "expected_state": "DOCUMENTED_POSITIVE_TEST_DENOMINATOR", "must_not_claim": ["PATHOGEN_ABSENT"]},
+    {"id": "quality-unknown", "construct": "ACTIVE_EFFORT_DOCUMENTATION", "facts": {"quality_component": "EFFORT_DENOMINATOR_COMPLETENESS", "quality_state": "UNKNOWN"}, "expected_state": "UNKNOWN"},
+    {"id": "quality-not-applicable", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"quality_component": "EFFORT_DENOMINATOR_COMPLETENESS", "quality_state": "NOT_APPLICABLE", "publisher_status": "ESTABLISHED"}, "expected_state": "REPORTED_STATUS", "must_not_claim": ["ACTIVE_EFFORT_DOCUMENTED"]},
+    {"id": "cross-county-status-not-active", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "facts": {"observation_type": "VECTOR_PRESENCE_STATUS"}, "expected_state": "NOT_APPLICABLE"},
+    {"id": "cross-site-not-county", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "facts": {"observation_type": "COLLECTION_ABUNDANCE", "county_relationship": "ATLAS_DERIVED_MATCH"}, "expected_state": "NOT_APPLICABLE", "must_not_claim": ["COUNTY_COVERED"]},
+    {"id": "cross-no-pooled-score", "construct": "COMPOSITE_COVERAGE_SCORE", "facts": {"county_status": "REPORTED_STATUS", "site_event": "SAMPLED_EVENT"}, "expected_state": "DEFERRED"}
+  ]
+}
