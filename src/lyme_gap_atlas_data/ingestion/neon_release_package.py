@@ -1,7 +1,7 @@
 """Bounded NSF NEON RELEASE-2026 package adapter for Story #162.
 
 The adapter deliberately owns package transport and native joins only.  All
-scientific aliases and controlled values come from the governed v1.2 registry.
+scientific aliases and controlled values come from the versioned governed registry.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
@@ -18,15 +19,19 @@ from typing import Any
 import httpx
 
 from ..tick_contract import canonical_observation_id
-from ..tick_normalization import normalize_value
+from ..tick_normalization import load_registry, normalize_value
 from .adapters import AcquireResult, AcquisitionArtifact, AcquisitionError, NormalizeResult
 from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIssue, ValidationResult
 
 _RELEASE = "RELEASE-2026"
 _PRODUCTS = {"DP1.10093.001", "DP1.10092.001"}
+_NORMALIZATION_REGISTRY_VERSION = "1.0.2"
 _TABLES = {
-    "DP1.10093.001": ("tck_fielddata", "tck_taxonomyProcessed"),
-    "DP1.10092.001": ("tck_pathogen", "tck_pathogenqa"),
+    "DP1.10093.001": (("tck_fielddata", True), ("tck_taxonomyProcessed", True)),
+    # NEON publishes the QA table only once, without a basic/expanded edition.
+    # Treat it as an unambiguous package member, never as a substitute for an
+    # expanded analytical table.
+    "DP1.10092.001": (("tck_pathogen", True), ("tck_pathogenqa", False)),
 }
 
 
@@ -46,6 +51,9 @@ class NeonReleasePackageAdapter:
         token = os.getenv("NEON_API_TOKEN")
         if not token:
             raise AcquisitionError("NEON_API_TOKEN is required", code="NEON_TOKEN_UNAVAILABLE")
+        # Signed NEON object URLs carry temporary credentials. Retain only the
+        # stable manifest route as provenance and suppress HTTP client URL logs.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
         client = self._client or httpx.Client(timeout=60.0, follow_redirects=True)
         try:
             artifacts: list[AcquisitionArtifact] = []
@@ -72,8 +80,10 @@ class NeonReleasePackageAdapter:
                 )
                 files = _files(document)
                 selected_names: set[str] = set()
-                for table in _TABLES[product]:
-                    file_info = _select_expanded(files, table)
+                for table, requires_expanded in _TABLES[product]:
+                    file_info = _select_package_file(
+                        files, table, requires_expanded=requires_expanded
+                    )
                     selected_names.add(str(file_info["name"]))
                     download = str(file_info["url"])
                     data = client.get(download, headers={"X-API-Token": token}).content
@@ -227,7 +237,7 @@ class NeonReleasePackageAdapter:
                 "testPathogenName",
                 "individualCount",
             },
-            "tck_pathogenqa": {"batchID"},
+            "tck_pathogenqa": {"batchID", "uid"},
         }.items():
             rows = tables.get(table)
             if not rows:
@@ -245,11 +255,18 @@ class NeonReleasePackageAdapter:
         return ValidationResult(ok=not issues, issues=issues)
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
+        registry = load_registry()
+        if registry["registry_version"] != _NORMALIZATION_REGISTRY_VERSION:
+            raise ValueError("NEON normalization registry version is not pinned")
         tables = payload["tables"]
         lineage = payload.get("_acquisition_lineage", {})
         fields = _unique_index(tables["tck_fielddata"], "sampleID", allow_blank=True)
         taxonomy = _unique_index(tables["tck_taxonomyProcessed"], "subsampleID")
-        qa = _unique_index(tables["tck_pathogenqa"], "batchID", allow_blank=True)
+        # QA is a retained support table. Its batchID is a many-row grouping,
+        # not an approved one-to-one join to pathogen tests. Validate its own
+        # publisher identifier without projecting a non-deterministic QA join
+        # into the canonical observation.
+        _unique_index(tables["tck_pathogenqa"], "uid")
         records: list[dict[str, Any]] = []
         for taxon in tables["tck_taxonomyProcessed"]:
             field = _one(fields, taxon.get("sampleID"), "sampleID")
@@ -263,13 +280,14 @@ class NeonReleasePackageAdapter:
             field = _one(fields, taxon.get("sampleID") if taxon else None, "sampleID")
             if taxon is None or field is None:
                 raise ValueError("NEON pathogen test has no unique native collection join")
-            records.append(
-                _testing_record(field, taxon, test, qa.get(test.get("batchID", "")), lineage)
-            )
+            records.append(_testing_record(field, taxon, test, lineage))
         return NormalizeResult(
             records=records,
             transformation_version="neon-release-2026-harmonization-v1",
-            detail={"canonical_observation_count": len(records), "registry_version": "1.2"},
+            detail={
+                "canonical_observation_count": len(records),
+                "registry_version": _NORMALIZATION_REGISTRY_VERSION,
+            },
         )
 
 
@@ -303,7 +321,6 @@ def _testing_record(
     field: dict[str, str],
     taxon: dict[str, str],
     test: dict[str, str],
-    qa: dict[str, str] | None,
     lineage: dict[str, Any],
 ) -> dict[str, Any]:
     taxon_map = _approved("tick_taxon", taxon["scientificName"], "DP1.10093.001")
@@ -329,7 +346,7 @@ def _testing_record(
         "record": {
             "source_record_id": record["source_record_id"],
             "canonical_observation": record,
-            "source_quality_context": qa or {},
+            "source_quality_context": {},
         }
     }
 
@@ -468,15 +485,18 @@ def _files(document: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in files if isinstance(item, dict)]
 
 
-def _select_expanded(files: list[dict[str, Any]], table: str) -> dict[str, Any]:
+def _select_package_file(
+    files: list[dict[str, Any]], table: str, *, requires_expanded: bool
+) -> dict[str, Any]:
     matches = [
         item
         for item in files
-        if f".{table}." in str(item.get("name")) and ".expanded." in str(item.get("name"))
+        if f".{table}." in str(item.get("name"))
+        and (not requires_expanded or ".expanded." in str(item.get("name")))
     ]
     if len(matches) != 1 or not matches[0].get("url") or not matches[0].get("md5"):
         raise AcquisitionError(
-            "NEON required expanded file is absent or ambiguous", code="NEON_PACKAGE_SCHEMA"
+            "NEON required package file is absent or ambiguous", code="NEON_PACKAGE_SCHEMA"
         )
     return matches[0]
 

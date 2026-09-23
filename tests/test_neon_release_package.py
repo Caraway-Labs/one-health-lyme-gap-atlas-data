@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from lyme_gap_atlas_data.ingestion.neon_release_package import NeonReleasePackageAdapter
+from lyme_gap_atlas_data.ingestion import neon_release_package
+from lyme_gap_atlas_data.ingestion.neon_release_package import (
+    NeonReleasePackageAdapter,
+    _select_package_file,
+)
 from lyme_gap_atlas_data.ingestion.source_definition import (
     load_source_definition,
     validate_source_definition,
@@ -14,6 +18,25 @@ from lyme_gap_atlas_data.ingestion.source_definition import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFINITION = ROOT / "config" / "sources" / "neon_tick_release_2026.yml"
+
+
+def test_neon_qa_support_file_must_be_the_single_native_member() -> None:
+    files = [
+        {
+            "name": "NEON.D02.BLAN.DP1.10092.001.tck_pathogenqa.20251204T225314Z.csv",
+            "url": "https://example.test/qa",
+            "md5": "digest",
+        },
+        {
+            "name": "NEON.D02.BLAN.DP1.10092.001.tck_pathogen.2016-05.expanded.csv",
+            "url": "https://example.test/pathogen",
+            "md5": "digest",
+        },
+    ]
+
+    selected = _select_package_file(files, "tck_pathogenqa", requires_expanded=False)
+
+    assert selected["name"].endswith("tck_pathogenqa.20251204T225314Z.csv")
 
 
 def _fixture(tmp_path: Path, *, result: str = "positive", taxon: str = "Ixodes scapularis") -> None:
@@ -25,7 +48,7 @@ def _fixture(tmp_path: Path, *, result: str = "positive", taxon: str = "Ixodes s
         "sample-1,sub-1," + taxon + ",nymph,2,\n",
         "pathogen.csv": "subsampleID,testingID,batchID,testedDate,testResult,testPathogenName,individualCount,dataQF\n"  # noqa: E501
         "sub-1,test-1,batch-1,2016-05-02," + result + ",Borrelia burgdorferi sensu lato,1,\n",
-        "qa.csv": "batchID,qaStatus\nbatch-1,pass\n",
+        "qa.csv": "batchID,uid,qaStatus\nbatch-1,qa-1,pass\n",
     }
     for name, text in files.items():
         (tmp_path / name).write_text(text, encoding="utf-8")
@@ -74,6 +97,7 @@ def test_neon_fixture_harmonizes_individual_test_and_retains_artifact_set(tmp_pa
     adapter = NeonReleasePackageAdapter()
     assert adapter.validate_payload(definition, acquired.payload).ok
     records = adapter.normalize(definition, acquired.payload).records
+    detail = adapter.normalize(definition, acquired.payload).detail
     observations = [row["record"]["canonical_observation"] for row in records]
     collection = next(
         row for row in observations if row["observation_type"] == "COLLECTION_ABUNDANCE"
@@ -83,6 +107,7 @@ def test_neon_fixture_harmonizes_individual_test_and_retains_artifact_set(tmp_pa
     assert collection["ticks_collected"] == 2
     assert "normalized_abundance" not in collection
     assert testing["ticks_tested"] == 1 and testing["ticks_positive"] == 1
+    assert detail["registry_version"] == "1.0.2"
     schema = json.loads(
         (
             ROOT
@@ -110,3 +135,32 @@ def test_neon_unknown_mapping_and_blank_result_fail_closed(tmp_path: Path) -> No
     acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
     with pytest.raises(ValueError, match="blank pathogen test result"):
         NeonReleasePackageAdapter().normalize(definition, acquired.payload)
+
+
+def test_neon_normalization_pins_registry_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fixture(tmp_path)
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+    monkeypatch.setattr(
+        neon_release_package, "load_registry", lambda: {"registry_version": "1.0.3"}
+    )
+
+    with pytest.raises(ValueError, match="registry version is not pinned"):
+        NeonReleasePackageAdapter().normalize(definition, acquired.payload)
+
+
+def test_neon_qa_batch_grouping_is_retained_without_a_canonical_join(tmp_path: Path) -> None:
+    _fixture(tmp_path)
+    (tmp_path / "qa.csv").write_text(
+        "batchID,uid,qaStatus\nbatch-1,qa-1,pass\nbatch-1,qa-2,pass\n",
+        encoding="utf-8",
+    )
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+
+    records = NeonReleasePackageAdapter().normalize(definition, acquired.payload).records
+
+    assert len(records) == 2
+    assert records[1]["record"]["source_quality_context"] == {}

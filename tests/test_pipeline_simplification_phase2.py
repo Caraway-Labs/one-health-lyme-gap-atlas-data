@@ -26,6 +26,8 @@ from lyme_gap_atlas_data.ingestion import (
     load_source_definition,
 )
 from lyme_gap_atlas_data.ingestion.adapters import (
+    AcquireResult,
+    AcquisitionArtifact,
     AcquisitionError,
     HttpCsvAdapter,
     HttpJsonAdapter,
@@ -563,6 +565,18 @@ class _FakeCursor:
         return self.rows
 
 
+class _BindingCursor(_FakeCursor):
+    """Fail locally when SQL placeholders and bound parameters diverge."""
+
+    def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> None:
+        if params is not None and sql.count("%s") != len(params):
+            raise TypeError(
+                "binding parameters count does not match SQL placeholders: "
+                f"{len(params)} parameters for {sql.count('%s')} placeholders"
+            )
+        super().execute(sql, params)
+
+
 class _FakeConnection:
     def __init__(self, cursor: _FakeCursor):
         self.fake_cursor = cursor
@@ -713,6 +727,66 @@ def test_snowflake_stage_effects_registers_artifact_and_generic_rows() -> None:
     assert load["physical_relation"] == "RAW.GOVERNED_SOURCE_RECORDS"
     assert len(cursor.executed) == 3
     assert cursor.executemany_calls == []
+
+
+def test_snowflake_stage_effects_registers_each_acquisition_package_member() -> None:
+    definition = load_source_definition(X5J9)
+    primary = AcquisitionArtifact(
+        "package-manifest.json",
+        b"package",
+        "application/json",
+        "https://example.test/package",
+        "PACKAGE_MANIFEST",
+    )
+    member = AcquisitionArtifact(
+        "source.csv",
+        b"package",
+        "text/csv",
+        "https://example.test/package",
+        "PACKAGE_MEMBER",
+        row_count=1,
+    )
+    acquired = AcquireResult(
+        payload={},
+        artifact_sha256=primary.sha256,
+        media_type=primary.media_type,
+        artifacts=(primary, member),
+    )
+    state = RunState(
+        ingestion_run_id="run-package",
+        resource_key=definition.resource_key,
+        source_definition_version=definition.definition_version,
+        tier=Tier.B,
+        status=RunStatus.RUNNING,
+        stages=[],
+    )
+    cursor = _BindingCursor()
+    connection = _FakeConnection(cursor)
+    spaces = _FakeSpaces()
+
+    artifact = SnowflakeStageEffects(
+        connection_factory=lambda: connection, spaces_client=spaces
+    ).register_artifact(definition, state, acquired)
+
+    request_params = [
+        params for sql, params in cursor.executed if "GOVERNANCE.INGESTION_REQUESTS" in sql
+    ]
+    raw_artifact_params = [
+        params for sql, params in cursor.executed if "GOVERNANCE.RAW_ARTIFACTS" in sql
+    ]
+    assert len(spaces.uploads) == 2
+    assert len(artifact["artifacts"]) == 2
+    assert artifact["artifact_id"] == artifact["artifacts"][0]["artifact_id"]
+    assert len({item["artifact_id"] for item in artifact["artifacts"]}) == 2
+    assert artifact["artifacts"][0]["sha256"] == artifact["artifacts"][1]["sha256"]
+    assert [params[2:4] for params in request_params] == [
+        (1, "PACKAGE_MANIFEST"),
+        (2, "PACKAGE_MEMBER"),
+    ]
+    assert [params[4] for params in raw_artifact_params] == [
+        "SOURCE_PACKAGE_MEMBER",
+        "SOURCE_PACKAGE_MEMBER",
+    ]
 
 
 def test_generic_projection_uses_bounded_multirow_merges() -> None:
