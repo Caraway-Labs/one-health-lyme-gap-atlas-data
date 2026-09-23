@@ -220,7 +220,7 @@ def test_governed_normalization_registry_is_independently_schema_valid() -> None
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(registry)) == []
-    assert registry["registry_version"] == "1.0.0"
+    assert registry["registry_version"] == "1.0.1"
     assert "comparability" in " ".join(registry["scope"]["non_goals"]).lower()
 
 
@@ -237,7 +237,7 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     assert cdc.canonical_label == "Ixodes scapularis"
     assert cdc.as_contract_value()["source_value"] == "Ixodes_scapularis"
     assert cdc.mapping_rule_id == "TAXON_CDC_SCAPULARIS_V1"
-    assert cdc.registry_version == "1.0.0"
+    assert cdc.registry_version == "1.0.1"
 
     aggregate = normalize_value(
         field="tick_taxon",
@@ -248,6 +248,37 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     )
     assert aggregate.canonical_id == "IXODES_SCAPULARIS_OR_PACIFICUS"
     assert aggregate.canonical_id != cdc.canonical_id
+
+
+def test_neon_life_stage_mappings_are_exact_and_preserve_approved_casing() -> None:
+    context = {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10093.001",
+        "source_version": "RELEASE-2026",
+    }
+    lower = normalize_value(field="life_stage", source_value="nymph", **context)
+    capitalized = normalize_value(field="life_stage", source_value="Nymph", **context)
+    unapproved_case = normalize_value(field="life_stage", source_value="NYMPH", **context)
+
+    assert (lower.status, lower.canonical_id, lower.mapping_rule_id) == (
+        "APPROVED",
+        "NYMPH",
+        "LIFE_STAGE_NEON_NYMPH_V1",
+    )
+    assert (capitalized.status, capitalized.canonical_id, capitalized.mapping_rule_id) == (
+        "APPROVED",
+        "NYMPH",
+        "LIFE_STAGE_NEON_NYMPH_CAPITALIZED_V1",
+    )
+    assert (
+        unapproved_case.status,
+        unapproved_case.canonical_id,
+        unapproved_case.mapping_rule_id,
+    ) == (
+        "UNKNOWN",
+        None,
+        None,
+    )
 
 
 def test_governed_normalization_fails_closed_for_unknown_taxa_and_pathogens() -> None:

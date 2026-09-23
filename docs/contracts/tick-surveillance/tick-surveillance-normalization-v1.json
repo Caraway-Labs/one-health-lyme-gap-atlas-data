@@ -1,7 +1,7 @@
 {
   "$schema": "./tick-surveillance-normalization-v1.schema.json",
   "registry_id": "tick-surveillance-normalization-v1",
-  "registry_version": "1.0.0",
+  "registry_version": "1.0.1",
   "status": "APPROVED",
   "scope": {
     "approved_sources": [
@@ -33,6 +33,7 @@
     {"rule_id": "TAXON_NEON_PACIFICUS_V1", "field": "tick_taxon", "source_value": "Ixodes pacificus", "canonical_id": "IXODES_PACIFICUS", "canonical_label": "Ixodes pacificus", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "TAXON_CDC_AGGREGATE_V1", "field": "tick_taxon", "source_value": "Ixodes scapularis or Ixodes pacificus", "canonical_id": "IXODES_SCAPULARIS_OR_PACIFICUS", "canonical_label": "Ixodes scapularis or Ixodes pacificus", "status": "APPROVED", "source_context": {"publisher": "CDC ArboNET Tick Module", "dataset_id": "cdc-ixodes-pathogen-status-2025", "source_version": "2025"}},
     {"rule_id": "LIFE_STAGE_NEON_NYMPH_V1", "field": "life_stage", "source_value": "nymph", "canonical_id": "NYMPH", "canonical_label": "Nymph", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
+    {"rule_id": "LIFE_STAGE_NEON_NYMPH_CAPITALIZED_V1", "field": "life_stage", "source_value": "Nymph", "canonical_id": "NYMPH", "canonical_label": "Nymph", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "METHOD_NEON_DRAG_V1", "field": "collection_method", "source_value": "drag", "canonical_id": "DRAG_CLOTH", "canonical_label": "Drag cloth", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "METHOD_NEON_FLAG_V1", "field": "collection_method", "source_value": "flag", "canonical_id": "FLAG_CLOTH", "canonical_label": "Flag cloth", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "EFFORT_NEON_SQUARE_METRE_V1", "field": "effort_unit", "source_value": "m2", "canonical_id": "SQUARE_METRE", "canonical_label": "square metre", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
