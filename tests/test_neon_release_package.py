@@ -11,6 +11,7 @@ from lyme_gap_atlas_data.ingestion.neon_release_package import (
     NeonReleasePackageAdapter,
     _select_package_file,
 )
+from lyme_gap_atlas_data.ingestion.runtime import evaluate_quality_rules
 from lyme_gap_atlas_data.ingestion.source_definition import (
     load_source_definition,
     validate_source_definition,
@@ -129,6 +130,22 @@ def test_neon_fixture_harmonizes_individual_test_and_retains_artifact_set(tmp_pa
         for error in Draft202012Validator(schema).iter_errors(row)
     ]
     assert errors == []
+
+
+def test_neon_quality_rules_apply_to_canonical_records_after_native_validation(
+    tmp_path: Path,
+) -> None:
+    _fixture(tmp_path)
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+    normalized = NeonReleasePackageAdapter().normalize(definition, acquired.payload)
+
+    results = evaluate_quality_rules(definition, normalized.records)
+
+    assert [(result["rule_id"], result["status"]) for result in results] == [
+        ("neon_canonical_record_count", "PASSED"),
+        ("neon_value_state_preservation", "PASSED"),
+    ]
 
 
 def test_neon_unknown_mapping_and_blank_result_fail_closed(tmp_path: Path) -> None:
