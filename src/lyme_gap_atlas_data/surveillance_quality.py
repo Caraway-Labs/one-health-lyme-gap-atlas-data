@@ -46,7 +46,20 @@ def _has_text(value: object) -> bool:
 
 def _quality_flags(observation: Mapping[str, Any]) -> set[str]:
     flags = observation.get("quality_flags", [])
-    return {flag for flag in flags if isinstance(flag, str)} if isinstance(flags, list) else set()
+    if not isinstance(flags, list):
+        return set()
+    return {
+        value
+        for flag in flags
+        if (
+            value := flag
+            if isinstance(flag, str)
+            else flag.get("canonical_id")
+            if isinstance(flag, Mapping)
+            else None
+        )
+        and isinstance(value, str)
+    }
 
 
 def _missingness(observation: Mapping[str, Any], field: str) -> str | None:
