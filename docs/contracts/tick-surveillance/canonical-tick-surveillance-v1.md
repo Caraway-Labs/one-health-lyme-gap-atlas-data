@@ -1,6 +1,7 @@
 # Canonical tick-surveillance observation contract v1
 
-Status: Proposed for steward review; v1.2 governed normalization extension prepared by Story #386
+Status: Implemented through v1.2 and governed-DEV validated for the documented
+source scopes; formal contract-steward approval remains pending
 Owner: Atlas data stewardship and engineering
 Schema: `canonical-tick-surveillance-v1.schema.json`
 Method versions: `tick-surveillance-v1` (legacy county status),
@@ -16,12 +17,20 @@ pretending that unlike methods are equivalent. It does not define a
 human-disease risk score, infer tick or pathogen absence from missing
 surveillance, or authorize any source for ingestion.
 
-The first evidence candidate is the CDC county-status workbook for *Ixodes
-scapularis* and *Ixodes pacificus*. That workbook supplies cumulative county
-status only. It does not supply sampling effort, life stage, abundance, or
-pathogen testing. Those optional fields exist so later, separately reviewed
-active-surveillance sources can be represented without changing the core
-provenance contract.
+Two source paths are implemented today, with different evidence and release
+boundaries:
+
+| Implemented path | Current scope and state | What it does not establish |
+| --- | --- | --- |
+| CDC ArboNET county status | Restricted county-native status inputs and their separately governed semantic-release path. The workbooks supply cumulative reported statuses only. | Sampling effort, life stage, collection/test counts, prevalence, absence, or individual risk. Restricted raw evidence remains private. |
+| NSF NEON active surveillance | `DP1.10093.001` and `DP1.10092.001`, frozen `RELEASE-2026`, governed DEV integration limited to `BLAN` / `2016-05` (#162). The adapter persisted 171 canonical records through `PUBLISH_STAGE` with Tier-B state `STAGED`. | Production/public publication, a broader NEON acquisition, county-wide surveillance, analytical comparability, calibrated quality/uncertainty, or a risk conclusion. |
+
+The CDC path is county-native; the NEON path is site/event-native. Neither
+path makes the contract itself formally approved, nor does implementation
+authorize another source. Earlier text describing a future active-surveillance
+adapter is historical: the NEON adapter is now implemented for the frozen
+governed-DEV scope above. Its source qualification and implementation evidence
+remain the boundary for any future release or scope.
 
 ## Required fields
 
@@ -39,6 +48,15 @@ types add their own requirements:
 - `COLLECTION_ABUNDANCE` requires the reported tick count. Normalized abundance
   remains optional unless effort and unit evidence support it.
 - `PATHOGEN_TESTING` requires pathogen, ticks tested, and ticks positive.
+
+For `PATHOGEN_TESTING`, `ticks_tested` and `ticks_positive` are testing
+denominators/numerators from the same eligible source-native stratum, and
+`ticks_positive` cannot exceed `ticks_tested`. A zero tested count has no
+prevalence. NEON's selected scope is individual-tick testing: one eligible,
+nonblank test-result record contributes one tested denominator for its
+pathogen/stratum; collection counts must never be substituted for it. Pooled
+testing requires a future reviewed contract extension before it can be
+represented as individual prevalence.
 
 `county_fips` remains required for the existing county-native
 `VECTOR_PRESENCE_STATUS` and `PATHOGEN_PRESENCE_STATUS` mappings. It is not a
@@ -112,6 +130,13 @@ are `PRESENT`, `NULL`, `UNKNOWN`, `SUPPRESSED`, `NOT_REPORTED`, and
 not evidence that ticks or pathogens are absent. Zero collected ticks is numeric
 evidence only when the source documents a completed collection effort.
 
+For NEON, a nonblank `totalSampledArea` is retained as source-reported effort
+in square metres. The adapter does not derive `abundance_value`; the registry's
+one-way unit conversion is usable only when a documented denominator supports
+the requested conversion. `samplingImpractical` is a quality/missingness
+condition, not a zero collection. Null, unknown, suppressed, and not-reported
+remain distinct from both numeric zero and source-reported `NO_RECORDS`.
+
 ## Governed vocabulary and normalization extension (v1.2)
 
 Story #386 adds the machine-readable
@@ -183,6 +208,38 @@ requires separately reviewed methodology and remains outside this contract.
   conversion denominator guards, source-value retention, and replay using the
   pinned registry version. Its comparability tests must demonstrate that equal
   vocabulary labels do not authorize analytical pooling.
+
+## Implemented provenance chain and current boundary
+
+Each canonical observation is traceable through its `source_dataset_id`, frozen
+`data_source_version_id`, `source_record_id`, `ingestion_run_id`, immutable
+`artifact_id`, `retrieved_at`, and `method_version`. The NEON adapter adds
+source-native site/event/sample/subsample/testing identifiers to deterministic
+identity; it retains the package manifest and every package member as separate
+immutable artifacts. Their durable provenance uses the stable manifest route,
+not a temporary signed download URL.
+
+For harmonized values, the `normalization` envelope records the registry ID and
+pinned version, exact mapping-rule IDs, source-reported values, canonical
+values where approved, and source context. `quality_flags` carries implemented
+technical validation/quality context. `PUBLISH_STAGE`/`STAGED` records the
+governed DEV publication state for the #162 scope; it is not a PROD or public
+release state.
+
+The QA table is retained as supporting provenance: `tck_pathogenqa.batchID`
+is a many-row grouping and `uid` validates QA-row identity. It is deliberately
+not projected through a row-multiplying join into pathogen observations. The
+reviewed `HardTick DNA Quality` and `Ixodes pacificus` pathogen-table values
+are likewise source-traceable supporting assays with governed dispositions;
+they create no pathogen observation and enter neither pathogen numerators nor
+denominators.
+
+This is the implemented tick-surveillance chain, not the broader semantic
+lineage contract owned by #193. The run's validation and QUALITY checks verify
+the documented package/schema, identity, vocabulary, and canonical-output
+boundaries. They are not the analytical quality or uncertainty model owned by
+#157, and do not establish representativeness, method comparability, coverage,
+or confidence.
 
 ## Normalization rules
 
@@ -313,15 +370,20 @@ negative test or individual health result.
 }
 ```
 
-## Promotion gates
+## Source approval and release boundaries
 
-Before any source maps into this contract, a steward must approve its source
-version, terms, geography/time semantics, source-record identity, method mapping,
-and missingness behavior. Source-specific tests must cover identifiers, domains,
-units, duplicate handling, effort denominators, positive/tested reconciliation,
-and provenance. Evidence-only onboarding cannot populate RAW, STAGING,
-CONFORMED, ANALYTICS, or FEATURE_STORE relations. The only current exception is
-the private DEV-only CDC pathogen boundary in ADR 0031: it may retain
-source-faithful restricted RAW/STAGING rows and emits only its approved derived
-county-status CONFORMED projection. It remains unavailable to API, Streamlit,
-and public delivery pending protected parity and Tier C release gates.
+Source selection, source authorization, and formal semantic/public-release
+approval are not inferred from a canonical record. Routine public Tier-B DEV
+sources use deterministic policy, provenance, schema, and technical-quality
+checks under ADR 0027; Tier-D restricted sources retain their human-steward
+and private-evidence boundaries. Tier-C PROD/public publication remains a
+separate protected decision under workspace ADR 0006 and data ADR 0033.
+
+The historical evidence-only CDC tick onboarding rule remains important: it
+cannot populate routine RAW/STAGING/CONFORMED/ANALYTICS/FEATURE_STORE relations.
+The separately approved private CDC pathogen boundary in ADR 0031 is a
+source-specific DEV exception that may retain restricted RAW/STAGING rows and
+its approved derived county-status CONFORMED projection. It does not expose
+restricted rows to the API, Streamlit, or public delivery. The later protected
+CDC production path and final-copy obligation are separate release controls;
+they do not turn NEON's governed-DEV `STAGED` evidence into a public release.
