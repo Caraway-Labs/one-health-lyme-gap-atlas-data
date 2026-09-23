@@ -46,13 +46,20 @@ def _fixture(
     result: str = "positive",
     taxon: str = "Ixodes scapularis",
     pathogen: str = "Borrelia burgdorferi sensu lato",
+    sampled_area: str = "100",
+    collected_count: str = "2",
+    sampling_impractical: str = "false",
 ) -> None:
     files = {
         "field.csv": (  # noqa: E501
-            "siteID,plotID,eventID,sampleID,collectDate,samplingMethod,totalSampledArea,decimalLatitude,decimalLongitude,coordinateUncertainty,samplingImpractical,dataQF\nBLAN,BLAN_001,event-1,sample-1,2016-05-01,drag,100,38,-78.5,10,false,\n"
+            "siteID,plotID,eventID,sampleID,collectDate,samplingMethod,totalSampledArea,decimalLatitude,decimalLongitude,coordinateUncertainty,samplingImpractical,dataQF\nBLAN,BLAN_001,event-1,sample-1,2016-05-01,drag,"
+            + sampled_area
+            + ",38,-78.5,10,"
+            + sampling_impractical
+            + ",\n"
         ),
         "taxonomy.csv": "sampleID,subsampleID,scientificName,sexOrAge,individualCount,dataQF\n"  # noqa: E501
-        "sample-1,sub-1," + taxon + ",nymph,2,\n",
+        "sample-1,sub-1," + taxon + ",nymph," + collected_count + ",\n",
         "pathogen.csv": "subsampleID,testingID,batchID,testedDate,testResult,testPathogenName,individualCount,dataQF\n"  # noqa: E501
         "sub-1,test-1,batch-1,2016-05-02," + result + "," + pathogen + ",1,\n",
         "qa.csv": "batchID,uid,qaStatus\nbatch-1,qa-1,pass\n",
@@ -130,6 +137,60 @@ def test_neon_fixture_harmonizes_individual_test_and_retains_artifact_set(tmp_pa
         for error in Draft202012Validator(schema).iter_errors(row)
     ]
     assert errors == []
+
+
+def test_neon_blank_effort_is_null_with_approved_unknown_missingness(tmp_path: Path) -> None:
+    """Independent v1.2 contract fixture: blank native effort is not zero or absent metadata."""
+    _fixture(tmp_path, sampled_area="")
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+
+    records = NeonReleasePackageAdapter().normalize(definition, acquired.payload).records
+    collection = next(
+        row["record"]["canonical_observation"]
+        for row in records
+        if row["record"]["canonical_observation"]["observation_type"] == "COLLECTION_ABUNDANCE"
+    )
+
+    assert collection["collection_effort_value"] is None
+    assert collection["missingness"] == {"collection_effort_value": "UNKNOWN"}
+
+
+@pytest.mark.parametrize("sampled_area", ["100", "0"])
+def test_neon_reported_effort_is_not_marked_missing(tmp_path: Path, sampled_area: str) -> None:
+    _fixture(tmp_path, sampled_area=sampled_area, collected_count="0")
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+
+    records = NeonReleasePackageAdapter().normalize(definition, acquired.payload).records
+    collection = next(
+        row["record"]["canonical_observation"]
+        for row in records
+        if row["record"]["canonical_observation"]["observation_type"] == "COLLECTION_ABUNDANCE"
+    )
+
+    assert collection["collection_effort_value"] == float(sampled_area)
+    assert collection["ticks_collected"] == 0
+    assert "missingness" not in collection
+
+
+def test_neon_impractical_collection_preserves_quality_flag_and_unknown_effort(
+    tmp_path: Path,
+) -> None:
+    _fixture(tmp_path, sampled_area="", sampling_impractical="true")
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+
+    records = NeonReleasePackageAdapter().normalize(definition, acquired.payload).records
+    collection = next(
+        row["record"]["canonical_observation"]
+        for row in records
+        if row["record"]["canonical_observation"]["observation_type"] == "COLLECTION_ABUNDANCE"
+    )
+
+    assert collection["collection_effort_value"] is None
+    assert collection["missingness"] == {"collection_effort_value": "UNKNOWN"}
+    assert collection["quality_flags"][0]["canonical_id"] == "SAMPLING_IMPRACTICAL"
 
 
 def test_neon_quality_rules_apply_to_canonical_records_after_native_validation(
@@ -292,3 +353,16 @@ def test_neon_qa_batch_grouping_is_retained_without_a_canonical_join(tmp_path: P
 
     assert len(records) == 2
     assert records[1]["record"]["source_quality_context"] == {}
+
+
+def test_neon_duplicate_qa_uid_fails_closed(tmp_path: Path) -> None:
+    _fixture(tmp_path)
+    (tmp_path / "qa.csv").write_text(
+        "batchID,uid,qaStatus\nbatch-1,qa-1,pass\nbatch-1,qa-1,pass\n",
+        encoding="utf-8",
+    )
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="duplicate or blank uid"):
+        NeonReleasePackageAdapter().normalize(definition, acquired.payload)

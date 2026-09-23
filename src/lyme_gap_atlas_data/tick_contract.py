@@ -13,6 +13,36 @@ from collections.abc import Mapping
 from typing import Any
 
 
+def validate_canonical_observation(observation: Mapping[str, Any]) -> None:
+    """Fail closed on reviewed cross-field canonical invariants.
+
+    Structural requirements remain in the JSON Schema. This boundary holds only
+    reviewed behavioral rules which standard JSON Schema cannot express.
+    """
+    if observation.get("observation_type") != "PATHOGEN_TESTING":
+        return
+
+    ticks_tested = observation.get("ticks_tested")
+    ticks_positive = observation.get("ticks_positive")
+    prevalence = observation.get("prevalence")
+    if (
+        isinstance(prevalence, (int, float))
+        and not isinstance(prevalence, bool)
+        and (
+            not isinstance(ticks_tested, int) or isinstance(ticks_tested, bool) or ticks_tested <= 0
+        )
+    ):
+        raise ValueError("canonical PATHOGEN_TESTING prevalence requires a positive ticks_tested")
+    if (
+        isinstance(ticks_tested, int)
+        and not isinstance(ticks_tested, bool)
+        and isinstance(ticks_positive, int)
+        and not isinstance(ticks_positive, bool)
+        and ticks_positive > ticks_tested
+    ):
+        raise ValueError("canonical PATHOGEN_TESTING ticks_positive cannot exceed ticks_tested")
+
+
 def canonical_observation_id(
     *,
     source_dataset_id: str,

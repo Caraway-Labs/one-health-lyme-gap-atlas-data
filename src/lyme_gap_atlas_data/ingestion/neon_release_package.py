@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from ..tick_contract import canonical_observation_id
+from ..tick_contract import canonical_observation_id, validate_canonical_observation
 from ..tick_normalization import load_registry, normalize_value
 from .adapters import AcquireResult, AcquisitionArtifact, AcquisitionError, NormalizeResult
 from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIssue, ValidationResult
@@ -323,6 +323,11 @@ def _collection_record(
             "normalization": _envelope(taxon_map, stage_map, method_map),
         }
     )
+    if record["collection_effort_value"] is None:
+        # RELEASE-2026 documents the field but not its blank-value convention.
+        # The approved #163 interpretation therefore retains the null and marks
+        # its source meaning as UNKNOWN rather than inventing zero or a stronger state.
+        record["missingness"] = {"collection_effort_value": "UNKNOWN"}
     return {
         "record": {"source_record_id": record["source_record_id"], "canonical_observation": record}
     }
@@ -353,6 +358,7 @@ def _testing_record(
             "normalization": _envelope(taxon_map, pathogen_map, result_map),
         }
     )
+    validate_canonical_observation(record)
     return {
         "record": {
             "source_record_id": record["source_record_id"],
