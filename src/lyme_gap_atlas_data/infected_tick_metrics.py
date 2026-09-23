@@ -410,7 +410,10 @@ def calculate_infected_tick_metric(
         "input_canonical_observation_ids": ids,
         "source_lineage": [
             {key: item.get(key) for key in _REQUIRED_LINEAGE}
-            | {"normalization": item.get("normalization")}
+            | {
+                "normalization": item.get("normalization"),
+                "source_testing_id": _part(item, "sampling_event", "source_testing_id"),
+            }
             for item in ordered
         ],
         "presentation_conversion": presentation_conversion,
