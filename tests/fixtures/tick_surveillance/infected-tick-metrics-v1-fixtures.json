@@ -1,0 +1,21 @@
+[
+  {"case":"valid-positive-prevalence","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":2,"tested":5,"same_stratum":true,"individual_testing":true},"expected":{"state":"NUMERIC","value":0.4}},
+  {"case":"valid-zero-positive-prevalence","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":0,"tested":5,"same_stratum":true,"individual_testing":true},"expected":{"state":"NUMERIC","value":0.0}},
+  {"case":"zero-tested","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":0,"tested":0},"expected":{"state":"UNAVAILABLE","reason":"ZERO_TESTED_DENOMINATOR"}},
+  {"case":"positive-exceeds-tested","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":3,"tested":2},"expected":{"state":"UNAVAILABLE","reason":"POSITIVE_EXCEEDS_TESTED"}},
+  {"case":"missing-tested-denominator","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":0,"tested":null},"expected":{"state":"UNAVAILABLE","reason":"TESTED_DENOMINATOR_UNAVAILABLE"}},
+  {"case":"pooled-testing","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"testing_grain":"POOLED"},"expected":{"state":"UNAVAILABLE","reason":"POOLED_TESTING_UNSUPPORTED"}},
+  {"case":"mismatched-species-life-stage","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"same_stratum":false},"expected":{"state":"UNAVAILABLE","reason":"INCOMPATIBLE_TAXON_OR_LIFE_STAGE"}},
+  {"case":"mismatched-event-period","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"same_event_and_tested_date":false},"expected":{"state":"UNAVAILABLE","reason":"INCOMPATIBLE_EVENT_OR_PERIOD"}},
+  {"case":"non-random-pathogen-selection","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":1,"tested":2,"selection":"NON_RANDOM"},"expected":{"state":"NUMERIC","value":0.5,"must_retain":["NON_RANDOM_PATHOGEN_TEST_SELECTION"]}},
+  {"case":"valid-collection-density","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"collected":8,"effort_square_metres":4},"expected":{"state":"NUMERIC","value":2.0,"unit":"ticks_per_square_metre"}},
+  {"case":"zero-collection-documented-effort","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"collected":0,"effort_square_metres":4},"expected":{"state":"NUMERIC","value":0.0}},
+  {"case":"missing-unknown-effort","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"collected":8,"effort_square_metres":null},"expected":{"state":"UNAVAILABLE","reason":"EFFORT_UNAVAILABLE"}},
+  {"case":"zero-effort","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"collected":8,"effort_square_metres":0},"expected":{"state":"UNAVAILABLE","reason":"ZERO_EFFORT"}},
+  {"case":"sampling-impractical","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"sampling_impractical":true},"expected":{"state":"UNAVAILABLE","reason":"SAMPLING_IMPRACTICAL"}},
+  {"case":"incompatible-method","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"methods":["DRAG_CLOTH","FLAG_CLOTH"]},"expected":{"state":"UNAVAILABLE","reason":"INCOMPATIBLE_COLLECTION_METHOD"}},
+  {"case":"partial-nonrepresentative-site","metric":"EFFORT_NORMALIZED_COLLECTION_DENSITY","independent_inputs":{"collected":8,"effort_square_metres":4,"county_relationship":"UNMAPPED"},"expected":{"state":"NUMERIC","value":2.0,"must_retain":["UNMAPPED_SITE_GEOGRAPHY","SITE_EVENT_NOT_COUNTY_REPRESENTATIVE"]}},
+  {"case":"source-revision-vintage","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"revised_source_record":true},"expected":{"state":"UNAVAILABLE","reason":"REVISION_SELECTION_NOT_APPROVED"}},
+  {"case":"sparse-sample","metric":"OBSERVED_PATHOGEN_PREVALENCE","independent_inputs":{"positive":1,"tested":1,"same_stratum":true,"individual_testing":true},"expected":{"state":"NUMERIC","value":1.0,"must_retain":["NUMERATOR_AND_DENOMINATOR"]}},
+  {"case":"combined-estimator-deferred","metric":"COMBINED_INFECTED_TICK_ESTIMATOR","independent_inputs":{"collection_and_testing_present":true},"expected":{"state":"UNAVAILABLE","reason":"COMBINED_ESTIMATOR_DEFERRED"}}
+]

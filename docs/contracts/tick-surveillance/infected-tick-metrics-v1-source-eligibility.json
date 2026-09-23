@@ -1,0 +1,42 @@
+{
+  "contract_id": "infected-tick-metrics-v1-source-eligibility",
+  "methodology_version": "infected-tick-metrics-v1",
+  "source_scope": {
+    "publisher": "NSF NEON",
+    "datasets": ["DP1.10093.001", "DP1.10092.001"],
+    "source_version": "RELEASE-2026",
+    "native_grain": "SITE_EVENT",
+    "county_representativeness": "NOT_COUNTY_REPRESENTATIVE"
+  },
+  "metrics": {
+    "OBSERVED_PATHOGEN_PREVALENCE": {
+      "disposition": "APPROVED",
+      "eligible_observation_types": ["PATHOGEN_TESTING"],
+      "required_fields": ["ticks_tested", "ticks_positive", "tick_species", "life_stage", "pathogen_name", "sampling_site", "sampling_event", "surveillance_period_start", "source_record_id"],
+      "required_normalized_fields": ["tick_taxon", "life_stage", "pathogen_target", "test_result"],
+      "required_result_grain": "INDIVIDUAL",
+      "excluded": ["VECTOR_PRESENCE_STATUS", "PATHOGEN_PRESENCE_STATUS", "COLLECTION_ABUNDANCE", "NON_PATHOGEN_SUPPORTING_ASSAY", "POOLED_TESTING"]
+    },
+    "EFFORT_NORMALIZED_COLLECTION_DENSITY": {
+      "disposition": "APPROVED",
+      "eligible_observation_types": ["COLLECTION_ABUNDANCE"],
+      "required_fields": ["ticks_collected", "collection_effort_value", "collection_effort_unit", "tick_species", "life_stage", "collection_method", "sampling_site", "sampling_event", "surveillance_period_start", "source_record_id"],
+      "required_normalized_fields": ["tick_taxon", "life_stage", "collection_method", "effort_unit"],
+      "required_effort_unit": "SQUARE_METRE",
+      "excluded": ["VECTOR_PRESENCE_STATUS", "PATHOGEN_PRESENCE_STATUS", "PATHOGEN_TESTING", "NON_PATHOGEN_SUPPORTING_ASSAY"]
+    },
+    "COMBINED_INFECTED_TICK_ESTIMATOR": {
+      "disposition": "DEFERRED",
+      "eligible_observation_types": [],
+      "excluded": ["ALL_CANONICAL_SHAPES"],
+      "reason": "No reviewed collection-to-testing population linkage or testing-selection-design compatibility rule."
+    }
+  },
+  "canonical_shape_matrix": [
+    {"canonical_shape": "VECTOR_PRESENCE_STATUS", "prevalence": "INELIGIBLE", "density": "INELIGIBLE", "reason": "Status has no individual-test or documented-effort denominator."},
+    {"canonical_shape": "PATHOGEN_PRESENCE_STATUS", "prevalence": "INELIGIBLE", "density": "INELIGIBLE", "reason": "Cumulative reported status is not pathogen testing or biological absence."},
+    {"canonical_shape": "COLLECTION_ABUNDANCE", "prevalence": "INELIGIBLE", "density": "CONDITIONALLY_ELIGIBLE", "reason": "Density requires positive documented compatible effort; collection count is never a testing denominator."},
+    {"canonical_shape": "PATHOGEN_TESTING", "prevalence": "CONDITIONALLY_ELIGIBLE", "density": "INELIGIBLE", "reason": "Prevalence requires eligible individual testing with a resolved compatible life stage; testing does not supply collection effort."},
+    {"canonical_shape": "NON_PATHOGEN_SUPPORTING_ASSAY", "prevalence": "INELIGIBLE", "density": "INELIGIBLE", "reason": "Retained provenance only; it is not a pathogen target or collection result."}
+  ]
+}
