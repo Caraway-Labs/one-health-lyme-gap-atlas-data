@@ -139,6 +139,13 @@ as `UNKNOWN`, while a reviewed-but-not-representable target is `UNSUPPORTED`;
 both retain the original source value and have null canonical values. No value
 may be silently guessed, coerced, dropped, or treated as a negative result.
 
+A reviewed `UNSUPPORTED` mapping may also carry a machine-readable
+`disposition` when the source value is a retained non-pathogen assay rather
+than an unrepresentable pathogen target. Such a value remains traceable with
+its source-row and assay provenance, but must not produce a canonical
+pathogen-testing observation or enter pathogen prevalence numerators or
+denominators.
+
 `samplingImpractical=true` maps to `SAMPLING_IMPRACTICAL`. The documented
 `dataQF` codes `legacyData`, `ID lab count subsample of total field larvae`,
 and `field/ID lab larva/nymph/adult count higher than field/ID lab (PDE >25%)`
