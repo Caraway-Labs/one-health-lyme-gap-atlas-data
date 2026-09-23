@@ -30,6 +30,8 @@ _PLATFORM_TO_ADAPTER: dict[str, AdapterKind] = {
     "http_json": AdapterKind.HTTP_JSON,
     "HTTP_CSV": AdapterKind.HTTP_CSV,
     "http_csv": AdapterKind.HTTP_CSV,
+    "NEON_RELEASE_PACKAGE": AdapterKind.NEON_RELEASE_PACKAGE,
+    "neon_release_package": AdapterKind.NEON_RELEASE_PACKAGE,
 }
 
 
@@ -260,6 +262,31 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                 category=FailureCategory.SCHEMA,
             )
         )
+    if definition.adapter_kind is AdapterKind.NEON_RELEASE_PACKAGE:
+        if definition.auth_mode is not AuthMode.NEON_API_TOKEN_ENV:
+            issues.append(
+                ValidationIssue(
+                    code="NEON_AUTH_MODE",
+                    message="neon_release_package requires auth_mode neon_api_token_env",
+                    category=FailureCategory.PERMISSION,
+                )
+            )
+        if not definition.required_columns:
+            issues.append(
+                ValidationIssue(
+                    code="REQUIRED_COLUMNS",
+                    message="neon_release_package must declare frozen required columns",
+                    category=FailureCategory.SCHEMA,
+                )
+            )
+        if definition.extra.get("release") != "RELEASE-2026":
+            issues.append(
+                ValidationIssue(
+                    code="NEON_RELEASE_PIN",
+                    message="neon_release_package is limited to RELEASE-2026",
+                    category=FailureCategory.POLICY_LICENSE,
+                )
+            )
 
     return ValidationResult(ok=not issues, issues=issues)
 

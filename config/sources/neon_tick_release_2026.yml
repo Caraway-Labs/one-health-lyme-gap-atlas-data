@@ -1,0 +1,39 @@
+resource_key: neon_tick_release_2026
+source_id: nsf_neon
+dataset_id: neon-tick-release-2026
+definition_version: 1
+adapter_kind: neon_release_package
+endpoint_template: https://data.neonscience.org/api/v0/data/{product}/{site}/{month}?release={release}
+auth_mode: neon_api_token_env
+deterministic_order_clause: product ASC, site ASC, month ASC, file name ASC
+incremental_strategy: FROZEN_RELEASE_SNAPSHOT
+geography_semantics: SITE_EVENT_PLOT; county relationship is explicitly UNMAPPED and NOT_COUNTY_REPRESENTATIVE
+temporal_semantics: collectDate for collection; testedDate for individual testing
+artifact_policy: PUBLIC_SEVEN_YEAR
+destination: RAW.GOVERNED_SOURCE_RECORDS
+expected_refresh_cadence: frozen RELEASE-2026 only; no floating refresh
+release: RELEASE-2026
+package_scopes:
+  - product: DP1.10093.001
+    site: BLAN
+    month: 2016-05
+  - product: DP1.10092.001
+    site: BLAN
+    month: 2016-05
+required_columns:
+  - siteID
+  - plotID
+  - eventID
+  - sampleID
+  - subsampleID
+  - testingID
+  - testPathogenName
+quality_rules:
+  - rule_id: neon_required_native_rows
+    severity: BLOCKING
+  - rule_id: neon_value_state_preservation
+    severity: BLOCKING
+restrictions:
+  - Frozen to DP1.10093.001 and DP1.10092.001 at RELEASE-2026.
+  - Temporary signed file URLs are never retained as source provenance.
+  - No county aggregation, public metric, risk model, or production publication.

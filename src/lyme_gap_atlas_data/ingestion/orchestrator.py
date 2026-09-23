@@ -179,10 +179,16 @@ class IngestionOrchestrator:
                     else:
                         acquired = adapter.acquire(definition, fixture_dir=self.fixture_dir)
                         payload = acquired.payload
+                        artifact = effects.register_artifact(definition, state, acquired)
+                        if isinstance(payload, dict):
+                            payload["_acquisition_lineage"] = {
+                                "ingestion_run_id": state.ingestion_run_id,
+                                "artifact_id": artifact["artifact_id"],
+                                "retrieved_at": datetime.now(UTC).isoformat(),
+                            }
                         self._payloads[state.ingestion_run_id] = payload
                         if isinstance(self.store, PayloadStore):
                             self.store.save_payload(state.ingestion_run_id, payload)
-                        artifact = effects.register_artifact(definition, state, acquired)
                         checkpoint.artifact_id = str(artifact["artifact_id"])
                         checkpoint.artifact_sha256 = str(artifact["artifact_sha256"])
                         checkpoint.detail = {
