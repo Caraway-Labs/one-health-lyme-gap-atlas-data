@@ -220,7 +220,7 @@ def test_governed_normalization_registry_is_independently_schema_valid() -> None
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(registry)) == []
-    assert registry["registry_version"] == "1.0.1"
+    assert registry["registry_version"] == "1.0.2"
     assert "comparability" in " ".join(registry["scope"]["non_goals"]).lower()
 
 
@@ -237,7 +237,7 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     assert cdc.canonical_label == "Ixodes scapularis"
     assert cdc.as_contract_value()["source_value"] == "Ixodes_scapularis"
     assert cdc.mapping_rule_id == "TAXON_CDC_SCAPULARIS_V1"
-    assert cdc.registry_version == "1.0.1"
+    assert cdc.registry_version == "1.0.2"
 
     aggregate = normalize_value(
         field="tick_taxon",
@@ -248,6 +248,43 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     )
     assert aggregate.canonical_id == "IXODES_SCAPULARIS_OR_PACIFICUS"
     assert aggregate.canonical_id != cdc.canonical_id
+
+
+def test_neon_amblyomma_mapping_is_exact_and_source_context_specific() -> None:
+    context = {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10093.001",
+        "source_version": "RELEASE-2026",
+    }
+    approved = normalize_value(field="tick_taxon", source_value="Amblyomma americanum", **context)
+    altered_case = normalize_value(
+        field="tick_taxon", source_value="Amblyomma Americanum", **context
+    )
+    wrong_context = normalize_value(
+        field="tick_taxon",
+        source_value="Amblyomma americanum",
+        publisher="NSF NEON",
+        dataset_id="DP1.10092.001",
+        source_version="RELEASE-2026",
+    )
+    ixodes = normalize_value(field="tick_taxon", source_value="Ixodes scapularis", **context)
+
+    assert (approved.status, approved.canonical_id, approved.mapping_rule_id) == (
+        "APPROVED",
+        "AMBLYOMMA_AMERICANUM",
+        "TAXON_NEON_AMERICANUM_V1",
+    )
+    assert (altered_case.status, altered_case.canonical_id, altered_case.mapping_rule_id) == (
+        "UNKNOWN",
+        None,
+        None,
+    )
+    assert (wrong_context.status, wrong_context.canonical_id) == ("UNKNOWN", None)
+    assert (ixodes.status, ixodes.canonical_id, ixodes.mapping_rule_id) == (
+        "APPROVED",
+        "IXODES_SCAPULARIS",
+        "TAXON_NEON_SCAPULARIS_V1",
+    )
 
 
 def test_neon_life_stage_mappings_are_exact_and_preserve_approved_casing() -> None:
