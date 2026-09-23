@@ -52,7 +52,7 @@ def main() -> None:
             """SELECT COUNT(*), COUNT_IF(safe_payload:state::VARCHAR='NUMERIC'),
                       COUNT_IF(safe_payload:county_relationship:representativeness::VARCHAR
                                ='NOT_COUNTY_REPRESENTATIVE')
-               FROM ANALYTICS.INFECTED_TICK_DERIVED_RESULTS WHERE result_id=%s""",
+               FROM PRESENTATION.INFECTED_TICK_DERIVED_RESULTS WHERE result_id=%s""",
             (result_id,),
         )
         if tuple(cursor.fetchone()) != (1, 1, 1):
