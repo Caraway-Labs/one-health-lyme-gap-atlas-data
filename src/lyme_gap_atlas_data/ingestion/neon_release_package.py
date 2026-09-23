@@ -25,7 +25,7 @@ from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIss
 
 _RELEASE = "RELEASE-2026"
 _PRODUCTS = {"DP1.10093.001", "DP1.10092.001"}
-_NORMALIZATION_REGISTRY_VERSION = "1.0.2"
+_NORMALIZATION_REGISTRY_VERSION = "1.0.3"
 _TABLES = {
     "DP1.10093.001": (("tck_fielddata", True), ("tck_taxonomyProcessed", True)),
     # NEON publishes the QA table only once, without a basic/expanded edition.
@@ -268,6 +268,7 @@ class NeonReleasePackageAdapter:
         # into the canonical observation.
         _unique_index(tables["tck_pathogenqa"], "uid")
         records: list[dict[str, Any]] = []
+        supporting_assays: list[dict[str, Any]] = []
         for taxon in tables["tck_taxonomyProcessed"]:
             field = _one(fields, taxon.get("sampleID"), "sampleID")
             if field is None:
@@ -280,6 +281,14 @@ class NeonReleasePackageAdapter:
             field = _one(fields, taxon.get("sampleID") if taxon else None, "sampleID")
             if taxon is None or field is None:
                 raise ValueError("NEON pathogen test has no unique native collection join")
+            pathogen_map = _mapping("pathogen_target", test["testPathogenName"], "DP1.10092.001")
+            if pathogen_map.disposition is not None:
+                supporting_assays.append(
+                    _supporting_assay_record(field, taxon, test, lineage, pathogen_map)
+                )
+                continue
+            if pathogen_map.status != "APPROVED":
+                raise ValueError("NEON pathogen_target has unapproved mapping")
             records.append(_testing_record(field, taxon, test, lineage))
         return NormalizeResult(
             records=records,
@@ -287,6 +296,8 @@ class NeonReleasePackageAdapter:
             detail={
                 "canonical_observation_count": len(records),
                 "registry_version": _NORMALIZATION_REGISTRY_VERSION,
+                "supporting_assay_count": len(supporting_assays),
+                "supporting_assays": supporting_assays,
             },
         )
 
@@ -348,6 +359,27 @@ def _testing_record(
             "canonical_observation": record,
             "source_quality_context": {},
         }
+    }
+
+
+def _supporting_assay_record(
+    field: dict[str, str],
+    taxon: dict[str, str],
+    test: dict[str, str],
+    lineage: dict[str, Any],
+    pathogen_map: Any,
+) -> dict[str, Any]:
+    """Retain reviewed non-pathogen assays without producing a pathogen observation."""
+    base = _base(
+        field, {**taxon, **test}, "DP1.10092.001", "PATHOGEN_TESTING", test["testingID"], lineage
+    )
+    return {
+        "source_record_id": base["source_record_id"],
+        "source_value": test["testPathogenName"],
+        "test_result": test["testResult"],
+        "test_protocol_version": test.get("testProtocolVersion") or None,
+        "disposition": pathogen_map.disposition,
+        "normalization": pathogen_map.as_contract_value(),
     }
 
 
@@ -434,16 +466,20 @@ def _base(
 
 
 def _approved(field: str, value: str | bool, product: str) -> Any:
-    result = normalize_value(
+    result = _mapping(field, value, product)
+    if result.status != "APPROVED":
+        raise ValueError(f"NEON {field} has unapproved mapping")
+    return result
+
+
+def _mapping(field: str, value: str | bool, product: str) -> Any:
+    return normalize_value(
         field=field,
         source_value=value,
         publisher="NSF NEON",
         dataset_id=product,
         source_version=_RELEASE,
     )
-    if result.status != "APPROVED":
-        raise ValueError(f"NEON {field} has unapproved mapping")
-    return result
 
 
 def _envelope(*results: Any) -> dict[str, Any]:
