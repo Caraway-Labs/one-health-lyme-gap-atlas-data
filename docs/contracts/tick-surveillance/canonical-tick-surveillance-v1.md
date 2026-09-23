@@ -139,11 +139,14 @@ as `UNKNOWN`, while a reviewed-but-not-representable target is `UNSUPPORTED`;
 both retain the original source value and have null canonical values. No value
 may be silently guessed, coerced, dropped, or treated as a negative result.
 
-`samplingImpractical=true` maps to `SAMPLING_IMPRACTICAL`. A source `dataQF`
-value must be retained verbatim; its code-specific meaning remains `UNKNOWN`
-until #162 captures the frozen RELEASE-2026 variable dictionary and a reviewed
-registry version adds an exact mapping. This avoids pretending that the field
-name alone proves the meaning of any code.
+`samplingImpractical=true` maps to `SAMPLING_IMPRACTICAL`. The documented
+`dataQF` codes `legacyData`, `ID lab count subsample of total field larvae`,
+and `field/ID lab larva/nymph/adult count higher than field/ID lab (PDE >25%)`
+have separate canonical IDs. A different source `dataQF` value must be retained
+verbatim and remains `UNKNOWN` until #162 captures the frozen RELEASE-2026
+variable dictionary and a reviewed registry version adds an exact mapping.
+This avoids pretending that the field name alone proves the meaning of any
+code.
 
 The registry defines `SQUARE_METRE -> HECTARE` for effort and
 `TICKS_PER_SQUARE_METRE -> TICKS_PER_HECTARE` for abundance as exact,

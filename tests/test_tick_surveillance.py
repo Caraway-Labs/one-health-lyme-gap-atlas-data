@@ -250,7 +250,7 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     assert aggregate.canonical_id != cdc.canonical_id
 
 
-def test_governed_normalization_fails_closed_for_unknown_and_unsupported_values() -> None:
+def test_governed_normalization_fails_closed_for_unknown_taxa_and_pathogens() -> None:
     unknown = normalize_value(
         field="tick_taxon",
         source_value="Ixodes inventedus",
@@ -263,16 +263,25 @@ def test_governed_normalization_fails_closed_for_unknown_and_unsupported_values(
         None,
         None,
     )
-    unsupported = normalize_value(
+    pathogen = normalize_value(
         field="pathogen_target",
-        source_value="Borrelia burgdorferi sensu lato",
+        source_value="Borrelia_mayonii",
+        publisher="CDC ArboNET Tick Module",
+        dataset_id="cdc-ixodes-pathogen-status-2025",
+        source_version="2025",
+    )
+    assert pathogen.status == "APPROVED"
+    assert pathogen.canonical_id == "BORRELIA_MAYONII"
+    assert pathogen.mapping_rule_id == "PATHOGEN_CDC_BMAYONII_V1"
+
+    unknown_pathogen = normalize_value(
+        field="pathogen_target",
+        source_value="Unknown pathogen target",
         publisher="NSF NEON",
         dataset_id="DP1.10092.001",
         source_version="RELEASE-2026",
     )
-    assert unsupported.status == "UNSUPPORTED"
-    assert unsupported.canonical_id is None
-    assert unsupported.mapping_rule_id == "PATHOGEN_NEON_BBURG_SL_V1"
+    assert (unknown_pathogen.status, unknown_pathogen.canonical_id) == ("UNKNOWN", None)
 
 
 def test_method_vocabulary_normalizes_lexically_without_comparability_decision() -> None:
@@ -293,6 +302,19 @@ def test_method_vocabulary_normalizes_lexically_without_comparability_decision()
     assert (drag.canonical_id, flag.canonical_id) == ("DRAG_CLOTH", "FLAG_CLOTH")
     assert drag.canonical_id != flag.canonical_id
     assert "comparability" not in drag.as_contract_value()
+
+
+def test_neon_quality_flag_mapping_preserves_the_documented_source_code() -> None:
+    quality = normalize_value(
+        field="quality_flag",
+        source_value="legacyData",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    assert quality.status == "APPROVED"
+    assert quality.canonical_id == "LEGACY_DATA"
+    assert quality.as_contract_value()["source_value"] == "legacyData"
 
 
 def test_supported_conversions_require_a_documented_denominator_when_needed() -> None:
