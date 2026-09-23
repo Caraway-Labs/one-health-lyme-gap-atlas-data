@@ -25,7 +25,7 @@ from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIss
 
 _RELEASE = "RELEASE-2026"
 _PRODUCTS = {"DP1.10093.001", "DP1.10092.001"}
-_NORMALIZATION_REGISTRY_VERSION = "1.0.3"
+_NORMALIZATION_REGISTRY_VERSION = "1.0.4"
 _TABLES = {
     "DP1.10093.001": (("tck_fielddata", True), ("tck_taxonomyProcessed", True)),
     # NEON publishes the QA table only once, without a basic/expanded edition.

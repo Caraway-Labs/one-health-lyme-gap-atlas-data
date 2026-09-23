@@ -113,7 +113,7 @@ def test_neon_fixture_harmonizes_individual_test_and_retains_artifact_set(tmp_pa
     assert collection["ticks_collected"] == 2
     assert "normalized_abundance" not in collection
     assert testing["ticks_tested"] == 1 and testing["ticks_positive"] == 1
-    assert detail["registry_version"] == "1.0.3"
+    assert detail["registry_version"] == "1.0.4"
     schema = json.loads(
         (
             ROOT
@@ -164,7 +164,7 @@ def test_neon_non_pathogen_assays_are_traceable_without_pathogen_observations(
     ] == ["COLLECTION_ABUNDANCE"]
     assert normalized.detail == {
         "canonical_observation_count": 1,
-        "registry_version": "1.0.3",
+        "registry_version": "1.0.4",
         "supporting_assay_count": 1,
         "supporting_assays": [
             {
@@ -186,7 +186,7 @@ def test_neon_non_pathogen_assays_are_traceable_without_pathogen_observations(
                         else "ASSAY_NEON_IXODES_PACIFICUS_IDENTIFICATION_V1"
                     ),
                     "registry_id": "tick-surveillance-normalization-v1",
-                    "registry_version": "1.0.3",
+                    "registry_version": "1.0.4",
                     "source_context": {
                         "publisher": "NSF NEON",
                         "dataset_id": "DP1.10092.001",
@@ -207,7 +207,7 @@ def test_neon_normalization_pins_registry_version(
     definition = load_source_definition(DEFINITION)
     acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
     monkeypatch.setattr(
-        neon_release_package, "load_registry", lambda: {"registry_version": "1.0.4"}
+        neon_release_package, "load_registry", lambda: {"registry_version": "1.0.5"}
     )
 
     with pytest.raises(ValueError, match="registry version is not pinned"):
