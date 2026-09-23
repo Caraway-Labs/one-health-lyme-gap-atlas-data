@@ -9,7 +9,7 @@ from typing import Any
 
 from .infected_tick_results import serialize_infected_tick_result
 
-_TABLE = "ANALYTICS.INFECTED_TICK_DERIVED_RESULTS"
+_TABLE = "PRESENTATION.INFECTED_TICK_DERIVED_RESULTS"
 
 
 def stage_infected_tick_result(

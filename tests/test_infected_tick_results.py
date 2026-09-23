@@ -16,7 +16,12 @@ from lyme_gap_atlas_data.infected_tick_metrics import (
 )
 from lyme_gap_atlas_data.infected_tick_result_store import stage_infected_tick_result
 from lyme_gap_atlas_data.infected_tick_results import serialize_infected_tick_result
-from lyme_gap_atlas_data.migrations import DEV_DATABASE, PROD_DATABASE, migration_plan
+from lyme_gap_atlas_data.migrations import (
+    DEV_DATABASE,
+    PROD_DATABASE,
+    load_migrations,
+    migration_plan,
+)
 
 
 def _document(metric: str, observation: dict | None = None) -> dict:
@@ -203,6 +208,10 @@ def test_immutable_store_duplicate_and_revision_behavior() -> None:
 def test_dev_migration_is_not_in_prod_plan() -> None:
     assert "V100" in {item["version"] for item in migration_plan(DEV_DATABASE)}
     assert "V100" not in {item["version"] for item in migration_plan(PROD_DATABASE)}
+    migration = next(item for item in load_migrations() if item.version == "V100")
+    assert "PRESENTATION.INFECTED_TICK_DERIVED_RESULTS" in migration.source
+    assert "PRESENTATION.SEMANTIC_OBSERVATIONS" not in migration.source
+    assert "OH_LYME_DEV_API_RUNTIME" not in migration.source
 
 
 def test_committed_dev_fixture_is_synthetic_and_calculable() -> None:

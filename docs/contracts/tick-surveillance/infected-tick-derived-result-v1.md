@@ -17,7 +17,7 @@ It does not model arbitrary native strata, the #165 component profile, #166
 limitations, or distinct unavailable reasons for this metric envelope.
 
 Story #169 therefore adds one focused, DEV-only
-`ANALYTICS.INFECTED_TICK_DERIVED_RESULTS` table for immutable, consumer-safe
+`PRESENTATION.INFECTED_TICK_DERIVED_RESULTS` table for immutable, consumer-safe
 derived results. It is not a generalized semantic observation table or an
 indicator registry. The table has no current-release pointer and no API or web
 read grant. `#190`–`#194` own broader ontology, metadata, cross-domain mapping,
