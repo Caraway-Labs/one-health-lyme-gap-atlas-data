@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -210,6 +211,78 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert "NO_RECORDS" in contract
     assert "not evidence that ticks or pathogens are absent" in contract
     assert "NOT_COUNTY_REPRESENTATIVE" in contract
+
+
+def test_tick_surveillance_documentation_is_current_and_examples_validate() -> None:
+    contract_path = Path("docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.md")
+    matrix_path = Path("docs/delivery/neon-release-2026-source-to-canonical-field-matrix.md")
+    schema_path = Path(
+        "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+    )
+    registry_path = Path("docs/contracts/tick-surveillance/tick-surveillance-normalization-v1.json")
+    contract = contract_path.read_text(encoding="utf-8")
+    matrix = matrix_path.read_text(encoding="utf-8")
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+
+    assert "Proposed for steward review" not in contract
+    assert "formal contract-steward approval remains pending" in contract
+    assert "governed-DEV validated" in contract
+    assert "#162" in contract and "#157" in contract and "#193" in contract
+    assert "Tier-B state `STAGED`" in contract
+    assert "tick-surveillance-normalization-v1" in contract
+    assert registry["registry_version"] == "1.0.4"
+    assert "version `1.0.4`" in matrix
+    for local_reference in (
+        "canonical-tick-surveillance-v1.schema.json",
+        "tick-surveillance-normalization-v1.json",
+        "tick-surveillance-normalization-v1.schema.json",
+    ):
+        assert (contract_path.parent / local_reference).is_file()
+
+    examples = re.findall(r"```json\s*\n(.*?)```", contract, flags=re.DOTALL)
+    assert len(examples) == 3
+    validator = Draft202012Validator(schema)
+    for example in examples:
+        assert list(validator.iter_errors(json.loads(example))) == []
+
+
+def test_neon_field_matrix_matches_implemented_adapter_boundary() -> None:
+    matrix = Path("docs/delivery/neon-release-2026-source-to-canonical-field-matrix.md").read_text(
+        encoding="utf-8"
+    )
+    adapter = Path("src/lyme_gap_atlas_data/ingestion/neon_release_package.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '_NORMALIZATION_REGISTRY_VERSION = "1.0.4"' in adapter
+    for source_field in (
+        "siteID",
+        "plotID",
+        "eventID",
+        "sampleID",
+        "subsampleID",
+        "testingID",
+        "batchID",
+        "collectDate",
+        "testedDate",
+        "samplingMethod",
+        "totalSampledArea",
+        "samplingImpractical",
+        "scientificName",
+        "sexOrAge",
+        "testPathogenName",
+        "testResult",
+    ):
+        assert source_field in adapter
+        assert f"`{source_field}`" in matrix
+    assert "many-row grouping" in adapter
+    assert "must not multiply test records" in matrix
+    assert "HardTick DNA Quality" in matrix
+    assert "Ixodes pacificus" in matrix
+    assert "NOT_COUNTY_REPRESENTATIVE" in matrix
+    assert "No collection count is used as a test denominator" not in matrix
+    assert "collection count is never a testing denominator" in matrix
 
 
 def test_governed_normalization_registry_is_independently_schema_valid() -> None:
