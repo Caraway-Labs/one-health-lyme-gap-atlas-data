@@ -6,6 +6,11 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from lyme_gap_atlas_data.infected_tick_metrics import (
+    DENSITY,
+    PREVALENCE,
+    calculate_infected_tick_metric,
+)
 from lyme_gap_atlas_data.ingestion import neon_release_package
 from lyme_gap_atlas_data.ingestion.neon_release_package import (
     NeonReleasePackageAdapter,
@@ -120,6 +125,32 @@ def test_neon_fixture_harmonizes_individual_test_and_retains_artifact_set(tmp_pa
     assert collection["county_relationship"]["representativeness"] == "NOT_COUNTY_REPRESENTATIVE"
     assert collection["ticks_collected"] == 2
     assert "normalized_abundance" not in collection
+    mappings = collection["normalization"]["mappings"]
+    assert {mapping["mapping_rule_id"] for mapping in mappings.values()} == {
+        "TAXON_NEON_SCAPULARIS_V1",
+        "LIFE_STAGE_NEON_NYMPH_V1",
+        "METHOD_NEON_DRAG_V1",
+        "EFFORT_NEON_SQUARE_METRE_V1",
+    }
+    effort_unit = next(
+        mapping
+        for mapping in mappings.values()
+        if mapping["mapping_rule_id"] == "EFFORT_NEON_SQUARE_METRE_V1"
+    )
+    assert effort_unit["source_value"] == "m2"
+    assert effort_unit["canonical_id"] == "SQUARE_METRE"
+    assert effort_unit["canonical_label"] == collection["collection_effort_unit"] == "square metre"
+    assert effort_unit["registry_id"] == "tick-surveillance-normalization-v1"
+    assert effort_unit["registry_version"] == "1.0.4"
+    assert effort_unit["source_context"] == {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10093.001",
+        "source_version": "RELEASE-2026",
+    }
+    assert calculate_infected_tick_metric(DENSITY, [collection])["value"] == 0.02
+    unavailable_testing = calculate_infected_tick_metric(PREVALENCE, [testing])
+    assert unavailable_testing["state"] == "UNAVAILABLE"
+    assert "UNRESOLVED_LIFE_STAGE" in unavailable_testing["unavailable_reasons"]
     assert testing["ticks_tested"] == 1 and testing["ticks_positive"] == 1
     assert detail["registry_version"] == "1.0.4"
     schema = json.loads(
@@ -154,6 +185,11 @@ def test_neon_blank_effort_is_null_with_approved_unknown_missingness(tmp_path: P
 
     assert collection["collection_effort_value"] is None
     assert collection["missingness"] == {"collection_effort_value": "UNKNOWN"}
+    assert any(
+        mapping["mapping_rule_id"] == "EFFORT_NEON_SQUARE_METRE_V1"
+        for mapping in collection["normalization"]["mappings"].values()
+    )
+    assert calculate_infected_tick_metric(DENSITY, [collection])["state"] == "UNAVAILABLE"
 
 
 @pytest.mark.parametrize("sampled_area", ["100", "0"])
@@ -172,6 +208,12 @@ def test_neon_reported_effort_is_not_marked_missing(tmp_path: Path, sampled_area
     assert collection["collection_effort_value"] == float(sampled_area)
     assert collection["ticks_collected"] == 0
     assert "missingness" not in collection
+    result = calculate_infected_tick_metric(DENSITY, [collection])
+    assert result["state"] == ("NUMERIC" if sampled_area == "100" else "UNAVAILABLE")
+    if sampled_area == "100":
+        assert result["value"] == 0.0
+    else:
+        assert "ZERO_EFFORT" in result["unavailable_reasons"]
 
 
 def test_neon_impractical_collection_preserves_quality_flag_and_unknown_effort(
@@ -191,6 +233,9 @@ def test_neon_impractical_collection_preserves_quality_flag_and_unknown_effort(
     assert collection["collection_effort_value"] is None
     assert collection["missingness"] == {"collection_effort_value": "UNKNOWN"}
     assert collection["quality_flags"][0]["canonical_id"] == "SAMPLING_IMPRACTICAL"
+    result = calculate_infected_tick_metric(DENSITY, [collection])
+    assert result["state"] == "UNAVAILABLE"
+    assert "SAMPLING_IMPRACTICAL" in result["unavailable_reasons"]
 
 
 def test_neon_quality_rules_apply_to_canonical_records_after_native_validation(

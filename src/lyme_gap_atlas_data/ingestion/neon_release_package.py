@@ -308,6 +308,7 @@ def _collection_record(
     taxon_map = _approved("tick_taxon", taxon["scientificName"], "DP1.10093.001")
     stage_map = _approved("life_stage", taxon["sexOrAge"], "DP1.10093.001")
     method_map = _approved("collection_method", field["samplingMethod"], "DP1.10093.001")
+    effort_unit_map = _approved("effort_unit", "m2", "DP1.10093.001")
     record = _base(field, taxon, "DP1.10093.001", "COLLECTION_ABUNDANCE", None, lineage)
     record.update(
         {
@@ -320,7 +321,7 @@ def _collection_record(
             "collection_effort_value": _number_or_none(field.get("totalSampledArea")),
             "collection_effort_unit": "square metre",
             "quality_flags": _quality_flags(field, taxon),
-            "normalization": _envelope(taxon_map, stage_map, method_map),
+            "normalization": _envelope(taxon_map, stage_map, method_map, effort_unit_map),
         }
     )
     if record["collection_effort_value"] is None:
