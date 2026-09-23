@@ -1,7 +1,7 @@
 {
   "$schema": "./tick-surveillance-normalization-v1.schema.json",
   "registry_id": "tick-surveillance-normalization-v1",
-  "registry_version": "1.0.1",
+  "registry_version": "1.0.2",
   "status": "APPROVED",
   "scope": {
     "approved_sources": [
@@ -17,7 +17,7 @@
     ]
   },
   "canonical_values": {
-    "tick_taxon": [{"id": "IXODES_SCAPULARIS", "label": "Ixodes scapularis"}, {"id": "IXODES_PACIFICUS", "label": "Ixodes pacificus"}, {"id": "IXODES_SCAPULARIS_OR_PACIFICUS", "label": "Ixodes scapularis or Ixodes pacificus", "aggregate": true}],
+    "tick_taxon": [{"id": "IXODES_SCAPULARIS", "label": "Ixodes scapularis"}, {"id": "IXODES_PACIFICUS", "label": "Ixodes pacificus"}, {"id": "IXODES_SCAPULARIS_OR_PACIFICUS", "label": "Ixodes scapularis or Ixodes pacificus", "aggregate": true}, {"id": "AMBLYOMMA_AMERICANUM", "label": "Amblyomma americanum"}],
     "life_stage": [{"id": "LARVA", "label": "Larva"}, {"id": "NYMPH", "label": "Nymph"}, {"id": "ADULT", "label": "Adult"}, {"id": "MIXED", "label": "Mixed life stage", "aggregate": true}, {"id": "NOT_REPORTED", "label": "Not reported"}],
     "pathogen_target": [{"id": "BORRELIA_BURGDORFERI_SENSU_STRICTO", "label": "Borrelia burgdorferi sensu stricto"}, {"id": "BORRELIA_BURGDORFERI_SENSU_LATO", "label": "Borrelia burgdorferi sensu lato"}, {"id": "BORRELIA_MAYONII", "label": "Borrelia mayonii"}, {"id": "BORRELIA_MIYAMOTOI", "label": "Borrelia miyamotoi"}, {"id": "BORRELIA_LONESTARI", "label": "Borrelia lonestari"}, {"id": "ANAPLASMA_PHAGOCYTOPHILUM", "label": "Anaplasma phagocytophilum"}, {"id": "EHRLICHIA_MURIS_EAUCLAIRENSIS", "label": "Ehrlichia muris eauclairensis"}, {"id": "EHRLICHIA_MURIS_LIKE_AGENT", "label": "Ehrlichia muris-like agent"}, {"id": "EHRLICHIA_CHAFFEENSIS", "label": "Ehrlichia chaffeensis"}, {"id": "EHRLICHIA_EWINGII", "label": "Ehrlichia ewingii"}, {"id": "BABESIA_MICROTI", "label": "Babesia microti"}, {"id": "FRANCISELLA_TULARENSIS", "label": "Francisella tularensis"}, {"id": "RICKETTSIA_RICKETTSII", "label": "Rickettsia rickettsii"}, {"id": "POWASSAN_VIRUS", "label": "Powassan virus"}],
     "collection_method": [{"id": "DRAG_CLOTH", "label": "Drag cloth"}, {"id": "FLAG_CLOTH", "label": "Flag cloth"}],
@@ -31,6 +31,7 @@
     {"rule_id": "TAXON_CDC_PACIFICUS_V1", "field": "tick_taxon", "source_value": "Ixodes_pacificus", "canonical_id": "IXODES_PACIFICUS", "canonical_label": "Ixodes pacificus", "status": "APPROVED", "source_context": {"publisher": "CDC ArboNET Tick Module", "dataset_id": "cdc-ixodes-county-status-2025", "source_version": "2025"}},
     {"rule_id": "TAXON_NEON_SCAPULARIS_V1", "field": "tick_taxon", "source_value": "Ixodes scapularis", "canonical_id": "IXODES_SCAPULARIS", "canonical_label": "Ixodes scapularis", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "TAXON_NEON_PACIFICUS_V1", "field": "tick_taxon", "source_value": "Ixodes pacificus", "canonical_id": "IXODES_PACIFICUS", "canonical_label": "Ixodes pacificus", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
+    {"rule_id": "TAXON_NEON_AMERICANUM_V1", "field": "tick_taxon", "source_value": "Amblyomma americanum", "canonical_id": "AMBLYOMMA_AMERICANUM", "canonical_label": "Amblyomma americanum", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "TAXON_CDC_AGGREGATE_V1", "field": "tick_taxon", "source_value": "Ixodes scapularis or Ixodes pacificus", "canonical_id": "IXODES_SCAPULARIS_OR_PACIFICUS", "canonical_label": "Ixodes scapularis or Ixodes pacificus", "status": "APPROVED", "source_context": {"publisher": "CDC ArboNET Tick Module", "dataset_id": "cdc-ixodes-pathogen-status-2025", "source_version": "2025"}},
     {"rule_id": "LIFE_STAGE_NEON_NYMPH_V1", "field": "life_stage", "source_value": "nymph", "canonical_id": "NYMPH", "canonical_label": "Nymph", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "LIFE_STAGE_NEON_NYMPH_CAPITALIZED_V1", "field": "life_stage", "source_value": "Nymph", "canonical_id": "NYMPH", "canonical_label": "Nymph", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
