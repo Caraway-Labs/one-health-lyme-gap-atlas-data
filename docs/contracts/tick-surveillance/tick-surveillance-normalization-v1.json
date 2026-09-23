@@ -1,7 +1,7 @@
 {
   "$schema": "./tick-surveillance-normalization-v1.schema.json",
   "registry_id": "tick-surveillance-normalization-v1",
-  "registry_version": "1.0.3",
+  "registry_version": "1.0.4",
   "status": "APPROVED",
   "scope": {
     "approved_sources": [
@@ -40,6 +40,8 @@
     {"rule_id": "EFFORT_NEON_SQUARE_METRE_V1", "field": "effort_unit", "source_value": "m2", "canonical_id": "SQUARE_METRE", "canonical_label": "square metre", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "RESULT_NEON_POSITIVE_V1", "field": "test_result", "source_value": "positive", "canonical_id": "DETECTED", "canonical_label": "Detected", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10092.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "RESULT_NEON_NEGATIVE_V1", "field": "test_result", "source_value": "negative", "canonical_id": "NOT_DETECTED", "canonical_label": "Not detected", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10092.001", "source_version": "RELEASE-2026"}},
+    {"rule_id": "RESULT_NEON_POSITIVE_CAPITALIZED_V1", "field": "test_result", "source_value": "Positive", "canonical_id": "DETECTED", "canonical_label": "Detected", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10092.001", "source_version": "RELEASE-2026"}},
+    {"rule_id": "RESULT_NEON_NEGATIVE_CAPITALIZED_V1", "field": "test_result", "source_value": "Negative", "canonical_id": "NOT_DETECTED", "canonical_label": "Not detected", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10092.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "QUALITY_NEON_IMPRACTICAL_V1", "field": "quality_flag", "source_value": true, "canonical_id": "SAMPLING_IMPRACTICAL", "canonical_label": "Sampling impractical", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "QUALITY_NEON_LEGACY_DATA_V1", "field": "quality_flag", "source_value": "legacyData", "canonical_id": "LEGACY_DATA", "canonical_label": "Legacy data", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
     {"rule_id": "QUALITY_NEON_LARVAL_SUBSAMPLE_V1", "field": "quality_flag", "source_value": "ID lab count subsample of total field larvae", "canonical_id": "IDENTIFICATION_LAB_COUNT_SUBSAMPLE", "canonical_label": "Identification-laboratory count is a subsample of the total field larvae", "status": "APPROVED", "source_context": {"publisher": "NSF NEON", "dataset_id": "DP1.10093.001", "source_version": "RELEASE-2026"}},
