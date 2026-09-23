@@ -220,7 +220,7 @@ def test_governed_normalization_registry_is_independently_schema_valid() -> None
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(registry)) == []
-    assert registry["registry_version"] == "1.0.3"
+    assert registry["registry_version"] == "1.0.4"
     assert "comparability" in " ".join(registry["scope"]["non_goals"]).lower()
 
 
@@ -237,7 +237,7 @@ def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None
     assert cdc.canonical_label == "Ixodes scapularis"
     assert cdc.as_contract_value()["source_value"] == "Ixodes_scapularis"
     assert cdc.mapping_rule_id == "TAXON_CDC_SCAPULARIS_V1"
-    assert cdc.registry_version == "1.0.3"
+    assert cdc.registry_version == "1.0.4"
 
     aggregate = normalize_value(
         field="tick_taxon",
@@ -417,6 +417,45 @@ def test_neon_non_pathogen_assays_are_retained_as_governed_dispositions() -> Non
     )
     assert qc.as_contract_value()["disposition"] == "NON_PATHOGEN_ASSAY_QC"
     assert identification.as_contract_value()["source_value"] == "Ixodes pacificus"
+
+
+def test_neon_test_result_mappings_are_exact_and_source_context_specific() -> None:
+    context = {
+        "publisher": "NSF NEON",
+        "dataset_id": "DP1.10092.001",
+        "source_version": "RELEASE-2026",
+    }
+    expected = {
+        "positive": ("DETECTED", "RESULT_NEON_POSITIVE_V1"),
+        "negative": ("NOT_DETECTED", "RESULT_NEON_NEGATIVE_V1"),
+        "Positive": ("DETECTED", "RESULT_NEON_POSITIVE_CAPITALIZED_V1"),
+        "Negative": ("NOT_DETECTED", "RESULT_NEON_NEGATIVE_CAPITALIZED_V1"),
+    }
+
+    for source_value, (canonical_id, rule_id) in expected.items():
+        result = normalize_value(field="test_result", source_value=source_value, **context)
+        assert (result.status, result.canonical_id, result.mapping_rule_id) == (
+            "APPROVED",
+            canonical_id,
+            rule_id,
+        )
+
+    for source_value in ("POSITIVE", "NEGATIVE", "Positive "):
+        result = normalize_value(field="test_result", source_value=source_value, **context)
+        assert (result.status, result.canonical_id, result.mapping_rule_id) == (
+            "UNKNOWN",
+            None,
+            None,
+        )
+
+    wrong_context = normalize_value(
+        field="test_result",
+        source_value="Positive",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    assert (wrong_context.status, wrong_context.canonical_id) == ("UNKNOWN", None)
 
 
 def test_method_vocabulary_normalizes_lexically_without_comparability_decision() -> None:
