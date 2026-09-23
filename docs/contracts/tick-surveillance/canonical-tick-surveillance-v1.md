@@ -1,10 +1,11 @@
 # Canonical tick-surveillance observation contract v1
 
-Status: Proposed for steward review; v1.1 site/event extension prepared by Story #385
+Status: Proposed for steward review; v1.2 governed normalization extension prepared by Story #386
 Owner: Atlas data stewardship and engineering
 Schema: `canonical-tick-surveillance-v1.schema.json`
-Method versions: `tick-surveillance-v1` (legacy county status) and
-`tick-surveillance-v1.1` (backward-compatible site/event extension)
+Method versions: `tick-surveillance-v1` (legacy county status),
+`tick-surveillance-v1.1` (backward-compatible site/event extension), and
+`tick-surveillance-v1.2` (additive governed-normalization envelope)
 
 ## Purpose and boundary
 
@@ -110,6 +111,71 @@ are `PRESENT`, `NULL`, `UNKNOWN`, `SUPPRESSED`, `NOT_REPORTED`, and
 `NO_RECORDS` is a reported surveillance status, not a missing-value state and
 not evidence that ticks or pathogens are absent. Zero collected ticks is numeric
 evidence only when the source documents a completed collection effort.
+
+## Governed vocabulary and normalization extension (v1.2)
+
+Story #386 adds the machine-readable
+[`tick-surveillance-normalization-v1.json`](tick-surveillance-normalization-v1.json)
+registry, validated independently by
+[`tick-surveillance-normalization-v1.schema.json`](tick-surveillance-normalization-v1.schema.json).
+The registry is the only approved location for source aliases, canonical IDs,
+display labels, dimensional conversions, and mapping-rule identity. An adapter
+must consume a pinned registry version; it must not duplicate aliases or
+conversion constants.
+
+The additive `normalization` envelope on a v1.2 observation has one mapping
+record per normalized field. Each record retains the source-reported value,
+canonical ID and label (when approved), mapping status, mapping rule ID,
+registry/version, and publisher/dataset/release context. Top-level legacy
+fields remain readable canonical display values for compatibility; they do not
+replace the source value or the mapping provenance.
+
+The current registry covers only the currently approved CDC county-status
+sources and the #383-frozen NSF NEON `DP1.10093.001` / `DP1.10092.001`
+`RELEASE-2026` scope. It contains tick taxa, life stages, pathogen targets,
+collection methods, effort/abundance units, individual-test result terms, and
+the qualification-required quality terms. An unlisted source value is returned
+as `UNKNOWN`, while a reviewed-but-not-representable target is `UNSUPPORTED`;
+both retain the original source value and have null canonical values. No value
+may be silently guessed, coerced, dropped, or treated as a negative result.
+
+`samplingImpractical=true` maps to `SAMPLING_IMPRACTICAL`. The documented
+`dataQF` codes `legacyData`, `ID lab count subsample of total field larvae`,
+and `field/ID lab larva/nymph/adult count higher than field/ID lab (PDE >25%)`
+have separate canonical IDs. A different source `dataQF` value must be retained
+verbatim and remains `UNKNOWN` until #162 captures the frozen RELEASE-2026
+variable dictionary and a reviewed registry version adds an exact mapping.
+This avoids pretending that the field name alone proves the meaning of any
+code.
+
+The registry defines `SQUARE_METRE -> HECTARE` for effort and
+`TICKS_PER_SQUARE_METRE -> TICKS_PER_HECTARE` for abundance as exact,
+one-direction dimensional conversions. The abundance conversion requires the
+documented denominator that produced the reported density. It does not create
+an abundance value from a count, and it does not make two methods, strata,
+events, sites, or surveillance designs comparable.
+
+`DRAG_CLOTH` and `FLAG_CLOTH` are deliberately distinct canonical method IDs.
+Lexical normalization to either ID is not a comparability conclusion. #163
+must test this boundary; any method compatibility, pooling, or aggregation rule
+requires separately reviewed methodology and remains outside this contract.
+
+### #162 and #163 handoff
+
+- #162 must pin `tick-surveillance-normalization-v1` at its recorded version,
+  persist `normalization` alongside the native value, and block on an
+  `UNKNOWN`, `UNSUPPORTED`, or `AMBIGUOUS` result. It must capture the frozen
+  NEON package/variable dictionary before proposing any additional aliases or
+  `dataQF` code mappings.
+- #162 must preserve NEON source-native method detail, `totalSampledArea`,
+  `samplingImpractical`, test result, and QA value separately from the
+  canonical mapping; it must not infer a denominator or convert collection
+  ticks into test counts.
+- #163 must test exact aliases, source-specific aliases, unknown and aggregate
+  taxa, pathogen aliases, unknown/unsupported targets, method distinction,
+  conversion denominator guards, source-value retention, and replay using the
+  pinned registry version. Its comparability tests must demonstrate that equal
+  vocabulary labels do not authorize analytical pooling.
 
 ## Normalization rules
 

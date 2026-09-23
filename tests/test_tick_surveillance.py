@@ -21,6 +21,7 @@ from lyme_gap_atlas_data.migrations import (
     render_migration,
 )
 from lyme_gap_atlas_data.tick_contract import canonical_observation_id
+from lyme_gap_atlas_data.tick_normalization import convert_value, normalize_value
 
 
 def workbook_bytes(
@@ -192,6 +193,7 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert schema["properties"]["method_version"]["enum"] == [
         "tick-surveillance-v1",
         "tick-surveillance-v1.1",
+        "tick-surveillance-v1.2",
     ]
     assert set(schema["properties"]["observation_type"]["enum"]) == {
         "VECTOR_PRESENCE_STATUS",
@@ -208,6 +210,184 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert "NO_RECORDS" in contract
     assert "not evidence that ticks or pathogens are absent" in contract
     assert "NOT_COUNTY_REPRESENTATIVE" in contract
+
+
+def test_governed_normalization_registry_is_independently_schema_valid() -> None:
+    registry_path = Path("docs/contracts/tick-surveillance/tick-surveillance-normalization-v1.json")
+    schema_path = Path(
+        "docs/contracts/tick-surveillance/tick-surveillance-normalization-v1.schema.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(registry)) == []
+    assert registry["registry_version"] == "1.0.0"
+    assert "comparability" in " ".join(registry["scope"]["non_goals"]).lower()
+
+
+def test_governed_taxon_mappings_preserve_source_value_and_pin_version() -> None:
+    cdc = normalize_value(
+        field="tick_taxon",
+        source_value="Ixodes_scapularis",
+        publisher="CDC ArboNET Tick Module",
+        dataset_id="cdc-ixodes-county-status-2025",
+        source_version="2025",
+    )
+    assert cdc.status == "APPROVED"
+    assert cdc.canonical_id == "IXODES_SCAPULARIS"
+    assert cdc.canonical_label == "Ixodes scapularis"
+    assert cdc.as_contract_value()["source_value"] == "Ixodes_scapularis"
+    assert cdc.mapping_rule_id == "TAXON_CDC_SCAPULARIS_V1"
+    assert cdc.registry_version == "1.0.0"
+
+    aggregate = normalize_value(
+        field="tick_taxon",
+        source_value="Ixodes scapularis or Ixodes pacificus",
+        publisher="CDC ArboNET Tick Module",
+        dataset_id="cdc-ixodes-pathogen-status-2025",
+        source_version="2025",
+    )
+    assert aggregate.canonical_id == "IXODES_SCAPULARIS_OR_PACIFICUS"
+    assert aggregate.canonical_id != cdc.canonical_id
+
+
+def test_governed_normalization_fails_closed_for_unknown_taxa_and_pathogens() -> None:
+    unknown = normalize_value(
+        field="tick_taxon",
+        source_value="Ixodes inventedus",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    assert (unknown.status, unknown.canonical_id, unknown.mapping_rule_id) == (
+        "UNKNOWN",
+        None,
+        None,
+    )
+    pathogen = normalize_value(
+        field="pathogen_target",
+        source_value="Borrelia_mayonii",
+        publisher="CDC ArboNET Tick Module",
+        dataset_id="cdc-ixodes-pathogen-status-2025",
+        source_version="2025",
+    )
+    assert pathogen.status == "APPROVED"
+    assert pathogen.canonical_id == "BORRELIA_MAYONII"
+    assert pathogen.mapping_rule_id == "PATHOGEN_CDC_BMAYONII_V1"
+
+    unknown_pathogen = normalize_value(
+        field="pathogen_target",
+        source_value="Unknown pathogen target",
+        publisher="NSF NEON",
+        dataset_id="DP1.10092.001",
+        source_version="RELEASE-2026",
+    )
+    assert (unknown_pathogen.status, unknown_pathogen.canonical_id) == ("UNKNOWN", None)
+
+
+def test_method_vocabulary_normalizes_lexically_without_comparability_decision() -> None:
+    drag = normalize_value(
+        field="collection_method",
+        source_value="drag",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    flag = normalize_value(
+        field="collection_method",
+        source_value="flag",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    assert (drag.canonical_id, flag.canonical_id) == ("DRAG_CLOTH", "FLAG_CLOTH")
+    assert drag.canonical_id != flag.canonical_id
+    assert "comparability" not in drag.as_contract_value()
+
+
+def test_neon_quality_flag_mapping_preserves_the_documented_source_code() -> None:
+    quality = normalize_value(
+        field="quality_flag",
+        source_value="legacyData",
+        publisher="NSF NEON",
+        dataset_id="DP1.10093.001",
+        source_version="RELEASE-2026",
+    )
+    assert quality.status == "APPROVED"
+    assert quality.canonical_id == "LEGACY_DATA"
+    assert quality.as_contract_value()["source_value"] == "legacyData"
+
+
+def test_supported_conversions_require_a_documented_denominator_when_needed() -> None:
+    assert convert_value(
+        field="effort_unit",
+        value=10_000,
+        from_canonical_id="SQUARE_METRE",
+        to_canonical_id="HECTARE",
+        denominator_present=False,
+    ) == (1.0, "EFFORT_SQUARE_METRE_TO_HECTARE_V1")
+    assert convert_value(
+        field="abundance_unit",
+        value=2.0,
+        from_canonical_id="TICKS_PER_SQUARE_METRE",
+        to_canonical_id="TICKS_PER_HECTARE",
+        denominator_present=True,
+    ) == (20_000.0, "ABUNDANCE_SQUARE_METRE_TO_HECTARE_V1")
+    with pytest.raises(ValueError, match="documented denominator"):
+        convert_value(
+            field="abundance_unit",
+            value=2.0,
+            from_canonical_id="TICKS_PER_SQUARE_METRE",
+            to_canonical_id="TICKS_PER_HECTARE",
+            denominator_present=False,
+        )
+    with pytest.raises(ValueError, match="unsupported"):
+        convert_value(
+            field="effort_unit",
+            value=1.0,
+            from_canonical_id="HECTARE",
+            to_canonical_id="SQUARE_METRE",
+            denominator_present=True,
+        )
+
+
+def test_normalization_contract_envelope_retains_mapping_provenance() -> None:
+    result = normalize_value(
+        field="test_result",
+        source_value="positive",
+        publisher="NSF NEON",
+        dataset_id="DP1.10092.001",
+        source_version="RELEASE-2026",
+    )
+    record = {
+        "canonical_observation_id": "fixture-normalized-test",
+        "observation_type": "PATHOGEN_TESTING",
+        "tick_species": "Ixodes scapularis",
+        "pathogen_name": "Borrelia burgdorferi sensu stricto",
+        "ticks_tested": 1,
+        "ticks_positive": 1,
+        "source_agency": "NSF NEON",
+        "source_dataset_id": "DP1.10092.001",
+        "source_record_id": "fixture-source-row",
+        "data_source_version_id": "RELEASE-2026",
+        "ingestion_run_id": "fixture-run",
+        "artifact_id": "fixture-artifact",
+        "retrieved_at": "2026-09-23T00:00:00Z",
+        "method_version": "tick-surveillance-v1.2",
+        "reported_or_derived": "HARMONIZED",
+        "quality_flags": [],
+        "normalization": {
+            "registry_id": result.registry_id,
+            "registry_version": result.registry_version,
+            "mappings": {"test_result": result.as_contract_value()},
+        },
+    }
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert list(Draft202012Validator(schema).iter_errors(record)) == []
+    assert record["normalization"]["mappings"]["test_result"]["source_value"] == "positive"
 
 
 def test_site_event_contract_fixtures_preserve_geography_and_lineage() -> None:

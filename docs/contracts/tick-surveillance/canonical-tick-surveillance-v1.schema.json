@@ -141,9 +141,36 @@
     "ingestion_run_id": {"type": "string", "minLength": 1},
     "artifact_id": {"type": "string", "minLength": 1},
     "retrieved_at": {"type": "string", "format": "date-time"},
-    "method_version": {"enum": ["tick-surveillance-v1", "tick-surveillance-v1.1"]},
+    "method_version": {"enum": ["tick-surveillance-v1", "tick-surveillance-v1.1", "tick-surveillance-v1.2"]},
     "reported_or_derived": {"enum": ["REPORTED", "HARMONIZED", "DERIVED"]},
     "harmonization_method": {"type": ["string", "null"]},
+    "normalization": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["registry_id", "registry_version", "mappings"],
+      "properties": {
+        "registry_id": {"const": "tick-surveillance-normalization-v1"},
+        "registry_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+        "mappings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_value", "canonical_id", "canonical_label", "status", "mapping_rule_id", "registry_id", "registry_version", "source_context"],
+            "properties": {
+              "source_value": {"type": ["string", "number", "boolean"]},
+              "canonical_id": {"type": ["string", "null"]},
+              "canonical_label": {"type": ["string", "null"]},
+              "status": {"enum": ["APPROVED", "UNKNOWN", "UNSUPPORTED", "AMBIGUOUS"]},
+              "mapping_rule_id": {"type": ["string", "null"]},
+              "registry_id": {"const": "tick-surveillance-normalization-v1"},
+              "registry_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+              "source_context": {"type": "object", "additionalProperties": false, "required": ["publisher", "dataset_id", "source_version"], "properties": {"publisher": {"type": "string"}, "dataset_id": {"type": "string"}, "source_version": {"type": "string"}}}
+            }
+          }
+        }
+      }
+    },
     "missingness": {
       "type": "object",
       "additionalProperties": {

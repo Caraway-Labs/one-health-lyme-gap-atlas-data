@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://one-health-lyme-gap-atlas.example/contracts/tick-surveillance/normalization/v1",
+  "title": "Atlas governed tick-surveillance normalization registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["registry_id", "registry_version", "status", "scope", "canonical_values", "mappings", "conversions"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "registry_id": {"const": "tick-surveillance-normalization-v1"},
+    "registry_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+    "status": {"const": "APPROVED"},
+    "scope": {"type": "object", "additionalProperties": false, "required": ["approved_sources", "non_goals"], "properties": {"approved_sources": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["publisher", "dataset_id", "source_version"], "properties": {"publisher": {"type": "string"}, "dataset_id": {"type": "string"}, "source_version": {"type": "string"}}}}, "non_goals": {"type": "array", "minItems": 1, "items": {"type": "string"}}}},
+    "canonical_values": {"type": "object"},
+    "mappings": {"type": "array", "items": {"$ref": "#/$defs/mapping"}},
+    "conversions": {"type": "array", "items": {"$ref": "#/$defs/conversion"}}
+  },
+  "$defs": {
+    "mapping": {"type": "object", "additionalProperties": false, "required": ["rule_id", "field", "source_value", "canonical_id", "canonical_label", "status", "source_context"], "properties": {"rule_id": {"type": "string", "pattern": "^[A-Z0-9_:-]+$"}, "field": {"enum": ["tick_taxon", "life_stage", "pathogen_target", "collection_method", "effort_unit", "abundance_unit", "test_result", "quality_flag"]}, "source_value": {"type": ["string", "number", "boolean"]}, "canonical_id": {"type": ["string", "null"]}, "canonical_label": {"type": ["string", "null"]}, "status": {"enum": ["APPROVED", "UNSUPPORTED", "AMBIGUOUS"]}, "source_context": {"type": "object", "additionalProperties": false, "required": ["publisher", "dataset_id", "source_version"], "properties": {"publisher": {"type": "string"}, "dataset_id": {"type": "string"}, "source_version": {"type": "string"}}}}},
+    "conversion": {"type": "object", "additionalProperties": false, "required": ["rule_id", "field", "from_canonical_id", "to_canonical_id", "factor", "requires_denominator", "status"], "properties": {"rule_id": {"type": "string", "pattern": "^[A-Z0-9_:-]+$"}, "field": {"enum": ["effort_unit", "abundance_unit"]}, "from_canonical_id": {"type": "string"}, "to_canonical_id": {"type": "string"}, "factor": {"type": "number", "exclusiveMinimum": 0}, "requires_denominator": {"type": "boolean"}, "status": {"const": "APPROVED"}}}
+  }
+}
