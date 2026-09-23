@@ -148,6 +148,54 @@ def test_neon_quality_rules_apply_to_canonical_records_after_native_validation(
     ]
 
 
+def test_neon_native_schema_validation_precedes_canonical_quality(tmp_path: Path) -> None:
+    _fixture(tmp_path)
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+    del acquired.payload["tables"]["tck_pathogen"][0]["testingID"]
+
+    validation = NeonReleasePackageAdapter().validate_payload(definition, acquired.payload)
+
+    assert not validation.ok
+    assert validation.issues[0].code == "NEON_SCHEMA_DRIFT"
+
+
+def test_neon_canonical_quality_fails_closed_for_empty_output() -> None:
+    definition = load_source_definition(DEFINITION)
+
+    results = evaluate_quality_rules(definition, [])
+
+    assert [(result["rule_id"], result["status"]) for result in results] == [
+        ("neon_canonical_record_count", "FAILED"),
+        ("neon_value_state_preservation", "FAILED"),
+    ]
+
+
+def test_neon_malformed_canonical_record_fails_contract_validation(tmp_path: Path) -> None:
+    _fixture(tmp_path)
+    definition = load_source_definition(DEFINITION)
+    acquired = NeonReleasePackageAdapter().acquire(definition, fixture_dir=tmp_path)
+    observation = (
+        NeonReleasePackageAdapter()
+        .normalize(definition, acquired.payload)
+        .records[0]["record"]["canonical_observation"]
+    )
+    del observation["canonical_observation_id"]
+    schema = json.loads(
+        (
+            ROOT
+            / "docs"
+            / "contracts"
+            / "tick-surveillance"
+            / "canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    errors = list(Draft202012Validator(schema).iter_errors(observation))
+
+    assert any("canonical_observation_id" in error.message for error in errors)
+
+
 def test_neon_unknown_mapping_and_blank_result_fail_closed(tmp_path: Path) -> None:
     _fixture(tmp_path, taxon="Ixodes inventedus")
     definition = load_source_definition(DEFINITION)
