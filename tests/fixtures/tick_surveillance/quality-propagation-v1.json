@@ -1,0 +1,16 @@
+[
+  {"case": "single_assessed_input", "sources": ["neon_valid_zero_with_effort"], "expected": {"effort_state": "ASSESSED", "must_include": ["VALID_ZERO_WITH_DOCUMENTED_EFFORT"]}},
+  {"case": "unknown_effort", "sources": ["neon_unknown_effort"], "expected": {"effort_state": "UNKNOWN", "must_include": ["EFFORT_UNKNOWN"]}},
+  {"case": "not_applicable_status_denominator", "sources": ["county_vector_status"], "expected": {"pathogen_denominator_state": "NOT_APPLICABLE", "must_include": ["NOT_A_PATHOGEN_TESTING_OBSERVATION"]}},
+  {"case": "valid_zero", "sources": ["neon_valid_zero_with_effort"], "expected": {"retained_zero": true, "must_include": ["VALID_ZERO_WITH_DOCUMENTED_EFFORT"]}},
+  {"case": "unavailable_denominator", "sources": ["pathogen_testing_without_denominator"], "expected": {"pathogen_denominator_state": "UNKNOWN", "must_include": ["TEST_DENOMINATOR_UNAVAILABLE"]}},
+  {"case": "neon_non_county_representative", "sources": ["neon_valid_zero_with_effort"], "expected": {"must_include": ["REPRESENTATIVENESS_NOT_COUNTY_REPRESENTATIVE", "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE"]}},
+  {"case": "partial_spatial_coverage", "sources": ["neon_valid_zero_with_effort"], "record_patch": {"county_relationship": {"mapping_status": "ATLAS_DERIVED_MATCH", "representativeness": "NOT_COUNTY_REPRESENTATIVE"}}, "expected": {"must_include": ["PARTIAL_SPATIAL_COVERAGE", "REPRESENTATIVENESS_NOT_COUNTY_REPRESENTATIVE"]}},
+  {"case": "unestablished_comparability", "sources": ["neon_valid_zero_with_effort", "neon_unknown_effort"], "expected": {"comparability_state": "ASSESSED", "must_include": ["METHOD_COMPARABILITY_NOT_ESTABLISHED"]}},
+  {"case": "mixed_quality", "sources": ["neon_valid_zero_with_effort", "neon_unknown_effort"], "expected": {"effort_state": "UNKNOWN", "must_include": ["EFFORT_DOCUMENTED", "EFFORT_UNKNOWN"]}},
+  {"case": "conflicting_limitations", "sources": ["neon_valid_zero_with_effort", "neon_sampling_impractical_and_stale"], "record_limitations": [["LIMITATION_A"], ["LIMITATION_B", "LIMITATION_A"]], "expected": {"must_include": ["LIMITATION_A", "LIMITATION_B", "SAMPLING_IMPRACTICAL"]}},
+  {"case": "source_revision_difference", "sources": ["neon_valid_zero_with_effort", "neon_valid_zero_with_effort"], "second_source_patch": {"canonical_observation_id": "quality-neon-zero-revision", "data_source_version_id": "RELEASE-2027"}, "expected": {"source_versions": ["RELEASE-2026", "RELEASE-2027"]}},
+  {"case": "transform_added_limitation", "sources": ["neon_valid_zero_with_effort"], "added_reason_codes": ["TRANSFORMATION_METADATA_ONLY", "TRANSFORMATION_METADATA_ONLY"], "added_limitations": ["No metric value was calculated", "No metric value was calculated"], "expected": {"added_reason_codes": ["TRANSFORMATION_METADATA_ONLY"], "added_limitations": ["No metric value was calculated"]}},
+  {"case": "consumer_safe_serialization", "sources": ["neon_valid_zero_with_effort"], "expected": {"safe_absent": ["artifact_id", "retained_input_values", "source_record_id", "ticks_collected"]}},
+  {"case": "source_selection_limitation", "sources": ["neon_individual_testing_with_source_selection_limitation"], "expected": {"must_include": ["NON_RANDOM_PATHOGEN_TEST_SELECTION", "VARIABLE_SAMPLING_INTENSITY"]}}
+]

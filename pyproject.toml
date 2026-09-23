@@ -22,7 +22,12 @@ dependencies = [
 atlas-data = "lyme_gap_atlas_data.cli:app"
 
 [project.optional-dependencies]
-dev = ["mypy>=1.14,<2", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+dev = [
+    "jsonschema>=4,<5",
+    "mypy>=1.14,<2",
+    "pytest>=8.3,<9",
+    "ruff>=0.9,<1",
+]
 pipeline = ["dbt-snowflake>=1.9,<2"]
 
 [tool.hatch.build.targets.wheel]
