@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from jsonschema import Draft202012Validator
 from openpyxl import Workbook
 
 from lyme_gap_atlas_data import tick_surveillance as tick
@@ -19,6 +20,7 @@ from lyme_gap_atlas_data.migrations import (
     migration_plan,
     render_migration,
 )
+from lyme_gap_atlas_data.tick_contract import canonical_observation_id
 
 
 def workbook_bytes(
@@ -186,6 +188,11 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
         ).read_text(encoding="utf-8")
     )
     assert schema["properties"]["county_fips"]["pattern"] == "^[0-9]{5}$"
+    assert "county_fips" not in schema["required"]
+    assert schema["properties"]["method_version"]["enum"] == [
+        "tick-surveillance-v1",
+        "tick-surveillance-v1.1",
+    ]
     assert set(schema["properties"]["observation_type"]["enum"]) == {
         "VECTOR_PRESENCE_STATUS",
         "COLLECTION_ABUNDANCE",
@@ -200,6 +207,116 @@ def test_canonical_tick_contract_has_required_semantics_and_examples() -> None:
     assert contract.count('"canonical_observation_id"') == 3
     assert "NO_RECORDS" in contract
     assert "not evidence that ticks or pathogens are absent" in contract
+    assert "NOT_COUNTY_REPRESENTATIVE" in contract
+
+
+def test_site_event_contract_fixtures_preserve_geography_and_lineage() -> None:
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    fixtures = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    validator = Draft202012Validator(schema)
+    records = {fixture["case"]: fixture["record"] for fixture in fixtures}
+    assert set(records) == {
+        "county_native_status",
+        "mapped_site_event",
+        "unmapped_source_only_site",
+        "ambiguous_site_mapping",
+        "repeated_event_same_site",
+        "multiple_replicates",
+    }
+    for record in records.values():
+        assert list(validator.iter_errors(record)) == []
+
+    county_status = records["county_native_status"]
+    assert county_status["method_version"] == "tick-surveillance-v1"
+    assert county_status["county_fips"] == "01001"
+
+    mapped = records["mapped_site_event"]
+    assert mapped["county_relationship"]["mapping_status"] == "ATLAS_DERIVED_MATCH"
+    assert mapped["county_relationship"]["representativeness"] == "NOT_COUNTY_REPRESENTATIVE"
+    assert mapped["sampling_site"]["source_plot_id"] == "BLAN_001"
+    assert mapped["sampling_event"]["source_event_id"] == "event-a"
+    assert mapped["source_geography"]["spatial_uncertainty_meters"] == 10
+
+    for case in ("unmapped_source_only_site", "ambiguous_site_mapping"):
+        record = records[case]
+        assert "county_fips" not in record
+        assert record["county_relationship"]["county_fips"] is None
+        assert record["sampling_site"]["source_site_id"]
+        assert record["sampling_event"]["source_event_id"]
+
+    repeated = records["repeated_event_same_site"]
+    replicate = records["multiple_replicates"]
+    assert repeated["sampling_site"] == mapped["sampling_site"]
+    assert (
+        repeated["sampling_event"]["source_event_id"] != mapped["sampling_event"]["source_event_id"]
+    )
+    assert replicate["sampling_event"]["source_replicate_id"] == "replicate-2"
+
+
+def test_site_event_schema_rejects_county_fabrication_and_missing_lineage() -> None:
+    schema = json.loads(
+        Path(
+            "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    record = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[1]["record"]
+    validator = Draft202012Validator(schema)
+
+    missing_event = dict(record)
+    missing_event.pop("sampling_event")
+    assert list(validator.iter_errors(missing_event))
+
+    county_status = json.loads(
+        Path("tests/fixtures/tick_surveillance/site-event-observations.json").read_text(
+            encoding="utf-8"
+        )
+    )[0]["record"]
+    county_status.pop("county_fips")
+    assert list(validator.iter_errors(county_status))
+
+    fabricated_county = json.loads(json.dumps(record))
+    fabricated_county["county_relationship"]["mapping_status"] = "UNMAPPED"
+    fabricated_county["county_relationship"]["county_fips"] = "51061"
+    assert list(validator.iter_errors(fabricated_county))
+
+
+def test_canonical_site_event_identity_is_stable_and_does_not_collapse_replicates() -> None:
+    common = {
+        "source_dataset_id": "DP1.10093.001",
+        "data_source_version_id": "RELEASE-2026",
+        "source_record_id": "release-2026:row-1",
+        "observation_type": "COLLECTION_ABUNDANCE",
+        "sampling_site_id": "BLAN:BLAN_001",
+        "sampling_event_id": "event-a",
+        "sample_id": "sample-a",
+        "subsample_id": "sub-a",
+        "strata": {"tick_species": "source-native-taxon", "life_stage": "source-native-stage"},
+    }
+    first = canonical_observation_id(**common, replicate_id="replicate-1")
+    assert first == canonical_observation_id(**common, replicate_id="replicate-1")
+    assert first != canonical_observation_id(**common, replicate_id="replicate-2")
+    different_event = {**common, "sampling_event_id": "event-b"}
+    assert first != canonical_observation_id(**different_event, replicate_id="replicate-1")
+    different_strata = {
+        **common,
+        "strata": {
+            "tick_species": "another-source-native-taxon",
+            "life_stage": "source-native-stage",
+        },
+    }
+    assert first != canonical_observation_id(**different_strata, replicate_id="replicate-1")
 
 
 def test_tick_profile_is_governed_envelope_only_and_pins_first_party_workbook() -> None:
