@@ -1,6 +1,6 @@
 """Simplified ingestion package (Epic #223)."""
 
-from .adapters import HttpXlsxAdapter, SocrataAdapter, get_adapter
+from .adapters import AcquisitionArtifact, HttpXlsxAdapter, SocrataAdapter, get_adapter
 from .checkpoints import FileCheckpointStore, InMemoryCheckpointStore, SnowflakeCheckpointStore
 from .failures import explain_run
 from .identity import (
@@ -13,6 +13,7 @@ from .identity import (
     source_row_hash,
 )
 from .literature_queue import LiteratureStage, LiteratureWorkQueue
+from .neon_release_package import NeonReleasePackageAdapter
 from .orchestrator import IngestionOrchestrator
 from .runtime import NoopStageEffects, QualityFailure, SnowflakeStageEffects, evaluate_quality_rules
 from .source_definition import (
@@ -32,9 +33,11 @@ from .types import (
 
 __all__ = [
     "AdapterKind",
+    "AcquisitionArtifact",
     "FailureCategory",
     "FileCheckpointStore",
     "HttpXlsxAdapter",
+    "NeonReleasePackageAdapter",
     "InMemoryCheckpointStore",
     "SnowflakeCheckpointStore",
     "IngestionOrchestrator",

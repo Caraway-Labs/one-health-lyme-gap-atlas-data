@@ -19,11 +19,13 @@ class AdapterKind(StrEnum):
     HTTP_XLSX = "http_xlsx"
     HTTP_JSON = "http_json"
     HTTP_CSV = "http_csv"
+    NEON_RELEASE_PACKAGE = "neon_release_package"
 
 
 class AuthMode(StrEnum):
     NONE = "none"
     APP_TOKEN_ENV = "app_token_env"
+    NEON_API_TOKEN_ENV = "neon_api_token_env"
 
 
 class Stage(StrEnum):

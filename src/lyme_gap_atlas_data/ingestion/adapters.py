@@ -19,6 +19,22 @@ from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIss
 
 
 @dataclass
+class AcquisitionArtifact:
+    """One immutable source response belonging to an acquisition package."""
+
+    name: str
+    payload: bytes
+    media_type: str
+    source_uri: str
+    request_purpose: str = "SOURCE_ACQUIRE"
+    row_count: int | None = None
+
+    @property
+    def sha256(self) -> str:
+        return _sha256(self.payload)
+
+
+@dataclass
 class AcquireResult:
     payload: Any
     artifact_sha256: str
@@ -26,6 +42,7 @@ class AcquireResult:
     row_count: int | None = None
     detail: dict[str, Any] | None = None
     raw_payload: bytes | None = None
+    artifacts: tuple[AcquisitionArtifact, ...] = ()
 
 
 class AcquisitionError(RuntimeError):
@@ -894,6 +911,12 @@ _REGISTRY: dict[AdapterKind, SourceAdapter] = {
 
 
 def get_adapter(kind: AdapterKind) -> SourceAdapter:
+    if kind is AdapterKind.NEON_RELEASE_PACKAGE:
+        # Kept lazy to avoid circular imports: the package adapter reuses the
+        # common acquisition result types defined in this module.
+        from .neon_release_package import NeonReleasePackageAdapter
+
+        return NeonReleasePackageAdapter()
     try:
         return _REGISTRY[kind]
     except KeyError as error:

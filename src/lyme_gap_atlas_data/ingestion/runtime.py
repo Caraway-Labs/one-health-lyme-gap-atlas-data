@@ -21,7 +21,7 @@ from lyme_gap_atlas_shared.snowflake import connect
 from ..artifacts import create_artifact
 from ..redaction import redact_mapping
 from ..settings import PipelineSettings
-from .adapters import AcquireResult
+from .adapters import AcquireResult, AcquisitionArtifact
 from .identity import deterministic_record_id, publisher_record_id, source_row_hash
 from .types import RunState, SourceDefinition
 
@@ -63,10 +63,23 @@ class NoopStageEffects:
     def register_artifact(
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
+        artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
+        primary = artifacts[0]
         return {
             "artifact_id": f"planned:{acquired.artifact_sha256[:32]}",
             "artifact_sha256": acquired.artifact_sha256,
             "artifact_uri": None,
+            "artifacts": [
+                {
+                    "name": item.name,
+                    "sha256": item.sha256,
+                    "byte_count": len(item.payload),
+                    "media_type": item.media_type,
+                    "source_uri": item.source_uri,
+                }
+                for item in artifacts
+            ],
+            "primary_artifact_name": primary.name,
             "wrote": False,
         }
 
@@ -124,34 +137,32 @@ class SnowflakeStageEffects:
     def register_artifact(
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
-        raw = acquired.raw_payload
-        if raw is None:
-            raw = json.dumps(
-                acquired.payload, separators=(",", ":"), sort_keys=True, default=str
-            ).encode()
-        artifact = create_artifact(
-            payload=raw,
-            environment=self.settings.topx_env,
-            resource_key=definition.resource_key,
-            run_id=state.ingestion_run_id,
-        )
-        if artifact.sha256 != acquired.artifact_sha256:
-            raise ValueError("acquisition checksum does not match retained artifact bytes")
-        key = f"{self.settings.spaces_prefix}/{artifact.object_key}"
-        self._spaces().put_object(
-            Bucket=self.settings.spaces_bucket,
-            Key=key,
-            Body=raw,
-            ContentType=acquired.media_type,
-        )
-        artifact_id = f"{definition.resource_key}:{artifact.sha256[:32]}"
-        request_id = f"{state.ingestion_run_id}:ACQUIRE"
+        artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
+        if artifacts[0].sha256 != acquired.artifact_sha256:
+            raise ValueError("acquisition package checksum does not match primary artifact bytes")
         now = datetime.now(UTC)
+        retained: list[dict[str, Any]] = []
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
+                for sequence, source_artifact in enumerate(artifacts, start=1):
+                    artifact = create_artifact(
+                        payload=source_artifact.payload,
+                        environment=self.settings.topx_env,
+                        resource_key=definition.resource_key,
+                        run_id=state.ingestion_run_id,
+                    )
+                    key = f"{self.settings.spaces_prefix}/{artifact.object_key}"
+                    self._spaces().put_object(
+                        Bucket=self.settings.spaces_bucket,
+                        Key=key,
+                        Body=source_artifact.payload,
+                        ContentType=source_artifact.media_type,
+                    )
+                    artifact_id = f"{definition.resource_key}:{artifact.sha256[:32]}"
+                    request_id = f"{state.ingestion_run_id}:ACQUIRE:{sequence}"
+                    cursor.execute(
+                        """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
                     USING (SELECT %s AS ingestion_request_id, %s AS ingestion_run_id,
                                   1 AS request_sequence, 'SOURCE_ACQUIRE' AS request_purpose,
                                   %s AS endpoint, PARSE_JSON(%s) AS redacted_request,
@@ -167,25 +178,27 @@ class SnowflakeStageEffects:
                               source.endpoint, source.redacted_request, source.status_code,
                               source.response_sha256, source.retrieved_row_count,
                               source.created_at)""",
-                    (
-                        request_id,
-                        state.ingestion_run_id,
-                        definition.endpoint_template,
-                        json.dumps(
-                            redact_mapping(
-                                {
-                                    "order": definition.deterministic_order_clause,
-                                    "page_size": definition.page_size,
-                                }
-                            )
+                        (
+                            request_id,
+                            state.ingestion_run_id,
+                            sequence,
+                            source_artifact.request_purpose,
+                            source_artifact.source_uri,
+                            json.dumps(
+                                redact_mapping(
+                                    {
+                                        "order": definition.deterministic_order_clause,
+                                        "page_size": definition.page_size,
+                                    }
+                                )
+                            ),
+                            artifact.sha256,
+                            source_artifact.row_count,
+                            now,
                         ),
-                        artifact.sha256,
-                        acquired.row_count,
-                        now,
-                    ),
-                )
-                cursor.execute(
-                    """MERGE INTO GOVERNANCE.RAW_ARTIFACTS target
+                    )
+                    cursor.execute(
+                        """MERGE INTO GOVERNANCE.RAW_ARTIFACTS target
                     USING (SELECT %s AS artifact_id, %s AS ingestion_run_id,
                                   %s AS ingestion_request_id, %s AS artifact_uri,
                                   'SOURCE_PAYLOAD' AS artifact_type, %s AS media_type,
@@ -199,24 +212,39 @@ class SnowflakeStageEffects:
                               source.ingestion_request_id, source.artifact_uri,
                               source.artifact_type, source.media_type, source.byte_count,
                               source.sha256, source.retention_class, source.created_at)""",
-                    (
-                        artifact_id,
-                        state.ingestion_run_id,
-                        request_id,
-                        f"s3://{self.settings.spaces_bucket}/{key}",
-                        acquired.media_type,
-                        artifact.byte_count,
-                        artifact.sha256,
-                        definition.artifact_policy,
-                        now,
-                    ),
-                )
+                        (
+                            artifact_id,
+                            state.ingestion_run_id,
+                            request_id,
+                            f"s3://{self.settings.spaces_bucket}/{key}",
+                            "SOURCE_PACKAGE_MEMBER" if len(artifacts) > 1 else "SOURCE_PAYLOAD",
+                            source_artifact.media_type,
+                            artifact.byte_count,
+                            artifact.sha256,
+                            definition.artifact_policy,
+                            now,
+                        ),
+                    )
+                    retained.append(
+                        {
+                            "name": source_artifact.name,
+                            "artifact_id": artifact_id,
+                            "sha256": artifact.sha256,
+                            "byte_count": artifact.byte_count,
+                            "media_type": source_artifact.media_type,
+                            "source_uri": source_artifact.source_uri,
+                            "artifact_uri": f"s3://{self.settings.spaces_bucket}/{key}",
+                        }
+                    )
             connection.commit()
+        primary = retained[0]
         return {
-            "artifact_id": artifact_id,
-            "artifact_sha256": artifact.sha256,
-            "artifact_uri": f"s3://{self.settings.spaces_bucket}/{key}",
-            "byte_count": artifact.byte_count,
+            "artifact_id": primary["artifact_id"],
+            "artifact_sha256": primary["sha256"],
+            "artifact_uri": primary["artifact_uri"],
+            "byte_count": primary["byte_count"],
+            "artifacts": retained,
+            "primary_artifact_name": primary["name"],
             "wrote": True,
         }
 
@@ -456,6 +484,34 @@ def evaluate_quality_rules(
             }
         )
     return results
+
+
+def _acquisition_artifacts(
+    acquired: AcquireResult, default_source_uri: str
+) -> tuple[AcquisitionArtifact, ...]:
+    """Return a backward-compatible, source-faithful acquisition artifact set.
+
+    Adapters that acquire one response continue to use the synthetic single
+    member. Package adapters supply every immutable member explicitly, with
+    their package manifest first so checkpoints have one stable primary ID.
+    """
+    if acquired.artifacts:
+        return acquired.artifacts
+    raw = acquired.raw_payload
+    if raw is None:
+        raw = json.dumps(
+            acquired.payload, separators=(",", ":"), sort_keys=True, default=str
+        ).encode()
+    item = AcquisitionArtifact(
+        name="source-payload",
+        payload=raw,
+        media_type=acquired.media_type,
+        source_uri=default_source_uri,
+        row_count=acquired.row_count,
+    )
+    if item.sha256 != acquired.artifact_sha256:
+        raise ValueError("acquisition checksum does not match retained artifact bytes")
+    return (item,)
 
 
 def _lineage_rows(
