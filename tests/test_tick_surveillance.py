@@ -285,6 +285,8 @@ def test_neon_amblyomma_mapping_is_exact_and_source_context_specific() -> None:
         "IXODES_SCAPULARIS",
         "TAXON_NEON_SCAPULARIS_V1",
     )
+
+
 def test_neon_life_stage_mappings_are_exact_and_preserve_approved_casing() -> None:
     context = {
         "publisher": "NSF NEON",
