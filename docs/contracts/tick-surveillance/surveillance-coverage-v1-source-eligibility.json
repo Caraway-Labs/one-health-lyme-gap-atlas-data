@@ -1,0 +1,23 @@
+{
+  "methodology_version": "surveillance-coverage-v1",
+  "source_scope": {
+    "county_status": "Governed, pinned CDC Ixodes vector or B. burgdorferi county-status source version and complete publisher-defined scope",
+    "active": "NSF NEON DP1.10093.001 and DP1.10092.001 frozen RELEASE-2026; tick-surveillance-v1.2; registry 1.0.4"
+  },
+  "constructs": [
+    "COUNTY_STATUS_DATASET_REPRESENTATION",
+    "ACTIVE_SITE_EVENT_SAMPLING",
+    "ACTIVE_EFFORT_DOCUMENTATION",
+    "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY"
+  ],
+  "rows": [
+    {"source": "CDC_IXODES_COUNTY_STATUS", "observation_type": "VECTOR_PRESENCE_STATUS", "eligibility": ["CONDITIONALLY_ELIGIBLE", "INELIGIBLE", "INELIGIBLE", "INELIGIBLE"], "reason": "Requires pinned complete county scope and unambiguous canonical match; cumulative status has no active event, effort, or test denominator."},
+    {"source": "CDC_PATHOGEN_COUNTY_STATUS", "observation_type": "PATHOGEN_PRESENCE_STATUS", "eligibility": ["CONDITIONALLY_ELIGIBLE", "INELIGIBLE", "INELIGIBLE", "INELIGIBLE"], "reason": "Requires pinned complete county scope and unambiguous canonical match; pathogen status is not pathogen testing."},
+    {"source": "NEON_COLLECTION_RELEASE_2026", "observation_type": "COLLECTION_ABUNDANCE", "eligibility": ["INELIGIBLE", "CONDITIONALLY_ELIGIBLE", "CONDITIONALLY_ELIGIBLE", "NOT_APPLICABLE"], "reason": "Source-native site/event evidence only; completed event and positive documented effort required for sampled and effort states; collection count is not a tested denominator."},
+    {"source": "NEON_TESTING_RELEASE_2026", "observation_type": "PATHOGEN_TESTING", "eligibility": ["INELIGIBLE", "NOT_APPLICABLE", "NOT_APPLICABLE", "CONDITIONALLY_ELIGIBLE"], "reason": "Individual pathogen test with approved target/result and positive tested denominator supports availability at native test/event grain, not county or collection coverage."},
+    {"source": "NEON_RETAINED_SUPPORTING_ASSAY", "observation_type": "NON_PATHOGEN_SUPPORTING_ASSAY", "eligibility": ["NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE", "INELIGIBLE"], "reason": "HardTick DNA Quality and Ixodes pacificus supporting assays remain provenance only and never become pathogen observations or denominators."}
+  ],
+  "eligibility_values": ["ELIGIBLE", "CONDITIONALLY_ELIGIBLE", "INELIGIBLE", "NOT_APPLICABLE"],
+  "no_pooling": true,
+  "numeric_composite": "DEFERRED"
+}
