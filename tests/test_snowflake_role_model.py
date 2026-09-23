@@ -75,6 +75,8 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         # Story #169: manual DEV-only synthetic derived-result persistence
         # verification; it acquires no source and has no PROD path.
         "verify-infected-tick-result-dev",
+        # Story #171: manual DEV-only categorical fixture persistence check.
+        "verify-surveillance-coverage-dev",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (

@@ -1713,6 +1713,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V098",
         "V099",
         "V100",
+        "V101",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1757,6 +1758,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     dev_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")
     assert {"V090", "V091", "V092"}.isdisjoint({item["version"] for item in dev_plan})
     assert "V100" in {item["version"] for item in dev_plan}
+    assert "V101" in {item["version"] for item in dev_plan}
     operations_console = next(item.source for item in migrations if item.version == "V039")
     assert "CATALOG_REGISTRATION_RUNS" in operations_console
     assert "V_PIPELINE_COMMAND_CENTER" in operations_console

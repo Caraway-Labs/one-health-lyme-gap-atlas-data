@@ -1,0 +1,1289 @@
+{
+  "evidence_basis": "SYNTHETIC_FIXTURE",
+  "examples": [
+    {
+      "calculation_version": "surveillance-coverage-calculation-v1",
+      "collection_effort_unit": null,
+      "collection_effort_value": null,
+      "collection_method": null,
+      "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
+      "contract_version": "surveillance-coverage-result-v1",
+      "county_fips": "01001",
+      "county_relationship": {},
+      "coverage_identity": "coverage:v1:e11bf2a973481df7089815750441929a96a9b76445fe0a2a4737b0e27e460b07",
+      "date": "2025-12-31",
+      "dimension": "Ixodes scapularis",
+      "event": {
+        "source_batch_id": null,
+        "source_event_id": null,
+        "source_replicate_id": null,
+        "source_sample_id": null,
+        "source_subsample_id": null,
+        "source_testing_id": null
+      },
+      "evidence_basis": "SYNTHETIC_FIXTURE",
+      "input_canonical_observation_ids": [
+        "county-1"
+      ],
+      "life_stage": null,
+      "methodology_version": "surveillance-coverage-v1",
+      "native_grain": "COUNTY",
+      "pathogen_name": null,
+      "period_end": "2025-12-31",
+      "period_start": null,
+      "publication_status": "INTERNAL_DEV_ONLY",
+      "publisher_status": "ESTABLISHED",
+      "quality": {
+        "inherited_limitations": [
+          "CANONICAL_RECORD_STRUCTURALLY_VALID",
+          "CANONICAL_LINEAGE_RETAINED",
+          "STATUS_DESIGN_NO_ACTIVE_EFFORT",
+          "METHOD_NOT_REPORTED",
+          "COUNTY_NATIVE_STATUS",
+          "CUMULATIVE_STATUS_ONLY",
+          "LIFE_STAGE_NOT_RESOLVED",
+          "NOT_A_PATHOGEN_TESTING_OBSERVATION",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "STATUS_SOURCE_LIMITATION_RETAINED"
+        ],
+        "input_canonical_observation_ids": [
+          "county-1"
+        ],
+        "input_sources": [
+          {
+            "canonical_method_version": "tick-surveillance-v1",
+            "canonical_observation_id": "county-1",
+            "data_source_version_id": "pinned-v1",
+            "source_dataset_id": "cdc_tick_ixodes_county_status"
+          }
+        ],
+        "propagated_components": [
+          {
+            "dimension": "TECHNICAL_SOURCE_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "CANONICAL_RECORD_STRUCTURALLY_VALID"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_RECORD_STRUCTURALLY_VALID"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PROVENANCE_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "CANONICAL_LINEAGE_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_LINEAGE_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "EFFORT_DENOMINATOR_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "STATUS_DESIGN_NO_ACTIVE_EFFORT"
+                ],
+                "state": "NOT_APPLICABLE"
+              }
+            ],
+            "reason_codes": [
+              "STATUS_DESIGN_NO_ACTIVE_EFFORT"
+            ],
+            "state": "NOT_APPLICABLE"
+          },
+          {
+            "dimension": "METHOD_DOCUMENTATION",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "METHOD_NOT_REPORTED"
+                ],
+                "state": "UNKNOWN"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_NOT_REPORTED"
+            ],
+            "state": "UNKNOWN"
+          },
+          {
+            "dimension": "SPATIAL_REPRESENTATIVENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "COUNTY_NATIVE_STATUS"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "COUNTY_NATIVE_STATUS"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TEMPORAL_COVERAGE_CONTINUITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "CUMULATIVE_STATUS_ONLY"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CUMULATIVE_STATUS_ONLY"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TAXONOMIC_LIFE_STAGE_RESOLUTION",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "LIFE_STAGE_NOT_RESOLVED"
+                ],
+                "state": "UNKNOWN"
+              }
+            ],
+            "reason_codes": [
+              "LIFE_STAGE_NOT_RESOLVED"
+            ],
+            "state": "UNKNOWN"
+          },
+          {
+            "dimension": "PATHOGEN_TESTING_DENOMINATOR_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "NOT_A_PATHOGEN_TESTING_OBSERVATION"
+                ],
+                "state": "NOT_APPLICABLE"
+              }
+            ],
+            "reason_codes": [
+              "NOT_A_PATHOGEN_TESTING_OBSERVATION"
+            ],
+            "state": "NOT_APPLICABLE"
+          },
+          {
+            "dimension": "COMPARABILITY_ELIGIBILITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "FRESHNESS_REVISION_STATE",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "KNOWN_SOURCE_LIMITATIONS",
+            "input_components": [
+              {
+                "canonical_observation_id": "county-1",
+                "reason_codes": [
+                  "STATUS_SOURCE_LIMITATION_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "STATUS_SOURCE_LIMITATION_RETAINED"
+            ],
+            "state": "ASSESSED"
+          }
+        ],
+        "propagation_schema_version": "surveillance-quality-propagation-v1",
+        "quality_method_version": "surveillance-quality-profile-v1",
+        "transformation_added_limitations": [],
+        "transformation_added_reason_codes": [
+          "COUNTY_NATIVE_STATUS",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "STATUS_SOURCE_LIMITATION_RETAINED"
+        ],
+        "transformation_id": "coverage:v1:e11bf2a973481df7089815750441929a96a9b76445fe0a2a4737b0e27e460b07",
+        "transformation_version": "surveillance-coverage-calculation-v1"
+      },
+      "reason_codes": [
+        "COUNTY_NATIVE_STATUS",
+        "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+        "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+        "STATUS_SOURCE_LIMITATION_RETAINED"
+      ],
+      "representativeness": "COUNTY_NATIVE_STATUS",
+      "result_id": "coverage-result:v1:d46dfc48d491c281ef9bed768ed4ad50e95989be3d498d3b33afed3d9c018beb",
+      "result_revision": "d46dfc48d491c281ef9bed768ed4ad50e95989be3d498d3b33afed3d9c018beb",
+      "safe_lineage": [
+        {
+          "canonical_observation_id": "county-1",
+          "data_source_version_id": "pinned-v1",
+          "ingestion_run_id": "run-1",
+          "method_version": "tick-surveillance-v1",
+          "normalization_registry_id": null,
+          "normalization_registry_version": null,
+          "normalization_rule_ids": [],
+          "retrieved_at": "2026-09-23T00:00:00Z",
+          "source_dataset_id": "cdc_tick_ixodes_county_status",
+          "source_record_id": "source-row-1",
+          "source_revision_id": null
+        }
+      ],
+      "site": {
+        "source_location_id": null,
+        "source_plot_id": null,
+        "source_site_id": null
+      },
+      "source_geography": {
+        "coordinate_reference_system": null,
+        "geography_kind": null,
+        "latitude": null,
+        "longitude": null,
+        "source_location_id": null,
+        "spatial_uncertainty_meters": null
+      },
+      "source_scope": {
+        "canonical_universe_version": "fixture-universe-v1",
+        "cumulative_through_date": "2025-12-31",
+        "publisher_scope_version": "fixture-scope-v1",
+        "snapshot_evidence_id": "reviewed-snapshot-1",
+        "snapshot_source_version_id": "pinned-v1",
+        "source_dataset_id": "cdc_tick_ixodes_county_status",
+        "source_family": "CDC_IXODES_COUNTY_STATUS",
+        "source_version_id": "pinned-v1",
+        "source_vintage": "2025"
+      },
+      "state": "REPORTED_STATUS",
+      "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+      "tick_species": "Ixodes scapularis",
+      "ticks_positive": null,
+      "ticks_tested": null
+    },
+    {
+      "calculation_version": "surveillance-coverage-calculation-v1",
+      "collection_effort_unit": "square metre",
+      "collection_effort_value": 4.0,
+      "collection_method": "Drag cloth",
+      "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
+      "contract_version": "surveillance-coverage-result-v1",
+      "county_fips": null,
+      "county_relationship": {
+        "county_fips": null,
+        "mapping_method": null,
+        "mapping_status": "UNMAPPED",
+        "mapping_version": null,
+        "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+      },
+      "coverage_identity": "coverage:v1:946f178fc37809ddc38f8a9311ed0679c2418c76280b9e2f39a48c7664d1a1e4",
+      "date": "2016-05-01",
+      "dimension": null,
+      "event": {
+        "source_batch_id": null,
+        "source_event_id": "event-one",
+        "source_replicate_id": null,
+        "source_sample_id": "sample-one",
+        "source_subsample_id": "sub-one",
+        "source_testing_id": null
+      },
+      "evidence_basis": "SYNTHETIC_FIXTURE",
+      "input_canonical_observation_ids": [
+        "canonical-one"
+      ],
+      "life_stage": "NYMPH",
+      "methodology_version": "surveillance-coverage-v1",
+      "native_grain": "SITE_EVENT",
+      "pathogen_name": null,
+      "period_end": "2016-05-01",
+      "period_start": "2016-05-01",
+      "publication_status": "INTERNAL_DEV_ONLY",
+      "publisher_status": null,
+      "quality": {
+        "inherited_limitations": [
+          "REPRESENTATIVENESS_NOT_COUNTY_REPRESENTATIVE",
+          "CANONICAL_RECORD_STRUCTURALLY_VALID",
+          "CANONICAL_LINEAGE_RETAINED",
+          "EFFORT_DOCUMENTED",
+          "METHOD_DOCUMENTED",
+          "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+          "UNMAPPED_SITE_GEOGRAPHY",
+          "OBSERVATION_TIME_RETAINED",
+          "TAXON_LIFE_STAGE_DOCUMENTED",
+          "NOT_A_PATHOGEN_TESTING_OBSERVATION",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "SOURCE_LIMITATION_RETAINED",
+          "VARIABLE_SAMPLING_INTENSITY"
+        ],
+        "input_canonical_observation_ids": [
+          "canonical-one"
+        ],
+        "input_sources": [
+          {
+            "canonical_method_version": "tick-surveillance-v1.2",
+            "canonical_observation_id": "canonical-one",
+            "data_source_version_id": "RELEASE-2026",
+            "source_dataset_id": "DP1.10093.001"
+          }
+        ],
+        "propagated_components": [
+          {
+            "dimension": "TECHNICAL_SOURCE_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "CANONICAL_RECORD_STRUCTURALLY_VALID"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_RECORD_STRUCTURALLY_VALID"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PROVENANCE_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "CANONICAL_LINEAGE_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_LINEAGE_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "EFFORT_DENOMINATOR_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "EFFORT_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "EFFORT_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "METHOD_DOCUMENTATION",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "METHOD_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "SPATIAL_REPRESENTATIVENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+                  "UNMAPPED_SITE_GEOGRAPHY"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+              "UNMAPPED_SITE_GEOGRAPHY"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TEMPORAL_COVERAGE_CONTINUITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "OBSERVATION_TIME_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "OBSERVATION_TIME_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TAXONOMIC_LIFE_STAGE_RESOLUTION",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "TAXON_LIFE_STAGE_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "TAXON_LIFE_STAGE_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PATHOGEN_TESTING_DENOMINATOR_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "NOT_A_PATHOGEN_TESTING_OBSERVATION"
+                ],
+                "state": "NOT_APPLICABLE"
+              }
+            ],
+            "reason_codes": [
+              "NOT_A_PATHOGEN_TESTING_OBSERVATION"
+            ],
+            "state": "NOT_APPLICABLE"
+          },
+          {
+            "dimension": "COMPARABILITY_ELIGIBILITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "FRESHNESS_REVISION_STATE",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "KNOWN_SOURCE_LIMITATIONS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SOURCE_LIMITATION_RETAINED",
+                  "VARIABLE_SAMPLING_INTENSITY"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_LIMITATION_RETAINED",
+              "VARIABLE_SAMPLING_INTENSITY"
+            ],
+            "state": "ASSESSED"
+          }
+        ],
+        "propagation_schema_version": "surveillance-quality-propagation-v1",
+        "quality_method_version": "surveillance-quality-profile-v1",
+        "transformation_added_limitations": [
+          "NOT_COUNTY_REPRESENTATIVE"
+        ],
+        "transformation_added_reason_codes": [
+          "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+          "UNMAPPED_SITE_GEOGRAPHY",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "SOURCE_LIMITATION_RETAINED",
+          "VARIABLE_SAMPLING_INTENSITY"
+        ],
+        "transformation_id": "coverage:v1:946f178fc37809ddc38f8a9311ed0679c2418c76280b9e2f39a48c7664d1a1e4",
+        "transformation_version": "surveillance-coverage-calculation-v1"
+      },
+      "reason_codes": [
+        "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+        "UNMAPPED_SITE_GEOGRAPHY",
+        "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+        "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+        "SOURCE_LIMITATION_RETAINED",
+        "VARIABLE_SAMPLING_INTENSITY"
+      ],
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+      "result_id": "coverage-result:v1:395597344a21b5af1a7c05bd5f68e39a25eebcaf8329590b35525e02b2d01b0d",
+      "result_revision": "395597344a21b5af1a7c05bd5f68e39a25eebcaf8329590b35525e02b2d01b0d",
+      "safe_lineage": [
+        {
+          "canonical_observation_id": "canonical-one",
+          "data_source_version_id": "RELEASE-2026",
+          "ingestion_run_id": "run-one",
+          "method_version": "tick-surveillance-v1.2",
+          "normalization_registry_id": "tick-surveillance-normalization-v1",
+          "normalization_registry_version": "1.0.4",
+          "normalization_rule_ids": [
+            "EFFORT_NEON_SQUARE_METRE_V1",
+            "LIFE_STAGE_NEON_NYMPH_V1",
+            "METHOD_NEON_DRAG_V1",
+            "TAXON_NEON_SCAPULARIS_V1"
+          ],
+          "retrieved_at": "2026-09-23T00:00:00Z",
+          "source_dataset_id": "DP1.10093.001",
+          "source_record_id": "source-row-one",
+          "source_revision_id": null
+        }
+      ],
+      "site": {
+        "source_location_id": null,
+        "source_plot_id": "BLAN_001",
+        "source_site_id": "BLAN"
+      },
+      "source_geography": {
+        "coordinate_reference_system": "EPSG:4326",
+        "geography_kind": "PLOT",
+        "latitude": 38.0,
+        "longitude": -78.5,
+        "source_location_id": "BLAN_001",
+        "spatial_uncertainty_meters": 10
+      },
+      "source_scope": {
+        "canonical_universe_version": null,
+        "cumulative_through_date": null,
+        "publisher_scope_version": null,
+        "snapshot_evidence_id": null,
+        "snapshot_source_version_id": null,
+        "source_dataset_id": "DP1.10093.001",
+        "source_family": null,
+        "source_version_id": "RELEASE-2026",
+        "source_vintage": "RELEASE-2026"
+      },
+      "state": "SAMPLED_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "tick_species": "Ixodes scapularis",
+      "ticks_positive": null,
+      "ticks_tested": null
+    },
+    {
+      "calculation_version": "surveillance-coverage-calculation-v1",
+      "collection_effort_unit": "square metre",
+      "collection_effort_value": 4.0,
+      "collection_method": "Drag cloth",
+      "construct_id": "ACTIVE_EFFORT_DOCUMENTATION",
+      "contract_version": "surveillance-coverage-result-v1",
+      "county_fips": null,
+      "county_relationship": {
+        "county_fips": null,
+        "mapping_method": null,
+        "mapping_status": "UNMAPPED",
+        "mapping_version": null,
+        "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+      },
+      "coverage_identity": "coverage:v1:ebfcce801c96207aedd03c4c00ab3eed7c86249ef948607a2fa8373648ddb610",
+      "date": "2016-05-01",
+      "dimension": null,
+      "event": {
+        "source_batch_id": null,
+        "source_event_id": "event-one",
+        "source_replicate_id": null,
+        "source_sample_id": "sample-one",
+        "source_subsample_id": "sub-one",
+        "source_testing_id": null
+      },
+      "evidence_basis": "SYNTHETIC_FIXTURE",
+      "input_canonical_observation_ids": [
+        "canonical-one"
+      ],
+      "life_stage": "NYMPH",
+      "methodology_version": "surveillance-coverage-v1",
+      "native_grain": "SITE_EVENT",
+      "pathogen_name": null,
+      "period_end": "2016-05-01",
+      "period_start": "2016-05-01",
+      "publication_status": "INTERNAL_DEV_ONLY",
+      "publisher_status": null,
+      "quality": {
+        "inherited_limitations": [
+          "REPRESENTATIVENESS_NOT_COUNTY_REPRESENTATIVE",
+          "CANONICAL_RECORD_STRUCTURALLY_VALID",
+          "CANONICAL_LINEAGE_RETAINED",
+          "EFFORT_DOCUMENTED",
+          "METHOD_DOCUMENTED",
+          "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+          "UNMAPPED_SITE_GEOGRAPHY",
+          "OBSERVATION_TIME_RETAINED",
+          "TAXON_LIFE_STAGE_DOCUMENTED",
+          "NOT_A_PATHOGEN_TESTING_OBSERVATION",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "SOURCE_LIMITATION_RETAINED",
+          "VARIABLE_SAMPLING_INTENSITY"
+        ],
+        "input_canonical_observation_ids": [
+          "canonical-one"
+        ],
+        "input_sources": [
+          {
+            "canonical_method_version": "tick-surveillance-v1.2",
+            "canonical_observation_id": "canonical-one",
+            "data_source_version_id": "RELEASE-2026",
+            "source_dataset_id": "DP1.10093.001"
+          }
+        ],
+        "propagated_components": [
+          {
+            "dimension": "TECHNICAL_SOURCE_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "CANONICAL_RECORD_STRUCTURALLY_VALID"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_RECORD_STRUCTURALLY_VALID"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PROVENANCE_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "CANONICAL_LINEAGE_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_LINEAGE_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "EFFORT_DENOMINATOR_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "EFFORT_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "EFFORT_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "METHOD_DOCUMENTATION",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "METHOD_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "SPATIAL_REPRESENTATIVENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+                  "UNMAPPED_SITE_GEOGRAPHY"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+              "UNMAPPED_SITE_GEOGRAPHY"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TEMPORAL_COVERAGE_CONTINUITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "OBSERVATION_TIME_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "OBSERVATION_TIME_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TAXONOMIC_LIFE_STAGE_RESOLUTION",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "TAXON_LIFE_STAGE_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "TAXON_LIFE_STAGE_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PATHOGEN_TESTING_DENOMINATOR_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "NOT_A_PATHOGEN_TESTING_OBSERVATION"
+                ],
+                "state": "NOT_APPLICABLE"
+              }
+            ],
+            "reason_codes": [
+              "NOT_A_PATHOGEN_TESTING_OBSERVATION"
+            ],
+            "state": "NOT_APPLICABLE"
+          },
+          {
+            "dimension": "COMPARABILITY_ELIGIBILITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "FRESHNESS_REVISION_STATE",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "KNOWN_SOURCE_LIMITATIONS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SOURCE_LIMITATION_RETAINED",
+                  "VARIABLE_SAMPLING_INTENSITY"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_LIMITATION_RETAINED",
+              "VARIABLE_SAMPLING_INTENSITY"
+            ],
+            "state": "ASSESSED"
+          }
+        ],
+        "propagation_schema_version": "surveillance-quality-propagation-v1",
+        "quality_method_version": "surveillance-quality-profile-v1",
+        "transformation_added_limitations": [
+          "NOT_COUNTY_REPRESENTATIVE"
+        ],
+        "transformation_added_reason_codes": [
+          "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+          "UNMAPPED_SITE_GEOGRAPHY",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "SOURCE_LIMITATION_RETAINED",
+          "VARIABLE_SAMPLING_INTENSITY"
+        ],
+        "transformation_id": "coverage:v1:ebfcce801c96207aedd03c4c00ab3eed7c86249ef948607a2fa8373648ddb610",
+        "transformation_version": "surveillance-coverage-calculation-v1"
+      },
+      "reason_codes": [
+        "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+        "UNMAPPED_SITE_GEOGRAPHY",
+        "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+        "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+        "SOURCE_LIMITATION_RETAINED",
+        "VARIABLE_SAMPLING_INTENSITY"
+      ],
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+      "result_id": "coverage-result:v1:91fd459cda471fe0432ddadce7e3022eb1de97136dfd8c3d96dc21546fa60470",
+      "result_revision": "91fd459cda471fe0432ddadce7e3022eb1de97136dfd8c3d96dc21546fa60470",
+      "safe_lineage": [
+        {
+          "canonical_observation_id": "canonical-one",
+          "data_source_version_id": "RELEASE-2026",
+          "ingestion_run_id": "run-one",
+          "method_version": "tick-surveillance-v1.2",
+          "normalization_registry_id": "tick-surveillance-normalization-v1",
+          "normalization_registry_version": "1.0.4",
+          "normalization_rule_ids": [
+            "EFFORT_NEON_SQUARE_METRE_V1",
+            "LIFE_STAGE_NEON_NYMPH_V1",
+            "METHOD_NEON_DRAG_V1",
+            "TAXON_NEON_SCAPULARIS_V1"
+          ],
+          "retrieved_at": "2026-09-23T00:00:00Z",
+          "source_dataset_id": "DP1.10093.001",
+          "source_record_id": "source-row-one",
+          "source_revision_id": null
+        }
+      ],
+      "site": {
+        "source_location_id": null,
+        "source_plot_id": "BLAN_001",
+        "source_site_id": "BLAN"
+      },
+      "source_geography": {
+        "coordinate_reference_system": "EPSG:4326",
+        "geography_kind": "PLOT",
+        "latitude": 38.0,
+        "longitude": -78.5,
+        "source_location_id": "BLAN_001",
+        "spatial_uncertainty_meters": 10
+      },
+      "source_scope": {
+        "canonical_universe_version": null,
+        "cumulative_through_date": null,
+        "publisher_scope_version": null,
+        "snapshot_evidence_id": null,
+        "snapshot_source_version_id": null,
+        "source_dataset_id": "DP1.10093.001",
+        "source_family": null,
+        "source_version_id": "RELEASE-2026",
+        "source_vintage": "RELEASE-2026"
+      },
+      "state": "DOCUMENTED_POSITIVE_EFFORT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "tick_species": "Ixodes scapularis",
+      "ticks_positive": null,
+      "ticks_tested": null
+    },
+    {
+      "calculation_version": "surveillance-coverage-calculation-v1",
+      "collection_effort_unit": null,
+      "collection_effort_value": null,
+      "collection_method": null,
+      "construct_id": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY",
+      "contract_version": "surveillance-coverage-result-v1",
+      "county_fips": null,
+      "county_relationship": {
+        "county_fips": null,
+        "mapping_method": null,
+        "mapping_status": "UNMAPPED",
+        "mapping_version": null,
+        "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+      },
+      "coverage_identity": "coverage:v1:d3681a3045f413afaddfc757b7a939b4209bd652fec59a57bdf286864f8d2d46",
+      "date": "2016-05-02",
+      "dimension": null,
+      "event": {
+        "source_batch_id": "batch-one",
+        "source_event_id": "event-one",
+        "source_replicate_id": null,
+        "source_sample_id": "sample-one",
+        "source_subsample_id": "sub-one",
+        "source_testing_id": "test-one"
+      },
+      "evidence_basis": "SYNTHETIC_FIXTURE",
+      "input_canonical_observation_ids": [
+        "canonical-one"
+      ],
+      "life_stage": "NYMPH",
+      "methodology_version": "surveillance-coverage-v1",
+      "native_grain": "SITE_EVENT",
+      "pathogen_name": "Borrelia burgdorferi sensu lato",
+      "period_end": "2016-05-02",
+      "period_start": "2016-05-02",
+      "publication_status": "INTERNAL_DEV_ONLY",
+      "publisher_status": null,
+      "quality": {
+        "inherited_limitations": [
+          "REPRESENTATIVENESS_NOT_COUNTY_REPRESENTATIVE",
+          "CANONICAL_RECORD_STRUCTURALLY_VALID",
+          "CANONICAL_LINEAGE_RETAINED",
+          "EFFORT_UNAVAILABLE",
+          "METHOD_NOT_REPORTED",
+          "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+          "UNMAPPED_SITE_GEOGRAPHY",
+          "OBSERVATION_TIME_RETAINED",
+          "TAXON_LIFE_STAGE_DOCUMENTED",
+          "INDIVIDUAL_TEST_DENOMINATOR_VALID",
+          "NON_RANDOM_PATHOGEN_TEST_SELECTION",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "SOURCE_LIMITATION_RETAINED",
+          "VARIABLE_SAMPLING_INTENSITY"
+        ],
+        "input_canonical_observation_ids": [
+          "canonical-one"
+        ],
+        "input_sources": [
+          {
+            "canonical_method_version": "tick-surveillance-v1.2",
+            "canonical_observation_id": "canonical-one",
+            "data_source_version_id": "RELEASE-2026",
+            "source_dataset_id": "DP1.10092.001"
+          }
+        ],
+        "propagated_components": [
+          {
+            "dimension": "TECHNICAL_SOURCE_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "CANONICAL_RECORD_STRUCTURALLY_VALID"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_RECORD_STRUCTURALLY_VALID"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PROVENANCE_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "CANONICAL_LINEAGE_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "CANONICAL_LINEAGE_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "EFFORT_DENOMINATOR_COMPLETENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "EFFORT_UNAVAILABLE"
+                ],
+                "state": "UNKNOWN"
+              }
+            ],
+            "reason_codes": [
+              "EFFORT_UNAVAILABLE"
+            ],
+            "state": "UNKNOWN"
+          },
+          {
+            "dimension": "METHOD_DOCUMENTATION",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "METHOD_NOT_REPORTED"
+                ],
+                "state": "UNKNOWN"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_NOT_REPORTED"
+            ],
+            "state": "UNKNOWN"
+          },
+          {
+            "dimension": "SPATIAL_REPRESENTATIVENESS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+                  "UNMAPPED_SITE_GEOGRAPHY"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+              "UNMAPPED_SITE_GEOGRAPHY"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TEMPORAL_COVERAGE_CONTINUITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "OBSERVATION_TIME_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "OBSERVATION_TIME_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "TAXONOMIC_LIFE_STAGE_RESOLUTION",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "TAXON_LIFE_STAGE_DOCUMENTED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "TAXON_LIFE_STAGE_DOCUMENTED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "PATHOGEN_TESTING_DENOMINATOR_VALIDITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "INDIVIDUAL_TEST_DENOMINATOR_VALID",
+                  "NON_RANDOM_PATHOGEN_TEST_SELECTION"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "INDIVIDUAL_TEST_DENOMINATOR_VALID",
+              "NON_RANDOM_PATHOGEN_TEST_SELECTION"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "COMPARABILITY_ELIGIBILITY",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "METHOD_COMPARABILITY_NOT_ESTABLISHED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "FRESHNESS_REVISION_STATE",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
+            ],
+            "state": "ASSESSED"
+          },
+          {
+            "dimension": "KNOWN_SOURCE_LIMITATIONS",
+            "input_components": [
+              {
+                "canonical_observation_id": "canonical-one",
+                "reason_codes": [
+                  "SOURCE_LIMITATION_RETAINED",
+                  "VARIABLE_SAMPLING_INTENSITY",
+                  "NON_RANDOM_PATHOGEN_TEST_SELECTION"
+                ],
+                "state": "ASSESSED"
+              }
+            ],
+            "reason_codes": [
+              "SOURCE_LIMITATION_RETAINED",
+              "VARIABLE_SAMPLING_INTENSITY",
+              "NON_RANDOM_PATHOGEN_TEST_SELECTION"
+            ],
+            "state": "ASSESSED"
+          }
+        ],
+        "propagation_schema_version": "surveillance-quality-propagation-v1",
+        "quality_method_version": "surveillance-quality-profile-v1",
+        "transformation_added_limitations": [
+          "NOT_COUNTY_REPRESENTATIVE"
+        ],
+        "transformation_added_reason_codes": [
+          "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+          "UNMAPPED_SITE_GEOGRAPHY",
+          "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+          "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+          "SOURCE_LIMITATION_RETAINED",
+          "VARIABLE_SAMPLING_INTENSITY",
+          "NON_RANDOM_PATHOGEN_TEST_SELECTION"
+        ],
+        "transformation_id": "coverage:v1:d3681a3045f413afaddfc757b7a939b4209bd652fec59a57bdf286864f8d2d46",
+        "transformation_version": "surveillance-coverage-calculation-v1"
+      },
+      "reason_codes": [
+        "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
+        "UNMAPPED_SITE_GEOGRAPHY",
+        "METHOD_COMPARABILITY_NOT_ESTABLISHED",
+        "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
+        "SOURCE_LIMITATION_RETAINED",
+        "VARIABLE_SAMPLING_INTENSITY",
+        "NON_RANDOM_PATHOGEN_TEST_SELECTION"
+      ],
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+      "result_id": "coverage-result:v1:e1eca653f3ae8e16ab446918fc3d03e20d54a46393837bb8df30cc2027f8a75e",
+      "result_revision": "e1eca653f3ae8e16ab446918fc3d03e20d54a46393837bb8df30cc2027f8a75e",
+      "safe_lineage": [
+        {
+          "canonical_observation_id": "canonical-one",
+          "data_source_version_id": "RELEASE-2026",
+          "ingestion_run_id": "run-one",
+          "method_version": "tick-surveillance-v1.2",
+          "normalization_registry_id": "tick-surveillance-normalization-v1",
+          "normalization_registry_version": "1.0.4",
+          "normalization_rule_ids": [
+            "LIFE_STAGE_NEON_NYMPH_V1",
+            "PATHOGEN_NEON_BBURG_SL_V1",
+            "RESULT_NEON_POSITIVE_V1",
+            "TAXON_NEON_SCAPULARIS_V1"
+          ],
+          "retrieved_at": "2026-09-23T00:00:00Z",
+          "source_dataset_id": "DP1.10092.001",
+          "source_record_id": "source-row-one",
+          "source_revision_id": null
+        }
+      ],
+      "site": {
+        "source_location_id": null,
+        "source_plot_id": "BLAN_001",
+        "source_site_id": "BLAN"
+      },
+      "source_geography": {
+        "coordinate_reference_system": "EPSG:4326",
+        "geography_kind": "PLOT",
+        "latitude": 38.0,
+        "longitude": -78.5,
+        "source_location_id": "BLAN_001",
+        "spatial_uncertainty_meters": 10
+      },
+      "source_scope": {
+        "canonical_universe_version": null,
+        "cumulative_through_date": null,
+        "publisher_scope_version": null,
+        "snapshot_evidence_id": null,
+        "snapshot_source_version_id": null,
+        "source_dataset_id": "DP1.10092.001",
+        "source_family": null,
+        "source_version_id": "RELEASE-2026",
+        "source_vintage": "RELEASE-2026"
+      },
+      "state": "DOCUMENTED_POSITIVE_TEST_DENOMINATOR",
+      "temporal_semantics": "POINT_IN_TIME",
+      "tick_species": "Ixodes scapularis",
+      "ticks_positive": 1,
+      "ticks_tested": 1
+    }
+  ],
+  "methodology_version": "surveillance-coverage-v1"
+}
