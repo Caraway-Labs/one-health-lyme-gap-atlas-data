@@ -77,6 +77,8 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         "verify-infected-tick-result-dev",
         # Story #171: manual DEV-only categorical fixture persistence check.
         "verify-surveillance-coverage-dev",
+        # Story #172: manual DEV-only unordered triage fixture persistence check.
+        "verify-surveillance-priority-dev",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (
