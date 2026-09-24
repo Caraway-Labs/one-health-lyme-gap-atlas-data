@@ -8,7 +8,11 @@ from pathlib import Path
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
-from lyme_gap_atlas_data.surveillance_coverage import SAMPLING, evaluate_surveillance_coverage
+from lyme_gap_atlas_data.surveillance_coverage import (
+    COUNTY,
+    SAMPLING,
+    evaluate_surveillance_coverage,
+)
 from lyme_gap_atlas_data.surveillance_coverage_results import serialize_surveillance_coverage
 from lyme_gap_atlas_data.surveillance_priority import evaluate_surveillance_priority
 from lyme_gap_atlas_data.surveillance_priority_result_store import stage_surveillance_priority
@@ -48,7 +52,36 @@ def main() -> None:
         )
         result = evaluate_surveillance_priority(safe_coverage)
         results.append(result)
-    resolved, unresolved, mixed_vintage = (
+    aggregate = "Ixodes scapularis or Ixodes pacificus"
+    county_context = {
+        "approved": True,
+        "available": True,
+        "source_family": "CDC_IXODES_COUNTY_STATUS",
+        "source_dataset_id": "cdc_tick_ixodes_county_status",
+        "source_version_id": "synthetic-2025",
+        "source_vintage": "2025",
+        "snapshot_complete": True,
+        "snapshot_evidence_id": "synthetic-complete-county-snapshot",
+        "snapshot_source_version_id": "synthetic-2025",
+        "scope_approved": True,
+        "publisher_scope": ["01001"],
+        "canonical_eligible_universe": ["01001"],
+        "publisher_scope_version": "synthetic-scope-2025",
+        "canonical_universe_version": "synthetic-universe-2025",
+        "cumulative_through_date": "2025-12-31",
+    }
+    county_coverage = serialize_surveillance_coverage(
+        evaluate_surveillance_coverage(
+            COUNTY,
+            [],
+            source_context=county_context,
+            county_fips="01001",
+            dimension=aggregate,
+        ),
+        evidence_basis="SYNTHETIC_FIXTURE",
+    )
+    results.append(evaluate_surveillance_priority(county_coverage))
+    resolved, unresolved, mixed_vintage, aggregate_county = (
         serialize_surveillance_priority(result) for result in results
     )
     if (
@@ -68,7 +101,16 @@ def main() -> None:
         or mixed_vintage["disposition"] != "NOT_DEFENSIBLE"
         or "COMPARISON_COHORT_UNPROVEN" not in mixed_vintage["reason_codes"]
         or not mixed_vintage["result_id"].startswith("surveillance-priority-result:v1:")
-        or len({resolved["result_id"], unresolved["result_id"], mixed_vintage["result_id"]}) != 3
+        or aggregate_county["dimension"] != aggregate
+        or aggregate_county["comparison_cohort_id"] is not None
+        or aggregate_county["tie_group_id"] is not None
+        or aggregate_county["disposition"] != "NOT_DEFENSIBLE"
+        or "COMPARISON_COHORT_UNPROVEN" not in aggregate_county["reason_codes"]
+        or not aggregate_county["result_id"].startswith("surveillance-priority-result:v1:")
+        or len(
+            {item["result_id"] for item in (resolved, unresolved, mixed_vintage, aggregate_county)}
+        )
+        != 4
     ):
         raise SystemExit("synthetic #172 cohort-context behavior failed")
     with connect(settings) as connection, connection.cursor() as cursor:
@@ -84,7 +126,9 @@ def main() -> None:
         ):
             raise SystemExit("DEV runtime connection preflight failed")
         states = []
-        for result, document in zip(results, (resolved, unresolved, mixed_vintage), strict=True):
+        for result, document in zip(
+            results, (resolved, unresolved, mixed_vintage, aggregate_county), strict=True
+        ):
             result_id, first = stage_surveillance_priority(cursor, result)
             replay_id, replay = stage_surveillance_priority(cursor, result)
             if (replay_id, replay) != (result_id, "IDENTICAL_REPLAY"):
@@ -95,6 +139,7 @@ def main() -> None:
                           safe_payload:comparison_cohort_id::VARCHAR,
                           safe_payload:tie_group_id::VARCHAR,
                           safe_payload:collection_method::VARCHAR,
+                          safe_payload:dimension::VARCHAR,
                           safe_payload:source_scope:source_vintage::VARCHAR,
                           safe_payload:representativeness::VARCHAR,
                           ARRAY_CONTAINS('COLLECTION_METHOD_UNRESOLVED'::VARIANT,
@@ -115,8 +160,9 @@ def main() -> None:
                 document["comparison_cohort_id"],
                 document["tie_group_id"],
                 document["collection_method"],
+                document["dimension"],
                 document["source_scope"]["source_vintage"],
-                "NOT_COUNTY_REPRESENTATIVE",
+                document["representativeness"],
                 "COLLECTION_METHOD_UNRESOLVED" in document["reason_codes"],
                 "COMPARISON_COHORT_UNPROVEN" in document["reason_codes"],
                 None,
@@ -132,6 +178,7 @@ def main() -> None:
                 "resolved_method": states[0],
                 "unresolved_method": states[1],
                 "mixed_aggregate_vintage": states[2],
+                "aggregate_county_dimension": states[3],
                 "fixture_only": True,
                 "source_backed_current_code_replay": "NOT_PROVEN",
                 "dev_runtime_readback": "PASS",

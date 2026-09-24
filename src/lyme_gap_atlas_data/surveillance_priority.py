@@ -133,6 +133,52 @@ def _cohort_registry_labels() -> tuple[frozenset[str], ...]:
     )
 
 
+_COUNTY_SCIENTIFIC_SOURCES = {
+    "CDC_IXODES_COUNTY_STATUS": (
+        "cdc_tick_ixodes_county_status",
+        "cdc-ixodes-county-status-2025",
+        "tick_taxon",
+    ),
+    "CDC_PATHOGEN_COUNTY_STATUS": (
+        "cdc_tick_ixodes_pathogen_status",
+        "cdc-ixodes-pathogen-status-2025",
+        "pathogen_target",
+    ),
+}
+
+
+def _resolved_county_dimension(value: object, source: Mapping[str, Any]) -> bool:
+    """Require one approved nonaggregate value mapped to this county source."""
+    if not _text(value):
+        return False
+    family = source.get("source_family")
+    source_spec = _COUNTY_SCIENTIFIC_SOURCES.get(family) if isinstance(family, str) else None
+    if source_spec is None or source.get("source_dataset_id") != source_spec[0]:
+        return False
+    registry_dataset, field = source_spec[1:]
+    registry = load_registry()
+    canonical = [
+        item for item in registry["canonical_values"][field] if value in (item["id"], item["label"])
+    ]
+    if len(canonical) != 1 or canonical[0].get("aggregate"):
+        return False
+    canonical_id = canonical[0]["id"]
+    matches = [
+        rule
+        for rule in registry["mappings"]
+        if rule["field"] == field
+        and rule["canonical_id"] == canonical_id
+        and rule["status"] == "APPROVED"
+        and rule["source_context"]
+        == {
+            "publisher": "CDC ArboNET Tick Module",
+            "dataset_id": registry_dataset,
+            "source_version": source.get("source_vintage"),
+        }
+    ]
+    return len(matches) == 1
+
+
 def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
     """Return exact native comparison context, or None if it is unproven."""
     construct = coverage.get("construct_id")
@@ -209,6 +255,8 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
     if construct == TESTING:
         required += ("testing_scope",)
     if not all(_resolved(cohort.get(field), dimension=field) for field in required):
+        return None
+    if construct == COUNTY and not _resolved_county_dimension(coverage.get("dimension"), source):
         return None
     if coverage.get("native_grain") != ("COUNTY" if construct == COUNTY else "SITE_EVENT"):
         return None
