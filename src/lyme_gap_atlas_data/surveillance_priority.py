@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from functools import lru_cache
 from typing import Any
 
 from .surveillance_coverage import COUNTY, EFFORT, SAMPLING, TESTING
+from .tick_normalization import load_registry
 
 METHODOLOGY_VERSION = "surveillance-priority-v1"
 DECISION = "SURVEILLANCE_EVIDENCE_REVIEW"
@@ -62,6 +64,31 @@ def _digest(value: object) -> str:
 
 def _text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+_UNRESOLVED_CONTEXT = frozenset(
+    {"UNKNOWN", "UNRESOLVED", "AMBIGUOUS", "NOT_REPORTED", "NOT_APPLICABLE", "MIXED", "UNSUPPORTED"}
+)
+
+
+def _resolved(value: object) -> bool:
+    """A required cohort value must carry resolved, comparable context."""
+    return _text(value) and str(value).strip().upper().replace(" ", "_") not in _UNRESOLVED_CONTEXT
+
+
+@lru_cache(maxsize=1)
+def _cohort_registry_labels() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    registry = load_registry()
+    values = registry["canonical_values"]
+    return (
+        frozenset(
+            item["label"]
+            for item in values["collection_method"]
+            if not item.get("aggregate") and item.get("id") not in _UNRESOLVED_CONTEXT
+        ),
+        frozenset(item["label"] for item in values["tick_taxon"] if item.get("aggregate")),
+        frozenset(item["label"] for item in values["life_stage"] if item.get("aggregate")),
+    )
 
 
 def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
@@ -139,7 +166,7 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         required += ("tick_species", "life_stage")
     if construct == TESTING:
         required += ("testing_scope",)
-    if not all(_text(cohort.get(field)) for field in required):
+    if not all(_resolved(cohort.get(field)) for field in required):
         return None
     if coverage.get("native_grain") != ("COUNTY" if construct == COUNTY else "SITE_EVENT"):
         return None
@@ -152,11 +179,14 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         "CDC_PATHOGEN_COUNTY_STATUS",
     }:
         return None
-    if construct in {SAMPLING, EFFORT} and any(
-        cohort[field] in {"UNKNOWN", "NOT_REPORTED", "MIXED"}
-        for field in ("tick_species", "life_stage")
-    ):
-        return None
+    if construct in {SAMPLING, EFFORT}:
+        methods, aggregate_taxa, aggregate_stages = _cohort_registry_labels()
+        if (
+            cohort["collection_method"] not in methods
+            or cohort["tick_species"] in aggregate_taxa
+            or cohort["life_stage"] in aggregate_stages
+        ):
+            return None
     if construct == TESTING and cohort["testing_scope"] != "INDIVIDUAL_PATHOGEN_TEST":
         return None
     return cohort

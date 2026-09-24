@@ -214,7 +214,7 @@ def test_site_geography_limits_never_become_county_priority() -> None:
     [
         ("tick_species", "Ixodes pacificus"),
         ("life_stage", "ADULT"),
-        ("collection_method", "FLAG_CLOTH"),
+        ("collection_method", "Flag cloth"),
         ("date", "2016-06-01"),
     ],
 )
@@ -224,6 +224,8 @@ def test_collection_comparability_dimensions_separate_cohorts(field: str, altern
     second[field] = alternate
     a = evaluate_surveillance_priority(first)
     b = evaluate_surveillance_priority(second)
+    assert a["comparison_cohort_id"] is not None
+    assert b["comparison_cohort_id"] is not None
     assert a["comparison_cohort_id"] != b["comparison_cohort_id"]
     assert (
         serialize_surveillance_priority(a)["result_id"]
@@ -272,6 +274,116 @@ def test_missing_collection_dimension_fails_closed(field: str) -> None:
     result = evaluate_surveillance_priority(changed)
     assert result["comparison_cohort_id"] is None
     assert result["disposition"] == NOT_DEFENSIBLE
+
+
+@pytest.mark.parametrize("construct", [SAMPLING, EFFORT])
+@pytest.mark.parametrize(
+    "method",
+    [
+        None,
+        "",
+        "UNKNOWN",
+        "AMBIGUOUS",
+        "UNRESOLVED",
+        "NOT_REPORTED",
+        "NOT_APPLICABLE",
+        "UNSUPPORTED",
+    ],
+)
+def test_unresolved_collection_method_has_no_scientific_identity(
+    construct: str, method: str | None
+) -> None:
+    coverage = deepcopy(_case("sampled-zero" if construct == SAMPLING else "effort-positive"))
+    coverage["collection_method"] = method
+    result = evaluate_surveillance_priority(coverage)
+    safe = serialize_surveillance_priority(result)
+    assert safe["comparison_cohort"] is None
+    assert safe["comparison_cohort_id"] is None
+    assert safe["tie_group_id"] is None
+    assert safe["disposition"] == NOT_DEFENSIBLE
+    assert "COMPARISON_COHORT_UNPROVEN" in safe["reason_codes"]
+    assert safe["result_id"].startswith("surveillance-priority-result:v1:")
+    assert safe["result_revision"]
+
+
+@pytest.mark.parametrize("field", ["tick_species", "life_stage"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "UNKNOWN",
+        "AMBIGUOUS",
+        "UNRESOLVED",
+        "MIXED",
+        "NOT_REPORTED",
+        "Not reported",
+        "NOT_APPLICABLE",
+    ],
+)
+def test_unresolved_collection_taxon_and_stage_fail_closed(field: str, value: str) -> None:
+    coverage = deepcopy(_case("sampled-zero"))
+    coverage[field] = value
+    assert evaluate_surveillance_priority(coverage)["comparison_cohort_id"] is None
+
+
+@pytest.mark.parametrize("case", ["sampled-zero", "testing-positive-zero-detected"])
+@pytest.mark.parametrize("field", ["source_dataset_id", "source_version_id", "source_vintage"])
+@pytest.mark.parametrize("value", [None, "UNKNOWN", "AMBIGUOUS"])
+def test_unresolved_source_context_fails_closed(case: str, field: str, value: str | None) -> None:
+    coverage = deepcopy(_case(case))
+    coverage["source_scope"][field] = value
+    assert evaluate_surveillance_priority(coverage)["comparison_cohort_id"] is None
+
+
+@pytest.mark.parametrize("field", ["pathogen_name", "testing_scope"])
+@pytest.mark.parametrize("value", [None, "UNKNOWN", "AMBIGUOUS", "UNRESOLVED"])
+def test_unresolved_testing_context_fails_closed(field: str, value: str | None) -> None:
+    coverage = deepcopy(_case("testing-positive-zero-detected"))
+    coverage[field] = value
+    result = evaluate_surveillance_priority(coverage)
+    assert result["comparison_cohort_id"] is None
+    assert result["tie_group_id"] is None
+    assert result["disposition"] == NOT_DEFENSIBLE
+
+
+@pytest.mark.parametrize("case", ["sampled-zero", "testing-positive-zero-detected"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("native_grain", None),
+        ("native_grain", "UNKNOWN"),
+        ("native_grain", "COUNTY"),
+        ("temporal_semantics", "UNKNOWN"),
+        ("temporal_semantics", "CUMULATIVE_THROUGH_DATE"),
+        ("date", "AMBIGUOUS"),
+    ],
+)
+def test_unresolved_grain_or_time_fails_closed(case: str, field: str, value: str | None) -> None:
+    coverage = deepcopy(_case(case))
+    coverage[field] = value
+    assert evaluate_surveillance_priority(coverage)["comparison_cohort_id"] is None
+
+
+def test_unresolved_method_real_coverage_to_priority_safe_result() -> None:
+    row = _canonical(DENSITY)
+    row["collection_method"] = "UNKNOWN"
+    coverage = _safe(SAMPLING, [row])
+    assert coverage["state"] == "UNKNOWN"
+    assert "COLLECTION_METHOD_UNRESOLVED" in coverage["reason_codes"]
+    result = evaluate_surveillance_priority(coverage)
+    safe = serialize_surveillance_priority(result)
+    assert safe["coverage_state"] == "UNKNOWN"
+    assert safe["collection_method"] == "UNKNOWN"
+    assert safe["safe_lineage"] == coverage["safe_lineage"]
+    assert safe["quality"] == coverage["quality"]
+    assert safe["source_geography"] == coverage["source_geography"]
+    assert safe["comparison_cohort"] is None
+    assert safe["comparison_cohort_id"] is None
+    assert safe["tie_group_id"] is None
+    assert safe["disposition"] == VERIFY
+    assert "COLLECTION_METHOD_UNRESOLVED" in safe["reason_codes"]
+    assert "COMPARISON_COHORT_UNPROVEN" in safe["reason_codes"]
+    assert safe["result_id"] and safe["result_revision"]
+    assert "priority_score" not in safe and "ordinal_position" not in safe
 
 
 def test_safe_projection_excludes_restricted_fields() -> None:
