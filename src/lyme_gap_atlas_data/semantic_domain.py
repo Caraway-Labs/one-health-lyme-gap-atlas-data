@@ -318,7 +318,18 @@ def revision_id(observation: Mapping[str, Any]) -> str:
         "eligibility_ref",
         "limitations_ref",
     )
-    return "revision:v1:" + _digest({key: observation.get(key) for key in fields})
+    content = {key: observation.get(key) for key in fields}
+    provenance = content.get("provenance")
+    if observation.get("origin") == "DERIVED" and isinstance(provenance, dict):
+        provenance = dict(provenance)
+        if isinstance(provenance.get("input_ids"), list):
+            provenance["input_ids"] = sorted(provenance["input_ids"])
+        if isinstance(provenance.get("lineage_sources"), list):
+            provenance["lineage_sources"] = sorted(
+                provenance["lineage_sources"], key=lambda source: _digest(source)
+            )
+        content["provenance"] = provenance
+    return "revision:v1:" + _digest(content)
 
 
 def validate_domain(
