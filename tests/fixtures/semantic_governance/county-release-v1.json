@@ -1,0 +1,29 @@
+{
+  "schema": "atlas-governed-semantic-release/v1",
+  "schema_version": "1.0.0",
+  "transformation": "semantic_county_assembly_v1",
+  "county_count": 3144,
+  "observations_per_county": 14,
+  "source_slots": ["human", "context_svi", "context_rucc", "tick", "pathogen"],
+  "public_views": ["CURRENT_RELEASE_V", "CURRENT_SOURCE_METADATA_V", "CURRENT_COUNTY_ATLAS_V"],
+  "observation_slots": [
+    ["county_fips", "context_svi", "county_reference", "string", "identifier", "COUNTY_FIPS_5", "snapshot"],
+    ["geometry", "context_svi", "county_reference", "object", "GeoJSON", "COUNTY_FIPS_5", "snapshot"],
+    ["human_status", "human", "human_disease_burden", "string", "status", "COUNTY_FIPS_5", "2023"],
+    ["case_count_floor_2023", "human", "human_disease_burden", "integer", "cases", "COUNTY_FIPS_5", "2023"],
+    ["incidence_floor_2023", "human", "human_disease_burden", "number", "per 100,000", "COUNTY_FIPS_5", "2023"],
+    ["state_unallocated_records_2023", "human", "human_disease_burden", "integer", "records", "STATE", "2023"],
+    ["scapularis_status", "tick", "tick_surveillance", "string", "status", "COUNTY_FIPS_5", "as published"],
+    ["pacificus_status", "tick", "tick_surveillance", "string", "status", "COUNTY_FIPS_5", "as published"],
+    ["burgdorferi_status", "pathogen", "pathogen_surveillance", "string", "status", "COUNTY_FIPS_5", "as published"],
+    ["population_2022", "context_svi", "population_context", "integer", "people", "COUNTY_FIPS_5", "2018-2022 ACS"],
+    ["svi_percentile_2022", "context_svi", "population_context", "number", "percentile", "COUNTY_FIPS_5", "2018-2022 ACS"],
+    ["uninsured_percentile_2022", "context_svi", "population_context", "number", "percentile", "COUNTY_FIPS_5", "2018-2022 ACS"],
+    ["uninsured_percent_2022", "context_svi", "population_context", "number", "percent", "COUNTY_FIPS_5", "2018-2022 ACS"],
+    ["rucc_2023", "context_rucc", "rurality_context", "integer", "code", "COUNTY_FIPS_5", "2023"]
+  ],
+  "historical_exceptions": {
+    "incidence_floor_2023": {"required_inputs": ["human", "context_svi"], "one_source_adapter_allowed": false},
+    "state_unallocated_records_2023": {"native_grain": "STATE", "county_observation_adapter_allowed": false}
+  }
+}
