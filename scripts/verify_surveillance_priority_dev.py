@@ -1,4 +1,4 @@
-"""Stage one synthetic #172 result under the existing DEV runtime identity."""
+"""Stage bounded resolved and unresolved synthetic #172 DEV results."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from lyme_gap_atlas_data.surveillance_coverage import SAMPLING, evaluate_surveil
 from lyme_gap_atlas_data.surveillance_coverage_results import serialize_surveillance_coverage
 from lyme_gap_atlas_data.surveillance_priority import evaluate_surveillance_priority
 from lyme_gap_atlas_data.surveillance_priority_result_store import stage_surveillance_priority
+from lyme_gap_atlas_data.surveillance_priority_results import serialize_surveillance_priority
 
 FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -27,21 +28,38 @@ def main() -> None:
     ):
         raise SystemExit("#172 fixture verification requires DEV runtime role and database")
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    coverage = evaluate_surveillance_coverage(
-        SAMPLING,
-        [fixture],
-        source_context={
-            "approved": True,
-            "available": True,
-            "source_dataset_id": "DP1.10093.001",
-            "source_version_id": "RELEASE-2026",
-            "source_vintage": "RELEASE-2026",
-        },
-    )
-    safe_coverage = serialize_surveillance_coverage(coverage, evidence_basis="SYNTHETIC_FIXTURE")
-    result = evaluate_surveillance_priority(safe_coverage)
-    if result["disposition"] != "NO_CURRENT_GAP_SIGNAL":
-        raise SystemExit("synthetic #172 sampling fixture did not classify")
+    source_context = {
+        "approved": True,
+        "available": True,
+        "source_dataset_id": "DP1.10093.001",
+        "source_version_id": "RELEASE-2026",
+        "source_vintage": "RELEASE-2026",
+    }
+    unresolved_fixture = {**fixture, "collection_method": "UNKNOWN"}
+    results = []
+    for observation in (fixture, unresolved_fixture):
+        coverage = evaluate_surveillance_coverage(
+            SAMPLING, [observation], source_context=source_context
+        )
+        safe_coverage = serialize_surveillance_coverage(
+            coverage, evidence_basis="SYNTHETIC_FIXTURE"
+        )
+        result = evaluate_surveillance_priority(safe_coverage)
+        results.append(result)
+    resolved, unresolved = (serialize_surveillance_priority(result) for result in results)
+    if (
+        resolved["disposition"] != "NO_CURRENT_GAP_SIGNAL"
+        or resolved["comparison_cohort_id"] is None
+        or resolved["tie_group_id"] is None
+        or unresolved["coverage_state"] != "UNKNOWN"
+        or unresolved["disposition"] != "EVIDENCE_VERIFICATION"
+        or unresolved["comparison_cohort_id"] is not None
+        or unresolved["tie_group_id"] is not None
+        or "COLLECTION_METHOD_UNRESOLVED" not in unresolved["reason_codes"]
+        or "COMPARISON_COHORT_UNPROVEN" not in unresolved["reason_codes"]
+        or resolved["result_id"] == unresolved["result_id"]
+    ):
+        raise SystemExit("synthetic #172 resolved/unresolved method behavior failed")
     with connect(settings) as connection, connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
@@ -54,27 +72,52 @@ def main() -> None:
             settings.snowflake_warehouse,
         ):
             raise SystemExit("DEV runtime connection preflight failed")
-        result_id, first = stage_surveillance_priority(cursor, result)
-        replay_id, replay = stage_surveillance_priority(cursor, result)
-        if (replay_id, replay) != (result_id, "IDENTICAL_REPLAY"):
-            raise SystemExit("immutable surveillance priority replay failed")
-        cursor.execute(
-            """SELECT COUNT(*),
-                      COUNT_IF(safe_payload:disposition::VARCHAR='NO_CURRENT_GAP_SIGNAL'),
-                      COUNT_IF(safe_payload:representativeness::VARCHAR
-                               ='NOT_COUNTY_REPRESENTATIVE')
-               FROM PRESENTATION.SURVEILLANCE_PRIORITY_DERIVED_RESULTS
-               WHERE result_id=%s""",
-            (result_id,),
-        )
-        if tuple(cursor.fetchone()) != (1, 1, 1):
-            raise SystemExit("DEV surveillance priority read-back failed")
+        states = []
+        for result, document in zip(results, (resolved, unresolved), strict=True):
+            result_id, first = stage_surveillance_priority(cursor, result)
+            replay_id, replay = stage_surveillance_priority(cursor, result)
+            if (replay_id, replay) != (result_id, "IDENTICAL_REPLAY"):
+                raise SystemExit("immutable surveillance priority replay failed")
+            cursor.execute(
+                """SELECT safe_payload:coverage_state::VARCHAR,
+                          safe_payload:disposition::VARCHAR,
+                          safe_payload:comparison_cohort_id::VARCHAR,
+                          safe_payload:tie_group_id::VARCHAR,
+                          safe_payload:collection_method::VARCHAR,
+                          safe_payload:representativeness::VARCHAR,
+                          ARRAY_CONTAINS('COLLECTION_METHOD_UNRESOLVED'::VARIANT,
+                                         safe_payload:reason_codes),
+                          ARRAY_CONTAINS('COMPARISON_COHORT_UNPROVEN'::VARIANT,
+                                         safe_payload:reason_codes),
+                          safe_payload:artifact_uri::VARCHAR,
+                          safe_payload:raw_payload::VARCHAR,
+                          safe_payload:credential::VARCHAR
+                   FROM PRESENTATION.SURVEILLANCE_PRIORITY_DERIVED_RESULTS
+                   WHERE result_id=%s""",
+                (result_id,),
+            )
+            rows = cursor.fetchall()
+            expected = (
+                document["coverage_state"],
+                document["disposition"],
+                document["comparison_cohort_id"],
+                document["tie_group_id"],
+                document["collection_method"],
+                "NOT_COUNTY_REPRESENTATIVE",
+                "COLLECTION_METHOD_UNRESOLVED" in document["reason_codes"],
+                "COMPARISON_COHORT_UNPROVEN" in document["reason_codes"],
+                None,
+                None,
+                None,
+            )
+            if len(rows) != 1 or tuple(rows[0]) != expected:
+                raise SystemExit("DEV surveillance priority read-back failed")
+            states.append({"result_id": result_id, "first_write": first, "replay": replay})
     print(
         json.dumps(
             {
-                "result_id": result_id,
-                "first_write": first,
-                "replay": replay,
+                "resolved_method": states[0],
+                "unresolved_method": states[1],
                 "fixture_only": True,
                 "source_backed_current_code_replay": "NOT_PROVEN",
                 "dev_runtime_readback": "PASS",
