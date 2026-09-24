@@ -44,4 +44,18 @@ M1 `OBSERVED_PATHOGEN_PREVALENCE` and M2 `EFFORT_NORMALIZED_COLLECTION_DENSITY` 
 
 #171 may implement only the four categorical constructs above and the source eligibility matrix. It must preserve per-construct state/reason, native grain, exact source version/vintage and dates, distinct canonical matching, source-only/unmapped/ambiguous evidence, valid zero, quality profile and conservative propagation, revision conflict, and safe lineage. There is **no numerical formula or denominator** in v1. Do not force active results into the county semantic release or its fixed five-source/14-observation shape; coordinate any broader metadata/ontology change with #188/#190/#191. No acquisition, source approval, PROD/public release, API change, or #172 ranking follows from this document.
 
+## Epic #159 consolidated eligibility clarification
+
+The five approved remediation decisions are recorded in data ADR 0034 and
+`surveillance-scientific-eligibility-v1`. Positive states require exact
+publisher/product/version/vintage/construct eligibility and an approved
+source-specific mapping for every required scientific field. Canonical IDs
+are scientific keys; governed labels are display metadata. Unresolved
+source-only county rows use the separate safe evidence envelope and never
+establish county completeness. Testing-scope proof is explicit and carried to
+#172; testing life stage remains optional. `PERIOD` collection evidence and
+contradictory positive effort versus missingness fail closed without coercion.
+The safe derived result implementing these rules is version 2; v1 history is
+retained.
+
 Independent expected cases are in `tests/fixtures/tick_surveillance/surveillance-coverage-v1-fixtures.json`; they are synthetic methodology expectations, not generated #171 output or source-backed execution proof.

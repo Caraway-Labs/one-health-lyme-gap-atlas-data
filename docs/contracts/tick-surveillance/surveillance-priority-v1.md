@@ -61,3 +61,14 @@ Before operational or public use, review representative source-backed results an
 ## Deferrals
 
 No ordered tiers, points, numeric score, weight, normalized value, source equivalence, freshness threshold, cross-construct/county-site comparison, combined priority list, automatic allocation, generalized #188 ontology, API/web view, PROD publication, or public release. Any new interpretation requires a separate recorded steward decision.
+
+## Epic #159 consolidated cohort clarification
+
+Under data ADR 0034, the v2 safe result requires #171 source-specific
+scientific attestations and an approved source/version/vintage tuple. Cohort
+identity uses attested canonical IDs, not display labels. Missing or invalid
+testing-scope proof, unresolved county/revision, incompatible time, and any
+required unproven scientific dimension yield no cohort or tie group while
+retaining the safe result and `COMPARISON_COHORT_UNPROVEN`. A source-only county
+evidence envelope is never a county comparison unit. Historical v1 results
+remain unchanged.

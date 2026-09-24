@@ -15,9 +15,51 @@ from .surveillance_coverage import (
     COUNTY,
     METHODOLOGY_VERSION,
 )
+from .surveillance_eligibility import approved_source_tuple
 from .surveillance_quality_propagation import serialize_safe_propagation
+from .surveillance_safe import has_sensitive_path
 
-CONTRACT_VERSION = "surveillance-coverage-result-v1"
+CONTRACT_VERSION = "surveillance-coverage-result-v2"
+_SCIENTIFIC_KEYS = frozenset(
+    {
+        "coverage_identity",
+        "construct_id",
+        "methodology_version",
+        "calculation_version",
+        "state",
+        "reason_codes",
+        "native_grain",
+        "source_scope",
+        "county_fips",
+        "dimension",
+        "dimension_label",
+        "site",
+        "event",
+        "source_geography",
+        "county_relationship",
+        "representativeness",
+        "temporal_semantics",
+        "date",
+        "period_start",
+        "period_end",
+        "tick_species",
+        "publisher_status",
+        "life_stage",
+        "pathogen_name",
+        "collection_method",
+        "collection_effort_value",
+        "missingness",
+        "collection_effort_unit",
+        "ticks_tested",
+        "ticks_positive",
+        "input_canonical_observation_ids",
+        "safe_lineage",
+        "scientific_eligibility",
+        "testing_scope_attestation",
+        "source_only_evidence",
+        "quality",
+    }
+)
 _STATES = {
     CONSTRUCTS[0]: {
         "REPORTED_STATUS",
@@ -72,7 +114,7 @@ def _safe(value: object) -> None:
     elif isinstance(value, list):
         for item in value:
             _safe(item)
-    elif isinstance(value, str) and _UNSAFE.search(value):
+    elif isinstance(value, str) and (_UNSAFE.search(value) or has_sensitive_path(value)):
         raise ValueError("unsafe coverage output value")
 
 
@@ -121,7 +163,7 @@ def serialize_surveillance_coverage(
         raise ValueError("unapproved methodology or calculation version")
     if not isinstance(result.get("coverage_identity"), str) or not result[
         "coverage_identity"
-    ].startswith("coverage:v1:"):
+    ].startswith("coverage:v2:"):
         raise ValueError("coverage identity is required")
     if result.get("native_grain") != ("COUNTY" if construct == COUNTY else "SITE_EVENT"):
         raise ValueError("native grain conflicts with construct")
@@ -129,9 +171,10 @@ def serialize_surveillance_coverage(
         "COUNTY_NATIVE_STATUS" if construct == COUNTY else "NOT_COUNTY_REPRESENTATIVE"
     ):
         raise ValueError("representativeness conflicts with construct")
-    if result.get("temporal_semantics") != (
-        "CUMULATIVE_THROUGH_DATE" if construct == COUNTY else "POINT_IN_TIME"
-    ):
+    allowed_time = (
+        {"CUMULATIVE_THROUGH_DATE"} if construct == COUNTY else {"POINT_IN_TIME", "PERIOD"}
+    )
+    if result.get("temporal_semantics") not in allowed_time:
         raise ValueError("time semantics conflict with construct")
     context = result.get("source_context")
     if not isinstance(context, Mapping):
@@ -145,8 +188,27 @@ def serialize_surveillance_coverage(
         "DOCUMENTED_POSITIVE_EFFORT",
         "DOCUMENTED_POSITIVE_TEST_DENOMINATOR",
     }
+    if positive and construct != COUNTY and result.get("temporal_semantics") != "POINT_IN_TIME":
+        raise ValueError("positive active state requires point-in-time evidence")
     if positive and (context.get("approved") is not True or context.get("available") is not True):
         raise ValueError("positive coverage state requires approved available source")
+    if positive and not approved_source_tuple(str(construct), context):
+        raise ValueError("positive coverage state requires approved source vintage tuple")
+    eligibility = result.get("scientific_eligibility")
+    if not isinstance(eligibility, list) or not eligibility:
+        raise ValueError("scientific eligibility evidence is required")
+    if positive and any(
+        not isinstance(item, Mapping) or item.get("eligibility") != "ELIGIBLE"
+        for item in eligibility
+    ):
+        raise ValueError("positive coverage state requires proven scientific eligibility")
+    testing_scope_attestation = result.get("testing_scope_attestation")
+    if state == "DOCUMENTED_POSITIVE_TEST_DENOMINATOR" and (
+        not isinstance(testing_scope_attestation, Mapping)
+        or testing_scope_attestation.get("eligibility") != "ELIGIBLE"
+        or testing_scope_attestation.get("testing_scope") != "INDIVIDUAL_PATHOGEN_TEST"
+    ):
+        raise ValueError("positive testing state requires proven individual scope")
     if (
         construct == COUNTY
         and positive
@@ -254,6 +316,7 @@ def serialize_surveillance_coverage(
             context,
             (
                 "source_family",
+                "publisher",
                 "source_dataset_id",
                 "source_version_id",
                 "source_vintage",
@@ -266,6 +329,7 @@ def serialize_surveillance_coverage(
         ),
         "county_fips": result.get("county_fips") if construct == COUNTY else None,
         "dimension": result.get("dimension") if construct == COUNTY else None,
+        "dimension_label": result.get("dimension_label") if construct == COUNTY else None,
         "site": _select(
             result.get("sampling_site"),
             (
@@ -280,7 +344,6 @@ def serialize_surveillance_coverage(
                 "source_event_id",
                 "source_sample_id",
                 "source_subsample_id",
-                "source_testing_id",
                 "source_replicate_id",
                 "source_batch_id",
             ),
@@ -308,20 +371,64 @@ def serialize_surveillance_coverage(
         "pathogen_name": result.get("pathogen_name"),
         "collection_method": result.get("collection_method"),
         "collection_effort_value": result.get("collection_effort_value"),
+        "missingness": _select(result.get("missingness"), ("collection_effort_value",)),
         "collection_effort_unit": result.get("collection_effort_unit"),
         "ticks_tested": result.get("ticks_tested"),
         "ticks_positive": result.get("ticks_positive"),
         "input_canonical_observation_ids": ids,
         "safe_lineage": safe_lineage,
+        "scientific_eligibility": eligibility,
+        "testing_scope_attestation": testing_scope_attestation,
         "quality": safe_quality,
     }
+    source_only = result.get("source_only_evidence")
+    if source_only is not None:
+        if construct != COUNTY or state != "UNKNOWN" or result.get("county_fips") is not None:
+            raise ValueError("source-only evidence cannot establish canonical county coverage")
+        if not isinstance(source_only, Mapping) or "county_fips" in source_only:
+            raise ValueError("source-only evidence cannot contain county FIPS")
+        safe_source_only = _select(
+            source_only,
+            (
+                "source_record_id",
+                "source_revision_id",
+                "ingestion_run_id",
+                "reported_geography",
+                "source_geography_type",
+                "mapping_status",
+                "mapping_reason",
+                "normalization_registry_id",
+                "normalization_registry_version",
+                "normalization_rule_id",
+                "scientific_dimension",
+                "retrieved_at",
+            ),
+        )
+        if safe_source_only["mapping_status"] not in {"UNMAPPED", "AMBIGUOUS"}:
+            raise ValueError("source-only county evidence must be unresolved")
+        scientific["source_only_evidence"] = {
+            "contract_version": "surveillance-source-only-county-evidence-v1",
+            "linked_coverage_identity": result["coverage_identity"],
+            "source_dataset_id": context.get("source_dataset_id"),
+            "publisher": context.get("publisher"),
+            "source_version_id": context.get("source_version_id"),
+            "source_vintage": context.get("source_vintage"),
+            "evidence_basis": evidence_basis,
+            **safe_source_only,
+            "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+        }
     _safe(scientific)
     revision = hashlib.sha256(
-        json.dumps(scientific, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        json.dumps(
+            {"scientific": scientific, "evidence_basis": evidence_basis},
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
     ).hexdigest()
     document = {
         "contract_version": CONTRACT_VERSION,
-        "result_id": f"coverage-result:v1:{revision}",
+        "result_id": f"coverage-result:v2:{revision}",
         "result_revision": revision,
         **scientific,
         "evidence_basis": evidence_basis,
@@ -329,3 +436,25 @@ def serialize_surveillance_coverage(
     }
     _safe(document)
     return document
+
+
+def safe_coverage_revision_valid(document: Mapping[str, Any]) -> bool:
+    """Verify that a safe result's immutable ID binds its evidence basis."""
+    if document.get("contract_version") != CONTRACT_VERSION:
+        return False
+    scientific = {key: value for key, value in document.items() if key in _SCIENTIFIC_KEYS}
+    try:
+        digest = hashlib.sha256(
+            json.dumps(
+                {"scientific": scientific, "evidence_basis": document.get("evidence_basis")},
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+    except (TypeError, ValueError):
+        return False
+    return (
+        document.get("result_revision") == digest
+        and document.get("result_id") == f"coverage-result:v2:{digest}"
+    )

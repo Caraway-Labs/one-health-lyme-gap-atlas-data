@@ -64,6 +64,15 @@ required field for an observation whose native grain is a sampling site/event.
 No loader may synthesize it from a site name, coordinate, or a broad coverage
 claim.
 
+For a future #171 individual-testing denominator claim, the additive optional
+`testing_scope` and `test_result` fields retain explicit source testing scope
+and result evidence. #171 does not default a missing scope to individual.
+Their presence alone is insufficient: exact-source normalization, source
+testing identity, and count consistency are required by the derived-result
+contract. This does not impose M1 prevalence life-stage semantics or rewrite
+historical canonical rows. Unresolved source-only county rows remain outside
+this canonical county-status shape.
+
 ## Site, event, replicate, and geography extension (v1.1)
 
 For `native_sampling_grain: SITE_EVENT`, the canonical record must retain

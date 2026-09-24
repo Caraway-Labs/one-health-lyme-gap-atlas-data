@@ -16,8 +16,9 @@ from .surveillance_priority import (
     UNAVAILABLE,
     evaluate_surveillance_priority,
 )
+from .surveillance_safe import has_sensitive_path
 
-CONTRACT_VERSION = "surveillance-priority-result-v1"
+CONTRACT_VERSION = "surveillance-priority-result-v2"
 _UNSAFE = re.compile(
     r"(?:[a-z][a-z0-9+.-]*://|[?&](?:token|signature|credential|password|secret)=|"
     r"-----BEGIN [A-Z ]+PRIVATE KEY-----)",
@@ -37,7 +38,7 @@ def _safe(value: object) -> None:
     elif isinstance(value, list):
         for item in value:
             _safe(item)
-    elif isinstance(value, str) and _UNSAFE.search(value):
+    elif isinstance(value, str) and (_UNSAFE.search(value) or has_sensitive_path(value)):
         raise ValueError("unsafe priority output value")
 
 
@@ -46,6 +47,18 @@ def serialize_surveillance_priority(result: Mapping[str, Any]) -> dict[str, obje
     coverage = result.get("coverage")
     if not isinstance(coverage, Mapping):
         raise ValueError("underlying safe coverage result is required")
+    for field in (
+        "source_scope",
+        "site",
+        "event",
+        "source_geography",
+        "county_relationship",
+        "safe_lineage",
+        "scientific_eligibility",
+        "testing_scope_attestation",
+        "source_only_evidence",
+    ):
+        _safe(coverage.get(field))
     expected = evaluate_surveillance_priority(coverage)
     for field in (
         "disposition",
@@ -102,6 +115,7 @@ def serialize_surveillance_priority(result: Mapping[str, Any]) -> dict[str, obje
         "representativeness": coverage.get("representativeness"),
         "source_geography": coverage.get("source_geography"),
         "dimension": coverage.get("dimension"),
+        "dimension_label": coverage.get("dimension_label"),
         "period_start": coverage.get("period_start"),
         "period_end": coverage.get("period_end"),
         "tick_species": coverage.get("tick_species"),
@@ -109,9 +123,13 @@ def serialize_surveillance_priority(result: Mapping[str, Any]) -> dict[str, obje
         "pathogen_name": coverage.get("pathogen_name"),
         "collection_method": coverage.get("collection_method"),
         "collection_effort_unit": coverage.get("collection_effort_unit"),
-        "testing_scope": "INDIVIDUAL_PATHOGEN_TEST"
+        "missingness": coverage.get("missingness"),
+        "testing_scope": (coverage.get("testing_scope_attestation") or {}).get("testing_scope")
         if construct == "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY"
         else "NOT_APPLICABLE",
+        "testing_scope_attestation": coverage.get("testing_scope_attestation"),
+        "scientific_eligibility": coverage.get("scientific_eligibility"),
+        "source_only_evidence": coverage.get("source_only_evidence"),
         "safe_lineage": coverage.get("safe_lineage"),
         "quality": coverage.get("quality"),
         "evidence_basis": coverage.get("evidence_basis"),
@@ -127,5 +145,5 @@ def serialize_surveillance_priority(result: Mapping[str, Any]) -> dict[str, obje
         json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     ).hexdigest()
     document["result_revision"] = revision
-    document["result_id"] = f"surveillance-priority-result:v1:{revision}"
+    document["result_id"] = f"surveillance-priority-result:v2:{revision}"
     return document

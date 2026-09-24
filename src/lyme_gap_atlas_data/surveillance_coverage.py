@@ -12,12 +12,19 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .surveillance_eligibility import (
+    MODEL_VERSION,
+    approved_source_tuple,
+    attest_scientific_fields,
+    proven,
+    scientific_attestation,
+)
 from .surveillance_quality import assess_surveillance_quality
 from .surveillance_quality_propagation import propagate_surveillance_quality
 from .tick_normalization import load_registry
 
 METHODOLOGY_VERSION = "surveillance-coverage-v1"
-CALCULATION_VERSION = "surveillance-coverage-calculation-v1"
+CALCULATION_VERSION = "surveillance-coverage-calculation-v2"
 COUNTY = "COUNTY_STATUS_DATASET_REPRESENTATION"
 SAMPLING = "ACTIVE_SITE_EVENT_SAMPLING"
 EFFORT = "ACTIVE_EFFORT_DOCUMENTATION"
@@ -29,8 +36,8 @@ _CDC_TYPES = {
     "CDC_PATHOGEN_COUNTY_STATUS": "PATHOGEN_PRESENCE_STATUS",
 }
 _CDC_DATASETS = {
-    "CDC_IXODES_COUNTY_STATUS": "cdc_tick_ixodes_county_status",
-    "CDC_PATHOGEN_COUNTY_STATUS": "cdc_tick_ixodes_pathogen_status",
+    "CDC_IXODES_COUNTY_STATUS": "cdc-ixodes-county-status-2025",
+    "CDC_PATHOGEN_COUNTY_STATUS": "cdc-ixodes-pathogen-status-2025",
 }
 _NEON_DATASETS = {SAMPLING: "DP1.10093.001", EFFORT: "DP1.10093.001", TESTING: "DP1.10092.001"}
 _REQUIRED_LINEAGE = (
@@ -72,38 +79,6 @@ def _flags(observation: Mapping[str, Any]) -> set[str]:
     }
 
 
-def _mapping(observation: Mapping[str, Any], field: str) -> Mapping[str, Any] | None:
-    normalization = observation.get("normalization")
-    registry = load_registry()
-    if (
-        not isinstance(normalization, Mapping)
-        or normalization.get("registry_id") != registry["registry_id"]
-        or normalization.get("registry_version") != registry["registry_version"]
-    ):
-        return None
-    mappings = normalization.get("mappings")
-    if not isinstance(mappings, Mapping):
-        return None
-    matches = [
-        entry
-        for entry in mappings.values()
-        if isinstance(entry, Mapping)
-        and entry.get("status") == "APPROVED"
-        and entry.get("registry_id") == registry["registry_id"]
-        and entry.get("registry_version") == registry["registry_version"]
-        and any(
-            rule.get("field") == field
-            and rule.get("rule_id") == entry.get("mapping_rule_id")
-            and rule.get("status") == "APPROVED"
-            and rule.get("canonical_id") == entry.get("canonical_id")
-            and rule.get("source_value") == entry.get("source_value")
-            and rule.get("source_context") == entry.get("source_context")
-            for rule in registry["mappings"]
-        )
-    ]
-    return matches[0] if len(matches) == 1 else None
-
-
 def _quality_missing(profile: Mapping[str, Any], construct: str) -> list[str]:
     required = {
         "TECHNICAL_SOURCE_VALIDITY": "CANONICAL_RECORD_STRUCTURALLY_VALID",
@@ -128,6 +103,8 @@ def _source_context(construct: str, context: Mapping[str, Any]) -> list[str]:
         return ["SOURCE_VERSION_UNAVAILABLE_OR_UNAPPROVED"]
     if not _text(context.get("source_dataset_id")) or not _text(context.get("source_version_id")):
         return ["SOURCE_VERSION_IDENTITY_MISSING"]
+    if not approved_source_tuple(construct, context):
+        return ["SOURCE_VINTAGE_TUPLE_UNPROVEN"]
     if construct == COUNTY:
         family = context.get("source_family")
         if family not in _CDC_TYPES or context.get("source_dataset_id") != _CDC_DATASETS[family]:
@@ -145,6 +122,7 @@ def _county_state(
     context: Mapping[str, Any],
     county_fips: str | None,
     profiles: Sequence[Mapping[str, Any]],
+    dimension: str | None,
 ) -> tuple[str, list[str]]:
     if context.get("source_geography_in_scope") is False:
         return "NOT_APPLICABLE", ["SOURCE_GEOGRAPHY_OUTSIDE_PUBLISHER_SCOPE"]
@@ -176,7 +154,43 @@ def _county_state(
         return "UNKNOWN", ["UNRESOLVED_CANONICAL_COUNTY"]
     if any(item.get("source_agency") != "CDC" for item in observations):
         return "UNAVAILABLE", ["INELIGIBLE_SOURCE_SCOPE"]
+    field = "tick_taxon" if expected_type == "VECTOR_PRESENCE_STATUS" else "pathogen_target"
+    observed_field = "tick_species" if field == "tick_taxon" else "pathogen_name"
+    attested = [
+        scientific_attestation(
+            item,
+            field=field,
+            role=COUNTY,
+            represented_value=item.get(observed_field),
+            source_context=context,
+        )
+        for item in observations
+    ]
+    if observations and (
+        any(not proven(item) for item in attested)
+        or any(
+            dimension not in (item["canonical_id"], item["canonical_label"]) for item in attested
+        )
+        or len({item["canonical_id"] for item in attested}) != 1
+    ):
+        return "UNKNOWN", ["COUNTY_SCIENTIFIC_DIMENSION_UNPROVEN"]
     if not observations:
+        external = context.get("dimension_mapping")
+        attestation = scientific_attestation(
+            {
+                "normalization": {
+                    "registry_id": load_registry()["registry_id"],
+                    "registry_version": load_registry()["registry_version"],
+                    "mappings": {"dimension": external},
+                }
+            },
+            field=field,
+            role=COUNTY,
+            represented_value=dimension,
+            source_context=context,
+        )
+        if not proven(attestation):
+            return "UNKNOWN", ["COUNTY_SCIENTIFIC_DIMENSION_UNPROVEN"]
         return "NOT_REPORTED_IN_DATASET", ["COMPLETE_SCOPED_SNAPSHOT_OMISSION"]
     if any(_quality_missing(profile, COUNTY) for profile in profiles):
         return "UNAVAILABLE", ["REQUIRED_STRUCTURAL_OR_PROVENANCE_EVIDENCE_MISSING"]
@@ -210,7 +224,10 @@ def _county_state(
 
 
 def _active_state(
-    construct: str, observation: Mapping[str, Any], profile: Mapping[str, Any]
+    construct: str,
+    observation: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    context: Mapping[str, Any],
 ) -> tuple[str, list[str]]:
     kind = observation.get("observation_type")
     expected = "PATHOGEN_TESTING" if construct == TESTING else "COLLECTION_ABUNDANCE"
@@ -235,6 +252,8 @@ def _active_state(
         "surveillance_period_end"
     ) or not _text(observation.get("surveillance_period_start")):
         return "UNAVAILABLE", ["INCOMPATIBLE_EVENT_OR_PERIOD"]
+    if observation.get("temporal_semantics") != "POINT_IN_TIME":
+        return "UNKNOWN", ["INCOMPATIBLE_TIME_SEMANTICS"]
     if (
         _part(observation, "county_relationship", "representativeness")
         != "NOT_COUNTY_REPRESENTATIVE"
@@ -251,17 +270,27 @@ def _active_state(
     if _flags(observation) & {"SOURCE_REVISION_AMBIGUOUS", "REVISION_SELECTION_NOT_APPROVED"}:
         return "UNKNOWN", ["UNRECONCILED_SOURCE_REVISION"]
     if construct == TESTING:
-        if observation.get("testing_grain", "INDIVIDUAL") != "INDIVIDUAL" or not _text(
+        if observation.get("testing_scope") != "INDIVIDUAL_PATHOGEN_TEST" or not _text(
             _part(observation, "sampling_event", "source_testing_id")
         ):
             return "UNKNOWN", ["INDIVIDUAL_TEST_SCOPE_UNRESOLVED"]
-        pathogen = _mapping(observation, "pathogen_target")
-        result = _mapping(observation, "test_result")
+        pathogen = scientific_attestation(
+            observation,
+            field="pathogen_target",
+            role=TESTING,
+            represented_value=observation.get("pathogen_name"),
+            source_context=context,
+        )
+        result = scientific_attestation(
+            observation,
+            field="test_result",
+            role=TESTING,
+            represented_value=observation.get("test_result"),
+            source_context=context,
+        )
         if (
-            not _text(observation.get("pathogen_name"))
-            or pathogen is None
-            or pathogen.get("canonical_label") != observation.get("pathogen_name")
-            or result is None
+            not proven(pathogen)
+            or not proven(result)
             or result.get("canonical_id") not in {"DETECTED", "NOT_DETECTED"}
         ):
             return "UNKNOWN", ["PATHOGEN_OR_RESULT_MAPPING_UNRESOLVED"]
@@ -286,6 +315,12 @@ def _active_state(
     if "SAMPLING_IMPRACTICAL" in _flags(observation):
         return "SAMPLING_IMPRACTICAL", ["SAMPLING_IMPRACTICAL"]
     effort = observation.get("collection_effort_value")
+    if effort is not None and _part(observation, "missingness", "collection_effort_value") in {
+        "UNKNOWN",
+        "UNAVAILABLE",
+        "NOT_REPORTED",
+    }:
+        return "UNKNOWN", ["CONFLICTING_EFFORT_MISSINGNESS"]
     if effort is None:
         reason = (
             "EFFORT_UNKNOWN"
@@ -302,19 +337,39 @@ def _active_state(
         return "UNKNOWN", ["NONFINITE_OR_INVALID_EFFORT"]
     if effort == 0:
         return ("ZERO_EFFORT" if construct == EFFORT else "UNKNOWN"), ["ZERO_EFFORT"]
-    unit = _mapping(observation, "effort_unit")
-    method = _mapping(observation, "collection_method")
-    if (
-        observation.get("collection_effort_unit") != "square metre"
-        or unit is None
-        or unit.get("canonical_id") != "SQUARE_METRE"
-    ):
+    taxon = scientific_attestation(
+        observation,
+        field="tick_taxon",
+        role=construct,
+        represented_value=observation.get("tick_species"),
+        source_context=context,
+    )
+    stage = scientific_attestation(
+        observation,
+        field="life_stage",
+        role=construct,
+        represented_value=observation.get("life_stage"),
+        source_context=context,
+    )
+    unit = scientific_attestation(
+        observation,
+        field="effort_unit",
+        role=construct,
+        represented_value=observation.get("collection_effort_unit"),
+        source_context=context,
+    )
+    method = scientific_attestation(
+        observation,
+        field="collection_method",
+        role=construct,
+        represented_value=observation.get("collection_method"),
+        source_context=context,
+    )
+    if not proven(taxon) or not proven(stage):
+        return "UNKNOWN", ["COLLECTION_SCIENTIFIC_STRATUM_UNPROVEN"]
+    if not proven(unit) or unit.get("canonical_id") != "SQUARE_METRE":
         return "UNKNOWN", ["MISSING_APPROVED_EFFORT_UNIT_MAPPING"]
-    if (
-        method is None
-        or method.get("canonical_id") not in {"DRAG_CLOTH", "FLAG_CLOTH"}
-        or method.get("canonical_label") != observation.get("collection_method")
-    ):
+    if not proven(method) or method.get("canonical_id") not in {"DRAG_CLOTH", "FLAG_CLOTH"}:
         return "UNKNOWN", ["COLLECTION_METHOD_UNRESOLVED"]
     if _quality_missing(profile, construct):
         return "UNKNOWN", _quality_missing(profile, construct)
@@ -333,6 +388,7 @@ def evaluate_surveillance_coverage(
     source_context: Mapping[str, Any],
     county_fips: str | None = None,
     dimension: str | None = None,
+    source_only_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     """Evaluate one county/dimension or one native active observation.
 
@@ -346,6 +402,22 @@ def evaluate_surveillance_coverage(
         raise ValueError("active construct requires one native observation")
     if construct == COUNTY and not _text(dimension):
         raise ValueError("county construct requires an explicit taxon or pathogen dimension")
+    if construct == COUNTY and any(
+        item.get("observation_type") in _STATUS_TYPES
+        and (
+            not isinstance(item.get("county_fips"), str)
+            or len(item["county_fips"]) != 5
+            or not item["county_fips"].isdigit()
+        )
+        for item in observations
+    ):
+        raise ValueError("unresolved source county row requires separate source-only evidence")
+    if source_only_evidence is not None and (
+        construct != COUNTY or observations or county_fips is not None
+    ):
+        raise ValueError(
+            "source-only county evidence requires unresolved county and no canonical rows"
+        )
     distinct = {json.dumps(item, sort_keys=True, default=str): item for item in observations}
     ordered = sorted(
         distinct.values(),
@@ -365,22 +437,11 @@ def evaluate_surveillance_coverage(
     if source_errors:
         state, reasons = "UNAVAILABLE", source_errors
     elif construct == COUNTY:
-        if any(
-            item.get(
-                "tick_species"
-                if source_context["source_family"] == "CDC_IXODES_COUNTY_STATUS"
-                else "pathogen_name"
-            )
-            != dimension
-            for item in ordered
-        ):
-            state, reasons = "UNKNOWN", ["INCOMPATIBLE_REPORTED_DIMENSION"]
-        else:
-            state, reasons = _county_state(ordered, source_context, county_fips, profiles)
+        state, reasons = _county_state(ordered, source_context, county_fips, profiles, dimension)
     elif not ordered:
         state, reasons = "UNKNOWN", ["CANONICAL_EVENT_ABSENT_COMPLETENESS_UNPROVEN"]
     else:
-        state, reasons = _active_state(construct, ordered[0], profiles[0])
+        state, reasons = _active_state(construct, ordered[0], profiles[0], source_context)
     for profile in profiles:
         components = profile["components"]
         if not isinstance(components, list):
@@ -407,21 +468,80 @@ def evaluate_surveillance_coverage(
         if len(ids) != len(set(ids)):
             state, reasons = "UNKNOWN", ["CONFLICTING_CANONICAL_INPUT_ID"]
     first = ordered[0] if ordered else {}
+    attestations = attest_scientific_fields(construct, first, source_context, dimension=dimension)
+    by_field = {str(item["field"]): item for item in attestations}
+
+    def canonical(field: str, fallback: object) -> object:
+        item = by_field.get(field)
+        return item["canonical_id"] if item is not None and proven(item) else fallback
+
+    def display(field: str, fallback: object) -> object:
+        item = by_field.get(field)
+        return item["canonical_label"] if item is not None and proven(item) else fallback
+
+    if state in {
+        "REPORTED_STATUS",
+        "PUBLISHER_NO_RECORDS",
+        "NOT_REPORTED_IN_DATASET",
+        "SAMPLED_EVENT",
+        "DOCUMENTED_POSITIVE_EFFORT",
+        "DOCUMENTED_POSITIVE_TEST_DENOMINATOR",
+    } and not all(proven(item) for item in attestations):
+        state, reasons = "UNKNOWN", ["SCIENTIFIC_ELIGIBILITY_UNPROVEN"]
+    testing_attestation: dict[str, object] | None = None
+    if construct == TESTING and state == "DOCUMENTED_POSITIVE_TEST_DENOMINATOR":
+        source_testing_id = _part(first, "sampling_event", "source_testing_id")
+        if _text(source_testing_id):
+            testing_attestation = {
+                "attestation_version": MODEL_VERSION,
+                "source_dataset_id": source_context.get("source_dataset_id"),
+                "source_version_id": source_context.get("source_version_id"),
+                "testing_scope": "INDIVIDUAL_PATHOGEN_TEST",
+                "source_testing_identity_sha256": hashlib.sha256(
+                    f"{first.get('artifact_id')}:{source_testing_id}".encode()
+                ).hexdigest(),
+                "pathogen_target_id": attestations[0]["canonical_id"],
+                "test_result_id": attestations[1]["canonical_id"],
+                "normalization_rule_ids": [
+                    attestations[0]["normalization_rule_id"],
+                    attestations[1]["normalization_rule_id"],
+                ],
+                "eligibility": "ELIGIBLE",
+            }
     identity = {
         "construct_id": construct,
         "methodology_version": METHODOLOGY_VERSION,
         "source_dataset_id": source_context.get("source_dataset_id"),
         "source_version_id": source_context.get("source_version_id"),
+        "source_vintage": source_context.get("source_vintage"),
+        "source_only_record_id": source_only_evidence.get("source_record_id")
+        if source_only_evidence is not None
+        else None,
+        "source_only_geography": source_only_evidence.get("reported_geography")
+        if source_only_evidence is not None
+        else None,
+        "temporal_semantics": first.get("temporal_semantics"),
+        "scientific_ids": [item.get("canonical_id") for item in attestations],
         "county_fips": county_fips if construct == COUNTY else None,
-        "dimension": dimension if construct == COUNTY else None,
+        "dimension": canonical(
+            "tick_taxon"
+            if source_context.get("source_family") == "CDC_IXODES_COUNTY_STATUS"
+            else "pathogen_target",
+            dimension,
+        )
+        if construct == COUNTY
+        else None,
         "sampling_site": first.get("sampling_site"),
         "sampling_event": first.get("sampling_event"),
         "period_start": first.get("surveillance_period_start"),
         "period_end": first.get("surveillance_period_end")
         or (source_context.get("cumulative_through_date") if construct == COUNTY else None),
-        "taxon": first.get("tick_species"),
-        "pathogen": first.get("pathogen_name"),
-        "method": first.get("collection_method"),
+        "taxon": canonical("tick_taxon", first.get("tick_species")),
+        "life_stage": canonical("life_stage", first.get("life_stage")),
+        "pathogen": canonical("pathogen_target", first.get("pathogen_name")),
+        "test_result": canonical("test_result", first.get("test_result")),
+        "method": canonical("collection_method", first.get("collection_method")),
+        "effort_unit": canonical("effort_unit", first.get("collection_effort_unit")),
         "canonical_input_ids": ids,
         "source_record_ids": [item.get("source_record_id") for item in ordered],
         "source_revision_ids": [item.get("source_revision_id") for item in ordered],
@@ -432,7 +552,7 @@ def evaluate_surveillance_coverage(
     digest = hashlib.sha256(
         json.dumps(identity, sort_keys=True, separators=(",", ":"), default=str).encode()
     ).hexdigest()
-    result_identity = f"coverage:v1:{digest}"
+    result_identity = f"coverage:v2:{digest}"
     added_limitations = ["NOT_COUNTY_REPRESENTATIVE"] if construct != COUNTY else []
     propagation = (
         propagate_surveillance_quality(
@@ -457,8 +577,28 @@ def evaluate_surveillance_coverage(
         "reason_codes": list(dict.fromkeys(reasons)),
         "native_grain": "COUNTY" if construct == COUNTY else "SITE_EVENT",
         "source_context": dict(source_context),
+        "scientific_eligibility": attestations,
+        "testing_scope_attestation": testing_attestation,
+        "source_only_evidence": dict(source_only_evidence)
+        if source_only_evidence is not None
+        else None,
         "county_fips": county_fips if construct == COUNTY else None,
-        "dimension": dimension if construct == COUNTY else None,
+        "dimension": canonical(
+            "tick_taxon"
+            if source_context.get("source_family") == "CDC_IXODES_COUNTY_STATUS"
+            else "pathogen_target",
+            dimension,
+        )
+        if construct == COUNTY
+        else None,
+        "dimension_label": display(
+            "tick_taxon"
+            if source_context.get("source_family") == "CDC_IXODES_COUNTY_STATUS"
+            else "pathogen_target",
+            dimension,
+        )
+        if construct == COUNTY
+        else None,
         "source_geography": first.get("source_geography"),
         "sampling_site": first.get("sampling_site"),
         "sampling_event": first.get("sampling_event"),
@@ -466,7 +606,9 @@ def evaluate_surveillance_coverage(
         "representativeness": "COUNTY_NATIVE_STATUS"
         if construct == COUNTY
         else "NOT_COUNTY_REPRESENTATIVE",
-        "temporal_semantics": "CUMULATIVE_THROUGH_DATE" if construct == COUNTY else "POINT_IN_TIME",
+        "temporal_semantics": first.get("temporal_semantics")
+        if first
+        else ("CUMULATIVE_THROUGH_DATE" if construct == COUNTY else "POINT_IN_TIME"),
         "date": (
             first.get("surveillance_period_end") or source_context.get("cumulative_through_date")
         )
@@ -475,13 +617,14 @@ def evaluate_surveillance_coverage(
         "period_start": first.get("surveillance_period_start"),
         "period_end": first.get("surveillance_period_end")
         or (source_context.get("cumulative_through_date") if construct == COUNTY else None),
-        "tick_species": first.get("tick_species"),
+        "tick_species": display("tick_taxon", first.get("tick_species")),
         "publisher_status": first.get("presence_status") if construct == COUNTY else None,
-        "life_stage": first.get("life_stage"),
-        "pathogen_name": first.get("pathogen_name"),
-        "collection_method": first.get("collection_method"),
+        "life_stage": display("life_stage", first.get("life_stage")),
+        "pathogen_name": display("pathogen_target", first.get("pathogen_name")),
+        "collection_method": display("collection_method", first.get("collection_method")),
         "collection_effort_value": first.get("collection_effort_value"),
-        "collection_effort_unit": first.get("collection_effort_unit"),
+        "missingness": first.get("missingness"),
+        "collection_effort_unit": display("effort_unit", first.get("collection_effort_unit")),
         "ticks_tested": first.get("ticks_tested"),
         "ticks_positive": first.get("ticks_positive"),
         "input_canonical_observation_ids": ids,

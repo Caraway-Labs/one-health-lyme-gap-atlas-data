@@ -6,11 +6,11 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
-from functools import lru_cache
 from typing import Any
 
 from .surveillance_coverage import COUNTY, EFFORT, SAMPLING, TESTING
-from .tick_normalization import load_registry
+from .surveillance_coverage_results import safe_coverage_revision_valid
+from .surveillance_eligibility import approved_source_tuple, verify_safe_attestation
 
 METHODOLOGY_VERSION = "surveillance-priority-v1"
 DECISION = "SURVEILLANCE_EVIDENCE_REVIEW"
@@ -101,82 +101,12 @@ _UNRESOLVED_PARTS = frozenset(
 
 
 def _resolved(value: object, *, dimension: str) -> bool:
-    """Require one resolved value, using governed vocabulary for canonical strata."""
+    """Reject missing context; canonical strata were checked by attestations."""
     if not _text(value):
         return False
     normalized = re.sub(r"[\s-]+", "_", str(value).strip().upper())
     parts = set(re.split(r"[_/+,;|]", normalized))
-    if normalized in _UNRESOLVED_CONTEXT or parts & _UNRESOLVED_PARTS:
-        return False
-    labels = _cohort_registry_labels()
-    registry_dimension = {
-        "collection_method": 0,
-        "tick_species": 1,
-        "life_stage": 2,
-        "pathogen_target": 3,
-    }.get(dimension)
-    return registry_dimension is None or value in labels[registry_dimension]
-
-
-@lru_cache(maxsize=1)
-def _cohort_registry_labels() -> tuple[frozenset[str], ...]:
-    registry = load_registry()
-    values = registry["canonical_values"]
-    return tuple(
-        frozenset(
-            value
-            for item in values[field]
-            if not item.get("aggregate") and item.get("id") not in _UNRESOLVED_CONTEXT
-            for value in (item["id"], item["label"])
-        )
-        for field in ("collection_method", "tick_taxon", "life_stage", "pathogen_target")
-    )
-
-
-_COUNTY_SCIENTIFIC_SOURCES = {
-    "CDC_IXODES_COUNTY_STATUS": (
-        "cdc_tick_ixodes_county_status",
-        "cdc-ixodes-county-status-2025",
-        "tick_taxon",
-    ),
-    "CDC_PATHOGEN_COUNTY_STATUS": (
-        "cdc_tick_ixodes_pathogen_status",
-        "cdc-ixodes-pathogen-status-2025",
-        "pathogen_target",
-    ),
-}
-
-
-def _resolved_county_dimension(value: object, source: Mapping[str, Any]) -> bool:
-    """Require one approved nonaggregate value mapped to this county source."""
-    if not _text(value):
-        return False
-    family = source.get("source_family")
-    source_spec = _COUNTY_SCIENTIFIC_SOURCES.get(family) if isinstance(family, str) else None
-    if source_spec is None or source.get("source_dataset_id") != source_spec[0]:
-        return False
-    registry_dataset, field = source_spec[1:]
-    registry = load_registry()
-    canonical = [
-        item for item in registry["canonical_values"][field] if value in (item["id"], item["label"])
-    ]
-    if len(canonical) != 1 or canonical[0].get("aggregate"):
-        return False
-    canonical_id = canonical[0]["id"]
-    matches = [
-        rule
-        for rule in registry["mappings"]
-        if rule["field"] == field
-        and rule["canonical_id"] == canonical_id
-        and rule["status"] == "APPROVED"
-        and rule["source_context"]
-        == {
-            "publisher": "CDC ArboNET Tick Module",
-            "dataset_id": registry_dataset,
-            "source_version": source.get("source_vintage"),
-        }
-    ]
-    return len(matches) == 1
+    return normalized not in _UNRESOLVED_CONTEXT and not (parts & _UNRESOLVED_PARTS)
 
 
 def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
@@ -185,9 +115,81 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
     source = coverage.get("source_scope")
     if construct not in DISPOSITIONS or not isinstance(source, Mapping):
         return None
+    if not safe_coverage_revision_valid(coverage):
+        return None
+    if coverage.get("state") in {"UNKNOWN", "UNAVAILABLE", "NOT_APPLICABLE"}:
+        return None
+    if not approved_source_tuple(str(construct), source):
+        return None
+    attestations = coverage.get("scientific_eligibility")
+    expected_fields = (
+        {"tick_taxon"}
+        if construct == COUNTY and source.get("source_family") == "CDC_IXODES_COUNTY_STATUS"
+        else {"pathogen_target"}
+        if construct == COUNTY
+        else {"pathogen_target", "test_result"}
+        if construct == TESTING
+        else {"tick_taxon", "life_stage", "collection_method", "effort_unit"}
+    )
+    if (
+        not isinstance(attestations, list)
+        or {item.get("field") for item in attestations if isinstance(item, Mapping)}
+        != expected_fields
+        or any(
+            not isinstance(item, Mapping)
+            or item.get("eligibility") != "ELIGIBLE"
+            or item.get("semantic_role") != construct
+            or item.get("source_dataset_id") != source.get("source_dataset_id")
+            or item.get("source_version_id") != source.get("source_version_id")
+            or not verify_safe_attestation(item, construct=str(construct), context=source)
+            for item in attestations
+        )
+    ):
+        return None
+    canonical = {str(item["field"]): item["canonical_id"] for item in attestations}
+    displayed = {
+        "tick_taxon": coverage.get("tick_species")
+        if construct != COUNTY
+        else coverage.get("dimension"),
+        "life_stage": coverage.get("life_stage"),
+        "collection_method": coverage.get("collection_method"),
+        "effort_unit": coverage.get("collection_effort_unit"),
+        "pathogen_target": coverage.get("pathogen_name")
+        if construct != COUNTY
+        else coverage.get("dimension"),
+    }
+    if any(
+        displayed.get(str(item["field"]))
+        not in (item.get("canonical_id"), item.get("canonical_label"))
+        for item in attestations
+        if item.get("field") != "test_result"
+    ):
+        return None
+    testing = coverage.get("testing_scope_attestation")
+    if construct == TESTING and (
+        not isinstance(testing, Mapping)
+        or testing.get("eligibility") != "ELIGIBLE"
+        or testing.get("testing_scope") != "INDIVIDUAL_PATHOGEN_TEST"
+        or testing.get("source_dataset_id") != source.get("source_dataset_id")
+        or testing.get("source_version_id") != source.get("source_version_id")
+        or not _text(testing.get("source_testing_identity_sha256"))
+        or testing.get("pathogen_target_id") != canonical.get("pathogen_target")
+        or testing.get("test_result_id") != canonical.get("test_result")
+        or coverage.get("testing_scope", testing.get("testing_scope"))
+        != testing.get("testing_scope")
+    ):
+        return None
+    if construct == COUNTY and not _text(coverage.get("county_fips")):
+        return None
+    if construct != COUNTY and (
+        coverage.get("period_start") != coverage.get("period_end")
+        or coverage.get("date") != coverage.get("period_start")
+    ):
+        return None
     cohort: dict[str, object] = {
         "construct_id": construct,
-        "source_family": source.get("source_family") if construct == COUNTY else "NSF_NEON",
+        "source_family": source.get("source_family"),
+        "publisher": source.get("publisher"),
         "source_dataset_id": source.get("source_dataset_id"),
         "source_version_id": source.get("source_version_id"),
         "source_vintage": source.get("source_vintage"),
@@ -199,7 +201,7 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
             publisher_scope_version=source.get("publisher_scope_version"),
             canonical_universe_version=source.get("canonical_universe_version"),
             cumulative_through_date=source.get("cumulative_through_date"),
-            dimension=coverage.get("dimension"),
+            dimension=canonical.get("tick_taxon", canonical.get("pathogen_target")),
             status_kind="VECTOR"
             if source.get("source_family") == "CDC_IXODES_COUNTY_STATUS"
             else "PATHOGEN",
@@ -207,27 +209,29 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
     else:
         cohort.update(
             observation_date=coverage.get("date"),
-            collection_method=coverage.get("collection_method")
+            collection_method=canonical.get("collection_method")
             if construct in {SAMPLING, EFFORT}
             else "NOT_APPLICABLE",
-            tick_species=coverage.get("tick_species")
+            tick_species=canonical.get("tick_taxon")
             if construct in {SAMPLING, EFFORT}
             else "NOT_APPLICABLE",
-            life_stage=coverage.get("life_stage")
+            life_stage=canonical.get("life_stage")
             if construct in {SAMPLING, EFFORT}
             else "NOT_APPLICABLE",
-            effort_unit=coverage.get("collection_effort_unit") if construct == EFFORT else None,
-            pathogen_target=coverage.get("pathogen_name")
+            effort_unit=canonical.get("effort_unit") if construct == EFFORT else None,
+            pathogen_target=canonical.get("pathogen_target")
             if construct == TESTING
             else "NOT_APPLICABLE",
-            testing_scope=coverage.get("testing_scope", "INDIVIDUAL_PATHOGEN_TEST")
-            if construct == TESTING
+            testing_scope=testing.get("testing_scope")
+            if construct == TESTING and isinstance(testing, Mapping)
             else None,
         )
     required: tuple[str, ...] = (
         (
             "source_family",
+            "publisher",
             "source_dataset_id",
+            "publisher",
             "source_version_id",
             "source_vintage",
             "native_grain",
@@ -256,8 +260,6 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         required += ("testing_scope",)
     if not all(_resolved(cohort.get(field), dimension=field) for field in required):
         return None
-    if construct == COUNTY and not _resolved_county_dimension(coverage.get("dimension"), source):
-        return None
     if coverage.get("native_grain") != ("COUNTY" if construct == COUNTY else "SITE_EVENT"):
         return None
     if coverage.get("temporal_semantics") != (
@@ -276,11 +278,11 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
 
 def evaluate_surveillance_priority(coverage: Mapping[str, Any]) -> dict[str, object]:
     """Classify one serialized #171 result; never calculate a relative rank."""
-    if coverage.get("contract_version") != "surveillance-coverage-result-v1":
+    if coverage.get("contract_version") != "surveillance-coverage-result-v2":
         raise ValueError("approved #171 safe coverage result is required")
     if (
         coverage.get("methodology_version") != "surveillance-coverage-v1"
-        or coverage.get("calculation_version") != "surveillance-coverage-calculation-v1"
+        or coverage.get("calculation_version") != "surveillance-coverage-calculation-v2"
         or not _text(coverage.get("result_id"))
         or not _text(coverage.get("result_revision"))
         or not _text(coverage.get("coverage_identity"))
@@ -297,6 +299,10 @@ def evaluate_surveillance_priority(coverage: Mapping[str, Any]) -> dict[str, obj
         "CURRENT_CODE_SOURCE_BACKED_REPLAY",
     }:
         raise ValueError("coverage evidence basis is required")
+    if coverage.get(
+        "evidence_basis"
+    ) == "CURRENT_CODE_SOURCE_BACKED_REPLAY" and not safe_coverage_revision_valid(coverage):
+        raise ValueError("source-backed evidence basis conflicts with immutable coverage revision")
     source = coverage.get("source_scope")
     if not isinstance(source, Mapping):
         raise ValueError("source scope is required")
@@ -321,6 +327,8 @@ def evaluate_surveillance_priority(coverage: Mapping[str, Any]) -> dict[str, obj
     reasons.extend(str(item) for item in coverage.get("reason_codes", []))
     if cohort is None:
         reasons.append("COMPARISON_COHORT_UNPROVEN")
+    if not safe_coverage_revision_valid(coverage):
+        reasons.append("COVERAGE_REVISION_CONFLICT")
     result = {
         "methodology_version": METHODOLOGY_VERSION,
         "operational_decision": DECISION,

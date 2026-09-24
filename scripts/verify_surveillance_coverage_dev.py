@@ -36,6 +36,8 @@ def main() -> None:
         source_context={
             "approved": True,
             "available": True,
+            "source_family": "NSF_NEON",
+            "publisher": "NSF NEON",
             "source_dataset_id": "DP1.10093.001",
             "source_version_id": "RELEASE-2026",
             "source_vintage": "RELEASE-2026",

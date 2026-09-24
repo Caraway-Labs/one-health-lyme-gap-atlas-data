@@ -1,0 +1,20 @@
+{
+  "methodology_version": "surveillance-priority-v1",
+  "evidence_basis": "SYNTHETIC_FIXTURE",
+  "cases": [
+    {"id": "county-reported", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "coverage_state": "REPORTED_STATUS", "disposition": "NO_CURRENT_GAP_SIGNAL"},
+    {"id": "county-publisher-no-records", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "coverage_state": "PUBLISHER_NO_RECORDS", "disposition": "EXPLANATORY_LIMITATION"},
+    {"id": "county-proven-omission", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "coverage_state": "NOT_REPORTED_IN_DATASET", "disposition": "EVIDENCE_GAP_FOLLOW_UP"},
+    {"id": "county-unproven-omission", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "coverage_state": "UNKNOWN", "disposition": "EVIDENCE_VERIFICATION"},
+    {"id": "county-unavailable", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "coverage_state": "UNAVAILABLE", "disposition": "UNAVAILABLE"},
+    {"id": "county-out-of-scope", "construct": "COUNTY_STATUS_DATASET_REPRESENTATION", "coverage_state": "NOT_APPLICABLE", "disposition": "NOT_DEFENSIBLE"},
+    {"id": "sampled-zero", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "coverage_state": "SAMPLED_EVENT", "disposition": "NO_CURRENT_GAP_SIGNAL"},
+    {"id": "sampling-impractical", "construct": "ACTIVE_SITE_EVENT_SAMPLING", "coverage_state": "SAMPLING_IMPRACTICAL", "disposition": "EXPLANATORY_LIMITATION"},
+    {"id": "effort-missing", "construct": "ACTIVE_EFFORT_DOCUMENTATION", "coverage_state": "MISSING_EFFORT", "disposition": "EVIDENCE_GAP_FOLLOW_UP"},
+    {"id": "effort-zero", "construct": "ACTIVE_EFFORT_DOCUMENTATION", "coverage_state": "ZERO_EFFORT", "disposition": "EVIDENCE_GAP_FOLLOW_UP"},
+    {"id": "effort-positive", "construct": "ACTIVE_EFFORT_DOCUMENTATION", "coverage_state": "DOCUMENTED_POSITIVE_EFFORT", "disposition": "NO_CURRENT_GAP_SIGNAL"},
+    {"id": "testing-missing", "construct": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY", "coverage_state": "MISSING_TEST_DENOMINATOR", "disposition": "NOT_DEFENSIBLE"},
+    {"id": "testing-zero", "construct": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY", "coverage_state": "ZERO_TEST_DENOMINATOR", "disposition": "NOT_DEFENSIBLE"},
+    {"id": "testing-positive-zero-detected", "construct": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY", "coverage_state": "DOCUMENTED_POSITIVE_TEST_DENOMINATOR", "disposition": "NO_CURRENT_GAP_SIGNAL"}
+  ]
+}

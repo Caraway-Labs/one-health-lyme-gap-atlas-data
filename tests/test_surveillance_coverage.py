@@ -7,7 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from test_infected_tick_metrics import DENSITY, PREVALENCE, _canonical
+from test_infected_tick_metrics import DENSITY, PREVALENCE
+from test_infected_tick_metrics import _canonical as _metric_canonical
 
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
@@ -26,13 +27,21 @@ from lyme_gap_atlas_data.surveillance_coverage_result_store import stage_surveil
 from lyme_gap_atlas_data.surveillance_coverage_results import serialize_surveillance_coverage
 
 
+def _canonical(metric: str) -> dict:
+    observation = _metric_canonical(metric)
+    if metric == PREVALENCE:
+        observation["testing_scope"] = "INDIVIDUAL_PATHOGEN_TEST"
+        observation["test_result"] = "DETECTED"
+    return observation
+
+
 def _county(status: str = "ESTABLISHED", county: str = "01001") -> dict:
     return {
         "canonical_observation_id": "county-1",
         "observation_type": "VECTOR_PRESENCE_STATUS",
         "source_agency": "CDC",
-        "source_dataset_id": "cdc_tick_ixodes_county_status",
-        "data_source_version_id": "pinned-v1",
+        "source_dataset_id": "cdc-ixodes-county-status-2025",
+        "data_source_version_id": "2025",
         "source_record_id": "source-row-1",
         "ingestion_run_id": "run-1",
         "artifact_id": "artifact-1",
@@ -46,6 +55,26 @@ def _county(status: str = "ESTABLISHED", county: str = "01001") -> dict:
         "surveillance_period_end": "2025-12-31",
         "quality_flags": [],
         "reported_or_derived": "REPORTED",
+        "normalization": {
+            "registry_id": "tick-surveillance-normalization-v1",
+            "registry_version": "1.0.4",
+            "mappings": {
+                "taxon": {
+                    "source_value": "Ixodes_scapularis",
+                    "canonical_id": "IXODES_SCAPULARIS",
+                    "canonical_label": "Ixodes scapularis",
+                    "status": "APPROVED",
+                    "mapping_rule_id": "TAXON_CDC_SCAPULARIS_V1",
+                    "registry_id": "tick-surveillance-normalization-v1",
+                    "registry_version": "1.0.4",
+                    "source_context": {
+                        "publisher": "CDC ArboNET Tick Module",
+                        "dataset_id": "cdc-ixodes-county-status-2025",
+                        "source_version": "2025",
+                    },
+                }
+            },
+        },
     }
 
 
@@ -54,12 +83,14 @@ def _county_context(complete: bool = True) -> dict:
         "approved": True,
         "available": True,
         "source_family": "CDC_IXODES_COUNTY_STATUS",
-        "source_dataset_id": "cdc_tick_ixodes_county_status",
-        "source_version_id": "pinned-v1",
+        "publisher": "CDC ArboNET Tick Module",
+        "source_dataset_id": "cdc-ixodes-county-status-2025",
+        "source_version_id": "2025",
         "source_vintage": "2025",
+        "dimension_mapping": _county()["normalization"]["mappings"]["taxon"],
         "snapshot_complete": complete,
         "snapshot_evidence_id": "reviewed-snapshot-1" if complete else None,
-        "snapshot_source_version_id": "pinned-v1" if complete else None,
+        "snapshot_source_version_id": "2025" if complete else None,
         "scope_approved": complete,
         "publisher_scope": ["01001", "01003", "01005"],
         "canonical_eligible_universe": ["01001", "01003", "01005"],
@@ -73,6 +104,8 @@ def _active_context(testing: bool = False) -> dict:
     return {
         "approved": True,
         "available": True,
+        "source_family": "NSF_NEON",
+        "publisher": "NSF NEON",
         "source_dataset_id": "DP1.10092.001" if testing else "DP1.10093.001",
         "source_version_id": "RELEASE-2026",
         "source_vintage": "RELEASE-2026",
@@ -138,18 +171,34 @@ def test_county_dedup_revision_and_quality() -> None:
 def test_county_pathogen_source_stays_separate_and_unavailable_is_explicit() -> None:
     row = _county("REPORTED")
     row["observation_type"] = "PATHOGEN_PRESENCE_STATUS"
-    row["source_dataset_id"] = "cdc_tick_ixodes_pathogen_status"
-    row["pathogen_name"] = "Borrelia burgdorferi"
+    row["source_dataset_id"] = "cdc-ixodes-pathogen-status-2025"
+    row["pathogen_name"] = "Borrelia burgdorferi sensu stricto"
+    row["normalization"]["mappings"] = {
+        "pathogen": {
+            "source_value": "Borrelia_burgdorferi_sensu_stricto",
+            "canonical_id": "BORRELIA_BURGDORFERI_SENSU_STRICTO",
+            "canonical_label": "Borrelia burgdorferi sensu stricto",
+            "status": "APPROVED",
+            "mapping_rule_id": "PATHOGEN_CDC_BBURG_V1",
+            "registry_id": "tick-surveillance-normalization-v1",
+            "registry_version": "1.0.4",
+            "source_context": {
+                "publisher": "CDC ArboNET Tick Module",
+                "dataset_id": "cdc-ixodes-pathogen-status-2025",
+                "source_version": "2025",
+            },
+        }
+    }
     context = _county_context()
     context["source_family"] = "CDC_PATHOGEN_COUNTY_STATUS"
-    context["source_dataset_id"] = "cdc_tick_ixodes_pathogen_status"
+    context["source_dataset_id"] = "cdc-ixodes-pathogen-status-2025"
     assert (
         evaluate_surveillance_coverage(
             COUNTY,
             [row],
             source_context=context,
             county_fips="01001",
-            dimension="Borrelia burgdorferi",
+            dimension="Borrelia burgdorferi sensu stricto",
         )["state"]
         == "REPORTED_STATUS"
     )
@@ -160,7 +209,7 @@ def test_county_pathogen_source_stays_separate_and_unavailable_is_explicit() -> 
             [row],
             source_context=context,
             county_fips="01001",
-            dimension="Borrelia burgdorferi",
+            dimension="Borrelia burgdorferi sensu stricto",
         )["state"]
         == "UNAVAILABLE"
     )
@@ -288,6 +337,7 @@ def test_testing_denominator_does_not_require_resolved_life_stage() -> None:
     assert positive["state"] == "DOCUMENTED_POSITIVE_TEST_DENOMINATOR"
     negative = deepcopy(row)
     negative["ticks_positive"] = 0
+    negative["test_result"] = "NOT_DETECTED"
     negative["normalization"]["mappings"]["result"].update(
         {
             "source_value": "negative",
