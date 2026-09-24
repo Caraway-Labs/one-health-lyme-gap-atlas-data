@@ -23,6 +23,10 @@ The [Atlas semantic metadata v1](../semantic-domain/atlas-semantic-metadata-v1.m
 attaches versioned meaning, applicability, freshness, quality/evidence references,
 limitations, and authority states to those identities without changing this
 release's storage or public views.
+The [Atlas semantic lineage v1](../semantic-domain/atlas-semantic-lineage-v1.md)
+validates cross-layer source/run/artifact/record, proof, method, result revision,
+metadata and release references against the existing authoritative records. It
+does not replace this release's stored lineage or change publication behavior.
 
 The API reads only these governed views:
 
