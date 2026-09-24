@@ -185,13 +185,30 @@ def validate_mapping_transition(
                 raise SemanticGovernanceError("MAPPING_REMOVAL_UNDECLARED")
             continue
         result = compare_mapping(prior, new[identity])
+        if result.outcome == Outcome.REQUIRES_NEW_REVISION:
+            raise SemanticGovernanceError("SOURCE_MAPPING_REVISION_REQUIRED")
         if result.outcome in {Outcome.INCOMPATIBLE, Outcome.REQUIRES_NEW_SEMANTIC_VERSION}:
             raise SemanticGovernanceError(result.reason_code)
 
 
 def compare_release(old: Mapping[str, Any], new: Mapping[str, Any]) -> Compatibility:
     """Compare one candidate to the immutable published county contract snapshot."""
-    fields = ("schema", "schema_version", "transformation", "source_slots", "observation_slots")
+    fields = (
+        "schema",
+        "schema_version",
+        "methodology_version",
+        "scope",
+        "transformation",
+        "county_count",
+        "observations_per_county",
+        "source_slots",
+        "source_identities",
+        "score_defaults",
+        "observation_slots",
+        "public_views",
+        "value_state_samples",
+        "historical_exceptions",
+    )
     if any(old.get(field) != new.get(field) for field in fields):
         return Compatibility(Outcome.INCOMPATIBLE, "RELEASE_BASELINE_REGRESSION")
     if old.get("release_id") == new.get("release_id"):
@@ -199,6 +216,25 @@ def compare_release(old: Mapping[str, Any], new: Mapping[str, Any]) -> Compatibi
             return Compatibility(Outcome.IDENTICAL, "RELEASE_IDENTICAL")
         return Compatibility(Outcome.INCOMPATIBLE, "RELEASE_ID_REUSED")
     return Compatibility(Outcome.REQUIRES_NEW_REVISION, "NEW_RELEASE_REQUIRED")
+
+
+def validate_historical_release_adapter(
+    measure_id: str,
+    native_grain: str,
+    lineage_source_slots: Sequence[str],
+    baseline: Mapping[str, Any],
+) -> None:
+    """Block unsupported reinterpretation of two historical physical slots."""
+    exceptions = baseline["historical_exceptions"]
+    if measure_id == "incidence_floor_2023":
+        required = exceptions[measure_id]["required_inputs"]
+        if len(lineage_source_slots) != len(required) or set(lineage_source_slots) != set(required):
+            raise SemanticGovernanceError("HISTORICAL_INPUTS_INCOMPLETE")
+    if measure_id == "state_unallocated_records_2023":
+        if native_grain != exceptions[measure_id]["native_grain"]:
+            raise SemanticGovernanceError("GEOGRAPHY_INCOMPATIBLE")
+        if not exceptions[measure_id]["county_observation_adapter_allowed"]:
+            raise SemanticGovernanceError("STATE_NATIVE_ADAPTER_UNSUPPORTED")
 
 
 def validate_cross_contract(

@@ -27,8 +27,10 @@ from lyme_gap_atlas_data.semantic_governance import (
     compare_revision,
     require_measure_transition,
     validate_cross_contract,
+    validate_historical_release_adapter,
     validate_mapping_transition,
 )
+from lyme_gap_atlas_data.semantic_lineage import validate_lineage
 from lyme_gap_atlas_data.semantic_metadata import metadata_revision_id
 from lyme_gap_atlas_data.semantic_source_mappings import load_mapping_registry, map_record
 
@@ -38,6 +40,9 @@ BASELINE = json.loads(
 )
 MAPPINGS = load_mapping_registry(
     ROOT / "docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1.json"
+)
+MAPPING_BASELINE = load_mapping_registry(
+    ROOT / "tests/fixtures/semantic_governance/source-mappings-v1-baseline.json"
 )
 
 
@@ -100,6 +105,20 @@ def test_governed_mapping_identity_is_stable(identity: str) -> None:
     assert compare_mapping(mapping, copy.deepcopy(mapping)).outcome == Outcome.IDENTICAL
     changed = dict(mapping, vintage="new-vintage")
     assert compare_mapping(mapping, changed).outcome == Outcome.REQUIRES_NEW_REVISION
+
+
+def test_mapping_registry_requires_explicit_baseline_review() -> None:
+    assert set(MAPPINGS) == set(MAPPING_BASELINE)
+    validate_mapping_transition(MAPPING_BASELINE, MAPPINGS, {})
+    for identity in MAPPING_BASELINE:
+        assert (
+            compare_mapping(MAPPING_BASELINE[identity], MAPPINGS[identity]).outcome
+            == Outcome.IDENTICAL
+        )
+    changed = copy.deepcopy(MAPPINGS)
+    changed["human_surveillance"] = dict(changed["human_surveillance"], vintage="2024")
+    with pytest.raises(SemanticGovernanceError, match="SOURCE_MAPPING_REVISION_REQUIRED"):
+        validate_mapping_transition(MAPPING_BASELINE, changed, {})
 
 
 def test_mapping_removal_and_foreign_source_fail() -> None:
@@ -172,6 +191,24 @@ def test_composed_mapping_references_and_exact_source() -> None:
             {"foreign": foreign_mapping},
             [foreign],
         )
+    missing_lineage = copy.deepcopy(mapped)
+    missing_lineage.pop("lineage_id")
+    with pytest.raises(SemanticGovernanceError, match="LINEAGE_REFERENCE_INVALID"):
+        validate_cross_contract(
+            [metadata["measure"]],
+            [metadata],
+            [mapped["lineage"]],
+            authority,
+            {"human_surveillance": MAPPINGS["human_surveillance"]},
+            [missing_lineage],
+        )
+
+
+def test_neon_site_event_representativeness_cannot_disappear() -> None:
+    lineage, authority = _trace("neon_collection")
+    lineage["observation"]["geography"].pop("representativeness")
+    with pytest.raises(ValueError, match="site/event must not claim county representativeness"):
+        validate_lineage(lineage, authority)
 
 
 class _CaptureCursor:
@@ -207,6 +244,24 @@ def test_frozen_county_release_slots_and_meaning() -> None:
     assert BASELINE["county_count"] == semantic_release.EXPECTED_COUNTIES
     assert BASELINE["observations_per_county"] == semantic_release.EXPECTED_OBSERVATIONS_PER_COUNTY
     assert set(BASELINE["source_slots"]) == semantic_release.REQUIRED_SOURCE_KEYS
+    manifest = semantic_release.load_manifest(
+        ROOT / "docs/contracts/semantic-release/governed-2026-09-15-manifest.json"
+    )
+    assert manifest.release_id == BASELINE["release_id"]
+    assert manifest.methodology_version == BASELINE["methodology_version"]
+    assert manifest.scope == BASELINE["scope"]
+    assert manifest.score_defaults == BASELINE["score_defaults"]
+    assert [
+        (
+            source.source_key,
+            source.resource_key,
+            source.source_id,
+            source.dataset_id,
+            source.vintage,
+            source.definition_version,
+        )
+        for source in manifest.sources
+    ] == [tuple(identity) for identity in BASELINE["source_identities"]]
     assert _physical_observation_slots() == [
         tuple(row[:2]) for row in BASELINE["observation_slots"]
     ]
@@ -228,10 +283,8 @@ def test_frozen_county_release_slots_and_meaning() -> None:
     views_sql = (ROOT / "migrations/V072__governed_semantic_release_views.sql").read_text()
     for view in BASELINE["public_views"]:
         assert f"CREATE OR REPLACE VIEW PRESENTATION.{view} AS" in views_sql
-    assert semantic_release._value_state(None) == "MISSING"
-    assert semantic_release._value_state(0) == "ZERO"
-    assert semantic_release._value_state("Unknown") == "UNKNOWN"
-    assert semantic_release._value_state("Suppressed") == "SUPPRESSED"
+    for value, expected_state in BASELINE["value_state_samples"]:
+        assert semantic_release._value_state(value) == expected_state
 
 
 def test_candidate_cannot_change_old_release_meaning() -> None:
@@ -260,6 +313,11 @@ def test_incidence_floor_uses_human_count_and_svi_population() -> None:
     second = semantic_release._human_values(rows, identity)["08013"]
     assert second["incidence"] == 5
     assert first["case_count"] == second["case_count"] == 10
+    with pytest.raises(SemanticGovernanceError, match="HISTORICAL_INPUTS_INCOMPLETE"):
+        validate_historical_release_adapter("incidence_floor_2023", "COUNTY", ["human"], BASELINE)
+    validate_historical_release_adapter(
+        "incidence_floor_2023", "COUNTY", ["context_svi", "human"], BASELINE
+    )
 
 
 def test_state_unallocated_is_not_county_native() -> None:
@@ -268,6 +326,14 @@ def test_state_unallocated_is_not_county_native() -> None:
     assert not BASELINE["historical_exceptions"]["state_unallocated_records_2023"][
         "county_observation_adapter_allowed"
     ]
+    with pytest.raises(SemanticGovernanceError, match="GEOGRAPHY_INCOMPATIBLE"):
+        validate_historical_release_adapter(
+            "state_unallocated_records_2023", "COUNTY", ["human"], BASELINE
+        )
+    with pytest.raises(SemanticGovernanceError, match="STATE_NATIVE_ADAPTER_UNSUPPORTED"):
+        validate_historical_release_adapter(
+            "state_unallocated_records_2023", "STATE", ["human"], BASELINE
+        )
 
 
 class _ReleaseCursor:

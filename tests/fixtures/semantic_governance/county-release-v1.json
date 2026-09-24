@@ -1,11 +1,31 @@
 {
   "schema": "atlas-governed-semantic-release/v1",
   "schema_version": "1.0.0",
+  "release_id": "governed-2026-09-18-unknown-coverage",
+  "methodology_version": "semantic-1.0.0",
+  "scope": "US_COUNTIES",
   "transformation": "semantic_county_assembly_v1",
   "county_count": 3144,
   "observations_per_county": 14,
   "source_slots": ["human", "context_svi", "context_rucc", "tick", "pathogen"],
+  "source_identities": [
+    ["human", "cdc_lyme_x5j9_wybp", "cdc_lyme", "x5j9-wybp", "2023", 2],
+    ["context_svi", "cdc_atsdr_svi_2022_county", "cdc_atsdr_svi", "atsdr-svi-2022-county-layer", "2022 (2018-2022 ACS)", 1],
+    ["context_rucc", "usda_ers_rucc_2023", "usda_ers", "rural-urban-continuum-codes-2023", "2023", 1],
+    ["tick", "cdc_tick_ixodes_county_status", "cdc_arbonet_tick_module", "cdc-ixodes-county-status-2025", "through 2025-12-31", 1],
+    ["pathogen", "cdc_tick_ixodes_pathogen_status", "cdc_arbonet_tick_module", "cdc-ixodes-pathogen-status-2025", "through 2025-12-31", 1]
+  ],
+  "score_defaults": {"ecological_share": 0.65, "community_share": 0.35, "low_incidence_breakpoint_per_100k": 10, "missing_human_signal_weakness": 75, "ecological_mix": {"tick_status": 0.6, "b_burgdorferi_in_ticks": 0.4}, "community_mix": {"svi": 0.5, "uninsured_percentile": 0.3, "rurality": 0.2}},
   "public_views": ["CURRENT_RELEASE_V", "CURRENT_SOURCE_METADATA_V", "CURRENT_COUNTY_ATLAS_V"],
+  "value_state_samples": [
+    [null, "MISSING"],
+    [0, "ZERO"],
+    ["Unknown", "UNKNOWN"],
+    ["Suppressed", "SUPPRESSED"],
+    ["Not reported", "NOT_REPORTED"],
+    ["No records", "NO_RECORDS"],
+    ["NO_COUNTY_LINKED_RECORD", "NO_COUNTY_LINKED_RECORD"]
+  ],
   "observation_slots": [
     ["county_fips", "context_svi", "county_reference", "string", "identifier", "COUNTY_FIPS_5", "snapshot"],
     ["geometry", "context_svi", "county_reference", "object", "GeoJSON", "COUNTY_FIPS_5", "snapshot"],
