@@ -37,16 +37,20 @@ def main() -> None:
     }
     unresolved_fixture = {**fixture, "collection_method": "UNKNOWN"}
     results = []
-    for observation in (fixture, unresolved_fixture):
-        coverage = evaluate_surveillance_coverage(
-            SAMPLING, [observation], source_context=source_context
-        )
+    for observation, context in (
+        (fixture, source_context),
+        (unresolved_fixture, source_context),
+        (fixture, {**source_context, "source_vintage": "MIXED/AGGREGATE"}),
+    ):
+        coverage = evaluate_surveillance_coverage(SAMPLING, [observation], source_context=context)
         safe_coverage = serialize_surveillance_coverage(
             coverage, evidence_basis="SYNTHETIC_FIXTURE"
         )
         result = evaluate_surveillance_priority(safe_coverage)
         results.append(result)
-    resolved, unresolved = (serialize_surveillance_priority(result) for result in results)
+    resolved, unresolved, mixed_vintage = (
+        serialize_surveillance_priority(result) for result in results
+    )
     if (
         resolved["disposition"] != "NO_CURRENT_GAP_SIGNAL"
         or resolved["comparison_cohort_id"] is None
@@ -58,8 +62,15 @@ def main() -> None:
         or "COLLECTION_METHOD_UNRESOLVED" not in unresolved["reason_codes"]
         or "COMPARISON_COHORT_UNPROVEN" not in unresolved["reason_codes"]
         or resolved["result_id"] == unresolved["result_id"]
+        or mixed_vintage["source_scope"]["source_vintage"] != "MIXED/AGGREGATE"
+        or mixed_vintage["comparison_cohort_id"] is not None
+        or mixed_vintage["tie_group_id"] is not None
+        or mixed_vintage["disposition"] != "NOT_DEFENSIBLE"
+        or "COMPARISON_COHORT_UNPROVEN" not in mixed_vintage["reason_codes"]
+        or not mixed_vintage["result_id"].startswith("surveillance-priority-result:v1:")
+        or len({resolved["result_id"], unresolved["result_id"], mixed_vintage["result_id"]}) != 3
     ):
-        raise SystemExit("synthetic #172 resolved/unresolved method behavior failed")
+        raise SystemExit("synthetic #172 cohort-context behavior failed")
     with connect(settings) as connection, connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
@@ -73,7 +84,7 @@ def main() -> None:
         ):
             raise SystemExit("DEV runtime connection preflight failed")
         states = []
-        for result, document in zip(results, (resolved, unresolved), strict=True):
+        for result, document in zip(results, (resolved, unresolved, mixed_vintage), strict=True):
             result_id, first = stage_surveillance_priority(cursor, result)
             replay_id, replay = stage_surveillance_priority(cursor, result)
             if (replay_id, replay) != (result_id, "IDENTICAL_REPLAY"):
@@ -84,6 +95,7 @@ def main() -> None:
                           safe_payload:comparison_cohort_id::VARCHAR,
                           safe_payload:tie_group_id::VARCHAR,
                           safe_payload:collection_method::VARCHAR,
+                          safe_payload:source_scope:source_vintage::VARCHAR,
                           safe_payload:representativeness::VARCHAR,
                           ARRAY_CONTAINS('COLLECTION_METHOD_UNRESOLVED'::VARIANT,
                                          safe_payload:reason_codes),
@@ -103,6 +115,7 @@ def main() -> None:
                 document["comparison_cohort_id"],
                 document["tie_group_id"],
                 document["collection_method"],
+                document["source_scope"]["source_vintage"],
                 "NOT_COUNTY_REPRESENTATIVE",
                 "COLLECTION_METHOD_UNRESOLVED" in document["reason_codes"],
                 "COMPARISON_COHORT_UNPROVEN" in document["reason_codes"],
@@ -118,6 +131,7 @@ def main() -> None:
             {
                 "resolved_method": states[0],
                 "unresolved_method": states[1],
+                "mixed_aggregate_vintage": states[2],
                 "fixture_only": True,
                 "source_backed_current_code_replay": "NOT_PROVEN",
                 "dev_runtime_readback": "PASS",

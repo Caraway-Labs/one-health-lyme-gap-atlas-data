@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from typing import Any
@@ -67,27 +68,68 @@ def _text(value: object) -> bool:
 
 
 _UNRESOLVED_CONTEXT = frozenset(
-    {"UNKNOWN", "UNRESOLVED", "AMBIGUOUS", "NOT_REPORTED", "NOT_APPLICABLE", "MIXED", "UNSUPPORTED"}
+    {
+        "MISSING",
+        "UNKNOWN",
+        "UNRESOLVED",
+        "AMBIGUOUS",
+        "UNSUPPORTED",
+        "NOT_REPORTED",
+        "NOT_APPLICABLE",
+        "MIXED",
+        "AGGREGATE",
+        "MULTIPLE",
+        "COMBINED",
+        "UNAVAILABLE",
+        "NULL",
+    }
+)
+_UNRESOLVED_PARTS = frozenset(
+    {
+        "MISSING",
+        "UNKNOWN",
+        "UNRESOLVED",
+        "AMBIGUOUS",
+        "UNSUPPORTED",
+        "MIXED",
+        "AGGREGATE",
+        "MULTIPLE",
+        "COMBINED",
+        "UNAVAILABLE",
+    }
 )
 
 
-def _resolved(value: object) -> bool:
-    """A required cohort value must carry resolved, comparable context."""
-    return _text(value) and str(value).strip().upper().replace(" ", "_") not in _UNRESOLVED_CONTEXT
+def _resolved(value: object, *, dimension: str) -> bool:
+    """Require one resolved value, using governed vocabulary for canonical strata."""
+    if not _text(value):
+        return False
+    normalized = re.sub(r"[\s-]+", "_", str(value).strip().upper())
+    parts = set(re.split(r"[_/+,;|]", normalized))
+    if normalized in _UNRESOLVED_CONTEXT or parts & _UNRESOLVED_PARTS:
+        return False
+    labels = _cohort_registry_labels()
+    registry_dimension = {
+        "collection_method": 0,
+        "tick_species": 1,
+        "life_stage": 2,
+        "pathogen_target": 3,
+    }.get(dimension)
+    return registry_dimension is None or value in labels[registry_dimension]
 
 
 @lru_cache(maxsize=1)
-def _cohort_registry_labels() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+def _cohort_registry_labels() -> tuple[frozenset[str], ...]:
     registry = load_registry()
     values = registry["canonical_values"]
-    return (
+    return tuple(
         frozenset(
-            item["label"]
-            for item in values["collection_method"]
+            value
+            for item in values[field]
             if not item.get("aggregate") and item.get("id") not in _UNRESOLVED_CONTEXT
-        ),
-        frozenset(item["label"] for item in values["tick_taxon"] if item.get("aggregate")),
-        frozenset(item["label"] for item in values["life_stage"] if item.get("aggregate")),
+            for value in (item["id"], item["label"])
+        )
+        for field in ("collection_method", "tick_taxon", "life_stage", "pathogen_target")
     )
 
 
@@ -166,7 +208,7 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         required += ("tick_species", "life_stage")
     if construct == TESTING:
         required += ("testing_scope",)
-    if not all(_resolved(cohort.get(field)) for field in required):
+    if not all(_resolved(cohort.get(field), dimension=field) for field in required):
         return None
     if coverage.get("native_grain") != ("COUNTY" if construct == COUNTY else "SITE_EVENT"):
         return None
@@ -179,14 +221,6 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         "CDC_PATHOGEN_COUNTY_STATUS",
     }:
         return None
-    if construct in {SAMPLING, EFFORT}:
-        methods, aggregate_taxa, aggregate_stages = _cohort_registry_labels()
-        if (
-            cohort["collection_method"] not in methods
-            or cohort["tick_species"] in aggregate_taxa
-            or cohort["life_stage"] in aggregate_stages
-        ):
-            return None
     if construct == TESTING and cohort["testing_scope"] != "INDIVIDUAL_PATHOGEN_TEST":
         return None
     return cohort
