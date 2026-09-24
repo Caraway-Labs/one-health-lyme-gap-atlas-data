@@ -1,0 +1,49 @@
+# Atlas semantic domain v1
+
+Status: Proposed for protected review. Owner: Atlas data stewardship and engineering. Executable validator: `src/lyme_gap_atlas_data/semantic_domain.py`. Current-state audit: `current-state-gap-matrix-2026-09-24.md`. Decision record: `docs/adr/0035-semantic-domain-identity-boundary.md`.
+
+## Scope and relationship
+
+`SOURCE → DATASET → INDICATOR → MEASURE → OBSERVATION` is a scientific domain relationship, not a new storage hierarchy. One source publisher may own many resource/products and governed source versions. A stable dataset identifies one governed source product and may have many vintages, runs, and artifacts. A semantic indicator groups many measures; a measure has one indicator and an explicit scientific definition/version. One measure can have many scoped observations and immutable revisions. An observation can be included in zero or many releases without making release membership part of its domain identity. A derived observation can reference multiple canonical or derived inputs; a reported observation retains source-record provenance. Referential integrity across persisted records is #193 work. No source authorization is inferred by membership here.
+
+Current `SemanticSource.source_key` is a release slot; `source_id` is publisher/source identity, `resource_key` is product, and `dataset_id` is governed dataset identity. None is a Snowflake table name. Existing release-local indicator and measure IDs are reused as machine IDs. The v1 contract adds a semantic version and explicit meaning signature outside historical rows. Labels and URLs are metadata; canonical scientific IDs, not labels, form identity. Source-specific normalization proof remains in the tick registry and #159 eligibility contracts. This contract never accepts a display label as a replacement for an existing canonical ID.
+
+## Identity, scope, and revision
+
+- A measure definition comprises `measure_id`, `indicator_id`, `semantic_version`, definition, type, unit, explicit denominator (`NONE` if absent), native geography grain, temporal semantics, allowed strata, reported/derived origin, method version, and allowed value states. `meaning_signature()` hashes those meaning-bearing fields. Label, description wording, and display formatting do not change it. Duplicate `(measure_id, semantic_version)` definitions fail, whether identical or conflicting.
+- `observation_key()` hashes measure ID/version, source and dataset IDs, source version/vintage, origin, native geography, temporal scope, canonical stratum IDs, and source-record identity. County FIPS is used only for county-native records. Site/event identity uses native site/event IDs; a contextual county mapping is excluded from its key. A source-only county uses publisher geography ID and retains null FIPS. A changed native event, period, stratum, source version/vintage, or measure version changes the key.
+- `revision_id()` hashes the key, value/state, complete safe provenance, quality/eligibility/limitation references, method, exact inputs, and evidence basis. A changed scientific payload therefore produces a new immutable revision. A reused revision ID with changed content fails. Existing V071 release observation IDs and #158/#159 result IDs are retained as physical/historical IDs; adapters may attach v1 keys in later stories without rewriting them.
+- Release identity is the existing `release_id` and `bundle_sha256`, with pointer/event behavior unchanged. Release membership is a separate publication decision. The current release ID and 3,144 × 14 contract remain unchanged.
+
+Physical ingestion IDs (`source_version_id`, `ingestion_run_id`, `artifact_id`, record ID/hash) remain distinct from scientific observation key and revision, derived result identity, and release identity. A public view is a separate projection. Never write a derived result into the publisher-reported canonical table or the fixed county release merely because both have an observation key.
+
+## Grain, time, strata, and value states
+
+`COUNTY` requires canonical five-digit FIPS. `SITE_EVENT` requires source-native site and event IDs, with `NOT_COUNTY_REPRESENTATIVE`; optional `SOURCE_REPORTED_COUNTY` or `ATLAS_DERIVED_MATCH` is a contextual relationship with its own proof. `SOURCE_ONLY_COUNTY` requires publisher geography and `UNMAPPED`/`AMBIGUOUS`, has no canonical FIPS, and remains `UNKNOWN`. It cannot establish county omission, coverage, or a county comparison cohort.
+
+`PERIOD` has a start and end; `POINT_IN_TIME` and `CUMULATIVE_THROUGH_DATE` have a date. The three are not interchangeable. Source vintage identifies the publisher's data release/era and is not inferred from retrieval date or this observation time. Optional strata are currently bounded to canonical tick taxon, life stage, pathogen target, collection method, and testing scope IDs. A measure allows only its applicable subset. Exact-source eligibility remains governed by `surveillance-scientific-eligibility-v1` and the normalization registry; generic v1 validation does not approve a new source tuple.
+
+`OBSERVED` requires a present nonzero value; `ZERO` requires numeric zero. `MISSING`, `UNKNOWN`, `SUPPRESSED`, `NOT_REPORTED`, `UNAVAILABLE`, and `NOT_DEFENSIBLE` require null. Publisher `NO_RECORDS` and `NO_COUNTY_LINKED_RECORD` preserve their literal categorical values; they never mean biological absence. Each measure admits only states meaningful to its shape. A categorical status can have `OBSERVED` or `NO_RECORDS`; a numeric count can have `ZERO`; an unavailable derived metric can have `UNAVAILABLE`. A null does not become zero. Existing release `MISSING` maps to explicit null without changing its stored value.
+
+`REPORTED` assertions retain publisher record provenance and no derived input list. `DERIVED` assertions require calculation/transformation version, exact input IDs, and evidence basis. The source version, vintage, run, artifact, retrieval time, and source record identity/hash are mandatory in the v1 adapter envelope. An unavailable derived result can retain the safe bounded provenance it actually has; if a required anchor cannot be supplied, its v1 adapter must fail pending a reviewed exception rather than invent lineage.
+
+Analytical quality, scientific eligibility, representativeness, uncertainty, limitations, and evidence basis retain their owning contracts: `surveillance-quality-profile-v1`, `surveillance-quality-propagation-v1`, `surveillance-scientific-eligibility-v1`, `infected-tick-derived-result-v1`, and surveillance coverage/priority result v2. The v1 domain model carries references, not a competing score, weight, or quality taxonomy. Synthetic fixtures establish contract behavior only, never source-backed replay.
+
+## Version transitions
+
+| Change | Required handling |
+| --- | --- |
+| Display label, explanatory wording, link, or metadata correction with identical `meaning_signature` | Metadata revision under #191; stable measure ID/version and observation key. |
+| Add optional metadata or an allowed state/stratum with unchanged scientific interpretation and old instances still valid | Reviewed compatible minor semantic version; old versions remain readable. Do not silently alter an existing version's signature. |
+| Clarify method implementation without changing result meaning | New calculation/revision version; keep exact method reference. |
+| Unit scale, denominator, native grain, time meaning, interpretation, or origin changes | New measure semantic version or new ID after review; new observation keys. Breaking consumer changes require migration and API contract review. |
+| Source record or value/lineage/quality/evidence basis changes at the same scientific scope | New immutable observation revision; retain prior revision. |
+| Publication set, release metadata, or approved source snapshot changes | New governed release ID/bundle and protected publication; no historical row mutation. |
+
+The validator rejects a duplicate ID/version, including an unversioned meaning change. Cross-version equivalence, deprecation, and consumer migration rules require reviewed metadata and #195 compatibility gates. A new version is not automatic authorization to pool or compare unlike records.
+
+## Existing compatibility and downstream work
+
+The existing 14 county observation slots are `county_fips`, physical `geometry` (measure hierarchy calls it `county_geometry`; this historical mismatch is recorded, not repaired here), `human_status`, `case_count_floor_2023`, `incidence_floor_2023`, `state_unallocated_records_2023`, `scapularis_status`, `pacificus_status`, `burgdorferi_status`, `population_2022`, `svi_percentile_2022`, `uninsured_percentile_2022`, `uninsured_percent_2022`, and `rucc_2023`. The current county builder, migrations, pointer, API views, and score remain untouched. Representative fixture adapters cover the requested county, NEON, derived, and source-only shapes; they do not map every live row.
+
+#191 owns complete metadata content, revisions, freshness, and safe descriptions. #192 owns every source-to-measure mapping and exact-source eligibility. #193 owns end-to-end lineage edges, orphan checks, and access-controlled projections. #194 owns machine-readable consumer/public exposure with API coordination. #195 owns the full generated compatibility and release regression framework. This story provides executable core invariants; it makes no DEV/PROD database or live-consumer claim.
