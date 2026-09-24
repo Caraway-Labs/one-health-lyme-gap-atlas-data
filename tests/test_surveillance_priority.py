@@ -213,7 +213,7 @@ def test_site_geography_limits_never_become_county_priority() -> None:
     ("field", "alternate"),
     [
         ("tick_species", "Ixodes pacificus"),
-        ("life_stage", "ADULT"),
+        ("life_stage", "Adult"),
         ("collection_method", "Flag cloth"),
         ("date", "2016-06-01"),
     ],
@@ -246,9 +246,8 @@ def test_source_version_testing_target_and_scope_separate_cohorts() -> None:
         changed = deepcopy(first)
         changed[field] = value
         different = evaluate_surveillance_priority(changed)
-        assert different["comparison_cohort_id"] != baseline["comparison_cohort_id"]
-        if field == "testing_scope":
-            assert different["disposition"] == NOT_DEFENSIBLE
+        assert different["comparison_cohort_id"] is None
+        assert different["disposition"] == NOT_DEFENSIBLE
     for field in ("source_dataset_id", "source_version_id", "source_vintage"):
         changed = deepcopy(first)
         changed["source_scope"][field] = "different-version"
@@ -327,7 +326,9 @@ def test_unresolved_collection_taxon_and_stage_fail_closed(field: str, value: st
 
 @pytest.mark.parametrize("case", ["sampled-zero", "testing-positive-zero-detected"])
 @pytest.mark.parametrize("field", ["source_dataset_id", "source_version_id", "source_vintage"])
-@pytest.mark.parametrize("value", [None, "UNKNOWN", "AMBIGUOUS"])
+@pytest.mark.parametrize(
+    "value", [None, "", "UNKNOWN", "AMBIGUOUS", "MIXED", "AGGREGATE", "MIXED/AGGREGATE"]
+)
 def test_unresolved_source_context_fails_closed(case: str, field: str, value: str | None) -> None:
     coverage = deepcopy(_case(case))
     coverage["source_scope"][field] = value
@@ -335,7 +336,7 @@ def test_unresolved_source_context_fails_closed(case: str, field: str, value: st
 
 
 @pytest.mark.parametrize("field", ["pathogen_name", "testing_scope"])
-@pytest.mark.parametrize("value", [None, "UNKNOWN", "AMBIGUOUS", "UNRESOLVED"])
+@pytest.mark.parametrize("value", [None, "UNKNOWN", "AMBIGUOUS", "UNRESOLVED", "MIXED/AGGREGATE"])
 def test_unresolved_testing_context_fails_closed(field: str, value: str | None) -> None:
     coverage = deepcopy(_case("testing-positive-zero-detected"))
     coverage[field] = value
@@ -352,7 +353,9 @@ def test_unresolved_testing_context_fails_closed(field: str, value: str | None) 
         ("native_grain", None),
         ("native_grain", "UNKNOWN"),
         ("native_grain", "COUNTY"),
+        ("native_grain", "MIXED/AGGREGATE"),
         ("temporal_semantics", "UNKNOWN"),
+        ("temporal_semantics", "MIXED/AGGREGATE"),
         ("temporal_semantics", "CUMULATIVE_THROUGH_DATE"),
         ("date", "AMBIGUOUS"),
     ],
@@ -361,6 +364,27 @@ def test_unresolved_grain_or_time_fails_closed(case: str, field: str, value: str
     coverage = deepcopy(_case(case))
     coverage[field] = value
     assert evaluate_surveillance_priority(coverage)["comparison_cohort_id"] is None
+
+
+def test_mixed_vintage_preserves_safe_coverage_and_deterministic_identity() -> None:
+    coverage = serialize_surveillance_coverage(
+        evaluate_surveillance_coverage(
+            SAMPLING,
+            [_canonical(DENSITY)],
+            source_context={**_active_context(), "source_vintage": "MIXED/AGGREGATE"},
+        ),
+        evidence_basis="SYNTHETIC_FIXTURE",
+    )
+    result = evaluate_surveillance_priority(coverage)
+    safe = serialize_surveillance_priority(result)
+    assert safe == serialize_surveillance_priority(evaluate_surveillance_priority(coverage))
+    assert safe["source_scope"]["source_vintage"] == "MIXED/AGGREGATE"
+    assert safe["comparison_cohort_id"] is None
+    assert safe["tie_group_id"] is None
+    assert safe["result_id"].startswith("surveillance-priority-result:v1:")
+    assert safe["disposition"] == NOT_DEFENSIBLE
+    assert "COMPARISON_COHORT_UNPROVEN" in safe["reason_codes"]
+    assert safe["coverage_result_id"] == coverage["result_id"]
 
 
 def test_unresolved_method_real_coverage_to_priority_safe_result() -> None:
