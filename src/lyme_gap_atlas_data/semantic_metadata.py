@@ -73,6 +73,10 @@ _DERIVED_METHODS = {
         "surveillance-coverage-calculation-v2",
         {"SYNTHETIC_FIXTURE", "CURRENT_CODE_SOURCE_BACKED_REPLAY"},
     ),
+    "surveillance-priority-v1": (
+        "surveillance-priority-v1",
+        {"SYNTHETIC_FIXTURE", "CURRENT_CODE_SOURCE_BACKED_REPLAY"},
+    ),
 }
 _UNSAFE_VALUE = re.compile(
     r"(?:[a-z][a-z0-9+.-]*://|[?&](?:token|signature|credential|password|secret)=|"
