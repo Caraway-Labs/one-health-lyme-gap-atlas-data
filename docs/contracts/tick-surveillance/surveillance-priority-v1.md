@@ -11,6 +11,8 @@ For one comparable evidence unit, determine the **kind of surveillance-data revi
 
 ## Exact input and comparison cohort
 
+County-status scientific dimensions must be resolved, nonaggregate, source-compatible governed values before they may establish a comparison cohort. Vector status uses approved tick-taxon mappings for its source; pathogen status uses approved pathogen-target mappings for its source. Aggregate or source-incompatible values remain in safe evidence context without a cohort or tie group.
+
 Every required comparison-cohort dimension must contain one resolved, non-aggregate comparable value. Missing, unknown, ambiguous, unsupported, not reported, not applicable, mixed, aggregate, multiple, combined, or otherwise unresolved values do not establish a comparison cohort. This applies to source vintage, native grain, and time context as well as canonical strata. Collection method, tick taxon, life stage, and pathogen target use resolved non-aggregate IDs or labels from the pinned normalization registry.
 
 The input is one serialized, consumer-safe `surveillance-coverage-result-v1` result with its exact result ID/revision, method/calculation versions, source scope, evidence basis, reasons, quality, representativeness, and safe lineage. Source-backed evidence may be labeled `CURRENT_CODE_SOURCE_BACKED_REPLAY` only after independent current-code replay proof. Historical #162 ingestion and synthetic fixtures/DEV persistence do not establish such proof.
