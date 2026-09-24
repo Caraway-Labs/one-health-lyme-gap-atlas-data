@@ -8,6 +8,7 @@ import inspect
 import json
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_semantic_domain import measure
@@ -399,3 +400,121 @@ def test_invalid_candidate_cannot_replace_current_pointer(
         "MERGE INTO PRESENTATION.SEMANTIC_RELEASE_POINTER" in sql
         for sql in connection.sql.statements
     )
+
+
+def _stub_candidate_inputs(
+    monkeypatch: pytest.MonkeyPatch, county_batches: list[list[object]]
+) -> list[str]:
+    monkeypatch.setattr(semantic_release, "load_manifest", lambda _path: _manifest())
+    monkeypatch.setattr(semantic_release, "_verify_source_gate", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(semantic_release, "_read_source_rows", lambda *_args: [])
+    for name in (
+        "_verify_pathogen_parity_classification",
+        "_verify_evidence_only_coverage_classification",
+        "_verify_tick_parity_classification",
+    ):
+        monkeypatch.setattr(semantic_release, name, lambda *_args, **_kwargs: None)
+    batches = iter(county_batches)
+    monkeypatch.setattr(
+        semantic_release,
+        "_assemble_counties",
+        lambda *_args, **_kwargs: (next(batches), []),
+    )
+    monkeypatch.setattr(semantic_release, "_bundle_sha256", lambda *_args: "b" * 64)
+    inserted: list[str] = []
+    for name in (
+        "_insert_release",
+        "_insert_hierarchy",
+        "_insert_sources",
+        "_insert_counties",
+        "_insert_observations",
+    ):
+        monkeypatch.setattr(
+            semantic_release,
+            name,
+            lambda *_args, _name=name: inserted.append(_name),
+        )
+    return inserted
+
+
+def test_candidate_build_rolls_back_and_retry_keeps_pointer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid = _ReleaseConnection([(0,)])
+    retried = _ReleaseConnection([(0,)])
+    connections = iter([invalid, retried])
+    monkeypatch.setattr(semantic_release, "connect", lambda _settings: next(connections))
+    inserted = _stub_candidate_inputs(monkeypatch, [[], [object()] * BASELINE["county_count"]])
+    settings = SimpleNamespace(snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+
+    with pytest.raises(semantic_release.SemanticReleaseBlocked, match="requires 3144 counties"):
+        semantic_release.build_semantic_release(settings, "fixture.json")
+    assert invalid.rolled_back and not invalid.committed
+    assert inserted == []
+    assert not any("SEMANTIC_RELEASE_POINTER" in sql for sql in invalid.sql.statements)
+
+    candidate = semantic_release.build_semantic_release(settings, "fixture.json")
+    assert candidate["status"] == "CANDIDATE"
+    assert candidate["county_count"] == BASELINE["county_count"]
+    assert retried.committed and not retried.rolled_back
+    assert inserted == [
+        "_insert_release",
+        "_insert_hierarchy",
+        "_insert_sources",
+        "_insert_counties",
+        "_insert_observations",
+    ]
+    assert any("BUILD_CANDIDATE" in sql for sql in retried.sql.statements)
+    assert not any("SEMANTIC_RELEASE_POINTER" in sql for sql in retried.sql.statements)
+
+
+def test_existing_release_identity_blocks_candidate_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = _ReleaseConnection([(1,)])
+    monkeypatch.setattr(semantic_release, "connect", lambda _settings: connection)
+    monkeypatch.setattr(semantic_release, "load_manifest", lambda _path: _manifest())
+    settings = SimpleNamespace(snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    with pytest.raises(
+        semantic_release.SemanticReleaseBlocked, match="already exists and is immutable"
+    ):
+        semantic_release.build_semantic_release(settings, "fixture.json")
+    assert connection.rolled_back and not connection.committed
+    assert not any(
+        "INSERT INTO PRESENTATION.SEMANTIC_RELEASES" in sql for sql in connection.sql.statements
+    )
+    assert not any("SEMANTIC_RELEASE_POINTER" in sql for sql in connection.sql.statements)
+
+
+def test_valid_candidate_publication_then_repeat_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = _ReleaseConnection(
+        [
+            ("CANDIDATE", "b" * 64),
+            (
+                BASELINE["county_count"],
+                BASELINE["county_count"],
+                BASELINE["county_count"] * BASELINE["observations_per_county"],
+            ),
+            ("ONE_HEALTH_LYME_GAP_ATLAS_DEV",),
+            ("previous-release",),
+        ]
+    )
+    repeated = _ReleaseConnection([("PUBLISHED", "b" * 64)])
+    connections = iter([valid, repeated])
+    monkeypatch.setattr(semantic_release, "connect", lambda _settings: next(connections))
+    result = semantic_release.publish_semantic_release(None, "candidate", reason="fixture review")
+    assert result == {
+        "release_id": "candidate",
+        "status": "PUBLISHED",
+        "previous_release_id": "previous-release",
+    }
+    assert valid.committed and not valid.rolled_back
+    assert any(
+        "MERGE INTO PRESENTATION.SEMANTIC_RELEASE_POINTER" in sql for sql in valid.sql.statements
+    )
+    with pytest.raises(semantic_release.SemanticReleaseBlocked, match="Only an existing CANDIDATE"):
+        semantic_release.publish_semantic_release(None, "candidate", reason="repeat")
+    assert repeated.rolled_back and not repeated.committed
+    assert not any("SEMANTIC_RELEASE_POINTER" in sql for sql in repeated.sql.statements)
