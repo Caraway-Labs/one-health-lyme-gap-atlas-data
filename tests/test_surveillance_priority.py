@@ -201,6 +201,86 @@ def test_site_geography_limits_never_become_county_priority() -> None:
         assert safe["county_relationship"]["county_fips"] == (
             "51003" if status == "MAPPED" else None
         )
+        assert safe["county_relationship"]["mapping_status"] == status
+        assert safe["source_geography"] == _safe(SAMPLING, [row])["source_geography"]
+        assert safe["site"]["source_site_id"] == row["sampling_site"]["source_site_id"]
+        assert safe["tick_species"] == row["tick_species"]
+        assert safe["life_stage"] == row["life_stage"]
+        assert safe["collection_method"] == row["collection_method"]
+
+
+@pytest.mark.parametrize(
+    ("field", "alternate"),
+    [
+        ("tick_species", "Ixodes pacificus"),
+        ("life_stage", "ADULT"),
+        ("collection_method", "FLAG_CLOTH"),
+        ("date", "2016-06-01"),
+    ],
+)
+def test_collection_comparability_dimensions_separate_cohorts(field: str, alternate: str) -> None:
+    first = _case("sampled-zero")
+    second = deepcopy(first)
+    second[field] = alternate
+    a = evaluate_surveillance_priority(first)
+    b = evaluate_surveillance_priority(second)
+    assert a["comparison_cohort_id"] != b["comparison_cohort_id"]
+    assert (
+        serialize_surveillance_priority(a)["result_id"]
+        != serialize_surveillance_priority(b)["result_id"]
+    )
+    with pytest.raises(ValueError, match="cross-cohort"):
+        stable_display_order([a, b])
+
+
+def test_source_version_testing_target_and_scope_separate_cohorts() -> None:
+    first = _case("testing-positive-zero-detected")
+    baseline = evaluate_surveillance_priority(first)
+    safe = serialize_surveillance_priority(baseline)
+    assert safe["pathogen_name"] == first["pathogen_name"]
+    assert safe["testing_scope"] == "INDIVIDUAL_PATHOGEN_TEST"
+    assert safe["source_geography"] == first["source_geography"]
+    for field, value in (("pathogen_name", "Other target"), ("testing_scope", "OTHER_SCOPE")):
+        changed = deepcopy(first)
+        changed[field] = value
+        different = evaluate_surveillance_priority(changed)
+        assert different["comparison_cohort_id"] != baseline["comparison_cohort_id"]
+        if field == "testing_scope":
+            assert different["disposition"] == NOT_DEFENSIBLE
+    for field in ("source_dataset_id", "source_version_id", "source_vintage"):
+        changed = deepcopy(first)
+        changed["source_scope"][field] = "different-version"
+        assert (
+            evaluate_surveillance_priority(changed)["comparison_cohort_id"]
+            != baseline["comparison_cohort_id"]
+        )
+    assert (
+        evaluate_surveillance_priority({**first, "life_stage": None})["comparison_cohort_id"]
+        == baseline["comparison_cohort_id"]
+    )
+    incompatible_time = evaluate_surveillance_priority(
+        {**first, "temporal_semantics": "CUMULATIVE_THROUGH_DATE"}
+    )
+    assert incompatible_time["comparison_cohort_id"] is None
+    assert incompatible_time["disposition"] == NOT_DEFENSIBLE
+
+
+@pytest.mark.parametrize("field", ["tick_species", "life_stage", "collection_method"])
+def test_missing_collection_dimension_fails_closed(field: str) -> None:
+    changed = deepcopy(_case("sampled-zero"))
+    changed[field] = None
+    result = evaluate_surveillance_priority(changed)
+    assert result["comparison_cohort_id"] is None
+    assert result["disposition"] == NOT_DEFENSIBLE
+
+
+def test_safe_projection_excludes_restricted_fields() -> None:
+    result = evaluate_surveillance_priority(_case("sampled-zero"))
+    result["coverage"]["artifact_uri"] = "secret"
+    result["coverage"]["credential"] = "secret"
+    safe = serialize_surveillance_priority(result)
+    assert "artifact_uri" not in str(safe)
+    assert "credential" not in str(safe)
 
 
 def test_no_hidden_weights_and_separate_immutable_dev_store() -> None:

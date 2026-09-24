@@ -100,6 +100,18 @@ def serialize_surveillance_priority(result: Mapping[str, Any]) -> dict[str, obje
         "event": coverage.get("event"),
         "county_relationship": coverage.get("county_relationship"),
         "representativeness": coverage.get("representativeness"),
+        "source_geography": coverage.get("source_geography"),
+        "dimension": coverage.get("dimension"),
+        "period_start": coverage.get("period_start"),
+        "period_end": coverage.get("period_end"),
+        "tick_species": coverage.get("tick_species"),
+        "life_stage": coverage.get("life_stage"),
+        "pathogen_name": coverage.get("pathogen_name"),
+        "collection_method": coverage.get("collection_method"),
+        "collection_effort_unit": coverage.get("collection_effort_unit"),
+        "testing_scope": "INDIVIDUAL_PATHOGEN_TEST"
+        if construct == "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY"
+        else "NOT_APPLICABLE",
         "safe_lineage": coverage.get("safe_lineage"),
         "quality": coverage.get("quality"),
         "evidence_basis": coverage.get("evidence_basis"),

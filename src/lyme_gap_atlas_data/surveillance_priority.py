@@ -75,6 +75,7 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         "source_family": source.get("source_family") if construct == COUNTY else "NSF_NEON",
         "source_dataset_id": source.get("source_dataset_id"),
         "source_version_id": source.get("source_version_id"),
+        "source_vintage": source.get("source_vintage"),
         "native_grain": coverage.get("native_grain"),
         "temporal_semantics": coverage.get("temporal_semantics"),
     }
@@ -84,22 +85,36 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
             canonical_universe_version=source.get("canonical_universe_version"),
             cumulative_through_date=source.get("cumulative_through_date"),
             dimension=coverage.get("dimension"),
+            status_kind="VECTOR"
+            if source.get("source_family") == "CDC_IXODES_COUNTY_STATUS"
+            else "PATHOGEN",
         )
     else:
         cohort.update(
             observation_date=coverage.get("date"),
             collection_method=coverage.get("collection_method")
             if construct in {SAMPLING, EFFORT}
-            else None,
+            else "NOT_APPLICABLE",
+            tick_species=coverage.get("tick_species")
+            if construct in {SAMPLING, EFFORT}
+            else "NOT_APPLICABLE",
+            life_stage=coverage.get("life_stage")
+            if construct in {SAMPLING, EFFORT}
+            else "NOT_APPLICABLE",
             effort_unit=coverage.get("collection_effort_unit") if construct == EFFORT else None,
-            pathogen_target=coverage.get("pathogen_name") if construct == TESTING else None,
-            testing_scope="INDIVIDUAL_PATHOGEN_TEST" if construct == TESTING else None,
+            pathogen_target=coverage.get("pathogen_name")
+            if construct == TESTING
+            else "NOT_APPLICABLE",
+            testing_scope=coverage.get("testing_scope", "INDIVIDUAL_PATHOGEN_TEST")
+            if construct == TESTING
+            else None,
         )
     required: tuple[str, ...] = (
         (
             "source_family",
             "source_dataset_id",
             "source_version_id",
+            "source_vintage",
             "native_grain",
             "temporal_semantics",
             "publisher_scope_version",
@@ -111,6 +126,7 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
         else (
             "source_dataset_id",
             "source_version_id",
+            "source_vintage",
             "native_grain",
             "temporal_semantics",
             "observation_date",
@@ -119,7 +135,31 @@ def comparison_cohort(coverage: Mapping[str, Any]) -> dict[str, object] | None:
     )
     if construct == EFFORT:
         required += ("effort_unit",)
-    return cohort if all(_text(cohort.get(field)) for field in required) else None
+    if construct in {SAMPLING, EFFORT}:
+        required += ("tick_species", "life_stage")
+    if construct == TESTING:
+        required += ("testing_scope",)
+    if not all(_text(cohort.get(field)) for field in required):
+        return None
+    if coverage.get("native_grain") != ("COUNTY" if construct == COUNTY else "SITE_EVENT"):
+        return None
+    if coverage.get("temporal_semantics") != (
+        "CUMULATIVE_THROUGH_DATE" if construct == COUNTY else "POINT_IN_TIME"
+    ):
+        return None
+    if construct == COUNTY and source.get("source_family") not in {
+        "CDC_IXODES_COUNTY_STATUS",
+        "CDC_PATHOGEN_COUNTY_STATUS",
+    }:
+        return None
+    if construct in {SAMPLING, EFFORT} and any(
+        cohort[field] in {"UNKNOWN", "NOT_REPORTED", "MIXED"}
+        for field in ("tick_species", "life_stage")
+    ):
+        return None
+    if construct == TESTING and cohort["testing_scope"] != "INDIVIDUAL_PATHOGEN_TEST":
+        return None
+    return cohort
 
 
 def evaluate_surveillance_priority(coverage: Mapping[str, Any]) -> dict[str, object]:

@@ -4,6 +4,8 @@
     {
       "case_id": "county-reported",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
           "canonical_universe_version": "fixture-universe-v1",
           "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
@@ -14,9 +16,11 @@
           "source_dataset_id": "cdc_tick_ixodes_county_status",
           "source_family": "CDC_IXODES_COUNTY_STATUS",
           "source_version_id": "pinned-v1",
+          "source_vintage": "2025",
+          "status_kind": "VECTOR",
           "temporal_semantics": "CUMULATIVE_THROUGH_DATE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:7ef07fdf4cb978f67c21a7dd9b66219fc6a6e1a3156f93fdabb1664303eb68be",
+        "comparison_cohort_id": "priority-cohort:v1:9d1425b562c2af0144ce71818eba7a60e238ca98310104cd35473994d497d513",
         "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": "01001",
@@ -26,6 +30,7 @@
         "coverage_result_revision": "d46dfc48d491c281ef9bed768ed4ad50e95989be3d498d3b33afed3d9c018beb",
         "coverage_state": "REPORTED_STATUS",
         "date": "2025-12-31",
+        "dimension": "Ixodes scapularis",
         "display_key": "coverage-result:v1:d46dfc48d491c281ef9bed768ed4ad50e95989be3d498d3b33afed3d9c018beb",
         "disposition": "NO_CURRENT_GAP_SIGNAL",
         "event": {
@@ -38,9 +43,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": null,
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "COUNTY",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2025-12-31",
+        "period_start": null,
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -265,8 +274,8 @@
           "STATUS_SOURCE_LIMITATION_RETAINED"
         ],
         "representativeness": "COUNTY_NATIVE_STATUS",
-        "result_id": "surveillance-priority-result:v1:f11bcd804eb08256972a94507fcb359c46c8757b3d6177ace021ec28353ee15e",
-        "result_revision": "f11bcd804eb08256972a94507fcb359c46c8757b3d6177ace021ec28353ee15e",
+        "result_id": "surveillance-priority-result:v1:1f99afc8f0110fd7bb30b1ce0580c365428662e7bde75c07f03902331a53c1a3",
+        "result_revision": "1f99afc8f0110fd7bb30b1ce0580c365428662e7bde75c07f03902331a53c1a3",
         "safe_lineage": [
           {
             "canonical_observation_id": "county-1",
@@ -287,6 +296,14 @@
           "source_plot_id": null,
           "source_site_id": null
         },
+        "source_geography": {
+          "coordinate_reference_system": null,
+          "geography_kind": null,
+          "latitude": null,
+          "longitude": null,
+          "source_location_id": null,
+          "spatial_uncertainty_meters": null
+        },
         "source_scope": {
           "canonical_universe_version": "fixture-universe-v1",
           "cumulative_through_date": "2025-12-31",
@@ -299,12 +316,16 @@
           "source_vintage": "2025"
         },
         "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
-        "tie_group_id": "priority-tie:v1:f933516ab2abca7666ed9970dd56db98c213bcf2ed866b77783fe4b0caa6ef1d"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:4c1264455bca78904583589cc72ce9f89012c63373cd6162f1a8d31f6e5e048e"
       }
     },
     {
       "case_id": "county-publisher-no-records",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
           "canonical_universe_version": "fixture-universe-v1",
           "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
@@ -315,9 +336,11 @@
           "source_dataset_id": "cdc_tick_ixodes_county_status",
           "source_family": "CDC_IXODES_COUNTY_STATUS",
           "source_version_id": "pinned-v1",
+          "source_vintage": "2025",
+          "status_kind": "VECTOR",
           "temporal_semantics": "CUMULATIVE_THROUGH_DATE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:7ef07fdf4cb978f67c21a7dd9b66219fc6a6e1a3156f93fdabb1664303eb68be",
+        "comparison_cohort_id": "priority-cohort:v1:9d1425b562c2af0144ce71818eba7a60e238ca98310104cd35473994d497d513",
         "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": "01001",
@@ -327,6 +350,7 @@
         "coverage_result_revision": "ecbafd960cb7e65567f35aadb100ebddb4864ae0d15355c98a287512b7cdb5bd",
         "coverage_state": "PUBLISHER_NO_RECORDS",
         "date": "2025-12-31",
+        "dimension": "Ixodes scapularis",
         "display_key": "coverage-result:v1:ecbafd960cb7e65567f35aadb100ebddb4864ae0d15355c98a287512b7cdb5bd",
         "disposition": "EXPLANATORY_LIMITATION",
         "event": {
@@ -339,9 +363,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": null,
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "COUNTY",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2025-12-31",
+        "period_start": null,
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -566,8 +594,8 @@
           "REPORTED_NO_RECORDS_NOT_BIOLOGICAL_ABSENCE"
         ],
         "representativeness": "COUNTY_NATIVE_STATUS",
-        "result_id": "surveillance-priority-result:v1:c0dc9384367c14c73c2b8ddfdc33d6dfab8195ee6161ae26ea1fa9e3fec70046",
-        "result_revision": "c0dc9384367c14c73c2b8ddfdc33d6dfab8195ee6161ae26ea1fa9e3fec70046",
+        "result_id": "surveillance-priority-result:v1:f4276d2ed4f9ee48d41b26ddc9c65c185bce4c87f7c416a3782bbcd969e4ed3b",
+        "result_revision": "f4276d2ed4f9ee48d41b26ddc9c65c185bce4c87f7c416a3782bbcd969e4ed3b",
         "safe_lineage": [
           {
             "canonical_observation_id": "county-1",
@@ -588,6 +616,14 @@
           "source_plot_id": null,
           "source_site_id": null
         },
+        "source_geography": {
+          "coordinate_reference_system": null,
+          "geography_kind": null,
+          "latitude": null,
+          "longitude": null,
+          "source_location_id": null,
+          "spatial_uncertainty_meters": null
+        },
         "source_scope": {
           "canonical_universe_version": "fixture-universe-v1",
           "cumulative_through_date": "2025-12-31",
@@ -600,12 +636,16 @@
           "source_vintage": "2025"
         },
         "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
-        "tie_group_id": "priority-tie:v1:91cfe954d8decc88c6099328dbe24480e6ab15523db654ee5f12faa054ee4d6f"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:21ceecb8bb67bcba9ff231797e7db52055c052a4db6b3cff448803a752ef9d2d"
       }
     },
     {
       "case_id": "county-proven-omission",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
           "canonical_universe_version": "fixture-universe-v1",
           "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
@@ -616,9 +656,11 @@
           "source_dataset_id": "cdc_tick_ixodes_county_status",
           "source_family": "CDC_IXODES_COUNTY_STATUS",
           "source_version_id": "pinned-v1",
+          "source_vintage": "2025",
+          "status_kind": "VECTOR",
           "temporal_semantics": "CUMULATIVE_THROUGH_DATE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:7ef07fdf4cb978f67c21a7dd9b66219fc6a6e1a3156f93fdabb1664303eb68be",
+        "comparison_cohort_id": "priority-cohort:v1:9d1425b562c2af0144ce71818eba7a60e238ca98310104cd35473994d497d513",
         "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": "01003",
@@ -628,6 +670,7 @@
         "coverage_result_revision": "875d8f7929527722daa3794253d3cc2dd658eb0703cbc7875a9eb6b2f9a5420e",
         "coverage_state": "NOT_REPORTED_IN_DATASET",
         "date": "2025-12-31",
+        "dimension": "Ixodes scapularis",
         "display_key": "coverage-result:v1:875d8f7929527722daa3794253d3cc2dd658eb0703cbc7875a9eb6b2f9a5420e",
         "disposition": "EVIDENCE_GAP_FOLLOW_UP",
         "event": {
@@ -640,9 +683,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": null,
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "COUNTY",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2025-12-31",
+        "period_start": null,
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": null,
         "reason_codes": [
@@ -650,13 +697,21 @@
           "COMPLETE_SCOPED_SNAPSHOT_OMISSION"
         ],
         "representativeness": "COUNTY_NATIVE_STATUS",
-        "result_id": "surveillance-priority-result:v1:92f53229e0e9703dacf77b89a8c04047d045288e2f613ab5bb02e0e36c99210d",
-        "result_revision": "92f53229e0e9703dacf77b89a8c04047d045288e2f613ab5bb02e0e36c99210d",
+        "result_id": "surveillance-priority-result:v1:59d590087ac1f438c892c60f09216ff60127e64016a75ee9bb512c4b1c5479ab",
+        "result_revision": "59d590087ac1f438c892c60f09216ff60127e64016a75ee9bb512c4b1c5479ab",
         "safe_lineage": [],
         "site": {
           "source_location_id": null,
           "source_plot_id": null,
           "source_site_id": null
+        },
+        "source_geography": {
+          "coordinate_reference_system": null,
+          "geography_kind": null,
+          "latitude": null,
+          "longitude": null,
+          "source_location_id": null,
+          "spatial_uncertainty_meters": null
         },
         "source_scope": {
           "canonical_universe_version": "fixture-universe-v1",
@@ -670,12 +725,16 @@
           "source_vintage": "2025"
         },
         "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
-        "tie_group_id": "priority-tie:v1:ddc0d310b0ec3ff87242d9c993e12a43a926be0366438a716f1d38a2d9e17dbf"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": null,
+        "tie_group_id": "priority-tie:v1:f10ebbb7f7fc5cf69271d9283506f934c9e26e4f321841ab99614898d97e6216"
       }
     },
     {
       "case_id": "county-unproven-omission",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
           "canonical_universe_version": "fixture-universe-v1",
           "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
@@ -686,9 +745,11 @@
           "source_dataset_id": "cdc_tick_ixodes_county_status",
           "source_family": "CDC_IXODES_COUNTY_STATUS",
           "source_version_id": "pinned-v1",
+          "source_vintage": "2025",
+          "status_kind": "VECTOR",
           "temporal_semantics": "CUMULATIVE_THROUGH_DATE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:7ef07fdf4cb978f67c21a7dd9b66219fc6a6e1a3156f93fdabb1664303eb68be",
+        "comparison_cohort_id": "priority-cohort:v1:9d1425b562c2af0144ce71818eba7a60e238ca98310104cd35473994d497d513",
         "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": "01003",
@@ -698,6 +759,7 @@
         "coverage_result_revision": "5100759b86baf68f64eb9cdd50afcff9e4f851788e936a78e8909bbd7213484c",
         "coverage_state": "UNKNOWN",
         "date": "2025-12-31",
+        "dimension": "Ixodes scapularis",
         "display_key": "coverage-result:v1:5100759b86baf68f64eb9cdd50afcff9e4f851788e936a78e8909bbd7213484c",
         "disposition": "EVIDENCE_VERIFICATION",
         "event": {
@@ -710,9 +772,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": null,
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "COUNTY",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2025-12-31",
+        "period_start": null,
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": null,
         "reason_codes": [
@@ -720,13 +786,21 @@
           "SNAPSHOT_COMPLETENESS_UNPROVEN"
         ],
         "representativeness": "COUNTY_NATIVE_STATUS",
-        "result_id": "surveillance-priority-result:v1:c2bd2fb789eaae395704a9768f95a8f68c4d00ce2e2132e4ee629f9e57140701",
-        "result_revision": "c2bd2fb789eaae395704a9768f95a8f68c4d00ce2e2132e4ee629f9e57140701",
+        "result_id": "surveillance-priority-result:v1:3d7d66e3ab70d6489f60eb1bc21aeec8e2fefe18c1ee9838e0e20b178a773b43",
+        "result_revision": "3d7d66e3ab70d6489f60eb1bc21aeec8e2fefe18c1ee9838e0e20b178a773b43",
         "safe_lineage": [],
         "site": {
           "source_location_id": null,
           "source_plot_id": null,
           "source_site_id": null
+        },
+        "source_geography": {
+          "coordinate_reference_system": null,
+          "geography_kind": null,
+          "latitude": null,
+          "longitude": null,
+          "source_location_id": null,
+          "spatial_uncertainty_meters": null
         },
         "source_scope": {
           "canonical_universe_version": "fixture-universe-v1",
@@ -740,26 +814,33 @@
           "source_vintage": "2025"
         },
         "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
-        "tie_group_id": "priority-tie:v1:f7479b8a916380a75135b6ff0ad06efc1fc207f307f0ac5163a5c599248fe957"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": null,
+        "tie_group_id": "priority-tie:v1:4ff26e95dc37485a63499fc79b42aa74c3f23f1c5e4aed689cff01279ea8acae"
       }
     },
     {
       "case_id": "sampled-zero",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
           "effort_unit": null,
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:215978fa2444d5d703a8be2d882fb267a11c26e44ddd8e0f6d91533b6bb49cf4",
+        "comparison_cohort_id": "priority-cohort:v1:76047c24df303e7d7c4369c16666be00245f5546b139ed40ad748577eabcb84b",
         "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -775,6 +856,7 @@
         "coverage_result_revision": "43a6a87e79ef33aac885de058b3768d55c5d4d777265019df5c13c05eb3cfa12",
         "coverage_state": "SAMPLED_EVENT",
         "date": "2016-05-01",
+        "dimension": null,
         "display_key": "coverage-result:v1:43a6a87e79ef33aac885de058b3768d55c5d4d777265019df5c13c05eb3cfa12",
         "disposition": "NO_CURRENT_GAP_SIGNAL",
         "event": {
@@ -787,9 +869,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -1030,8 +1116,8 @@
           "VARIABLE_SAMPLING_INTENSITY"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:a112966c20b1789b06dcb3ccd6ae17e409607f66060ae58d37689bcf4126ed58",
-        "result_revision": "a112966c20b1789b06dcb3ccd6ae17e409607f66060ae58d37689bcf4126ed58",
+        "result_id": "surveillance-priority-result:v1:713c1e096ae8331d42d3c4b0ffe83b0c79da6af246fa6f5fc718a4e35829d575",
+        "result_revision": "713c1e096ae8331d42d3c4b0ffe83b0c79da6af246fa6f5fc718a4e35829d575",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -1057,6 +1143,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -1069,26 +1163,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:3a7398f530709aceae22fcf56ed2174a889f9e801c3b19609c655222fd2ac7d5"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:69fe7d0285c1fbcd60ac84989c6198f52147e14998365b64d772fdd8029babc6"
       }
     },
     {
       "case_id": "sampling-impractical",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
           "effort_unit": null,
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:215978fa2444d5d703a8be2d882fb267a11c26e44ddd8e0f6d91533b6bb49cf4",
+        "comparison_cohort_id": "priority-cohort:v1:76047c24df303e7d7c4369c16666be00245f5546b139ed40ad748577eabcb84b",
         "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -1104,6 +1205,7 @@
         "coverage_result_revision": "1d4a7aef9fb5fec9f352daa8db529de3e721189a5af81bd244e5276c78de2ad4",
         "coverage_state": "SAMPLING_IMPRACTICAL",
         "date": "2016-05-01",
+        "dimension": null,
         "display_key": "coverage-result:v1:1d4a7aef9fb5fec9f352daa8db529de3e721189a5af81bd244e5276c78de2ad4",
         "disposition": "EXPLANATORY_LIMITATION",
         "event": {
@@ -1116,9 +1218,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -1358,8 +1464,8 @@
           "VARIABLE_SAMPLING_INTENSITY"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:40ba0fa205da2fdc7163c76954413d4d8c3c1a1afb314b5c55da25d51650556d",
-        "result_revision": "40ba0fa205da2fdc7163c76954413d4d8c3c1a1afb314b5c55da25d51650556d",
+        "result_id": "surveillance-priority-result:v1:e15cbe7fe4f648c0037227d88b8e317fda047ec4e16781b38679016544ff62c7",
+        "result_revision": "e15cbe7fe4f648c0037227d88b8e317fda047ec4e16781b38679016544ff62c7",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -1385,6 +1491,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -1397,26 +1511,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:074964ad68196e4446cb8c5ba3181bc9db497cd007bdad12923aced52bdfdd91"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:3495b34ed775ddbd5ca9fc9d3122220bf8dc915695e0dcd1010a5005e0f0f019"
       }
     },
     {
       "case_id": "effort-missing",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_EFFORT_DOCUMENTATION",
           "effort_unit": "square metre",
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:991e5ac775f4d0c349f43b5309cc8280d16f1374dd888deb22367e3905be336c",
+        "comparison_cohort_id": "priority-cohort:v1:0a3a7e385a7d4e4a6edfb55b857b6600664b470075f6c67d630d57a2df3a988f",
         "construct_id": "ACTIVE_EFFORT_DOCUMENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -1432,6 +1553,7 @@
         "coverage_result_revision": "dbca70316e2612da76d124663a0bbc546286f2eb654602d4d9739eb4846c3018",
         "coverage_state": "MISSING_EFFORT",
         "date": "2016-05-01",
+        "dimension": null,
         "display_key": "coverage-result:v1:dbca70316e2612da76d124663a0bbc546286f2eb654602d4d9739eb4846c3018",
         "disposition": "EVIDENCE_GAP_FOLLOW_UP",
         "event": {
@@ -1444,9 +1566,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -1686,8 +1812,8 @@
           "VARIABLE_SAMPLING_INTENSITY"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:dcf5273ba7451771fb30ddf048fe4245349413d570295c10879c68c91426e2b2",
-        "result_revision": "dcf5273ba7451771fb30ddf048fe4245349413d570295c10879c68c91426e2b2",
+        "result_id": "surveillance-priority-result:v1:90ff62ac8c16c6daa19a496c0ed1c514b4a569413c5baec18086d256657612d4",
+        "result_revision": "90ff62ac8c16c6daa19a496c0ed1c514b4a569413c5baec18086d256657612d4",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -1713,6 +1839,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -1725,26 +1859,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:7926585f9ce02c572f9d28e83b8f3339e28fbd9a3b51dcc6267fd5db470b0b2e"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:2a936ce6cf254dfc6b92747cd397a9b46540afd52c9b4d3ba762562d7c264fea"
       }
     },
     {
       "case_id": "effort-zero",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_EFFORT_DOCUMENTATION",
           "effort_unit": "square metre",
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:991e5ac775f4d0c349f43b5309cc8280d16f1374dd888deb22367e3905be336c",
+        "comparison_cohort_id": "priority-cohort:v1:0a3a7e385a7d4e4a6edfb55b857b6600664b470075f6c67d630d57a2df3a988f",
         "construct_id": "ACTIVE_EFFORT_DOCUMENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -1760,6 +1901,7 @@
         "coverage_result_revision": "e2113b0e0fb3377c728f48733260f17230a385fcbd1fd10335b7f26895b8f9da",
         "coverage_state": "ZERO_EFFORT",
         "date": "2016-05-01",
+        "dimension": null,
         "display_key": "coverage-result:v1:e2113b0e0fb3377c728f48733260f17230a385fcbd1fd10335b7f26895b8f9da",
         "disposition": "EVIDENCE_GAP_FOLLOW_UP",
         "event": {
@@ -1772,9 +1914,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -2014,8 +2160,8 @@
           "VARIABLE_SAMPLING_INTENSITY"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:adba9b6eba7149190f778a89f13a4e1f54eba17d7fcb69ffefde271fabfbd031",
-        "result_revision": "adba9b6eba7149190f778a89f13a4e1f54eba17d7fcb69ffefde271fabfbd031",
+        "result_id": "surveillance-priority-result:v1:32604f5d88dc79810fac2e38804b62e9b6876859da6ab639042a00d86f1fd5e3",
+        "result_revision": "32604f5d88dc79810fac2e38804b62e9b6876859da6ab639042a00d86f1fd5e3",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -2041,6 +2187,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -2053,26 +2207,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:7926585f9ce02c572f9d28e83b8f3339e28fbd9a3b51dcc6267fd5db470b0b2e"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:2a936ce6cf254dfc6b92747cd397a9b46540afd52c9b4d3ba762562d7c264fea"
       }
     },
     {
       "case_id": "testing-missing",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
-          "collection_method": null,
+          "collection_method": "NOT_APPLICABLE",
           "construct_id": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY",
           "effort_unit": null,
+          "life_stage": "NOT_APPLICABLE",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-02",
           "pathogen_target": "Borrelia burgdorferi sensu lato",
           "source_dataset_id": "DP1.10092.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": "INDIVIDUAL_PATHOGEN_TEST"
+          "testing_scope": "INDIVIDUAL_PATHOGEN_TEST",
+          "tick_species": "NOT_APPLICABLE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:3548128a24b4e6c2ebfde593d0b649de1579362ebe2a621855e52cdff5518ea6",
+        "comparison_cohort_id": "priority-cohort:v1:ad7e440f8d6a6f6d857e2ce88b2886c33a6aa49f003af08c65379939441d4eff",
         "construct_id": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -2088,6 +2249,7 @@
         "coverage_result_revision": "e5e6e2ec05e0bd4ce4ba18cddee8778b84acccca538500329f976c129947e0b4",
         "coverage_state": "MISSING_TEST_DENOMINATOR",
         "date": "2016-05-02",
+        "dimension": null,
         "display_key": "coverage-result:v1:e5e6e2ec05e0bd4ce4ba18cddee8778b84acccca538500329f976c129947e0b4",
         "disposition": "EVIDENCE_GAP_FOLLOW_UP",
         "event": {
@@ -2100,9 +2262,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": "Borrelia burgdorferi sensu lato",
+        "period_end": "2016-05-02",
+        "period_start": "2016-05-02",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -2347,8 +2513,8 @@
           "NON_RANDOM_PATHOGEN_TEST_SELECTION"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:fe38a37dc1c670c0d3519c6df41e4489b6527c2d65a1f7191754808f2dd95c97",
-        "result_revision": "fe38a37dc1c670c0d3519c6df41e4489b6527c2d65a1f7191754808f2dd95c97",
+        "result_id": "surveillance-priority-result:v1:3cbe065a8affde1186f9ce74da6ded43f76a81cff142652d70a70ed2b77ccf21",
+        "result_revision": "3cbe065a8affde1186f9ce74da6ded43f76a81cff142652d70a70ed2b77ccf21",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -2374,6 +2540,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -2386,26 +2560,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:f52a4796c816df3514f0f69634b433a98925708ac0e2843b0e58edb9c9b7e8e5"
+        "testing_scope": "INDIVIDUAL_PATHOGEN_TEST",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:725c4d679fcfb249dfb3570d97d9a5ec9e175aa294c711b88196f1797fcf0912"
       }
     },
     {
       "case_id": "testing-positive-zero-detected",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
-          "collection_method": null,
+          "collection_method": "NOT_APPLICABLE",
           "construct_id": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY",
           "effort_unit": null,
+          "life_stage": "NOT_APPLICABLE",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-02",
           "pathogen_target": "Borrelia burgdorferi sensu lato",
           "source_dataset_id": "DP1.10092.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": "INDIVIDUAL_PATHOGEN_TEST"
+          "testing_scope": "INDIVIDUAL_PATHOGEN_TEST",
+          "tick_species": "NOT_APPLICABLE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:3548128a24b4e6c2ebfde593d0b649de1579362ebe2a621855e52cdff5518ea6",
+        "comparison_cohort_id": "priority-cohort:v1:ad7e440f8d6a6f6d857e2ce88b2886c33a6aa49f003af08c65379939441d4eff",
         "construct_id": "ACTIVE_TESTING_DENOMINATOR_AVAILABILITY",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -2421,6 +2602,7 @@
         "coverage_result_revision": "6e5566af58c2801c498465aec153afaf347809fe6e77cea00e9b75aff880b9f5",
         "coverage_state": "DOCUMENTED_POSITIVE_TEST_DENOMINATOR",
         "date": "2016-05-02",
+        "dimension": null,
         "display_key": "coverage-result:v1:6e5566af58c2801c498465aec153afaf347809fe6e77cea00e9b75aff880b9f5",
         "disposition": "NO_CURRENT_GAP_SIGNAL",
         "event": {
@@ -2433,9 +2615,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": "Borrelia burgdorferi sensu lato",
+        "period_end": "2016-05-02",
+        "period_start": "2016-05-02",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -2680,8 +2866,8 @@
           "NON_RANDOM_PATHOGEN_TEST_SELECTION"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:d3053398797d65a10ee8e0099a46504caf462b18a5e730ba9f5ad22a1d1a8747",
-        "result_revision": "d3053398797d65a10ee8e0099a46504caf462b18a5e730ba9f5ad22a1d1a8747",
+        "result_id": "surveillance-priority-result:v1:7cfa94da28fa42e33d0d42a166e11eeac21f7a871570f2221e1500006e1cc89a",
+        "result_revision": "7cfa94da28fa42e33d0d42a166e11eeac21f7a871570f2221e1500006e1cc89a",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -2707,6 +2893,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -2719,12 +2913,16 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:eb584ae198ecec2c53df211dc1cbf44136e76ed687242a788ae490efa4062f2c"
+        "testing_scope": "INDIVIDUAL_PATHOGEN_TEST",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:aeeaa2fc5b72a7f05d7f17596dca3df32a4aa73ba21aeabf0714f75b6560d1e3"
       }
     },
     {
       "case_id": "county-unavailable",
       "result": {
+        "collection_effort_unit": null,
+        "collection_method": null,
         "comparison_cohort": {
           "canonical_universe_version": "fixture-universe-v1",
           "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
@@ -2735,9 +2933,11 @@
           "source_dataset_id": "cdc_tick_ixodes_county_status",
           "source_family": "CDC_IXODES_COUNTY_STATUS",
           "source_version_id": "pinned-v1",
+          "source_vintage": "2025",
+          "status_kind": "VECTOR",
           "temporal_semantics": "CUMULATIVE_THROUGH_DATE"
         },
-        "comparison_cohort_id": "priority-cohort:v1:7ef07fdf4cb978f67c21a7dd9b66219fc6a6e1a3156f93fdabb1664303eb68be",
+        "comparison_cohort_id": "priority-cohort:v1:9d1425b562c2af0144ce71818eba7a60e238ca98310104cd35473994d497d513",
         "construct_id": "COUNTY_STATUS_DATASET_REPRESENTATION",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": "01001",
@@ -2747,6 +2947,7 @@
         "coverage_result_revision": "7ec520a8a498e7e377c2af9e95926d75e98fc5a837969882f796a99f4ba4f609",
         "coverage_state": "UNAVAILABLE",
         "date": "2025-12-31",
+        "dimension": "Ixodes scapularis",
         "display_key": "coverage-result:v1:7ec520a8a498e7e377c2af9e95926d75e98fc5a837969882f796a99f4ba4f609",
         "disposition": "UNAVAILABLE",
         "event": {
@@ -2759,9 +2960,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": null,
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "COUNTY",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2025-12-31",
+        "period_start": null,
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -2988,8 +3193,8 @@
           "STATUS_SOURCE_LIMITATION_RETAINED"
         ],
         "representativeness": "COUNTY_NATIVE_STATUS",
-        "result_id": "surveillance-priority-result:v1:7554858fe2dd830ca2093256164dc0814ddd1c4c9b3b66ffa45851aa42dd092b",
-        "result_revision": "7554858fe2dd830ca2093256164dc0814ddd1c4c9b3b66ffa45851aa42dd092b",
+        "result_id": "surveillance-priority-result:v1:4fa6e763811a97f355de52eb5e4161ec856567e975eaa6ec615a7c46db2fa7cd",
+        "result_revision": "4fa6e763811a97f355de52eb5e4161ec856567e975eaa6ec615a7c46db2fa7cd",
         "safe_lineage": [
           {
             "canonical_observation_id": "county-1",
@@ -3010,6 +3215,14 @@
           "source_plot_id": null,
           "source_site_id": null
         },
+        "source_geography": {
+          "coordinate_reference_system": null,
+          "geography_kind": null,
+          "latitude": null,
+          "longitude": null,
+          "source_location_id": null,
+          "spatial_uncertainty_meters": null
+        },
         "source_scope": {
           "canonical_universe_version": "fixture-universe-v1",
           "cumulative_through_date": "2025-12-31",
@@ -3022,26 +3235,33 @@
           "source_vintage": "2025"
         },
         "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
         "tie_group_id": null
       }
     },
     {
       "case_id": "mapped-site-still-not-county-representative",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
           "effort_unit": null,
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:215978fa2444d5d703a8be2d882fb267a11c26e44ddd8e0f6d91533b6bb49cf4",
+        "comparison_cohort_id": "priority-cohort:v1:76047c24df303e7d7c4369c16666be00245f5546b139ed40ad748577eabcb84b",
         "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -3053,11 +3273,12 @@
           "representativeness": "NOT_COUNTY_REPRESENTATIVE"
         },
         "coverage_identity": "coverage:v1:946f178fc37809ddc38f8a9311ed0679c2418c76280b9e2f39a48c7664d1a1e4",
-        "coverage_result_id": "coverage-result:v1:88a95e642a6d55de95abec32cb9607439cc4eb5648344c8b9d4338325f1c7a7b",
-        "coverage_result_revision": "88a95e642a6d55de95abec32cb9607439cc4eb5648344c8b9d4338325f1c7a7b",
+        "coverage_result_id": "coverage-result:v1:fd64b00a2dc6385a18ebfe2af1e22fb14bbe1637e18fc9f447ac405a5ba7708b",
+        "coverage_result_revision": "fd64b00a2dc6385a18ebfe2af1e22fb14bbe1637e18fc9f447ac405a5ba7708b",
         "coverage_state": "SAMPLED_EVENT",
         "date": "2016-05-01",
-        "display_key": "coverage-result:v1:88a95e642a6d55de95abec32cb9607439cc4eb5648344c8b9d4338325f1c7a7b",
+        "dimension": null,
+        "display_key": "coverage-result:v1:fd64b00a2dc6385a18ebfe2af1e22fb14bbe1637e18fc9f447ac405a5ba7708b",
         "disposition": "NO_CURRENT_GAP_SIGNAL",
         "event": {
           "source_batch_id": null,
@@ -3069,9 +3290,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -3079,6 +3304,7 @@
             "CANONICAL_RECORD_STRUCTURALLY_VALID",
             "CANONICAL_LINEAGE_RETAINED",
             "EFFORT_DOCUMENTED",
+            "VALID_ZERO_WITH_DOCUMENTED_EFFORT",
             "METHOD_DOCUMENTED",
             "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
             "PARTIAL_SPATIAL_COVERAGE",
@@ -3140,13 +3366,15 @@
                 {
                   "canonical_observation_id": "canonical-one",
                   "reason_codes": [
-                    "EFFORT_DOCUMENTED"
+                    "EFFORT_DOCUMENTED",
+                    "VALID_ZERO_WITH_DOCUMENTED_EFFORT"
                   ],
                   "state": "ASSESSED"
                 }
               ],
               "reason_codes": [
-                "EFFORT_DOCUMENTED"
+                "EFFORT_DOCUMENTED",
+                "VALID_ZERO_WITH_DOCUMENTED_EFFORT"
               ],
               "state": "ASSESSED"
             },
@@ -3309,8 +3537,8 @@
           "VARIABLE_SAMPLING_INTENSITY"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:49fc41c90941b83f21a79a432a6f7243c25fe2968222a0cb8ab8535ce5d47fe9",
-        "result_revision": "49fc41c90941b83f21a79a432a6f7243c25fe2968222a0cb8ab8535ce5d47fe9",
+        "result_id": "surveillance-priority-result:v1:02ebdd1aff5e545b34062211f6f80e5a9cb2bcfd735afcc9faf4281b5187d59e",
+        "result_revision": "02ebdd1aff5e545b34062211f6f80e5a9cb2bcfd735afcc9faf4281b5187d59e",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -3336,6 +3564,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -3348,26 +3584,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:3a7398f530709aceae22fcf56ed2174a889f9e801c3b19609c655222fd2ac7d5"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:69fe7d0285c1fbcd60ac84989c6198f52147e14998365b64d772fdd8029babc6"
       }
     },
     {
       "case_id": "ambiguous-site",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
           "effort_unit": null,
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:215978fa2444d5d703a8be2d882fb267a11c26e44ddd8e0f6d91533b6bb49cf4",
+        "comparison_cohort_id": "priority-cohort:v1:76047c24df303e7d7c4369c16666be00245f5546b139ed40ad748577eabcb84b",
         "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -3379,11 +3622,12 @@
           "representativeness": "NOT_COUNTY_REPRESENTATIVE"
         },
         "coverage_identity": "coverage:v1:946f178fc37809ddc38f8a9311ed0679c2418c76280b9e2f39a48c7664d1a1e4",
-        "coverage_result_id": "coverage-result:v1:c474b7d2603e8a2aea2f75628b7bd611dbc9370be3c7e5941216793af1a310f8",
-        "coverage_result_revision": "c474b7d2603e8a2aea2f75628b7bd611dbc9370be3c7e5941216793af1a310f8",
+        "coverage_result_id": "coverage-result:v1:eee4ad3c5899fe39aab35bde268c5b6cf3d25710821d34bc639b5085dad94502",
+        "coverage_result_revision": "eee4ad3c5899fe39aab35bde268c5b6cf3d25710821d34bc639b5085dad94502",
         "coverage_state": "SAMPLED_EVENT",
         "date": "2016-05-01",
-        "display_key": "coverage-result:v1:c474b7d2603e8a2aea2f75628b7bd611dbc9370be3c7e5941216793af1a310f8",
+        "dimension": null,
+        "display_key": "coverage-result:v1:eee4ad3c5899fe39aab35bde268c5b6cf3d25710821d34bc639b5085dad94502",
         "disposition": "NO_CURRENT_GAP_SIGNAL",
         "event": {
           "source_batch_id": null,
@@ -3395,9 +3639,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -3405,6 +3653,7 @@
             "CANONICAL_RECORD_STRUCTURALLY_VALID",
             "CANONICAL_LINEAGE_RETAINED",
             "EFFORT_DOCUMENTED",
+            "VALID_ZERO_WITH_DOCUMENTED_EFFORT",
             "METHOD_DOCUMENTED",
             "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
             "AMBIGUOUS_SITE_GEOGRAPHY",
@@ -3466,13 +3715,15 @@
                 {
                   "canonical_observation_id": "canonical-one",
                   "reason_codes": [
-                    "EFFORT_DOCUMENTED"
+                    "EFFORT_DOCUMENTED",
+                    "VALID_ZERO_WITH_DOCUMENTED_EFFORT"
                   ],
                   "state": "ASSESSED"
                 }
               ],
               "reason_codes": [
-                "EFFORT_DOCUMENTED"
+                "EFFORT_DOCUMENTED",
+                "VALID_ZERO_WITH_DOCUMENTED_EFFORT"
               ],
               "state": "ASSESSED"
             },
@@ -3635,8 +3886,8 @@
           "VARIABLE_SAMPLING_INTENSITY"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:034c5f53e9b1bb8c3a3b9ab6f2e28adef4a58043ae0c0dbe3f187e471aacdc7b",
-        "result_revision": "034c5f53e9b1bb8c3a3b9ab6f2e28adef4a58043ae0c0dbe3f187e471aacdc7b",
+        "result_id": "surveillance-priority-result:v1:28e257b387e240d7c8442914d00d393b2be5a58cbc260fb757ec1407b3d85546",
+        "result_revision": "28e257b387e240d7c8442914d00d393b2be5a58cbc260fb757ec1407b3d85546",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -3662,6 +3913,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -3674,26 +3933,33 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:3a7398f530709aceae22fcf56ed2174a889f9e801c3b19609c655222fd2ac7d5"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:69fe7d0285c1fbcd60ac84989c6198f52147e14998365b64d772fdd8029babc6"
       }
     },
     {
       "case_id": "stale-revision-sensitive",
       "result": {
+        "collection_effort_unit": "square metre",
+        "collection_method": "Drag cloth",
         "comparison_cohort": {
           "collection_method": "Drag cloth",
           "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
           "effort_unit": null,
+          "life_stage": "NYMPH",
           "native_grain": "SITE_EVENT",
           "observation_date": "2016-05-01",
-          "pathogen_target": null,
+          "pathogen_target": "NOT_APPLICABLE",
           "source_dataset_id": "DP1.10093.001",
           "source_family": "NSF_NEON",
           "source_version_id": "RELEASE-2026",
+          "source_vintage": "RELEASE-2026",
           "temporal_semantics": "POINT_IN_TIME",
-          "testing_scope": null
+          "testing_scope": null,
+          "tick_species": "Ixodes scapularis"
         },
-        "comparison_cohort_id": "priority-cohort:v1:215978fa2444d5d703a8be2d882fb267a11c26e44ddd8e0f6d91533b6bb49cf4",
+        "comparison_cohort_id": "priority-cohort:v1:76047c24df303e7d7c4369c16666be00245f5546b139ed40ad748577eabcb84b",
         "construct_id": "ACTIVE_SITE_EVENT_SAMPLING",
         "contract_version": "surveillance-priority-result-v1",
         "county_fips": null,
@@ -3705,11 +3971,12 @@
           "representativeness": "NOT_COUNTY_REPRESENTATIVE"
         },
         "coverage_identity": "coverage:v1:946f178fc37809ddc38f8a9311ed0679c2418c76280b9e2f39a48c7664d1a1e4",
-        "coverage_result_id": "coverage-result:v1:cab5d54596c83ce112a56b765187210cdee25b66fd1daf3102e4fd9b266ad6b7",
-        "coverage_result_revision": "cab5d54596c83ce112a56b765187210cdee25b66fd1daf3102e4fd9b266ad6b7",
+        "coverage_result_id": "coverage-result:v1:43a6a87e79ef33aac885de058b3768d55c5d4d777265019df5c13c05eb3cfa12",
+        "coverage_result_revision": "43a6a87e79ef33aac885de058b3768d55c5d4d777265019df5c13c05eb3cfa12",
         "coverage_state": "SAMPLED_EVENT",
         "date": "2016-05-01",
-        "display_key": "coverage-result:v1:cab5d54596c83ce112a56b765187210cdee25b66fd1daf3102e4fd9b266ad6b7",
+        "dimension": null,
+        "display_key": "coverage-result:v1:43a6a87e79ef33aac885de058b3768d55c5d4d777265019df5c13c05eb3cfa12",
         "disposition": "NO_CURRENT_GAP_SIGNAL",
         "event": {
           "source_batch_id": null,
@@ -3721,9 +3988,13 @@
         },
         "evidence_basis": "SYNTHETIC_FIXTURE",
         "interpretation": "This evidence unit warrants the stated kind of surveillance-data review or follow-up under surveillance-priority-v1. It is not disease risk, biological absence, proven underreporting, agency performance, or a resource-allocation order.",
+        "life_stage": "NYMPH",
         "methodology_version": "surveillance-priority-v1",
         "native_grain": "SITE_EVENT",
         "operational_decision": "SURVEILLANCE_EVIDENCE_REVIEW",
+        "pathogen_name": null,
+        "period_end": "2016-05-01",
+        "period_start": "2016-05-01",
         "publication_status": "INTERNAL_DEV_ONLY",
         "quality": {
           "inherited_limitations": [
@@ -3731,6 +4002,7 @@
             "CANONICAL_RECORD_STRUCTURALLY_VALID",
             "CANONICAL_LINEAGE_RETAINED",
             "EFFORT_DOCUMENTED",
+            "VALID_ZERO_WITH_DOCUMENTED_EFFORT",
             "METHOD_DOCUMENTED",
             "SITE_EVENT_NOT_COUNTY_REPRESENTATIVE",
             "UNMAPPED_SITE_GEOGRAPHY",
@@ -3739,7 +4011,6 @@
             "NOT_A_PATHOGEN_TESTING_OBSERVATION",
             "METHOD_COMPARABILITY_NOT_ESTABLISHED",
             "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
-            "STALE_OR_REVISION_SENSITIVE",
             "SOURCE_LIMITATION_RETAINED",
             "VARIABLE_SAMPLING_INTENSITY"
           ],
@@ -3793,13 +4064,15 @@
                 {
                   "canonical_observation_id": "canonical-one",
                   "reason_codes": [
-                    "EFFORT_DOCUMENTED"
+                    "EFFORT_DOCUMENTED",
+                    "VALID_ZERO_WITH_DOCUMENTED_EFFORT"
                   ],
                   "state": "ASSESSED"
                 }
               ],
               "reason_codes": [
-                "EFFORT_DOCUMENTED"
+                "EFFORT_DOCUMENTED",
+                "VALID_ZERO_WITH_DOCUMENTED_EFFORT"
               ],
               "state": "ASSESSED"
             },
@@ -3907,15 +4180,13 @@
                 {
                   "canonical_observation_id": "canonical-one",
                   "reason_codes": [
-                    "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
-                    "STALE_OR_REVISION_SENSITIVE"
+                    "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
                   ],
                   "state": "ASSESSED"
                 }
               ],
               "reason_codes": [
-                "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
-                "STALE_OR_REVISION_SENSITIVE"
+                "SOURCE_VERSION_AND_RETRIEVAL_RETAINED"
               ],
               "state": "ASSESSED"
             },
@@ -3948,7 +4219,6 @@
             "UNMAPPED_SITE_GEOGRAPHY",
             "METHOD_COMPARABILITY_NOT_ESTABLISHED",
             "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
-            "STALE_OR_REVISION_SENSITIVE",
             "SOURCE_LIMITATION_RETAINED",
             "VARIABLE_SAMPLING_INTENSITY"
           ],
@@ -3961,13 +4231,13 @@
           "UNMAPPED_SITE_GEOGRAPHY",
           "METHOD_COMPARABILITY_NOT_ESTABLISHED",
           "SOURCE_VERSION_AND_RETRIEVAL_RETAINED",
-          "STALE_OR_REVISION_SENSITIVE",
           "SOURCE_LIMITATION_RETAINED",
-          "VARIABLE_SAMPLING_INTENSITY"
+          "VARIABLE_SAMPLING_INTENSITY",
+          "STALE_OR_REVISION_SENSITIVE"
         ],
         "representativeness": "NOT_COUNTY_REPRESENTATIVE",
-        "result_id": "surveillance-priority-result:v1:22bf98a057bde6cf7325ddb2f83d3743eca79419246683bbe56cb49897fd19c6",
-        "result_revision": "22bf98a057bde6cf7325ddb2f83d3743eca79419246683bbe56cb49897fd19c6",
+        "result_id": "surveillance-priority-result:v1:d4418b887dd411d571aa449586952a0ceeda193a4e6c24b7743545fe3b9cd422",
+        "result_revision": "d4418b887dd411d571aa449586952a0ceeda193a4e6c24b7743545fe3b9cd422",
         "safe_lineage": [
           {
             "canonical_observation_id": "canonical-one",
@@ -3993,6 +4263,14 @@
           "source_plot_id": "BLAN_001",
           "source_site_id": "BLAN"
         },
+        "source_geography": {
+          "coordinate_reference_system": "EPSG:4326",
+          "geography_kind": "PLOT",
+          "latitude": 38.0,
+          "longitude": -78.5,
+          "source_location_id": "BLAN_001",
+          "spatial_uncertainty_meters": 10
+        },
         "source_scope": {
           "canonical_universe_version": null,
           "cumulative_through_date": null,
@@ -4005,7 +4283,9 @@
           "source_vintage": "RELEASE-2026"
         },
         "temporal_semantics": "POINT_IN_TIME",
-        "tie_group_id": "priority-tie:v1:3a7398f530709aceae22fcf56ed2174a889f9e801c3b19609c655222fd2ac7d5"
+        "testing_scope": "NOT_APPLICABLE",
+        "tick_species": "Ixodes scapularis",
+        "tie_group_id": "priority-tie:v1:69fe7d0285c1fbcd60ac84989c6198f52147e14998365b64d772fdd8029babc6"
       }
     }
   ]
