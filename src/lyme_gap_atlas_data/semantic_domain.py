@@ -206,26 +206,50 @@ def validate_observation(observation: Mapping[str, Any], measure: Mapping[str, A
     provenance = observation.get("provenance")
     if not isinstance(provenance, dict):
         raise SemanticDomainError("provenance required")
-    for field in (
-        "source_id",
-        "dataset_id",
-        "source_version_id",
-        "source_vintage",
-        "ingestion_run_id",
-        "artifact_id",
-        "retrieved_at",
-    ):
-        _required(provenance, field)
-    if not provenance.get("source_record_id") and not provenance.get("source_row_hash"):
-        raise SemanticDomainError("source record identity required")
+    _required(provenance, "dataset_id")
     if observation["origin"] == "DERIVED":
         _required(provenance, "transformation_version")
         _required(provenance, "evidence_basis")
         inputs = provenance.get("input_ids")
-        if not isinstance(inputs, list) or not inputs or len(inputs) != len(set(inputs)):
+        if (
+            not isinstance(inputs, list)
+            or not inputs
+            or any(not isinstance(item, str) or not item for item in inputs)
+            or len(inputs) != len(set(inputs))
+        ):
             raise SemanticDomainError("derived inputs required and unique")
-    elif provenance.get("input_ids"):
-        raise SemanticDomainError("reported observation cannot claim derived inputs")
+        sources = provenance.get("lineage_sources")
+        if not isinstance(sources, list) or not sources:
+            raise SemanticDomainError("derived lineage sources required")
+        for source in sources:
+            if not isinstance(source, dict):
+                raise SemanticDomainError("invalid derived lineage source")
+            for field in (
+                "source_id",
+                "dataset_id",
+                "source_version_id",
+                "source_vintage",
+                "ingestion_run_id",
+                "artifact_id",
+                "retrieved_at",
+            ):
+                _required(source, field)
+            if not source.get("source_record_id") and not source.get("source_row_hash"):
+                raise SemanticDomainError("derived lineage source record identity required")
+    else:
+        for field in (
+            "source_id",
+            "source_version_id",
+            "source_vintage",
+            "ingestion_run_id",
+            "artifact_id",
+            "retrieved_at",
+        ):
+            _required(provenance, field)
+        if not provenance.get("source_record_id") and not provenance.get("source_row_hash"):
+            raise SemanticDomainError("source record identity required")
+        if provenance.get("input_ids") or provenance.get("lineage_sources"):
+            raise SemanticDomainError("reported observation cannot claim derived inputs")
     state = observation.get("value_state")
     value = observation.get("value")
     if state not in measure["allowed_value_states"]:
@@ -258,17 +282,27 @@ def observation_key(
     """Scientific key excludes display labels, revisions, and release membership."""
     native = scope if scope is not None else _scope(observation, measure)
     provenance = observation["provenance"]
+    source_identity: dict[str, Any]
+    if observation["origin"] == "DERIVED":
+        source_identity = {"input_ids": sorted(provenance["input_ids"])}
+    else:
+        source_identity = {
+            "source_id": provenance["source_id"],
+            "source_version_id": provenance["source_version_id"],
+            "source_vintage": provenance["source_vintage"],
+            "source_record_id": provenance.get("source_record_id"),
+            "source_row_hash": provenance.get("source_row_hash")
+            if not provenance.get("source_record_id")
+            else None,
+        }
     return "observation:v1:" + _digest(
         {
             "measure_id": measure["measure_id"],
             "measure_version": measure["semantic_version"],
-            "source_id": provenance["source_id"],
             "dataset_id": provenance["dataset_id"],
-            "source_version_id": provenance["source_version_id"],
-            "source_vintage": provenance["source_vintage"],
             "origin": observation["origin"],
             "scope": native,
-            "source_record_id": provenance.get("source_record_id"),
+            "source_identity": source_identity,
         }
     )
 

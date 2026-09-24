@@ -117,11 +117,26 @@ def observation(m: dict, *, value: object = 3, state: str = "OBSERVED") -> dict:
         "retrieved_at": "2026-09-18T00:00:00Z",
     }
     if m["origin"] == "DERIVED":
-        provenance.update(
-            transformation_version="calculation-v1",
-            input_ids=["canonical-input-1"],
-            evidence_basis="SYNTHETIC_FIXTURE",
-        )
+        source = {
+            key: provenance[key]
+            for key in (
+                "source_id",
+                "dataset_id",
+                "source_version_id",
+                "source_vintage",
+                "ingestion_run_id",
+                "artifact_id",
+                "source_record_id",
+                "retrieved_at",
+            )
+        }
+        provenance = {
+            "dataset_id": "derived-product-v1",
+            "transformation_version": "calculation-v1",
+            "input_ids": ["canonical-input-1"],
+            "lineage_sources": [source],
+            "evidence_basis": "SYNTHETIC_FIXTURE",
+        }
     result = {
         "contract_version": CONTRACT_VERSION,
         "measure_id": m["measure_id"],
@@ -373,6 +388,28 @@ def test_derived_requires_input_and_evidence_basis() -> None:
     del o["provenance"]["evidence_basis"]
     with pytest.raises(SemanticDomainError, match="evidence_basis"):
         validate_observation(o, m)
+
+
+def test_derived_result_references_multiple_source_records_without_fake_single_record() -> None:
+    m = measure("coverage", grain="SITE_EVENT", time="POINT_IN_TIME", origin="DERIVED")
+    o = observation(m)
+    second = copy.deepcopy(o["provenance"]["lineage_sources"][0])
+    second.update(
+        source_id="neon_testing",
+        dataset_id="DP1.10092.001",
+        source_version_id="RELEASE-2026",
+        artifact_id="artifact-2",
+        source_record_id="testing-row-2",
+    )
+    o["provenance"]["lineage_sources"].append(second)
+    o["provenance"]["input_ids"].append("canonical-input-2")
+    reseal(o, m)
+    validate_observation(o, m)
+    assert "source_record_id" not in o["provenance"]
+    incomplete = copy.deepcopy(o)
+    del incomplete["provenance"]["lineage_sources"][1]["artifact_id"]
+    with pytest.raises(SemanticDomainError, match="artifact_id"):
+        validate_observation(incomplete, m)
 
 
 def test_duplicate_revision_and_unversioned_meaning_change_fail() -> None:
