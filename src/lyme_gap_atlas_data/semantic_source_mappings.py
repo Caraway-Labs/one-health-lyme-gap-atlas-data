@@ -165,6 +165,168 @@ def _validate_strata(
             raise SemanticMappingError("unapproved or display-label canonical stratum")
 
 
+def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tuple[Any, str]:
+    """Read value/state from the owning canonical or derived output."""
+    output = record.get("source_output")
+    if not isinstance(output, Mapping) or mapping["field"] not in output:
+        raise SemanticMappingError("existing source output and mapped field required")
+    raw = output[mapping["field"]]
+    mapping_id = mapping["id"]
+    value: Any
+    state: str
+    if mapping_id == "source_only":
+        if raw not in {"UNMAPPED", "AMBIGUOUS"}:
+            raise SemanticMappingError("source-only output must remain unresolved")
+        value, state = None, "UNKNOWN"
+    elif mapping_id == "infected_tick_result":
+        if output.get("contract_version") != "infected-tick-derived-result-v1":
+            raise SemanticMappingError("wrong infected-tick result contract")
+        if output.get("state") == "UNAVAILABLE" and raw is None:
+            value, state = None, "UNAVAILABLE"
+        elif (
+            output.get("state") == "NUMERIC"
+            and isinstance(raw, (int, float))
+            and not isinstance(raw, bool)
+        ):
+            value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
+        else:
+            raise SemanticMappingError("invalid infected-tick result value state")
+    elif mapping_id in {"coverage_result", "priority_result"}:
+        contract = (
+            "surveillance-coverage-result-v2"
+            if mapping_id == "coverage_result"
+            else "surveillance-priority-result-v2"
+        )
+        if output.get("contract_version") != contract or not isinstance(raw, str):
+            raise SemanticMappingError("wrong derived result contract or state")
+        state = raw if raw in {"UNKNOWN", "UNAVAILABLE", "NOT_DEFENSIBLE"} else "OBSERVED"
+        value = None if state != "OBSERVED" else raw
+    else:
+        if raw is None:
+            source_state = output.get("value_state")
+            if source_state not in {
+                "MISSING",
+                "UNKNOWN",
+                "SUPPRESSED",
+                "NOT_REPORTED",
+                "UNAVAILABLE",
+            }:
+                raise SemanticMappingError("null source value requires explicit value state")
+            state = str(source_state)
+            value = None
+        elif raw == "No records":
+            value, state = raw, "NO_RECORDS"
+        elif isinstance(raw, str) and raw in {
+            "no_county_linked_record",
+            "NO_COUNTY_LINKED_RECORD",
+        }:
+            value, state = "NO_COUNTY_LINKED_RECORD", "NO_COUNTY_LINKED_RECORD"
+        elif isinstance(raw, str) and raw in {"Unknown", "Suppressed", "Not reported"}:
+            value, state = None, raw.upper().replace(" ", "_")
+        elif isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw == 0:
+            value, state = raw, "ZERO"
+        else:
+            value, state = raw, "OBSERVED"
+    if record.get("value") != value or record.get("value_state") != state:
+        raise SemanticMappingError("source output/value-state disagreement")
+    return value, state
+
+
+def _check_output_scope(
+    record: Mapping[str, Any], mapping: Mapping[str, Any], edges: list[Mapping[str, Any]]
+) -> None:
+    output = record["source_output"]
+    geography = record["geography"]
+    temporal = record["temporal"]
+    if mapping["id"] in {"neon_collection", "neon_pathogen_test"}:
+        expected_type = (
+            "COLLECTION_ABUNDANCE" if mapping["id"] == "neon_collection" else "PATHOGEN_TESTING"
+        )
+        if (
+            output.get("observation_type") != expected_type
+            or output.get("native_sampling_grain") != "SITE_EVENT"
+            or output.get("source_dataset_id") != edges[0]["dataset_id"]
+            or output.get("data_source_version_id") != edges[0]["source_vintage"]
+            or output.get("source_record_id") != edges[0]["source_record_id"]
+            or output.get("canonical_observation_id") != edges[0]["canonical_record_id"]
+            or output.get("ingestion_run_id") != edges[0]["ingestion_run_id"]
+            or output.get("artifact_id") != edges[0]["artifact_id"]
+            or output.get("retrieved_at") != record.get("retrieved_at")
+            or output.get("source_agency") != "NSF NEON"
+        ):
+            raise SemanticMappingError("canonical NEON source identity mismatch")
+        normalization = output.get("normalization")
+        normalized = normalization.get("mappings") if isinstance(normalization, Mapping) else None
+        if not isinstance(normalized, Mapping):
+            raise SemanticMappingError("canonical NEON normalization proof required")
+        for proof in record["strata_evidence"].values():
+            if (
+                proof.get("mapping_rule_id") not in normalized
+                or normalized[proof["mapping_rule_id"]] != proof
+            ):
+                raise SemanticMappingError("canonical NEON normalization proof mismatch")
+        site = output.get("sampling_site")
+        event = output.get("sampling_event")
+        county = output.get("county_relationship")
+        if (
+            not isinstance(site, Mapping)
+            or not isinstance(event, Mapping)
+            or not isinstance(county, Mapping)
+            or geography.get("site_id") != site.get("source_site_id")
+            or geography.get("event_id") != event.get("source_event_id")
+            or geography.get("county_fips") != county.get("county_fips")
+            or geography.get("representativeness") != "NOT_COUNTY_REPRESENTATIVE"
+            or temporal.get("date") != output.get("surveillance_period_start")
+            or output.get("surveillance_period_start") != output.get("surveillance_period_end")
+        ):
+            raise SemanticMappingError("canonical NEON geography or time mismatch")
+        if mapping["id"] == "neon_pathogen_test" and output.get("ticks_tested") != record.get(
+            "denominator_value"
+        ):
+            raise SemanticMappingError("individual test denominator mismatch")
+    elif mapping["origin"] == "DERIVED":
+        result = record.get("result")
+        evidence_status = output.get("evidence_status")
+        infected_basis = (
+            evidence_status.get("calculation_basis")
+            if isinstance(evidence_status, Mapping)
+            else None
+        )
+        if (
+            not isinstance(result, Mapping)
+            or output.get("result_id") != result.get("result_id")
+            or output.get("result_revision") != result.get("revision_id")
+            or output.get("evidence_basis", infected_basis) != record.get("evidence_basis")
+        ):
+            raise SemanticMappingError("derived output identity or evidence mismatch")
+        if mapping["id"] == "priority_result" and output.get("coverage_result_revision") is None:
+            raise SemanticMappingError("priority output lacks upstream coverage revision")
+        if mapping["id"] in {"infected_tick_result", "coverage_result"} and set(
+            output.get("input_canonical_observation_ids", [])
+        ) != set(record.get("input_ids", [])):
+            raise SemanticMappingError("derived output input IDs mismatch")
+        if output.get("native_grain") != geography.get("grain"):
+            raise SemanticMappingError("derived output native grain mismatch")
+        if output.get("date") != temporal.get("date"):
+            raise SemanticMappingError("derived output time mismatch")
+        if not isinstance(output.get("quality"), Mapping):
+            raise SemanticMappingError("derived output quality required")
+        limitations_key = (
+            "unavailable_reasons" if mapping["id"] == "infected_tick_result" else "reason_codes"
+        )
+        if not isinstance(output.get(limitations_key), list):
+            raise SemanticMappingError("derived output limitations required")
+        if mapping["id"] != "infected_tick_result" and not isinstance(
+            output.get("scientific_eligibility"), Mapping
+        ):
+            raise SemanticMappingError("derived output eligibility required")
+    elif mapping["id"] == "source_only":
+        if output.get("reported_geography") != geography.get("reported_geography_id"):
+            raise SemanticMappingError("source-only geography mismatch")
+    elif output.get("county_fips") != geography.get("county_fips"):
+        raise SemanticMappingError("county source output/FIPS mismatch")
+
+
 def map_record(
     record: Mapping[str, Any],
     metadata: Mapping[str, Any],
@@ -211,12 +373,7 @@ def map_record(
     if record.get("indicator_id") != measure["indicator_id"]:
         raise SemanticMappingError("wrong indicator identity")
     _validate_strata(record, mapping, edges)
-    fields = record.get("fields")
-    if not isinstance(fields, Mapping) or mapping["field"] not in fields:
-        raise SemanticMappingError("missing required canonical field")
-    value = fields[mapping["field"]]
-    if value != record.get("value"):
-        raise SemanticMappingError("canonical field/value disagreement")
+    value, value_state = _source_value(record, mapping)
     if measure["denominator"] != "NONE" and record.get("value_state") in {"OBSERVED", "ZERO"}:
         denominator_value = record.get("denominator_value")
         if (
@@ -231,6 +388,7 @@ def map_record(
         raise SemanticMappingError("geography and time scopes required")
     if geography.get("grain") != mapping["grain"] or temporal.get("semantics") != mapping["time"]:
         raise SemanticMappingError("incompatible native geography or time")
+    _check_output_scope(record, mapping, edges)
     first = edges[0]
     if mapping["origin"] == "REPORTED":
         if len(edges) != 1 or record.get("result") is not None:
@@ -254,6 +412,7 @@ def map_record(
         }
         if not isinstance(record.get("result"), Mapping):
             raise SemanticMappingError("derived result identity and revision required")
+    result_ref = record["result"]["result_id"] if mapping["origin"] == "DERIVED" else None
     observation = {
         "contract_version": DOMAIN_VERSION,
         "measure_id": measure["measure_id"],
@@ -266,10 +425,10 @@ def map_record(
         "strata": dict(record.get("strata", {})),
         "provenance": provenance,
         "value": value,
-        "value_state": _required(record, "value_state"),
-        "quality_ref": record.get("quality_ref"),
-        "eligibility_ref": record.get("eligibility_ref"),
-        "limitations_ref": record.get("limitations_ref"),
+        "value_state": value_state,
+        "quality_ref": result_ref or record.get("quality_ref"),
+        "eligibility_ref": result_ref or record.get("eligibility_ref"),
+        "limitations_ref": result_ref or record.get("limitations_ref"),
     }
     observation["observation_key"] = observation_key(observation, measure)
     observation["revision_id"] = revision_id(observation)

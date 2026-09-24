@@ -6,16 +6,27 @@ import copy
 from pathlib import Path
 
 import pytest
+from test_infected_tick_results import _document
+from test_neon_release_package import DEFINITION, _fixture
 from test_semantic_lineage import _trace
+from test_surveillance_coverage import _canonical
+from test_surveillance_priority import _safe
 
+from lyme_gap_atlas_data.infected_tick_metrics import DENSITY, PREVALENCE
+from lyme_gap_atlas_data.ingestion.neon_release_package import NeonReleasePackageAdapter
+from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.semantic_domain import meaning_signature, observation_key, revision_id
 from lyme_gap_atlas_data.semantic_metadata import metadata_revision_id
 from lyme_gap_atlas_data.semantic_source_mappings import (
     SemanticMappingError,
+    _source_value,
     load_mapping_registry,
     map_record,
     map_records,
 )
+from lyme_gap_atlas_data.surveillance_coverage import SAMPLING
+from lyme_gap_atlas_data.surveillance_priority import evaluate_surveillance_priority
+from lyme_gap_atlas_data.surveillance_priority_results import serialize_surveillance_priority
 from lyme_gap_atlas_data.tick_normalization import normalize_value
 
 REGISTRY = load_mapping_registry(
@@ -83,14 +94,19 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
     if mapping_id == "source_only":
         temporal = {"semantics": "CUMULATIVE_THROUGH_DATE", "date": "2025-12-31"}
     value = trace["observation"]["value"]
+    if mapping_id == "neon_pathogen_test":
+        value = 1
+    if mapping_id == "coverage_result":
+        value = "SAMPLED_EVENT"
     record = {
         "fixture": True,
         "mapping_id": mapping_id,
         "indicator_id": measure["indicator_id"],
         "unit": measure["unit"],
         "denominator": measure["denominator"],
-        "denominator_value": 3 if measure["denominator"] != "NONE" else None,
-        "fields": {mapping["field"]: value},
+        "denominator_value": 1
+        if mapping_id == "neon_pathogen_test"
+        else (3 if measure["denominator"] != "NONE" else None),
         "value": value,
         "value_state": trace["observation"]["value_state"],
         "geography": geography,
@@ -106,6 +122,56 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
         "transformation_version": trace["transformation"]["version"],
         "evidence_basis": "SYNTHETIC_FIXTURE",
     }
+    output = {mapping["field"]: value}
+    if mapping_id == "source_only":
+        output.update(mapping_status="UNMAPPED", reported_geography="publisher-place-1")
+    elif mapping_id in {"neon_collection", "neon_pathogen_test"}:
+        output.update(
+            observation_type=(
+                "COLLECTION_ABUNDANCE" if mapping_id == "neon_collection" else "PATHOGEN_TESTING"
+            ),
+            native_sampling_grain="SITE_EVENT",
+            source_dataset_id=target_dataset,
+            data_source_version_id=mapping["vintage"],
+            source_record_id=edges[0]["source_record_id"],
+            canonical_observation_id=edges[0]["canonical_record_id"],
+            ingestion_run_id=edges[0]["ingestion_run_id"],
+            artifact_id=edges[0]["artifact_id"],
+            retrieved_at=record["retrieved_at"],
+            source_agency="NSF NEON",
+            sampling_site={"source_site_id": geography["site_id"]},
+            sampling_event={"source_event_id": geography["event_id"]},
+            county_relationship={"county_fips": None},
+            surveillance_period_start=temporal["date"],
+            surveillance_period_end=temporal["date"],
+        )
+        if mapping_id == "neon_pathogen_test":
+            output["ticks_tested"] = 1
+    elif mapping_id in {"infected_tick_result", "coverage_result"}:
+        output.update(
+            contract_version=(
+                "infected-tick-derived-result-v1"
+                if mapping_id == "infected_tick_result"
+                else "surveillance-coverage-result-v2"
+            ),
+            result_id=record["result"]["result_id"],
+            result_revision=record["result"]["revision_id"],
+            native_grain="SITE_EVENT",
+            date=temporal["date"],
+            input_canonical_observation_ids=record["input_ids"],
+            quality={},
+        )
+        if mapping_id == "infected_tick_result":
+            output["state"] = "NUMERIC"
+            output["evidence_status"] = {"calculation_basis": "SYNTHETIC_FIXTURE"}
+            output["unavailable_reasons"] = []
+        else:
+            output["evidence_basis"] = "SYNTHETIC_FIXTURE"
+            output["reason_codes"] = []
+            output["scientific_eligibility"] = {}
+    else:
+        output["county_fips"] = geography["county_fips"]
+    record["source_output"] = output
     native_values = {
         "tick_taxon": ("Ixodes scapularis", "DP1.10093.001"),
         "life_stage": ("nymph", "DP1.10093.001"),
@@ -124,9 +190,20 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
         )
         record["strata"][field] = proof.canonical_id
         record["strata_evidence"][field] = proof.as_contract_value()
+    if mapping_id in {"neon_collection", "neon_pathogen_test"}:
+        output["normalization"] = {
+            "mappings": {
+                item["mapping_rule_id"]: item for item in record["strata_evidence"].values()
+            }
+        }
     if trace["result"] is not None:
         expected = copy.deepcopy(trace["observation"])
         expected["strata"] = record["strata"]
+        expected["value"] = value
+        expected["value_state"] = record["value_state"]
+        expected["quality_ref"] = record["result"]["result_id"]
+        expected["eligibility_ref"] = record["result"]["result_id"]
+        expected["limitations_ref"] = record["result"]["result_id"]
         expected["provenance"]["lineage_sources"] = [
             {
                 key: edge.get(key)
@@ -159,6 +236,11 @@ def test_each_source_family_maps_with_exact_metadata_and_lineage(mapping_id: str
     assert mapped["mapping_id"] == mapping_id
     assert mapped["metadata_revision_id"] == metadata["revision_id"]
     assert mapped["lineage_id"] == mapped["lineage"]["lineage_id"]
+    if mapping_id in {"infected_tick_result", "coverage_result"}:
+        result_id = record["result"]["result_id"]
+        assert mapped["observation"]["quality_ref"] == result_id
+        assert mapped["observation"]["eligibility_ref"] == result_id
+        assert mapped["observation"]["limitations_ref"] == result_id
     if mapping_id == "source_only":
         assert mapped["observation"]["geography"]["county_fips"] is None
         assert mapped["observation"]["value_state"] == "UNKNOWN"
@@ -190,7 +272,10 @@ def test_each_source_family_maps_with_exact_metadata_and_lineage(mapping_id: str
             "not approved",
         ),
         (lambda r, m, a: r["edges"][0].update(source_vintage="other"), "wrong source vintage"),
-        (lambda r, m, a: r["fields"].clear(), "missing required canonical field"),
+        (
+            lambda r, m, a: r["source_output"].pop(REGISTRY["human_surveillance"]["field"]),
+            "existing source output and mapped field required",
+        ),
         (lambda r, m, a: r.update(unit="percent"), "incompatible unit"),
         (lambda r, m, a: r.update(denominator="people"), "incompatible denominator"),
         (
@@ -234,7 +319,19 @@ def test_priority_result_retains_coverage_evidence_basis_and_revision() -> None:
     metadata["meaning_signature"] = meaning_signature(measure)
     metadata["revision_id"] = metadata_revision_id(metadata)
     record["mapping_id"] = "priority_result"
-    record["fields"] = {"disposition": "EVIDENCE_VERIFICATION"}
+    record["source_output"] = {
+        "contract_version": "surveillance-priority-result-v2",
+        "disposition": "EVIDENCE_VERIFICATION",
+        "result_id": record["result"]["result_id"],
+        "result_revision": record["result"]["revision_id"],
+        "evidence_basis": "SYNTHETIC_FIXTURE",
+        "coverage_result_revision": "fixture-coverage-revision",
+        "native_grain": "SITE_EVENT",
+        "date": record["temporal"]["date"],
+        "quality": {},
+        "reason_codes": [],
+        "scientific_eligibility": {},
+    }
     record["value"] = "EVIDENCE_VERIFICATION"
     record["transformation_version"] = "surveillance-priority-v1"
     record["transformation"]["version"] = "surveillance-priority-v1"
@@ -264,9 +361,9 @@ def test_priority_result_retains_coverage_evidence_basis_and_revision() -> None:
     expected["provenance"] = provenance
     expected["measure_id"] = measure["measure_id"]
     expected["measure_version"] = measure["semantic_version"]
-    expected["quality_ref"] = None
-    expected["eligibility_ref"] = None
-    expected["limitations_ref"] = None
+    expected["quality_ref"] = record["result"]["result_id"]
+    expected["eligibility_ref"] = record["result"]["result_id"]
+    expected["limitations_ref"] = record["result"]["result_id"]
     expected["strata"] = record["strata"]
     expected["observation_key"] = observation_key(expected, measure)
     expected["revision_id"] = revision_id(expected)
@@ -350,3 +447,188 @@ def test_pending_example_metadata_cannot_map_live_record() -> None:
     record, metadata, authority = _case("human_surveillance")
     with pytest.raises(SemanticMappingError, match="unreviewed semantic metadata"):
         map_record(record, metadata, authority, REGISTRY)
+
+
+@pytest.mark.parametrize(
+    "mapping_id,observation_type",
+    [("neon_collection", "COLLECTION_ABUNDANCE"), ("neon_pathogen_test", "PATHOGEN_TESTING")],
+)
+def test_neon_adapter_output_maps_at_native_event_grain(
+    tmp_path: Path, mapping_id: str, observation_type: str
+) -> None:
+    _fixture(tmp_path)
+    definition = load_source_definition(DEFINITION)
+    adapter = NeonReleasePackageAdapter()
+    acquired = adapter.acquire(definition, fixture_dir=tmp_path)
+    canonical = next(
+        item["record"]["canonical_observation"]
+        for item in adapter.normalize(definition, acquired.payload).records
+        if item["record"]["canonical_observation"]["observation_type"] == observation_type
+    )
+    record, metadata, authority = _case(mapping_id)
+    edge = record["edges"][0]
+    for source_field, edge_field in (
+        ("source_record_id", "source_record_id"),
+        ("canonical_observation_id", "canonical_record_id"),
+        ("ingestion_run_id", "ingestion_run_id"),
+        ("artifact_id", "artifact_id"),
+    ):
+        edge[edge_field] = canonical[source_field]
+    authority["runs"] = {
+        edge["ingestion_run_id"]: {
+            "source_version_id": edge["source_version_id"],
+            "dataset_id": edge["dataset_id"],
+        }
+    }
+    authority["artifacts"] = {
+        edge["artifact_id"]: {
+            "source_version_id": edge["source_version_id"],
+            "ingestion_run_id": edge["ingestion_run_id"],
+            "sha256": edge["artifact_sha256"],
+        }
+    }
+    authority["records"][edge["record_id"]] = {
+        key: edge[key]
+        for key in (
+            "artifact_id",
+            "ingestion_run_id",
+            "source_version_id",
+            "source_record_id",
+            "source_row_hash",
+            "canonical_record_id",
+            "record_revision",
+            "record_kind",
+        )
+    }
+    record["source_output"] = canonical
+    record["retrieved_at"] = canonical["retrieved_at"]
+    record["value"] = canonical[REGISTRY[mapping_id]["field"]]
+    record["value_state"] = "ZERO" if record["value"] == 0 else "OBSERVED"
+    record["denominator_value"] = canonical.get("ticks_tested")
+    record["geography"] = {
+        "grain": "SITE_EVENT",
+        "site_id": canonical["sampling_site"]["source_site_id"],
+        "event_id": canonical["sampling_event"]["source_event_id"],
+        "county_fips": canonical["county_relationship"]["county_fips"],
+        "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+    }
+    record["temporal"] = {
+        "semantics": "POINT_IN_TIME",
+        "date": canonical["surveillance_period_start"],
+    }
+    rule_ids = {
+        "tick_taxon": {"TAXON_NEON_SCAPULARIS_V1"},
+        "life_stage": {"LIFE_STAGE_NEON_NYMPH_V1", "LIFE_STAGE_NEON_NYMPH_CAPITALIZED_V1"},
+        "collection_method": {"METHOD_NEON_DRAG_V1"},
+        "pathogen_target": {"PATHOGEN_NEON_BBURG_SL_V1"},
+    }
+    rules = canonical["normalization"]["mappings"].values()
+    evidence = {
+        dimension: next(item for item in rules if item["mapping_rule_id"] in rule_ids[dimension])
+        for dimension in REGISTRY[mapping_id]["required_strata"]
+    }
+    record["strata_evidence"] = evidence
+    record["strata"] = {key: proof["canonical_id"] for key, proof in evidence.items()}
+    mapped = map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+    assert mapped["observation"]["value"] == canonical[REGISTRY[mapping_id]["field"]]
+    assert mapped["observation"]["geography"]["site_id"] == "BLAN"
+    assert mapped["observation"]["geography"]["county_fips"] is None
+
+
+def test_owning_derived_serializers_supply_mapping_value_states() -> None:
+    infected = _document(PREVALENCE)
+    assert _source_value(
+        {"source_output": infected, "value": infected["value"], "value_state": "OBSERVED"},
+        REGISTRY["infected_tick_result"],
+    ) == (1, "OBSERVED")
+    coverage = _safe(SAMPLING, [_canonical(DENSITY)])
+    assert _source_value(
+        {"source_output": coverage, "value": coverage["state"], "value_state": "OBSERVED"},
+        REGISTRY["coverage_result"],
+    ) == ("SAMPLED_EVENT", "OBSERVED")
+    priority = serialize_surveillance_priority(evaluate_surveillance_priority(coverage))
+    assert _source_value(
+        {"source_output": priority, "value": priority["disposition"], "value_state": "OBSERVED"},
+        REGISTRY["priority_result"],
+    ) == (priority["disposition"], "OBSERVED")
+
+
+@pytest.mark.parametrize(
+    "raw,value,state",
+    [
+        (0, 0, "ZERO"),
+        (None, None, "MISSING"),
+        ("Unknown", None, "UNKNOWN"),
+        ("Suppressed", None, "SUPPRESSED"),
+        ("Not reported", None, "NOT_REPORTED"),
+        ("No records", "No records", "NO_RECORDS"),
+        ("no_county_linked_record", "NO_COUNTY_LINKED_RECORD", "NO_COUNTY_LINKED_RECORD"),
+    ],
+)
+def test_source_value_states_preserve_distinct_meanings(raw, value, state) -> None:  # type: ignore[no-untyped-def]
+    mapping = {"id": "human_status", "field": "human_status"}
+    source_output = {"human_status": raw, "value_state": state}
+    assert _source_value(
+        {"source_output": source_output, "value": value, "value_state": state}, mapping
+    ) == (value, state)
+
+
+@pytest.mark.parametrize(
+    "patch,expected",
+    [
+        (
+            lambda r: r["source_output"].update(source_record_id="other-record"),
+            "canonical NEON source identity mismatch",
+        ),
+        (
+            lambda r: r["source_output"].update(surveillance_period_start="2016-05-02"),
+            "canonical NEON geography or time mismatch",
+        ),
+        (
+            lambda r: r["source_output"].update(ticks_collected=99),
+            "source output/value-state disagreement",
+        ),
+        (
+            lambda r: r["source_output"]["normalization"].update(mappings={}),
+            "canonical NEON normalization proof mismatch",
+        ),
+    ],
+)
+def test_native_output_disagreement_fails(patch, expected: str) -> None:  # type: ignore[no-untyped-def]
+    record, metadata, authority = _case("neon_collection")
+    patch(record)
+    with pytest.raises(SemanticMappingError, match=expected):
+        map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+
+
+@pytest.mark.parametrize(
+    "patch,expected",
+    [
+        (
+            lambda r: r["source_output"].update(result_revision="changed"),
+            "derived output identity or evidence mismatch",
+        ),
+        (
+            lambda r: r["source_output"].update(evidence_basis="CURRENT_CODE_SOURCE_BACKED_REPLAY"),
+            "derived output identity or evidence mismatch",
+        ),
+        (
+            lambda r: r["source_output"].update(input_canonical_observation_ids=["other"]),
+            "derived output input IDs mismatch",
+        ),
+        (lambda r: r["source_output"].pop("quality"), "derived output quality required"),
+        (
+            lambda r: r["source_output"].pop("scientific_eligibility"),
+            "derived output eligibility required",
+        ),
+        (
+            lambda r: r["source_output"].pop("reason_codes"),
+            "derived output limitations required",
+        ),
+    ],
+)
+def test_derived_output_disagreement_fails(patch, expected: str) -> None:  # type: ignore[no-untyped-def]
+    record, metadata, authority = _case("coverage_result")
+    patch(record)
+    with pytest.raises(SemanticMappingError, match=expected):
+        map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
