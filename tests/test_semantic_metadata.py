@@ -239,7 +239,11 @@ def fixture(index: int = 0) -> dict:
             "source_version_id": known("fixture-version-1"),
             "source_vintage": known(vintage),
             "method_version": known(method),
-            "transformation_version": known("fixture-calculation-v1")
+            "transformation_version": known(
+                "infected-tick-calculation-v1"
+                if index == 7
+                else "surveillance-coverage-calculation-v2"
+            )
             if origin == "DERIVED"
             else absent("NOT_APPLICABLE"),
         },
@@ -373,6 +377,8 @@ def test_source_reported_and_steward_reviewed_authority() -> None:
 
 def test_generated_summary_references_prior_authoritative_revision() -> None:
     first = fixture()
+    first["steward_review"] = {"state": "REVIEWED", "reviewed_at": known("2026-09-24")}
+    seal(first)
     second = copy.deepcopy(first)
     second["metadata_revision"] = 2
     second["short_description"] = known("Generated summary of the prior reviewed definition")
@@ -384,6 +390,51 @@ def test_generated_summary_references_prior_authoritative_revision() -> None:
     seal(second)
     with pytest.raises(SemanticMetadataError, match="not authoritative"):
         validate_metadata_revisions([first, second])
+    pending = fixture()
+    second["summary_source_revision"] = pending["revision_id"]
+    seal(second)
+    with pytest.raises(SemanticMetadataError, match="not authoritative"):
+        validate_metadata_revisions([pending, second])
+
+
+@pytest.mark.parametrize(
+    "field,value,error",
+    [
+        ("retrieved_at", "last week", "UTC ISO timestamp"),
+        ("observation_period", "2024-01-01", "ISO start/end"),
+        ("observation_period", "2024-12-31/2024-01-01", "start exceeds end"),
+        ("published_at", "2026-13-40", "ISO date"),
+    ],
+)
+def test_known_freshness_requires_distinct_valid_time_shape(
+    field: str, value: str, error: str
+) -> None:
+    item = fixture()
+    item["freshness"][field] = known(value)
+    seal(item)
+    with pytest.raises(SemanticMetadataError, match=error):
+        validate_metadata(item)
+
+
+def test_known_observation_period_and_retrieval_are_validated() -> None:
+    item = fixture()
+    item["freshness"]["observation_period"] = known("2023-01-01/2023-12-31")
+    item["freshness"]["retrieved_at"] = known("2026-09-18T00:00:00Z")
+    seal(item)
+    validate_metadata(item)
+    item = fixture(5)
+    item["freshness"]["observation_period"] = known("2016-05-01")
+    seal(item)
+    validate_metadata(item)
+
+
+@pytest.mark.parametrize("index", [7, 8])
+def test_unapproved_derived_calculation_version_fails(index: int) -> None:
+    item = fixture(index)
+    item["provenance"]["transformation_version"] = known("unreviewed-calculation-v1")
+    seal(item)
+    with pytest.raises(SemanticMetadataError, match="unapproved derived transformation"):
+        validate_metadata(item)
 
 
 @pytest.mark.parametrize(

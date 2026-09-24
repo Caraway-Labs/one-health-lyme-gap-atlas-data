@@ -1123,7 +1123,7 @@
       },
       "transformation_version": {
         "state": "KNOWN",
-        "value": "fixture-calculation-v1"
+        "value": "infected-tick-calculation-v1"
       }
     },
     "freshness": {
@@ -1188,7 +1188,7 @@
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:c4921652707290366b475364512677e9f98286e33d97b10cfafa5f17e674bea1"
+    "revision_id": "metadata-revision:v1:5876617f48f2cf601add995aa5b55f19541b76b77e185876122d78a37c5019bb"
   },
   {
     "contract_version": "atlas-semantic-metadata-v1",
@@ -1285,7 +1285,7 @@
       },
       "transformation_version": {
         "state": "KNOWN",
-        "value": "fixture-calculation-v1"
+        "value": "surveillance-coverage-calculation-v2"
       }
     },
     "freshness": {
@@ -1345,6 +1345,6 @@
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:ae639cfe80f1d98c6a3b4347b22fe24457bcf12ca8905e26ba188c0ce0038e39"
+    "revision_id": "metadata-revision:v1:77b0a12beecb768f1189edcda1ac9d48072707e48b7eb00d8149f225b54efefa"
   }
 ]

@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from .semantic_domain import meaning_signature, validate_measures
@@ -64,6 +64,16 @@ _SAFE_CONTRACTS = {
     "surveillance-coverage-result-v2",
     "surveillance-priority-result-v2",
 }
+_DERIVED_METHODS = {
+    "infected-tick-metrics-v1": (
+        "infected-tick-calculation-v1",
+        {"SYNTHETIC_FIXTURE", "CURRENT_CODE_CI_TESTED_SOURCE_REPLAY_LIMITED"},
+    ),
+    "surveillance-coverage-v1": (
+        "surveillance-coverage-calculation-v2",
+        {"SYNTHETIC_FIXTURE", "CURRENT_CODE_SOURCE_BACKED_REPLAY"},
+    ),
+}
 _UNSAFE_VALUE = re.compile(
     r"(?:[a-z][a-z0-9+.-]*://|[?&](?:token|signature|credential|password|secret)=|"
     r"-----BEGIN [A-Z ]+PRIVATE KEY-----|[A-Za-z]:\\|(?:^|\s)/(?:home|tmp|private|mnt)/)",
@@ -111,6 +121,46 @@ def _state_field(value: object, field: str, *, date_value: bool = False) -> None
                 raise SemanticMetadataError(f"{field} requires ISO date") from exc
     elif value["value"] is not None:
         raise SemanticMetadataError(f"{field} absent state requires null value")
+
+
+def _timestamp_field(value: Mapping[str, Any], field: str) -> None:
+    if value["state"] != "KNOWN":
+        return
+    stamp = value["value"]
+    if not isinstance(stamp, str) or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z",
+        stamp,
+    ):
+        raise SemanticMetadataError(f"{field} requires UTC ISO timestamp")
+    try:
+        datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SemanticMetadataError(f"{field} requires UTC ISO timestamp") from exc
+
+
+def _observation_period(value: Mapping[str, Any], semantics: str) -> None:
+    if value["state"] != "KNOWN":
+        return
+    period = value["value"]
+    if semantics == "PERIOD":
+        if not isinstance(period, str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}", period
+        ):
+            raise SemanticMetadataError("observation_period requires ISO start/end")
+        start, end = period.split("/")
+        try:
+            start_date, end_date = date.fromisoformat(start), date.fromisoformat(end)
+        except ValueError as exc:
+            raise SemanticMetadataError("observation_period requires ISO start/end") from exc
+        if start_date > end_date:
+            raise SemanticMetadataError("observation_period start exceeds end")
+    elif not isinstance(period, str) or not _DATE.fullmatch(period):
+        raise SemanticMetadataError("observation_period requires ISO date")
+    else:
+        try:
+            date.fromisoformat(period)
+        except ValueError as exc:
+            raise SemanticMetadataError("observation_period requires ISO date") from exc
 
 
 def _safe(value: object) -> None:
@@ -264,6 +314,10 @@ def validate_metadata(
     _state_field(provenance["transformation_version"], "transformation_version")
     if measure["origin"] == "DERIVED" and provenance["transformation_version"]["state"] != "KNOWN":
         raise SemanticMetadataError("derived transformation version required")
+    if measure["origin"] == "DERIVED":
+        method = _DERIVED_METHODS.get(measure["methodology_version"])
+        if method is None or provenance["transformation_version"]["value"] != method[0]:
+            raise SemanticMetadataError("unapproved derived transformation version")
     freshness = metadata.get("freshness")
     if not isinstance(freshness, Mapping) or set(freshness) != {
         "observation_period",
@@ -277,6 +331,8 @@ def validate_metadata(
         _state_field(
             freshness[field], field, date_value=field in {"published_at", "metadata_revised_at"}
         )
+    _timestamp_field(freshness["retrieved_at"], "retrieved_at")
+    _observation_period(freshness["observation_period"], measure["temporal_semantics"])
     if freshness["source_vintage"] != provenance["source_vintage"]:
         raise SemanticMetadataError("source vintage freshness mismatch")
     if freshness["metadata_revised_at"]["state"] != "KNOWN":
@@ -301,11 +357,7 @@ def validate_metadata(
     if measure["origin"] == "DERIVED" and quality["evidence_basis"]["state"] != "KNOWN":
         raise SemanticMetadataError("derived evidence basis required")
     if measure["origin"] == "DERIVED":
-        allowed_basis = (
-            {"SYNTHETIC_FIXTURE", "CURRENT_CODE_CI_TESTED_SOURCE_REPLAY_LIMITED"}
-            if measure["methodology_version"] == "infected-tick-metrics-v1"
-            else {"SYNTHETIC_FIXTURE", "CURRENT_CODE_SOURCE_BACKED_REPLAY"}
-        )
+        allowed_basis = _DERIVED_METHODS[measure["methodology_version"]][1]
         if quality["evidence_basis"]["value"] not in allowed_basis:
             raise SemanticMetadataError("unapproved derived evidence basis")
     limitations = metadata.get("limitations")
@@ -349,7 +401,7 @@ def validate_metadata_revisions(
         by_id.setdefault(item["metadata_id"], []).append(item)
     for items in by_id.values():
         ordered = sorted(items, key=lambda item: item["metadata_revision"])
-        known_revisions: set[str] = set()
+        authoritative_revisions: set[str] = set()
         for number, item in enumerate(ordered, 1):
             if item["metadata_revision"] != number:
                 raise SemanticMetadataError("metadata revision gap or duplicate")
@@ -364,8 +416,9 @@ def validate_metadata_revisions(
             ):
                 raise SemanticMetadataError("interpretation change requires steward review")
             source_revision = item.get("summary_source_revision")
-            if source_revision is not None and source_revision not in known_revisions:
+            if source_revision is not None and source_revision not in authoritative_revisions:
                 raise SemanticMetadataError(
                     "generated summary source revision is not authoritative"
                 )
-            known_revisions.add(item["revision_id"])
+            if item["steward_review"]["state"] == "REVIEWED":
+                authoritative_revisions.add(item["revision_id"])
