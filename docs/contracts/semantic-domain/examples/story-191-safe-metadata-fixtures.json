@@ -1,0 +1,1350 @@
+[
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:case_count_floor_2023:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "case_count_floor_2023",
+      "indicator_id": "human_disease_burden",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for case_count_floor_2023",
+      "data_type": "number",
+      "unit": "cases",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "99e646dd6c80c9c136e10faf29ee5cbf67c6dcb449f57f383ffbe46696f8eb69",
+    "label": "Case Count Floor 2023",
+    "definition": "Synthetic fixture meaning for case_count_floor_2023",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of case_count_floor_2023"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "cases",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "cdc_lyme"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_lyme"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "x5j9-wybp"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:df7a45bad817a52257bdbccf5d9855b0d2769552016070db1b1f3a92d1c53cd1"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:svi_percentile_2022:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "svi_percentile_2022",
+      "indicator_id": "population_context",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for svi_percentile_2022",
+      "data_type": "number",
+      "unit": "percentile",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "0c89a07152a21d2abdfa59a3b905e604ed1f783ecaa2d4a1779a6c34caffdaa3",
+    "label": "Svi Percentile 2022",
+    "definition": "Synthetic fixture meaning for svi_percentile_2022",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of svi_percentile_2022"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "percentile",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "cdc_atsdr_svi"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_atsdr_svi"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "atsdr-svi-2022-county-layer"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:bfe9cbab5ce4b654c96752d27f1c65591463cfec07c9eb17d874060a3ee315b3"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:rucc_2023:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "rucc_2023",
+      "indicator_id": "rurality_context",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for rucc_2023",
+      "data_type": "number",
+      "unit": "code",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "13c46c826d930bd5a998b8f3d9c6984d9fe97229d52333e28923732ce2cc04c1",
+    "label": "Rucc 2023",
+    "definition": "Synthetic fixture meaning for rucc_2023",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of rucc_2023"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "code",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "usda_ers"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "usda_ers"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "rural-urban-continuum-codes-2023"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:b4d302f7738925f8be5e9c47717595b68ba3c8b007f7676a4d29633e17987934"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:scapularis_status:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "scapularis_status",
+      "indicator_id": "tick_surveillance",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for scapularis_status",
+      "data_type": "string",
+      "unit": "status",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "13a57e6eb3b6b9942b44575a2c1761d4cbd1f6c269b9123d8e142636b04e6149",
+    "label": "Scapularis Status",
+    "definition": "Synthetic fixture meaning for scapularis_status",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of scapularis_status"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "status",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "cdc_tick"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_tick"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "county-tick-status"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2025"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2025"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-profile-v1"
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      },
+      {
+        "category": "SOURCE",
+        "code": "no_records_not_absence",
+        "text": "No records does not establish biological absence."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:8efdfecf517fb6115ee39df02b99fb00b81706d071ef197de30a7cba4693b506"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:burgdorferi_status:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "burgdorferi_status",
+      "indicator_id": "pathogen_surveillance",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for burgdorferi_status",
+      "data_type": "string",
+      "unit": "status",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "3f370862305263a0bfa97f7da6b374abab7934a68a3181e7ffa72a30566104c1",
+    "label": "Burgdorferi Status",
+    "definition": "Synthetic fixture meaning for burgdorferi_status",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of burgdorferi_status"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "status",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "cdc_pathogen"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_pathogen"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "county-pathogen-status"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2025"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2025"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-profile-v1"
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      },
+      {
+        "category": "SOURCE",
+        "code": "no_records_not_absence",
+        "text": "No records does not establish biological absence."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:fa01d5cf3c66be4a7a55e122a425a04056e91c1a3f4d06c81bfc06d7bcd25d2e"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:neon_collection:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "neon_collection",
+      "indicator_id": "tick_surveillance",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for neon_collection",
+      "data_type": "number",
+      "unit": "ticks",
+      "denominator": "NONE",
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "bc8ac59cb3cd33b0a83b514d7ea8640fc50f74d41fd86816d358b43f6fedc122",
+    "label": "Neon Collection",
+    "definition": "Synthetic fixture meaning for neon_collection",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of neon_collection"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "REPORTED",
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+    },
+    "unit": "ticks",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "DP1.10093.001"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-profile-v1"
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      },
+      {
+        "category": "REPRESENTATIVENESS",
+        "code": "not_county_representative",
+        "text": "Site and event evidence does not establish county representativeness."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:40c442280c5331a1cbbc6c6e71a0232360aa681617289b47f3c23427f2e27d62"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:neon_individual_pathogen_test:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "neon_individual_pathogen_test",
+      "indicator_id": "pathogen_surveillance",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for neon_individual_pathogen_test",
+      "data_type": "number",
+      "unit": "ticks",
+      "denominator": "individual_tests",
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "REPORTED",
+      "methodology_version": "reviewed-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "ce4452950ec504fb95b78dd71631a071ff3ce4bed28dcc95c9a31389e7bafbf9",
+    "label": "Neon Individual Pathogen Test",
+    "definition": "Synthetic fixture meaning for neon_individual_pathogen_test",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of neon_individual_pathogen_test"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "REPORTED",
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+    },
+    "unit": "ticks",
+    "denominator": "individual_tests",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "DP1.10092.001"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-profile-v1"
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      },
+      {
+        "category": "REPRESENTATIVENESS",
+        "code": "not_county_representative",
+        "text": "Site and event evidence does not establish county representativeness."
+      },
+      {
+        "category": "DENOMINATOR",
+        "code": "bounded_denominator",
+        "text": "The denominator applies only to the recorded testing scope."
+      }
+    ],
+    "visibility": "CONSUMER_SAFE",
+    "revision_id": "metadata-revision:v1:44487b8ef749cb91cb7a43d26c8d9c984a7239b4cd5eaf064e3f0669e464d16c"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:infected_tick_prevalence:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "infected_tick_prevalence",
+      "indicator_id": "tick_surveillance",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for infected_tick_prevalence",
+      "data_type": "number",
+      "unit": "proportion",
+      "denominator": "ticks_tested",
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "DERIVED",
+      "methodology_version": "infected-tick-metrics-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "9760a2666c3582c58a54d2b6fcab5407157c85fcd886d8497e93f192ff5bc966",
+    "label": "Infected Tick Prevalence",
+    "definition": "Synthetic fixture meaning for infected_tick_prevalence",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of infected_tick_prevalence"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "DERIVED",
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+    },
+    "unit": "proportion",
+    "denominator": "ticks_tested",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "DP1.10092.001"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "infected-tick-metrics-v1"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "fixture-calculation-v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-profile-v1"
+      },
+      "propagation_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-propagation-v1"
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "KNOWN",
+        "value": "SYNTHETIC_FIXTURE"
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      },
+      {
+        "category": "REPRESENTATIVENESS",
+        "code": "not_county_representative",
+        "text": "Site and event evidence does not establish county representativeness."
+      },
+      {
+        "category": "DENOMINATOR",
+        "code": "bounded_denominator",
+        "text": "The denominator applies only to the recorded testing scope."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:c4921652707290366b475364512677e9f98286e33d97b10cfafa5f17e674bea1"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:surveillance_coverage:1.0.0",
+    "metadata_revision": 1,
+    "measure": {
+      "measure_id": "surveillance_coverage",
+      "indicator_id": "tick_surveillance",
+      "semantic_version": "1.0.0",
+      "definition": "Synthetic fixture meaning for surveillance_coverage",
+      "data_type": "string",
+      "unit": "categorical_state",
+      "denominator": "NONE",
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "DERIVED",
+      "methodology_version": "surveillance-coverage-v1",
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ]
+    },
+    "meaning_signature": "7e883a8a9888944e60f1aa1d4e83bb4660deb5bc2a7c14a3010711a09bc00a10",
+    "label": "Surveillance Coverage",
+    "definition": "Synthetic fixture meaning for surveillance_coverage",
+    "short_description": {
+      "state": "KNOWN",
+      "value": "Synthetic description of surveillance_coverage"
+    },
+    "authority": {
+      "label": "STEWARD_REVIEWED",
+      "definition": "STEWARD_REVIEWED",
+      "short_description": "STEWARD_REVIEWED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "SITE_EVENT",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "origin": "DERIVED",
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+    },
+    "unit": "categorical_state",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "UNKNOWN",
+      "UNAVAILABLE"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "DP1.10093.001"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "surveillance-coverage-v1"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "fixture-calculation-v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-profile-v1"
+      },
+      "propagation_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-quality-propagation-v1"
+      },
+      "eligibility_contract": {
+        "state": "KNOWN",
+        "value": "surveillance-scientific-eligibility-v1"
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "KNOWN",
+        "value": "SYNTHETIC_FIXTURE"
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "no_human_risk_inference",
+        "text": "This measure does not estimate individual human risk."
+      },
+      {
+        "category": "REPRESENTATIVENESS",
+        "code": "not_county_representative",
+        "text": "Site and event evidence does not establish county representativeness."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:ae639cfe80f1d98c6a3b4347b22fe24457bcf12ca8905e26ba188c0ce0038e39"
+  }
+]

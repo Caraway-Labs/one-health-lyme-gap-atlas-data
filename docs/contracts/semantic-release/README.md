@@ -19,6 +19,10 @@ The storage-neutral [Atlas semantic domain v1](../semantic-domain/atlas-semantic
 defines reusable identities, versioning, native geography/time grains, and value
 states for Story #190. It describes this fixed county release and representative
 site/event and derived shapes without changing these tables or release behavior.
+The [Atlas semantic metadata v1](../semantic-domain/atlas-semantic-metadata-v1.md)
+attaches versioned meaning, applicability, freshness, quality/evidence references,
+limitations, and authority states to those identities without changing this
+release's storage or public views.
 
 The API reads only these governed views:
 
