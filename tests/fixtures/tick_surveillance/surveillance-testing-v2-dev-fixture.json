@@ -1,0 +1,114 @@
+{
+  "artifact_id": "artifact-one",
+  "canonical_observation_id": "canonical-one",
+  "county_relationship": {
+    "county_fips": null,
+    "mapping_artifact_id": null,
+    "mapping_method": null,
+    "mapping_status": "UNMAPPED",
+    "mapping_version": null,
+    "representativeness": "NOT_COUNTY_REPRESENTATIVE"
+  },
+  "data_source_version_id": "RELEASE-2026",
+  "ingestion_run_id": "run-one",
+  "life_stage": "NYMPH",
+  "method_version": "tick-surveillance-v1.2",
+  "native_sampling_grain": "SITE_EVENT",
+  "normalization": {
+    "mappings": {
+      "pathogen": {
+        "canonical_id": "BORRELIA_BURGDORFERI_SENSU_LATO",
+        "canonical_label": "Borrelia burgdorferi sensu lato",
+        "mapping_rule_id": "PATHOGEN_NEON_BBURG_SL_V1",
+        "registry_id": "tick-surveillance-normalization-v1",
+        "registry_version": "1.0.4",
+        "source_context": {
+          "dataset_id": "DP1.10092.001",
+          "publisher": "NSF NEON",
+          "source_version": "RELEASE-2026"
+        },
+        "source_value": "Borrelia burgdorferi sensu lato",
+        "status": "APPROVED"
+      },
+      "result": {
+        "canonical_id": "DETECTED",
+        "canonical_label": "Detected",
+        "mapping_rule_id": "RESULT_NEON_POSITIVE_V1",
+        "registry_id": "tick-surveillance-normalization-v1",
+        "registry_version": "1.0.4",
+        "source_context": {
+          "dataset_id": "DP1.10092.001",
+          "publisher": "NSF NEON",
+          "source_version": "RELEASE-2026"
+        },
+        "source_value": "positive",
+        "status": "APPROVED"
+      },
+      "stage": {
+        "canonical_id": "NYMPH",
+        "canonical_label": "Nymph",
+        "mapping_rule_id": "LIFE_STAGE_NEON_NYMPH_V1",
+        "registry_id": "tick-surveillance-normalization-v1",
+        "registry_version": "1.0.4",
+        "source_context": {
+          "dataset_id": "DP1.10093.001",
+          "publisher": "NSF NEON",
+          "source_version": "RELEASE-2026"
+        },
+        "source_value": "nymph",
+        "status": "APPROVED"
+      },
+      "taxon": {
+        "canonical_id": "IXODES_SCAPULARIS",
+        "canonical_label": "Ixodes scapularis",
+        "mapping_rule_id": "TAXON_NEON_SCAPULARIS_V1",
+        "registry_id": "tick-surveillance-normalization-v1",
+        "registry_version": "1.0.4",
+        "source_context": {
+          "dataset_id": "DP1.10093.001",
+          "publisher": "NSF NEON",
+          "source_version": "RELEASE-2026"
+        },
+        "source_value": "Ixodes scapularis",
+        "status": "APPROVED"
+      }
+    },
+    "registry_id": "tick-surveillance-normalization-v1",
+    "registry_version": "1.0.4"
+  },
+  "observation_type": "PATHOGEN_TESTING",
+  "pathogen_name": "Borrelia burgdorferi sensu lato",
+  "quality_flags": [],
+  "reported_or_derived": "HARMONIZED",
+  "retrieved_at": "2026-09-23T00:00:00Z",
+  "sampling_event": {
+    "source_batch_id": "batch-one",
+    "source_event_id": "event-one",
+    "source_sample_id": "sample-one",
+    "source_subsample_id": "sub-one",
+    "source_testing_id": "test-one"
+  },
+  "sampling_site": {
+    "source_plot_id": "BLAN_001",
+    "source_site_id": "BLAN"
+  },
+  "source_agency": "NSF NEON",
+  "source_dataset_id": "DP1.10092.001",
+  "source_geography": {
+    "coordinate_reference_system": "EPSG:4326",
+    "geography_kind": "PLOT",
+    "latitude": 38.0,
+    "longitude": -78.5,
+    "source_location_id": "BLAN_001",
+    "spatial_uncertainty_meters": 10
+  },
+  "source_record_id": "source-row-one",
+  "surveillance_period_end": "2016-05-02",
+  "surveillance_period_start": "2016-05-02",
+  "temporal_semantics": "POINT_IN_TIME",
+  "test_result": "DETECTED",
+  "testing_scope": "INDIVIDUAL_PATHOGEN_TEST",
+  "tick_species": "Ixodes scapularis",
+  "ticks_positive": 1,
+  "ticks_tested": 1
+}

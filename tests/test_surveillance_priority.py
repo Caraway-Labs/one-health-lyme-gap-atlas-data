@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
-from test_infected_tick_metrics import DENSITY, PREVALENCE, _canonical
-from test_surveillance_coverage import _active_context, _county, _county_context
+from test_infected_tick_metrics import DENSITY, PREVALENCE
+from test_surveillance_coverage import _active_context, _canonical, _county, _county_context
 
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
@@ -42,7 +42,7 @@ from lyme_gap_atlas_data.tick_normalization import load_registry
 
 FIXTURE = (
     Path(__file__).resolve().parent
-    / "fixtures/tick_surveillance/surveillance-priority-v1-fixtures.json"
+    / "fixtures/tick_surveillance/surveillance-priority-v2-fixtures.json"
 )
 
 
@@ -98,6 +98,7 @@ def _case(case_id: str) -> dict:
             row["ticks_tested"] = row["ticks_positive"] = 0
         else:
             row["ticks_positive"] = 0
+            row["test_result"] = "NOT_DETECTED"
             row["normalization"]["mappings"]["result"].update(
                 {
                     "source_value": "negative",
@@ -184,8 +185,15 @@ def test_snapshot_revision_freshness_and_quality_are_explanatory() -> None:
     )
     flagged = deepcopy(first)
     flagged["reason_codes"] = [*first["reason_codes"], "STALE_OR_REVISION_SENSITIVE"]
-    assert evaluate_surveillance_priority(flagged)["disposition"] == NO_GAP
-    assert "STALE_OR_REVISION_SENSITIVE" in evaluate_surveillance_priority(flagged)["reason_codes"]
+    assert evaluate_surveillance_priority(flagged)["disposition"] == NOT_DEFENSIBLE
+    assert "COVERAGE_REVISION_CONFLICT" in evaluate_surveillance_priority(flagged)["reason_codes"]
+
+
+def test_synthetic_basis_cannot_be_relabelled_source_backed() -> None:
+    spoofed = deepcopy(_case("sampled-zero"))
+    spoofed["evidence_basis"] = "CURRENT_CODE_SOURCE_BACKED_REPLAY"
+    with pytest.raises(ValueError, match="source-backed evidence basis conflicts"):
+        evaluate_surveillance_priority(spoofed)
 
 
 def test_site_geography_limits_never_become_county_priority() -> None:
@@ -206,7 +214,7 @@ def test_site_geography_limits_never_become_county_priority() -> None:
         assert safe["source_geography"] == _safe(SAMPLING, [row])["source_geography"]
         assert safe["site"]["source_site_id"] == row["sampling_site"]["source_site_id"]
         assert safe["tick_species"] == row["tick_species"]
-        assert safe["life_stage"] == row["life_stage"]
+        assert safe["life_stage"] == "Nymph"
         assert safe["collection_method"] == row["collection_method"]
 
 
@@ -219,15 +227,15 @@ def test_site_geography_limits_never_become_county_priority() -> None:
         ("date", "2016-06-01"),
     ],
 )
-def test_collection_comparability_dimensions_separate_cohorts(field: str, alternate: str) -> None:
+def test_tampered_collection_context_has_no_cohort(field: str, alternate: str) -> None:
     first = _case("sampled-zero")
     second = deepcopy(first)
     second[field] = alternate
     a = evaluate_surveillance_priority(first)
     b = evaluate_surveillance_priority(second)
     assert a["comparison_cohort_id"] is not None
-    assert b["comparison_cohort_id"] is not None
-    assert a["comparison_cohort_id"] != b["comparison_cohort_id"]
+    assert b["comparison_cohort_id"] is None
+    assert b["tie_group_id"] is None
     assert (
         serialize_surveillance_priority(a)["result_id"]
         != serialize_surveillance_priority(b)["result_id"]
@@ -256,8 +264,21 @@ def test_source_version_testing_target_and_scope_separate_cohorts() -> None:
             evaluate_surveillance_priority(changed)["comparison_cohort_id"]
             != baseline["comparison_cohort_id"]
         )
+    stage_absent = _canonical(PREVALENCE)
+    stage_absent["life_stage"] = None
+    stage_absent["normalization"]["mappings"].pop("stage", None)
+    stage_absent["ticks_positive"] = 0
+    stage_absent["test_result"] = "NOT_DETECTED"
+    stage_absent["normalization"]["mappings"]["result"].update(
+        {
+            "source_value": "negative",
+            "canonical_id": "NOT_DETECTED",
+            "canonical_label": "Not detected",
+            "mapping_rule_id": "RESULT_NEON_NEGATIVE_V1",
+        }
+    )
     assert (
-        evaluate_surveillance_priority({**first, "life_stage": None})["comparison_cohort_id"]
+        evaluate_surveillance_priority(_safe(TESTING, [stage_absent]))["comparison_cohort_id"]
         == baseline["comparison_cohort_id"]
     )
     incompatible_time = evaluate_surveillance_priority(
@@ -302,7 +323,7 @@ def test_unresolved_collection_method_has_no_scientific_identity(
     assert safe["tie_group_id"] is None
     assert safe["disposition"] == NOT_DEFENSIBLE
     assert "COMPARISON_COHORT_UNPROVEN" in safe["reason_codes"]
-    assert safe["result_id"].startswith("surveillance-priority-result:v1:")
+    assert safe["result_id"].startswith("surveillance-priority-result:v2:")
     assert safe["result_revision"]
 
 
@@ -382,8 +403,8 @@ def test_mixed_vintage_preserves_safe_coverage_and_deterministic_identity() -> N
     assert safe["source_scope"]["source_vintage"] == "MIXED/AGGREGATE"
     assert safe["comparison_cohort_id"] is None
     assert safe["tie_group_id"] is None
-    assert safe["result_id"].startswith("surveillance-priority-result:v1:")
-    assert safe["disposition"] == NOT_DEFENSIBLE
+    assert safe["result_id"].startswith("surveillance-priority-result:v2:")
+    assert safe["disposition"] == UNAVAILABLE
     assert "COMPARISON_COHORT_UNPROVEN" in safe["reason_codes"]
     assert safe["coverage_result_id"] == coverage["result_id"]
 
@@ -416,14 +437,14 @@ def test_unresolved_method_real_coverage_to_priority_safe_result() -> None:
     [
         (
             "CDC_IXODES_COUNTY_STATUS",
-            "cdc_tick_ixodes_county_status",
+            "cdc-ixodes-county-status-2025",
             "tick_species",
             "Ixodes scapularis",
             ("Ixodes scapularis or Ixodes pacificus", "UNKNOWN", "Borrelia mayonii"),
         ),
         (
             "CDC_PATHOGEN_COUNTY_STATUS",
-            "cdc_tick_ixodes_pathogen_status",
+            "cdc-ixodes-pathogen-status-2025",
             "pathogen_name",
             "Borrelia mayonii",
             ("UNKNOWN", "MIXED", "Ixodes scapularis"),
@@ -445,6 +466,23 @@ def test_county_scientific_dimension_requires_source_compatible_registry_value(
         "Ixodes scapularis or Ixodes pacificus" if field == "pathogen_name" else valid
     )
     row[field] = valid
+    if field == "pathogen_name":
+        row["normalization"]["mappings"] = {
+            "pathogen": {
+                "source_value": "Borrelia_mayonii",
+                "canonical_id": "BORRELIA_MAYONII",
+                "canonical_label": "Borrelia mayonii",
+                "status": "APPROVED",
+                "mapping_rule_id": "PATHOGEN_CDC_BMAYONII_V1",
+                "registry_id": "tick-surveillance-normalization-v1",
+                "registry_version": "1.0.4",
+                "source_context": {
+                    "publisher": "CDC ArboNET Tick Module",
+                    "dataset_id": dataset,
+                    "source_version": "2025",
+                },
+            }
+        }
     coverage = serialize_surveillance_coverage(
         evaluate_surveillance_coverage(
             COUNTY, [row], source_context=context, county_fips="01001", dimension=valid
@@ -484,7 +522,7 @@ def test_aggregate_county_observation_preserves_full_safe_path() -> None:
     assert coverage["dimension"] == safe["dimension"] == aggregate
     assert safe == serialize_surveillance_priority(evaluate_surveillance_priority(coverage))
     assert safe["result_id"] and safe["result_revision"]
-    assert safe["disposition"] == NOT_DEFENSIBLE
+    assert safe["disposition"] == VERIFY
     assert "COMPARISON_COHORT_UNPROVEN" in safe["reason_codes"]
     assert safe["comparison_cohort_id"] is None
     assert safe["tie_group_id"] is None
@@ -519,10 +557,13 @@ def test_governed_county_values_require_source_mapping_and_nonaggregate_identity
     field: str, registry_dataset: str
 ) -> None:
     registry = load_registry()
-    coverage = deepcopy(_case("county-reported"))
+    context = _county_context()
+    row = _county()
     if field == "pathogen_target":
-        coverage["source_scope"]["source_family"] = "CDC_PATHOGEN_COUNTY_STATUS"
-        coverage["source_scope"]["source_dataset_id"] = "cdc_tick_ixodes_pathogen_status"
+        context["source_family"] = "CDC_PATHOGEN_COUNTY_STATUS"
+        context["source_dataset_id"] = registry_dataset
+        row["observation_type"] = "PATHOGEN_PRESENCE_STATUS"
+        row["source_dataset_id"] = registry_dataset
     for entry in registry["canonical_values"][field]:
         approved = [
             rule
@@ -535,12 +576,43 @@ def test_governed_county_values_require_source_mapping_and_nonaggregate_identity
         ]
         expected = len(approved) == 1 and not entry.get("aggregate")
         for representation in (entry["id"], entry["label"]):
-            coverage["dimension"] = representation
+            observation = deepcopy(row)
+            observation["tick_species" if field == "tick_taxon" else "pathogen_name"] = (
+                representation
+            )
+            if approved:
+                rule = approved[0]
+                observation["normalization"]["mappings"] = {
+                    "dimension": {
+                        "source_value": rule["source_value"],
+                        "canonical_id": rule["canonical_id"],
+                        "canonical_label": rule["canonical_label"],
+                        "status": rule["status"],
+                        "mapping_rule_id": rule["rule_id"],
+                        "registry_id": registry["registry_id"],
+                        "registry_version": registry["registry_version"],
+                        "source_context": rule["source_context"],
+                    }
+                }
+            else:
+                observation["normalization"]["mappings"] = {}
+            coverage = serialize_surveillance_coverage(
+                evaluate_surveillance_coverage(
+                    COUNTY,
+                    [observation],
+                    source_context=context,
+                    county_fips="01001",
+                    dimension=representation,
+                ),
+                evidence_basis="SYNTHETIC_FIXTURE",
+            )
             result = evaluate_surveillance_priority(coverage)
+            assert (coverage["state"] == "REPORTED_STATUS") == expected
             assert (result["comparison_cohort_id"] is not None) == expected
             if not expected:
                 assert result["tie_group_id"] is None
     for unsupported in ("free text", "UNKNOWN", "MIXED"):
+        coverage = deepcopy(_case("county-reported"))
         coverage["dimension"] = unsupported
         assert evaluate_surveillance_priority(coverage)["comparison_cohort_id"] is None
 

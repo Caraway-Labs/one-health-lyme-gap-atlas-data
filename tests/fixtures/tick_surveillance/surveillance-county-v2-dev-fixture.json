@@ -1,0 +1,40 @@
+{
+  "artifact_id": "artifact-1",
+  "canonical_observation_id": "county-1",
+  "county_fips": "01001",
+  "data_source_version_id": "2025",
+  "ingestion_run_id": "run-1",
+  "method_version": "tick-surveillance-v1",
+  "normalization": {
+    "mappings": {
+      "taxon": {
+        "canonical_id": "IXODES_SCAPULARIS",
+        "canonical_label": "Ixodes scapularis",
+        "mapping_rule_id": "TAXON_CDC_SCAPULARIS_V1",
+        "registry_id": "tick-surveillance-normalization-v1",
+        "registry_version": "1.0.4",
+        "source_context": {
+          "dataset_id": "cdc-ixodes-county-status-2025",
+          "publisher": "CDC ArboNET Tick Module",
+          "source_version": "2025"
+        },
+        "source_value": "Ixodes_scapularis",
+        "status": "APPROVED"
+      }
+    },
+    "registry_id": "tick-surveillance-normalization-v1",
+    "registry_version": "1.0.4"
+  },
+  "observation_type": "VECTOR_PRESENCE_STATUS",
+  "presence_status": "ESTABLISHED",
+  "quality_flags": [],
+  "reported_or_derived": "REPORTED",
+  "retrieved_at": "2026-09-23T00:00:00Z",
+  "source_agency": "CDC",
+  "source_dataset_id": "cdc-ixodes-county-status-2025",
+  "source_record_id": "source-row-1",
+  "surveillance_period_end": "2025-12-31",
+  "surveillance_period_start": null,
+  "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+  "tick_species": "Ixodes scapularis"
+}

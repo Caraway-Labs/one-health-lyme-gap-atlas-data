@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caraway-labs.github.io/one-health-lyme-gap-atlas-data/contracts/surveillance-source-only-county-evidence-v1.schema.json",
+  "title": "Safe unresolved source-only county evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "linked_coverage_identity", "source_dataset_id", "publisher", "source_version_id", "source_vintage", "evidence_basis", "source_record_id", "reported_geography", "source_geography_type", "mapping_status", "mapping_reason", "scientific_dimension", "representativeness"],
+  "properties": {
+    "contract_version": {"const": "surveillance-source-only-county-evidence-v1"},
+    "linked_coverage_identity": {"type": "string", "pattern": "^coverage:v2:[0-9a-f]{64}$"},
+    "source_dataset_id": {"type": "string"},
+    "publisher": {"type": "string"},
+    "source_version_id": {"type": "string"},
+    "source_vintage": {"type": "string"},
+    "evidence_basis": {"enum": ["SYNTHETIC_FIXTURE", "CURRENT_CODE_SOURCE_BACKED_REPLAY"]},
+    "source_record_id": {"type": "string", "minLength": 1},
+    "source_revision_id": {"type": ["string", "null"]},
+    "ingestion_run_id": {"type": ["string", "null"]},
+    "reported_geography": {"type": "string", "minLength": 1},
+    "source_geography_type": {"type": "string", "minLength": 1},
+    "mapping_status": {"enum": ["UNMAPPED", "AMBIGUOUS"]},
+    "mapping_reason": {"type": "string", "minLength": 1},
+    "normalization_registry_id": {"type": ["string", "null"]},
+    "normalization_registry_version": {"type": ["string", "null"]},
+    "normalization_rule_id": {"type": ["string", "null"]},
+    "scientific_dimension": {"type": "string", "minLength": 1},
+    "retrieved_at": {"type": ["string", "null"]},
+    "representativeness": {"const": "NOT_COUNTY_REPRESENTATIVE"}
+  }
+}

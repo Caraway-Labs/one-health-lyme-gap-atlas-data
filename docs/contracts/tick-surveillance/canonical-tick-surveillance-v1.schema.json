@@ -131,6 +131,8 @@
     "abundance_value": {"type": ["number", "null"], "minimum": 0},
     "abundance_unit": {"type": ["string", "null"]},
     "pathogen_name": {"type": ["string", "null"]},
+    "testing_scope": {"type": ["string", "null"], "enum": ["INDIVIDUAL_PATHOGEN_TEST", "MIXED", "AGGREGATE", "UNKNOWN", null]},
+    "test_result": {"type": ["string", "null"]},
     "ticks_tested": {"type": ["integer", "null"], "minimum": 0},
     "ticks_positive": {"type": ["integer", "null"], "minimum": 0},
     "prevalence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
