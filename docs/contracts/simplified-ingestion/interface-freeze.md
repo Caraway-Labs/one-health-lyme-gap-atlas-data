@@ -127,3 +127,38 @@ limitation, not a natural key inferred from geography, year, case, sex, age, or
 other analytical dimensions. See
 `x5j9-record-identity-policy.md` for the bounded evidence and revision
 decision.
+
+## Story #426 bounded replay extension
+
+ADR 0037 extends this freeze without a new CLI or required adapter migration.
+The existing list-returning `normalize` remains supported. A large-source
+adapter may provide `normalize_iter`, yielding rows in a documented stable order.
+The orchestrator partitions that iterator at 250 rows and 900,000 canonical
+JSON bytes, whichever comes first, and never stores the full normalized list.
+The storage-neutral partition operations are `save_partition`,
+`iter_partitions`, `complete_partitions`, and `partitions_complete`. A partition
+is identified within its run by ordinal and content SHA-256. Duplicate content
+at the same ordinal is idempotent; different content fails. The completion
+receipt requires contiguous ordinals. The existing NORMALIZE stage is complete
+only after the receipt and bounded materialization succeed; LOAD, QUALITY and
+PUBLISH_STAGE keep their existing run-status semantics.
+
+Binary `AcquireResult.payload` uses source-faithful bytes and a SHA-256 verified
+artifact checkpoint. Local storage uses a binary file; Snowflake uses the
+existing private Spaces/RAW_ARTIFACTS boundary. No binary value is serialized
+into V070 JSON. Source artifact IDs are capture/run scoped; full SHA-256 is the
+stable cross-run content identity.
+
+The V069 generic RAW/STAGING/CONFORMED projection MERGE is insert-only as of
+V103 deployment. These first-write rows are convenience projections, not the
+authoritative run-pinned read model. The additive V103 ledger retains one
+immutable capture per run and logical `record_id`, including source record ID,
+value, artifact, and retrieval lineage. Identical recapture has its own run
+capture but the same content-derived `record_revision`; changed content has a
+new revision. Governed generic consumers select
+`GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS` by exact `resource_key`,
+`ingestion_run_id`, and `source_definition_version`. The semantic release reader
+falls back to an exact-run V069 row only for a pre-V103 run without a capture.
+This is a physical input to #190/#193 semantic
+revision and lineage validation, not a new scientific identity model. Existing
+V070 checkpoints and source adapters remain readable and executable.
