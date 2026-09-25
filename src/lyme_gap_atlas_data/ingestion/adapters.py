@@ -928,6 +928,10 @@ _REGISTRY: dict[AdapterKind, SourceAdapter] = {
 
 
 def get_adapter(kind: AdapterKind) -> SourceAdapter:
+    if kind is AdapterKind.NCLIMGRID_DAILY:
+        from .nclimgrid_daily import NClimGridDailyAdapter
+
+        return NClimGridDailyAdapter()
     if kind is AdapterKind.NEON_RELEASE_PACKAGE:
         # Kept lazy to avoid circular imports: the package adapter reuses the
         # common acquisition result types defined in this module.

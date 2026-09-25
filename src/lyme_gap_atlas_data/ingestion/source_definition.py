@@ -32,6 +32,8 @@ _PLATFORM_TO_ADAPTER: dict[str, AdapterKind] = {
     "http_csv": AdapterKind.HTTP_CSV,
     "NEON_RELEASE_PACKAGE": AdapterKind.NEON_RELEASE_PACKAGE,
     "neon_release_package": AdapterKind.NEON_RELEASE_PACKAGE,
+    "NCLIMGRID_DAILY": AdapterKind.NCLIMGRID_DAILY,
+    "nclimgrid_daily": AdapterKind.NCLIMGRID_DAILY,
 }
 
 
@@ -271,20 +273,64 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                     category=FailureCategory.PERMISSION,
                 )
             )
+
         if not definition.required_columns:
             issues.append(
                 ValidationIssue(
-                    code="REQUIRED_COLUMNS",
-                    message="neon_release_package must declare frozen required columns",
-                    category=FailureCategory.SCHEMA,
+                    "REQUIRED_COLUMNS",
+                    "neon_release_package must declare frozen required columns",
+                    FailureCategory.SCHEMA,
                 )
             )
         if definition.extra.get("release") != "RELEASE-2026":
             issues.append(
                 ValidationIssue(
-                    code="NEON_RELEASE_PIN",
-                    message="neon_release_package is limited to RELEASE-2026",
-                    category=FailureCategory.POLICY_LICENSE,
+                    "NEON_RELEASE_PIN",
+                    "neon_release_package is limited to RELEASE-2026",
+                    FailureCategory.POLICY_LICENSE,
+                )
+            )
+
+    if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY:
+        from ..county_analysis_geometry import SELECTED_ARTIFACT_SHA256, SOURCE_URL
+
+        year_month = str(definition.extra.get("year_month", ""))
+        expected_endpoint = (
+            "https://www.ncei.noaa.gov/data/nclimgrid-daily/access/grids/"
+            f"{year_month[:4]}/ncdd-{year_month}-grd-scaled.nc"
+        )
+        if (
+            len(year_month) != 6
+            or not year_month.isdigit()
+            or not 1 <= int(year_month[4:]) <= 12
+            or definition.endpoint_template != expected_endpoint
+        ):
+            issues.append(
+                ValidationIssue(
+                    "NCLIMGRID_SCALED_PIN", "Exact scaled monthly NOAA URL and YYYYMM are required"
+                )
+            )
+        if (
+            definition.extra.get("tiger_url") != SOURCE_URL
+            or definition.extra.get("tiger_sha256") != SELECTED_ARTIFACT_SHA256
+        ):
+            issues.append(
+                ValidationIssue("TIGER_PIN", "Approved 2025 TIGER URL and SHA-256 are required")
+            )
+        if definition.extra.get("minimum_supported_area_completeness") != 0.95:
+            issues.append(
+                ValidationIssue(
+                    "COMPLETENESS_POLICY",
+                    "nClimGrid v1 requires 0.95 daily valid area within source-supported area",
+                )
+            )
+        if (
+            definition.geography_semantics != "CONUS_COUNTY_FIPS_2025_ANALYSIS"
+            or definition.temporal_semantics != "COUNTY_DAY"
+        ):
+            issues.append(
+                ValidationIssue(
+                    "NCLIMGRID_GRAIN", "nClimGrid v1 requires CONUS county-day semantics"
                 )
             )
 

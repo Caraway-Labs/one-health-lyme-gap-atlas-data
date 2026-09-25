@@ -1,0 +1,33 @@
+resource_key: noaa_nclimgrid_daily_202501
+source_id: noaa_nclimgrid_daily
+dataset_id: nclimgrid-daily-v1.0.0-scaled
+definition_version: 2
+adapter_kind: nclimgrid_daily
+endpoint_template: https://www.ncei.noaa.gov/data/nclimgrid-daily/access/grids/2025/ncdd-202501-grd-scaled.nc
+deterministic_order_clause: observation_date ASC, source_variable ASC, county_fips ASC
+incremental_strategy: IMMUTABLE_MONTHLY_RECAPTURE
+onboarding_mode: ROUTINE_PUBLIC
+onboarding_environments: [dev, prod]
+artifact_policy: PUBLIC_SEVEN_YEAR
+expected_refresh_cadence: monthly scaled publication; recapture only under governed run revision
+destination: RAW.NOAA_NCLIMGRID_DAILY_202501
+geography_semantics: CONUS_COUNTY_FIPS_2025_ANALYSIS
+temporal_semantics: COUNTY_DAY
+year_month: '202501'
+tiger_url: https://www2.census.gov/geo/tiger/TIGER2025/COUNTY/tl_2025_us_county.zip
+tiger_sha256: 9c6e9d9076abce2670d1de255de3710c35ecca00a7005d88e012dec52d95f763
+minimum_supported_area_completeness: 0.95
+measures: [PRCP, TMIN, TMAX, TAVG]
+required_columns: [id, county_fips, observation_date, measure, source_variable, value, unit, coverage_status, valid_area_m2, expected_area_m2, intersected_area_m2, source_supported_area_m2, source_coverage_fraction, valid_fraction_of_supported_area, grid_id, tiger_sha256, noaa_sha256]
+quality_rules:
+  - rule_id: nclimgrid_required_columns
+    severity: BLOCKING
+  - rule_id: nclimgrid_geography
+    severity: BLOCKING
+  - rule_id: nclimgrid_value_state_preservation
+    severity: BLOCKING
+restrictions:
+  - Scaled monthly NetCDF only; preliminary and scaled files cannot be mixed in a run.
+  - CONUS only; Alaska and Hawaii have explicit out-of-source-coverage status.
+  - The 95 percent completeness threshold applies to daily valid area within the retained month's source-supported grid mask; retain full-county source coverage separately.
+  - No zero infill, trace inference, derived TAVG, PRISM substitution, or public/ML admission.

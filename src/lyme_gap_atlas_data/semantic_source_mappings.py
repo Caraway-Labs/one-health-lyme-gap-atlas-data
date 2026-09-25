@@ -7,9 +7,10 @@ This module performs no ingestion, database access, or publication.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from lyme_gap_atlas_data.semantic_domain import (
     CONTRACT_VERSION as DOMAIN_VERSION,
@@ -40,6 +41,59 @@ _SOURCE_FIELDS = (
     "source_record_id",
     "source_row_hash",
 )
+_NCLIMGRID_MEASURES = {
+    "nclimgrid_prcp": ("PRCP", "prcp"),
+    "nclimgrid_tmin": ("TMIN", "tmin"),
+    "nclimgrid_tmax": ("TMAX", "tmax"),
+    "nclimgrid_tavg": ("TAVG", "tavg"),
+}
+
+
+def _valid_nclimgrid_areas(output: Mapping[str, Any]) -> bool:
+    """Keep source footprint and daily missingness distinct at the mapping gate."""
+    fields = (
+        "expected_area_m2",
+        "intersected_area_m2",
+        "source_supported_area_m2",
+        "valid_area_m2",
+        "source_coverage_fraction",
+        "valid_fraction_of_supported_area",
+    )
+    if output.get("coverage_status") == "OUT_OF_SOURCE_COVERAGE":
+        return output.get("valid_area_m2") == 0 and all(
+            output.get(field) is None for field in fields if field != "valid_area_m2"
+        )
+    expected, intersected, supported, valid, source_fraction, daily_fraction = (
+        output.get(field) for field in fields
+    )
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        for value in (expected, intersected, supported, valid, source_fraction)
+    ):
+        return False
+    expected = cast(float, expected)
+    intersected = cast(float, intersected)
+    supported = cast(float, supported)
+    valid = cast(float, valid)
+    source_fraction = cast(float, source_fraction)
+    if not (expected > 0 and 0 <= valid <= supported <= intersected <= expected * (1 + 1e-8)):
+        return False
+    if not math.isclose(source_fraction, supported / expected, abs_tol=1e-8):
+        return False
+    if supported == 0:
+        return daily_fraction is None and output.get("coverage_status") == "SOURCE_MISSING"
+    if not isinstance(daily_fraction, (int, float)) or isinstance(daily_fraction, bool):
+        return False
+    if not math.isfinite(daily_fraction) or not math.isclose(
+        daily_fraction, valid / supported, abs_tol=1e-8
+    ):
+        return False
+    status = output.get("coverage_status")
+    return (
+        (status == "SOURCE_MISSING" and valid == 0)
+        or (status == "PARTIAL_COVERAGE" and 0 < daily_fraction < 0.95 - 1e-12)
+        or (status == "COMPLETE" and daily_fraction + 1e-12 >= 0.95)
+    )
 
 
 class SemanticMappingError(ValueError):
@@ -174,7 +228,17 @@ def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tupl
     mapping_id = mapping["id"]
     value: Any
     state: str
-    if mapping_id == "source_only":
+    if mapping_id in _NCLIMGRID_MEASURES:
+        coverage = output.get("coverage_status")
+        if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
+        elif coverage in {"PARTIAL_COVERAGE", "SOURCE_MISSING"} and raw is None:
+            value, state = None, "MISSING"
+        elif coverage == "OUT_OF_SOURCE_COVERAGE" and raw is None:
+            value, state = None, "UNAVAILABLE"
+        else:
+            raise SemanticMappingError("invalid nClimGrid coverage/value state")
+    elif mapping_id == "source_only":
         if raw not in {"UNMAPPED", "AMBIGUOUS"}:
             raise SemanticMappingError("source-only output must remain unresolved")
         value, state = None, "UNKNOWN"
@@ -238,7 +302,41 @@ def _check_output_scope(
     output = record["source_output"]
     geography = record["geography"]
     temporal = record["temporal"]
-    if mapping["id"] in {"neon_collection", "neon_pathogen_test"}:
+    if mapping["id"] in _NCLIMGRID_MEASURES:
+        if len(edges) != 2:
+            raise SemanticMappingError("nClimGrid requires NOAA and TIGER lineage edges")
+        measure, source_variable = _NCLIMGRID_MEASURES[mapping["id"]]
+        expected_id = (
+            f"{mapping['resource_key']}:{geography.get('county_fips')}:"
+            f"{output.get('observation_date')}:{measure}"
+        )
+        if (
+            output.get("id") != expected_id
+            or output.get("measure") != measure
+            or output.get("source_variable") != source_variable
+            or output.get("county_fips") != geography.get("county_fips")
+            or temporal.get("start") != output.get("observation_date")
+            or temporal.get("end") != output.get("observation_date")
+            or output.get("unit") != record.get("unit")
+            or (output.get("coverage_status") == "OUT_OF_SOURCE_COVERAGE")
+            != str(output.get("county_fips", "")).startswith(("02", "15"))
+            or not _valid_nclimgrid_areas(output)
+            or not all(
+                output.get(field)
+                for field in (
+                    "grid_id",
+                    "geometry_digest",
+                    "noaa_sha256",
+                    "tiger_sha256",
+                    "weight_version",
+                )
+            )
+            or output.get("noaa_sha256") != edges[0].get("artifact_sha256")
+            or output.get("tiger_sha256") != edges[1].get("artifact_sha256")
+            or edges[0].get("ingestion_run_id") != edges[1].get("ingestion_run_id")
+        ):
+            raise SemanticMappingError("nClimGrid source output or two-member lineage mismatch")
+    elif mapping["id"] in {"neon_collection", "neon_pathogen_test"}:
         expected_type = (
             "COLLECTION_ABUNDANCE" if mapping["id"] == "neon_collection" else "PATHOGEN_TESTING"
         )
@@ -352,8 +450,29 @@ def map_record(
         or not all(isinstance(edge, Mapping) for edge in edges)
     ):
         raise SemanticMappingError("source lineage edges required")
-    for edge in edges:
-        _bind_source(edge, mapping, authority)
+    if mapping_id in _NCLIMGRID_MEASURES:
+        if len(edges) != 2:
+            raise SemanticMappingError("nClimGrid requires NOAA and TIGER lineage edges")
+        _bind_source(edges[0], mapping, authority)
+        versions = authority.get("source_versions")
+        tiger = (
+            versions.get(edges[1].get("source_version_id"))
+            if isinstance(versions, Mapping)
+            else None
+        )
+        if (
+            not isinstance(tiger, Mapping)
+            or tiger.get("approved") is not True
+            or any(
+                edges[1].get(field) != tiger.get(field)
+                for field in ("resource_key", "source_id", "dataset_id", "source_vintage")
+            )
+            or edges[1].get("source_vintage") != "2025"
+        ):
+            raise SemanticMappingError("approved 2025 TIGER lineage required")
+    else:
+        for edge in edges:
+            _bind_source(edge, mapping, authority)
     validate_metadata(metadata)
     if metadata["steward_review"]["state"] != "REVIEWED" and not (
         fixture_mode and record.get("fixture") is True

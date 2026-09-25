@@ -79,6 +79,19 @@ class WeightedResult:
     weight_version: str = WEIGHT_VERSION
 
 
+@dataclass(frozen=True)
+class GridIntersectionWeights:
+    """Reusable #424 projected intersection areas for one county and grid."""
+
+    county_fips: str
+    cell_areas_m2: tuple[tuple[str, float], ...]
+    intersected_area_m2: float
+    county_area_m2: float
+    geometry_version: str
+    artifact_sha256: str
+    weight_version: str = WEIGHT_VERSION
+
+
 def analysis_crs(county_fips: str) -> str:
     """Choose a fixed equal-area projection for the county's state."""
     if county_fips.startswith("02"):
@@ -207,44 +220,23 @@ def area_weighted_mean(
         raise CountyGeometryError("minimum completeness must be finite in [0, 1]")
     if not unit.strip():
         raise CountyGeometryError("source unit is required")
-    polygon = project_geometry(county.geometry, county.lineage.storage_crs, county.analysis_crs)
-    county_area = polygon.area
-    if county_area <= 0:
-        raise CountyGeometryError("projected county has no area")
     ordered = sorted(cells, key=lambda cell: cell.cell_id)
-    if len({cell.cell_id for cell in ordered}) != len(ordered):
-        raise CountyGeometryError("duplicate grid cell ID")
-    projected_cells: list[tuple[GridCell, BaseGeometry]] = []
-    for cell in ordered:
-        if not cell.cell_id or cell.geometry.is_empty or not cell.geometry.is_valid:
-            raise CountyGeometryError("grid cell has invalid identity or geometry")
-        projected = project_geometry(cell.geometry, grid_crs, county.analysis_crs)
-        projected_cells.append((cell, projected))
-    # Reject overlap instead of double counting intersected area.
-    footprint_area = math.fsum(geometry.area for _, geometry in projected_cells)
-    union_area = unary_union([geometry for _, geometry in projected_cells]).area
-    if footprint_area - union_area > max(union_area, 1.0) * 1e-10:
-        raise CountyGeometryError("grid cell footprints overlap")
+    weights = grid_intersection_weights(county, ordered, grid_crs=grid_crs)
+    values = {cell.cell_id: cell.value for cell in ordered}
     valid_areas: list[float] = []
     products: list[float] = []
-    intersected_areas: list[float] = []
-    for cell, footprint in projected_cells:
-        area = polygon.intersection(footprint).area
-        if area <= 0:  # Touching a boundary alone has zero weight.
+    for cell_id, area in weights.cell_areas_m2:
+        value = values[cell_id]
+        if value is None:
             continue
-        intersected_areas.append(area)
-        if cell.value is None:
-            continue
-        if not math.isfinite(cell.value):
+        if not math.isfinite(value):
             raise CountyGeometryError("non-finite cell value; use None for nodata")
         valid_areas.append(area)
-        products.append(area * cell.value)
-    intersected_area = math.fsum(intersected_areas)
+        products.append(area * value)
+    intersected_area = weights.intersected_area_m2
     valid_area = math.fsum(valid_areas)
-    if intersected_area > county_area * (1 + 1e-8):
-        raise CountyGeometryError("grid intersection area exceeds county area")
-    completeness = min(valid_area / county_area, 1.0)
-    if not intersected_areas:
+    completeness = min(valid_area / weights.county_area_m2, 1.0)
+    if not weights.cell_areas_m2:
         status, value = "NO_INTERSECTING_CELLS", None
     elif not valid_areas:
         status, value = "NO_VALID_CELLS", None
@@ -258,9 +250,52 @@ def area_weighted_mean(
         unit=unit,
         valid_area_m2=valid_area,
         intersected_area_m2=intersected_area,
-        county_area_m2=county_area,
+        county_area_m2=weights.county_area_m2,
         completeness=completeness,
         status=status,
         geometry_version=county.lineage.transform_version,
         artifact_sha256=county.lineage.artifact_sha256,
+    )
+
+
+def grid_intersection_weights(
+    county: CountyAnalysisGeometry,
+    cells: Iterable[GridCell],
+    *,
+    grid_crs: str,
+) -> GridIntersectionWeights:
+    """Project and intersect source cells once, preserving the #424 area rules."""
+    polygon = project_geometry(county.geometry, county.lineage.storage_crs, county.analysis_crs)
+    county_area = polygon.area
+    if county_area <= 0:
+        raise CountyGeometryError("projected county has no area")
+    ordered = sorted(cells, key=lambda cell: cell.cell_id)
+    if len({cell.cell_id for cell in ordered}) != len(ordered):
+        raise CountyGeometryError("duplicate grid cell ID")
+    projected_cells: list[tuple[GridCell, BaseGeometry]] = []
+    for cell in ordered:
+        if not cell.cell_id or cell.geometry.is_empty or not cell.geometry.is_valid:
+            raise CountyGeometryError("grid cell has invalid identity or geometry")
+        projected_cells.append(
+            (cell, project_geometry(cell.geometry, grid_crs, county.analysis_crs))
+        )
+    footprint_area = math.fsum(geometry.area for _, geometry in projected_cells)
+    union_area = unary_union([geometry for _, geometry in projected_cells]).area
+    if footprint_area - union_area > max(union_area, 1.0) * 1e-10:
+        raise CountyGeometryError("grid cell footprints overlap")
+    areas = tuple(
+        (cell.cell_id, area)
+        for cell, footprint in projected_cells
+        if (area := polygon.intersection(footprint).area) > 0
+    )
+    intersected_area = math.fsum(area for _, area in areas)
+    if intersected_area > county_area * (1 + 1e-8):
+        raise CountyGeometryError("grid intersection area exceeds county area")
+    return GridIntersectionWeights(
+        county.county_fips,
+        areas,
+        intersected_area,
+        county_area,
+        county.lineage.transform_version,
+        county.lineage.artifact_sha256,
     )
