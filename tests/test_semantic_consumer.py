@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator, ValidationError
 from test_semantic_lineage import _trace
 
 from lyme_gap_atlas_data.semantic_consumer import (
@@ -18,6 +20,16 @@ from lyme_gap_atlas_data.semantic_consumer import (
 from lyme_gap_atlas_data.semantic_domain import meaning_signature, revision_id
 from lyme_gap_atlas_data.semantic_lineage import lineage_id
 from lyme_gap_atlas_data.semantic_metadata import metadata_revision_id
+
+ROOT = Path(__file__).parents[1]
+SCHEMA = json.loads(
+    (ROOT / "docs/contracts/semantic-domain/atlas-semantic-consumer-v1.schema.json").read_text()
+)
+EXAMPLES = json.loads(
+    (
+        ROOT / "docs/contracts/semantic-domain/examples/story-194-consumer-safe-fixtures.json"
+    ).read_text()
+)
 
 
 def _safe_case(shape: str = "case_count_floor_2023") -> tuple[dict, dict]:
@@ -198,3 +210,28 @@ def test_unsafe_values_cannot_be_canonicalized(unsafe: str) -> None:
     payload["measure"]["label"] = unsafe
     with pytest.raises(ValueError, match="restricted"):
         canonical_consumer_json(payload)
+
+
+def test_machine_readable_schema_and_frozen_examples() -> None:
+    Draft202012Validator.check_schema(SCHEMA)
+    validator = Draft202012Validator(SCHEMA)
+    for shape in (
+        "case_count_floor_2023",
+        "svi_percentile_2022",
+        "rucc_2023",
+        "scapularis_status",
+        "burgdorferi_status",
+        "neon_collection",
+        "neon_individual_pathogen_test",
+        "source_only_evidence",
+    ):
+        payload = project_consumer(*_safe_case(shape), fixture_mode=True)
+        validator.validate(payload)
+        if shape in EXAMPLES:
+            assert payload == EXAMPLES[shape]
+            assert payload["evidence_tier"] == "SYNTHETIC_FIXTURE"
+    assert set(EXAMPLES) == {"case_count_floor_2023", "neon_collection", "source_only_evidence"}
+    invalid = copy.deepcopy(EXAMPLES["case_count_floor_2023"])
+    invalid["observation"]["artifact_id"] = "private"
+    with pytest.raises(ValidationError):
+        validator.validate(invalid)

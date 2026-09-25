@@ -1,0 +1,538 @@
+{
+  "case_count_floor_2023": {
+    "contract_version": "atlas-semantic-consumer-v1",
+    "evidence_tier": "SYNTHETIC_FIXTURE",
+    "freshness": {
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      },
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      }
+    },
+    "indicator": {
+      "id": "human_disease_burden"
+    },
+    "lineage": {
+      "dataset_id": "x5j9-wybp",
+      "evidence_basis": null,
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "no_human_risk_inference",
+          "text": "This measure does not estimate individual human risk."
+        }
+      ],
+      "lineage_id": "lineage:v1:39e02d8bd5930d7151db00362e3e58f70e550592701aa525122f2f60586d9479",
+      "measure_id": "case_count_floor_2023",
+      "measure_version": "1.0.0",
+      "metadata_revision_id": "metadata-revision:v1:df7a45bad817a52257bdbccf5d9855b0d2769552016070db1b1f3a92d1c53cd1",
+      "methodology_version": "reviewed-v1",
+      "publisher": "cdc_lyme",
+      "record_refs": [
+        "record-case_count_floor_2023-0"
+      ],
+      "release_id": "fixture-release-1",
+      "representativeness": "COUNTY_NATIVE_STATUS",
+      "result_id": null,
+      "result_revision_id": null,
+      "semantic_observation_id": "observation:v1:917e775a84ca5333a7d6cb7b7ed92d1ef05844c338c9855a77f9e1dc34663147",
+      "semantic_revision_id": "revision:v1:f216737ef9545c18ae2dd8cf00d47bda768123fa111d89e187098b8d97ea387a",
+      "source_version_id": "fixture-version-1",
+      "source_vintage": "2023",
+      "transformation_version": "release-builder-v1"
+    },
+    "measure": {
+      "allowed_strata": [],
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ],
+      "applicability": {
+        "allowed_strata": [],
+        "geography_grain": "COUNTY",
+        "origin": "REPORTED",
+        "representativeness": "COUNTY_NATIVE_STATUS",
+        "temporal_semantics": "PERIOD"
+      },
+      "definition": "Synthetic fixture meaning for case_count_floor_2023",
+      "denominator": "NONE",
+      "description": {
+        "state": "KNOWN",
+        "value": "Synthetic description of case_count_floor_2023"
+      },
+      "id": "case_count_floor_2023",
+      "label": "Case Count Floor 2023",
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "no_human_risk_inference",
+          "text": "This measure does not estimate individual human risk."
+        }
+      ],
+      "meaning_signature": "99e646dd6c80c9c136e10faf29ee5cbf67c6dcb449f57f383ffbe46696f8eb69",
+      "metadata_id": "metadata:case_count_floor_2023:1.0.0",
+      "metadata_revision": 1,
+      "metadata_revision_id": "metadata-revision:v1:df7a45bad817a52257bdbccf5d9855b0d2769552016070db1b1f3a92d1c53cd1",
+      "origin": "REPORTED",
+      "quality_evidence": {
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "quality_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "semantic_version": "1.0.0",
+      "type": "number",
+      "unit": "cases"
+    },
+    "observation": {
+      "denominator_value": null,
+      "geography": {
+        "county_fips": "08013",
+        "grain": "COUNTY",
+        "representativeness": "COUNTY_NATIVE_STATUS"
+      },
+      "id": "observation:v1:917e775a84ca5333a7d6cb7b7ed92d1ef05844c338c9855a77f9e1dc34663147",
+      "revision_id": "revision:v1:f216737ef9545c18ae2dd8cf00d47bda768123fa111d89e187098b8d97ea387a",
+      "strata": {},
+      "temporal": {
+        "end": "2023-12-31",
+        "semantics": "PERIOD",
+        "start": "2023-01-01"
+      },
+      "value": 3,
+      "value_state": "OBSERVED"
+    },
+    "provenance": {
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "x5j9-wybp"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "publisher": {
+        "state": "KNOWN",
+        "value": "cdc_lyme"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_lyme"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "release": {
+      "bundle_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "fixture-release-1"
+    }
+  },
+  "neon_collection": {
+    "contract_version": "atlas-semantic-consumer-v1",
+    "evidence_tier": "SYNTHETIC_FIXTURE",
+    "freshness": {
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      },
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      }
+    },
+    "indicator": {
+      "id": "tick_surveillance"
+    },
+    "lineage": {
+      "dataset_id": "DP1.10093.001",
+      "evidence_basis": null,
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "no_human_risk_inference",
+          "text": "This measure does not estimate individual human risk."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "not_county_representative",
+          "text": "Site and event evidence does not establish county representativeness."
+        }
+      ],
+      "lineage_id": "lineage:v1:c60811a84faed674171b519c127196d581990f48eebd6e84ada5b696ccd8c6d9",
+      "measure_id": "neon_collection",
+      "measure_version": "1.0.0",
+      "metadata_revision_id": "metadata-revision:v1:40c442280c5331a1cbbc6c6e71a0232360aa681617289b47f3c23427f2e27d62",
+      "methodology_version": "reviewed-v1",
+      "publisher": "neon",
+      "record_refs": [
+        "record-neon_collection-0"
+      ],
+      "release_id": null,
+      "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+      "result_id": null,
+      "result_revision_id": null,
+      "semantic_observation_id": "observation:v1:8d69bf280070abb8cfec4ee258f8be8e1be25706844a33d69d8cf119d34659d7",
+      "semantic_revision_id": "revision:v1:621f48d0bf2bde7c298018015671c472cbb7865c3771c1783c7fdfac07836a57",
+      "source_version_id": "fixture-version-1",
+      "source_vintage": "RELEASE-2026",
+      "transformation_version": "release-builder-v1"
+    },
+    "measure": {
+      "allowed_strata": [
+        "tick_taxon",
+        "life_stage",
+        "pathogen_target",
+        "collection_method",
+        "testing_scope"
+      ],
+      "allowed_value_states": [
+        "OBSERVED",
+        "UNKNOWN",
+        "UNAVAILABLE"
+      ],
+      "applicability": {
+        "allowed_strata": [
+          "tick_taxon",
+          "life_stage",
+          "pathogen_target",
+          "collection_method",
+          "testing_scope"
+        ],
+        "geography_grain": "SITE_EVENT",
+        "origin": "REPORTED",
+        "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+        "temporal_semantics": "POINT_IN_TIME"
+      },
+      "definition": "Synthetic fixture meaning for neon_collection",
+      "denominator": "NONE",
+      "description": {
+        "state": "KNOWN",
+        "value": "Synthetic description of neon_collection"
+      },
+      "id": "neon_collection",
+      "label": "Neon Collection",
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "no_human_risk_inference",
+          "text": "This measure does not estimate individual human risk."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "not_county_representative",
+          "text": "Site and event evidence does not establish county representativeness."
+        }
+      ],
+      "meaning_signature": "bc8ac59cb3cd33b0a83b514d7ea8640fc50f74d41fd86816d358b43f6fedc122",
+      "metadata_id": "metadata:neon_collection:1.0.0",
+      "metadata_revision": 1,
+      "metadata_revision_id": "metadata-revision:v1:40c442280c5331a1cbbc6c6e71a0232360aa681617289b47f3c23427f2e27d62",
+      "origin": "REPORTED",
+      "quality_evidence": {
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "quality_contract": {
+          "state": "KNOWN",
+          "value": "surveillance-quality-profile-v1"
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "semantic_version": "1.0.0",
+      "type": "number",
+      "unit": "ticks"
+    },
+    "observation": {
+      "denominator_value": null,
+      "geography": {
+        "county_fips": null,
+        "event_id": "event-neon_collection",
+        "grain": "SITE_EVENT",
+        "representativeness": "NOT_COUNTY_REPRESENTATIVE",
+        "site_id": "BLAN"
+      },
+      "id": "observation:v1:8d69bf280070abb8cfec4ee258f8be8e1be25706844a33d69d8cf119d34659d7",
+      "revision_id": "revision:v1:621f48d0bf2bde7c298018015671c472cbb7865c3771c1783c7fdfac07836a57",
+      "strata": {},
+      "temporal": {
+        "date": "2023-12-31",
+        "semantics": "POINT_IN_TIME"
+      },
+      "value": 3,
+      "value_state": "OBSERVED"
+    },
+    "provenance": {
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "DP1.10093.001"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "publisher": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "neon"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "RELEASE-2026"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "release": null
+  },
+  "source_only_evidence": {
+    "contract_version": "atlas-semantic-consumer-v1",
+    "evidence_tier": "SYNTHETIC_FIXTURE",
+    "freshness": {
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-09-24"
+      },
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "retrieved_at": {
+        "state": "UNAVAILABLE",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      }
+    },
+    "indicator": {
+      "id": "human_disease_burden"
+    },
+    "lineage": {
+      "dataset_id": "x5j9-wybp",
+      "evidence_basis": null,
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "no_human_risk_inference",
+          "text": "This measure does not estimate individual human risk."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "SOURCE_ONLY",
+          "text": "No canonical county identity is established."
+        }
+      ],
+      "lineage_id": "lineage:v1:868d65822a3893519d674da963cdd98a56fbfffccd3ec224813fc17446bf4e1e",
+      "measure_id": "source_only_evidence",
+      "measure_version": "1.0.0",
+      "metadata_revision_id": "metadata-revision:v1:8b0c1de8d756f6640fab21656fef76d4cb5e434c23b56882e4298be28ff8f849",
+      "methodology_version": "reviewed-v1",
+      "publisher": "cdc_lyme",
+      "record_refs": [
+        "record-source_only_evidence-0"
+      ],
+      "release_id": null,
+      "representativeness": null,
+      "result_id": null,
+      "result_revision_id": null,
+      "semantic_observation_id": "observation:v1:5a77040396367fd255c236ca768c4af459cd790923238b43c29c627b9055ec8a",
+      "semantic_revision_id": "revision:v1:057731df4174f5ce3f8e8a951f6eddf701540e4181ebd17d46a47011db69c465",
+      "source_version_id": "fixture-version-1",
+      "source_vintage": "2023",
+      "transformation_version": "release-builder-v1"
+    },
+    "measure": {
+      "allowed_strata": [],
+      "allowed_value_states": [
+        "UNKNOWN"
+      ],
+      "applicability": {
+        "allowed_strata": [],
+        "geography_grain": "SOURCE_ONLY_COUNTY",
+        "origin": "REPORTED",
+        "representativeness": "UNKNOWN",
+        "temporal_semantics": "PERIOD"
+      },
+      "definition": "Synthetic unresolved source geography",
+      "denominator": "NONE",
+      "description": {
+        "state": "KNOWN",
+        "value": "Synthetic description of case_count_floor_2023"
+      },
+      "id": "source_only_evidence",
+      "label": "Case Count Floor 2023",
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "no_human_risk_inference",
+          "text": "This measure does not estimate individual human risk."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "SOURCE_ONLY",
+          "text": "No canonical county identity is established."
+        }
+      ],
+      "meaning_signature": "e32a95b2d81ceb75c0ee6b8d690ce144731a0714d2f3dd5c41c004b0f5d90b1e",
+      "metadata_id": "metadata:source_only_evidence:1.0.0",
+      "metadata_revision": 1,
+      "metadata_revision_id": "metadata-revision:v1:8b0c1de8d756f6640fab21656fef76d4cb5e434c23b56882e4298be28ff8f849",
+      "origin": "REPORTED",
+      "quality_evidence": {
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "quality_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "semantic_version": "1.0.0",
+      "type": "number",
+      "unit": "cases"
+    },
+    "observation": {
+      "denominator_value": null,
+      "geography": {
+        "county_fips": null,
+        "grain": "SOURCE_ONLY_COUNTY",
+        "mapping_status": "UNMAPPED",
+        "reported_geography_id": "publisher-place-1"
+      },
+      "id": "observation:v1:5a77040396367fd255c236ca768c4af459cd790923238b43c29c627b9055ec8a",
+      "revision_id": "revision:v1:057731df4174f5ce3f8e8a951f6eddf701540e4181ebd17d46a47011db69c465",
+      "strata": {},
+      "temporal": {
+        "end": "2023-12-31",
+        "semantics": "PERIOD",
+        "start": "2023-01-01"
+      },
+      "value": null,
+      "value_state": "UNKNOWN"
+    },
+    "provenance": {
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "x5j9-wybp"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "reviewed-v1"
+      },
+      "publisher": {
+        "state": "KNOWN",
+        "value": "cdc_lyme"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_lyme"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "fixture-version-1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "transformation_version": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "release": null
+  }
+}

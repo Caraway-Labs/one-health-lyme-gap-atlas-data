@@ -5,7 +5,7 @@ Baseline: data `origin/main` `b1aecd64627e13c0af1e1db4d4d6a4a502f2dca5`, API `34
 | Acceptance criterion | Proposed merged-state evidence | Limit |
 | --- | --- | --- |
 | INTERNAL / CONSUMER_SAFE / PUBLIC | `atlas-semantic-consumer-v1.md` field matrix and `project_consumer` visibility/review gates | Existing API remains the only PUBLIC interface |
-| Stable, meaningful machine representation | #190–#193 validators composed before explicit projection; semantic, metadata, observation, lineage and release revisions pinned; deterministic JSON | Real authority snapshot must be supplied by caller |
+| Stable, meaningful machine representation | #190–#193 validators composed before explicit projection; checked-in JSON Schema and three frozen synthetic payloads; semantic, metadata, observation, lineage and release revisions pinned; deterministic JSON | Real authority snapshot must be supplied by caller |
 | Map to actual models/views | Contract names current `PRESENTATION` views, fixed county release, separate derived stores and deferred historical adapters | No new DB object or live service adapter |
 | Coordinate API/OpenAPI/client | API #52 remains open and blocks #53/#55; no public contract change or generated-client refresh is applicable | API discovery remains separate backlog scope |
 | Behavioral and adversarial tests | `test_semantic_consumer.py`: county/site/source-only, valid/unknown IDs, bounded filters/pages, states, unsafe values, restricted proof exclusion, reproducible revisions, internal derived exclusion | Synthetic fixtures, not live source approval |

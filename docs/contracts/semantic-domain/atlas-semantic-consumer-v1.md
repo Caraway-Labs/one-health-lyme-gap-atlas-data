@@ -2,6 +2,8 @@
 
 Status: Story #194 protected review candidate. Owner: Atlas data stewardship and engineering. Executable boundary: `semantic_consumer.py`; identity, metadata, mapping, lineage and compatibility authority remain #190–#195. API #52/#53/#55 own any later public discovery contract.
 
+The checked-in machine-readable contract is `atlas-semantic-consumer-v1.schema.json`. `examples/story-194-consumer-safe-fixtures.json` freezes three explicitly synthetic county, native site/event, and source-only payloads. The normal test suite validates all supported representative safe shapes against the schema and checks those frozen examples for drift. The schema describes the output shape; the owning #190–#193 validators enforce cross-field scientific and authority relationships before serialization.
+
 ## Audience and fields
 
 | Field group | INTERNAL | CONSUMER_SAFE | PUBLIC today |
