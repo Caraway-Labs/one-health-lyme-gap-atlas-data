@@ -22,7 +22,7 @@ _SHA = re.compile(r"^[0-9a-f]{64}$")
 _REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 _UNSAFE = re.compile(
     r"(?:[a-z][a-z0-9+.-]*://|[?&](?:token|signature|credential|password|secret)="
-    r"|-----BEGIN [A-Z ]+PRIVATE KEY-----|[A-Za-z]:\\|(?:^|\s)/(?:home|tmp|private|mnt)/)",
+    r"|-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----|[A-Za-z]:\\|(?:^|\s)/(?:home|tmp|private|mnt)/)",
     re.IGNORECASE,
 )
 _UNSAFE_KEY = re.compile(
