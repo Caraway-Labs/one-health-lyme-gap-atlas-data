@@ -1,0 +1,26 @@
+{
+  "contract_version": "atlas-semantic-domain-v1",
+  "status": "CANDIDATE_PENDING_STEWARD_REVIEW",
+  "measures": [
+    {
+      "measure_id": "nclimgrid_prcp_county_day", "indicator_id": "climate_precipitation", "semantic_version": "1.0.0",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid precipitation amount for a 2025 TIGER/Line CONUS county and labeled 24-hour day, subject to 95 percent valid-area completeness.",
+      "data_type": "NUMBER", "unit": "mm", "denominator": "NONE", "geography_grain": "COUNTY", "temporal_semantics": "PERIOD", "allowed_strata": [], "origin": "DERIVED", "methodology_version": "atlas-nclimgrid-county-day/1", "allowed_value_states": ["OBSERVED", "ZERO", "MISSING", "UNAVAILABLE"]
+    },
+    {
+      "measure_id": "nclimgrid_tmin_county_day", "indicator_id": "climate_temperature", "semantic_version": "1.0.0",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid daily minimum temperature for a 2025 TIGER/Line CONUS county and labeled 24-hour day, subject to 95 percent valid-area completeness.",
+      "data_type": "NUMBER", "unit": "degree_Celsius", "denominator": "NONE", "geography_grain": "COUNTY", "temporal_semantics": "PERIOD", "allowed_strata": [], "origin": "DERIVED", "methodology_version": "atlas-nclimgrid-county-day/1", "allowed_value_states": ["OBSERVED", "ZERO", "MISSING", "UNAVAILABLE"]
+    },
+    {
+      "measure_id": "nclimgrid_tmax_county_day", "indicator_id": "climate_temperature", "semantic_version": "1.0.0",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid daily maximum temperature for a 2025 TIGER/Line CONUS county and labeled 24-hour day, subject to 95 percent valid-area completeness.",
+      "data_type": "NUMBER", "unit": "degree_Celsius", "denominator": "NONE", "geography_grain": "COUNTY", "temporal_semantics": "PERIOD", "allowed_strata": [], "origin": "DERIVED", "methodology_version": "atlas-nclimgrid-county-day/1", "allowed_value_states": ["OBSERVED", "ZERO", "MISSING", "UNAVAILABLE"]
+    },
+    {
+      "measure_id": "nclimgrid_tavg_county_day", "indicator_id": "climate_temperature", "semantic_version": "1.0.0",
+      "definition": "Valid-area-weighted NOAA-supplied nClimGrid-Daily scaled grid daily average temperature for a 2025 TIGER/Line CONUS county and labeled 24-hour day, subject to 95 percent valid-area completeness.",
+      "data_type": "NUMBER", "unit": "degree_Celsius", "denominator": "NONE", "geography_grain": "COUNTY", "temporal_semantics": "PERIOD", "allowed_strata": [], "origin": "DERIVED", "methodology_version": "atlas-nclimgrid-county-day/1", "allowed_value_states": ["OBSERVED", "ZERO", "MISSING", "UNAVAILABLE"]
+    }
+  ]
+}

@@ -12,6 +12,12 @@ The repository contains two deliberately separate capabilities:
   reference and is never an automatic fallback.
 
 The governed pipeline contract is in `docs/contracts/catalog-to-snowflake/`.
+NOAA nClimGrid-Daily scaled monthly county-day context is specified in
+[`docs/contracts/climate/nclimgrid-daily-v1.md`](docs/contracts/climate/nclimgrid-daily-v1.md).
+The bounded January 2025 SourceDefinition is
+[`config/sources/noaa_nclimgrid_daily_202501.yml`](config/sources/noaa_nclimgrid_daily_202501.yml).
+The adapter uses `h5netcdf` with its required `h5py` HDF5 backend to read NOAA's
+NetCDF4 artifact day by day; neither library changes the governed run/replay path.
 See workspace ADR 0005 and data ADR 0027 (tiered operating model) before
 changing ingestion governance. Simplified onboarding uses `atlas-data source`
 and `atlas-data runs` — see

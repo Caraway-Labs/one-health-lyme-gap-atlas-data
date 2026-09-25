@@ -20,6 +20,7 @@ class AdapterKind(StrEnum):
     HTTP_JSON = "http_json"
     HTTP_CSV = "http_csv"
     NEON_RELEASE_PACKAGE = "neon_release_package"
+    NCLIMGRID_DAILY = "nclimgrid_daily"
 
 
 class AuthMode(StrEnum):

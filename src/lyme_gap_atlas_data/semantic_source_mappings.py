@@ -40,6 +40,12 @@ _SOURCE_FIELDS = (
     "source_record_id",
     "source_row_hash",
 )
+_NCLIMGRID_MEASURES = {
+    "nclimgrid_prcp": ("PRCP", "prcp"),
+    "nclimgrid_tmin": ("TMIN", "tmin"),
+    "nclimgrid_tmax": ("TMAX", "tmax"),
+    "nclimgrid_tavg": ("TAVG", "tavg"),
+}
 
 
 class SemanticMappingError(ValueError):
@@ -174,7 +180,17 @@ def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tupl
     mapping_id = mapping["id"]
     value: Any
     state: str
-    if mapping_id == "source_only":
+    if mapping_id in _NCLIMGRID_MEASURES:
+        coverage = output.get("coverage_status")
+        if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
+        elif coverage in {"PARTIAL_COVERAGE", "SOURCE_MISSING"} and raw is None:
+            value, state = None, "MISSING"
+        elif coverage == "OUT_OF_SOURCE_COVERAGE" and raw is None:
+            value, state = None, "UNAVAILABLE"
+        else:
+            raise SemanticMappingError("invalid nClimGrid coverage/value state")
+    elif mapping_id == "source_only":
         if raw not in {"UNMAPPED", "AMBIGUOUS"}:
             raise SemanticMappingError("source-only output must remain unresolved")
         value, state = None, "UNKNOWN"
@@ -238,7 +254,40 @@ def _check_output_scope(
     output = record["source_output"]
     geography = record["geography"]
     temporal = record["temporal"]
-    if mapping["id"] in {"neon_collection", "neon_pathogen_test"}:
+    if mapping["id"] in _NCLIMGRID_MEASURES:
+        if len(edges) != 2:
+            raise SemanticMappingError("nClimGrid requires NOAA and TIGER lineage edges")
+        measure, source_variable = _NCLIMGRID_MEASURES[mapping["id"]]
+        expected_id = (
+            f"{mapping['resource_key']}:{geography.get('county_fips')}:"
+            f"{output.get('observation_date')}:{measure}"
+        )
+        if (
+            output.get("id") != expected_id
+            or output.get("measure") != measure
+            or output.get("source_variable") != source_variable
+            or output.get("county_fips") != geography.get("county_fips")
+            or temporal.get("start") != output.get("observation_date")
+            or temporal.get("end") != output.get("observation_date")
+            or output.get("unit") != record.get("unit")
+            or (output.get("coverage_status") == "OUT_OF_SOURCE_COVERAGE")
+            != str(output.get("county_fips", "")).startswith(("02", "15"))
+            or not all(
+                output.get(field)
+                for field in (
+                    "grid_id",
+                    "geometry_digest",
+                    "noaa_sha256",
+                    "tiger_sha256",
+                    "weight_version",
+                )
+            )
+            or output.get("noaa_sha256") != edges[0].get("artifact_sha256")
+            or output.get("tiger_sha256") != edges[1].get("artifact_sha256")
+            or edges[0].get("ingestion_run_id") != edges[1].get("ingestion_run_id")
+        ):
+            raise SemanticMappingError("nClimGrid source output or two-member lineage mismatch")
+    elif mapping["id"] in {"neon_collection", "neon_pathogen_test"}:
         expected_type = (
             "COLLECTION_ABUNDANCE" if mapping["id"] == "neon_collection" else "PATHOGEN_TESTING"
         )
@@ -352,8 +401,29 @@ def map_record(
         or not all(isinstance(edge, Mapping) for edge in edges)
     ):
         raise SemanticMappingError("source lineage edges required")
-    for edge in edges:
-        _bind_source(edge, mapping, authority)
+    if mapping_id in _NCLIMGRID_MEASURES:
+        if len(edges) != 2:
+            raise SemanticMappingError("nClimGrid requires NOAA and TIGER lineage edges")
+        _bind_source(edges[0], mapping, authority)
+        versions = authority.get("source_versions")
+        tiger = (
+            versions.get(edges[1].get("source_version_id"))
+            if isinstance(versions, Mapping)
+            else None
+        )
+        if (
+            not isinstance(tiger, Mapping)
+            or tiger.get("approved") is not True
+            or any(
+                edges[1].get(field) != tiger.get(field)
+                for field in ("resource_key", "source_id", "dataset_id", "source_vintage")
+            )
+            or edges[1].get("source_vintage") != "2025"
+        ):
+            raise SemanticMappingError("approved 2025 TIGER lineage required")
+    else:
+        for edge in edges:
+            _bind_source(edge, mapping, authority)
     validate_metadata(metadata)
     if metadata["steward_review"]["state"] != "REVIEWED" and not (
         fixture_mode and record.get("fixture") is True
