@@ -8,11 +8,14 @@ import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
 from ..settings import PipelineSettings
 from .adapters import AcquisitionError, SourceAdapter, StreamingSourceAdapter, get_adapter
+from .artifact_replay import ArtifactMember, validate_members
 from .checkpoints import (
+    ArtifactMemberStore,
+    ArtifactMemberWriter,
     BinaryArtifactStore,
     CheckpointStore,
     InMemoryCheckpointStore,
@@ -22,7 +25,13 @@ from .checkpoints import (
 )
 from .identity import deterministic_record_id
 from .partitioning import partition_records
-from .runtime import NoopStageEffects, QualityFailure, SnowflakeStageEffects, StageEffects
+from .runtime import (
+    NoopStageEffects,
+    QualityFailure,
+    SnowflakeStageEffects,
+    StageEffects,
+    _acquisition_artifacts,
+)
 from .source_definition import validate_source_definition
 from .types import (
     FailureCategory,
@@ -35,6 +44,15 @@ from .types import (
     Tier,
     ValidationResult,
 )
+
+
+@runtime_checkable
+class RetainedArtifactSourceAdapter(Protocol):
+    """Optional adapter hook for named binary inputs from a retained run."""
+
+    def restore_artifacts(
+        self, definition: SourceDefinition, run_id: str, store: ArtifactMemberStore
+    ) -> Any: ...
 
 
 class IngestionOrchestrator:
@@ -146,13 +164,32 @@ class IngestionOrchestrator:
             raise TypeError("Streaming adapter requires a partition checkpoint store")
         payload = self._payloads.get(state.ingestion_run_id)
         normalized = self._normalized.get(state.ingestion_run_id)
-        if payload is None and isinstance(self.store, PayloadStore):
+        member_adapter = isinstance(adapter, RetainedArtifactSourceAdapter)
+        acquired_checkpoint = state.checkpoint(Stage.ACQUIRE)
+        has_members = bool(
+            acquired_checkpoint is not None
+            and isinstance(acquired_checkpoint.detail.get("artifacts"), list)
+            and len(acquired_checkpoint.detail["artifacts"]) > 1
+        )
+        if (
+            payload is None
+            and not (member_adapter and has_members)
+            and isinstance(self.store, PayloadStore)
+        ):
             payload = self.store.load_payload(state.ingestion_run_id)
-        if payload is None and isinstance(self.store, BinaryArtifactStore):
+        if (
+            payload is None
+            and not (member_adapter and has_members)
+            and isinstance(self.store, BinaryArtifactStore)
+        ):
             raw_binary = self.store.load_binary_artifact(state.ingestion_run_id)
             if raw_binary is not None:
                 payload = adapter.restore_raw_payload(definition, raw_binary)
-        if payload is None and isinstance(self.store, RawArtifactStore):
+        if (
+            payload is None
+            and not (member_adapter and has_members)
+            and isinstance(self.store, RawArtifactStore)
+        ):
             raw_payload = self.store.load_source_artifact(state.ingestion_run_id)
             if raw_payload is not None:
                 payload = adapter.restore_raw_payload(definition, raw_payload)
@@ -198,6 +235,9 @@ class IngestionOrchestrator:
                     else:
                         acquired = adapter.acquire(definition, fixture_dir=self.fixture_dir)
                         payload = acquired.payload
+                        source_members = _acquisition_artifacts(
+                            acquired, definition.endpoint_template
+                        )
                         artifact = effects.register_artifact(definition, state, acquired)
                         if isinstance(payload, dict):
                             payload["_acquisition_lineage"] = {
@@ -206,7 +246,22 @@ class IngestionOrchestrator:
                                 "retrieved_at": datetime.now(UTC).isoformat(),
                             }
                         self._payloads[state.ingestion_run_id] = payload
-                        if isinstance(payload, bytes):
+                        if len(source_members) > 1 and isinstance(self.store, ArtifactMemberWriter):
+                            metadata = validate_members(
+                                ArtifactMember.from_dict(item) for item in artifact["artifacts"]
+                            )
+                            by_name = {item.name: item for item in source_members}
+                            for member in metadata:
+                                self.store.save_artifact_member(
+                                    member, by_name[member.name].payload
+                                )
+                        elif (
+                            len(source_members) > 1
+                            and member_adapter
+                            and not isinstance(self.store, ArtifactMemberStore)
+                        ):
+                            raise TypeError("Named replay requires an artifact member store")
+                        if isinstance(payload, bytes) and len(source_members) == 1:
                             if isinstance(self.store, BinaryArtifactStore):
                                 self.store.save_binary_artifact(
                                     state.ingestion_run_id, payload, acquired.artifact_sha256
@@ -215,7 +270,9 @@ class IngestionOrchestrator:
                                 raise TypeError(
                                     "Binary replay requires an artifact checkpoint store"
                                 )
-                        elif isinstance(self.store, PayloadStore):
+                        elif isinstance(self.store, PayloadStore) and not (
+                            member_adapter and len(source_members) > 1
+                        ):
                             self.store.save_payload(state.ingestion_run_id, payload)
                         checkpoint.artifact_id = str(artifact["artifact_id"])
                         checkpoint.artifact_sha256 = str(artifact["artifact_sha256"])
@@ -225,7 +282,13 @@ class IngestionOrchestrator:
                             **(acquired.detail or {}),
                             **artifact,
                         }
+                        if member_adapter and len(source_members) > 1:
+                            has_members = True
+                            payload = None
+                            self._payloads.pop(state.ingestion_run_id, None)
                 elif checkpoint.stage is Stage.VALIDATE:
+                    if member_adapter and has_members:
+                        payload = self._restore_member_payload(adapter, definition, state)
                     if payload is None and not state.dry_run:
                         raise RuntimeError("VALIDATE requires ACQUIRE payload")
                     if payload is not None:
@@ -239,6 +302,8 @@ class IngestionOrchestrator:
                             )
                     checkpoint.detail = {"ok": True}
                 elif checkpoint.stage is Stage.NORMALIZE:
+                    if payload is None and member_adapter and has_members:
+                        payload = self._restore_member_payload(adapter, definition, state)
                     if state.dry_run and payload is None:
                         checkpoint.transformation_version = "dry-run"
                         checkpoint.detail = {"planned": True}
@@ -373,6 +438,26 @@ class IngestionOrchestrator:
         if state.tier in {Tier.B, Tier.C} and not state.dry_run:
             return SnowflakeStageEffects()
         return NoopStageEffects()
+
+    def _restore_member_payload(
+        self, adapter: SourceAdapter, definition: SourceDefinition, state: RunState
+    ) -> Any:
+        if not isinstance(adapter, RetainedArtifactSourceAdapter):
+            raise TypeError("Adapter does not support retained artifact members")
+        if not isinstance(self.store, ArtifactMemberStore):
+            raise TypeError("Named replay requires an artifact member store")
+        checkpoint = state.checkpoint(Stage.ACQUIRE)
+        if checkpoint is None:
+            raise ValueError("ACQUIRE checkpoint is missing")
+        expected = validate_members(
+            ArtifactMember.from_dict(item) for item in checkpoint.detail["artifacts"]
+        )
+        observed = self.store.list_artifact_members(state.ingestion_run_id)
+        if expected != observed:
+            raise ValueError("Retained artifact member set mismatch")
+        for member in expected:
+            self.store.load_artifact_member(state.ingestion_run_id, name=member.name)
+        return adapter.restore_artifacts(definition, state.ingestion_run_id, self.store)
 
     def _validate_partition_identities(self, definition: SourceDefinition, run_id: str) -> None:
         """Reject duplicate logical rows with a bounded disk-backed index."""
