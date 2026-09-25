@@ -23,7 +23,7 @@ from ..redaction import redact_mapping
 from ..settings import PipelineSettings
 from .adapters import AcquireResult, AcquisitionArtifact
 from .identity import deterministic_record_id, publisher_record_id, source_row_hash
-from .types import RunState, SourceDefinition
+from .types import RunState, SourceDefinition, Stage
 
 
 class StageEffects(Protocol):
@@ -43,8 +43,16 @@ class StageEffects(Protocol):
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]: ...
 
+    def quality_partitioned(
+        self, definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
+    ) -> dict[str, Any]: ...
+
     def publish(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
+    ) -> dict[str, Any]: ...
+
+    def publish_partitioned(
+        self, definition: SourceDefinition, state: RunState, record_count: int
     ) -> dict[str, Any]: ...
 
 
@@ -66,7 +74,7 @@ class NoopStageEffects:
         artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
         primary = artifacts[0]
         return {
-            "artifact_id": f"planned:{acquired.artifact_sha256[:32]}",
+            "artifact_id": f"planned:{state.ingestion_run_id}:{acquired.artifact_sha256[:32]}",
             "artifact_sha256": acquired.artifact_sha256,
             "artifact_uri": None,
             "artifacts": [
@@ -103,6 +111,14 @@ class NoopStageEffects:
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
         results = evaluate_quality_rules(definition, records)
+        return self._quality_result(results)
+
+    def quality_partitioned(
+        self, definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self._quality_result(evaluate_quality_rules_streaming(definition, records))
+
+    def _quality_result(self, results: list[dict[str, Any]]) -> dict[str, Any]:
         failed = [result for result in results if result["status"] == "FAILED"]
         if failed:
             raise QualityFailure(str(failed[0]["rule_id"]), failed[0])
@@ -111,9 +127,14 @@ class NoopStageEffects:
     def publish(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        return self.publish_partitioned(definition, state, len(records))
+
+    def publish_partitioned(
+        self, definition: SourceDefinition, state: RunState, record_count: int
+    ) -> dict[str, Any]:
         return {
             "status": "STAGED",
-            "record_count": len(records),
+            "record_count": record_count,
             "target_relation": definition.destination,
             "wrote": False,
             "publication_protected": state.tier.value == "C",
@@ -160,15 +181,11 @@ class SnowflakeStageEffects:
                         ContentType=source_artifact.media_type,
                     )
                     request_id = f"{state.ingestion_run_id}:ACQUIRE:{sequence}"
-                    # A package may include byte-identical members from distinct
-                    # source requests. Preserve their individual request lineage
-                    # while retaining the original stable ID for legacy single
-                    # artifact adapters.
+                    # Each capture has its own immutable run/artifact link.
+                    # The full SHA-256 remains the stable cross-run content identity.
                     artifact_id = (
-                        f"{definition.resource_key}:{artifact.sha256[:32]}"
-                        if len(artifacts) == 1
-                        else f"{definition.resource_key}:{state.ingestion_run_id}:{sequence}:"
-                        f"{artifact.sha256[:32]}"
+                        f"{definition.resource_key}:{state.ingestion_run_id}:"
+                        f"{sequence}:{artifact.sha256[:32]}"
                     )
                     cursor.execute(
                         """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
@@ -288,6 +305,16 @@ class SnowflakeStageEffects:
                 batches = _execute_upsert_batches(
                     cursor, "RAW.GOVERNED_SOURCE_RECORDS", "loaded_at", rows
                 )
+                artifact = state.checkpoint(Stage.ACQUIRE)
+                if artifact is not None and artifact.artifact_id and artifact.artifact_sha256:
+                    normalization = state.checkpoint(Stage.NORMALIZE)
+                    _insert_revisions(
+                        cursor,
+                        rows,
+                        artifact.artifact_id,
+                        artifact.artifact_sha256,
+                        normalization.transformation_version if normalization else None,
+                    )
             connection.commit()
         return {
             "destination": definition.destination,
@@ -302,6 +329,14 @@ class SnowflakeStageEffects:
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
         results = evaluate_quality_rules(definition, records)
+        return self._quality_result(state, results)
+
+    def quality_partitioned(
+        self, definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self._quality_result(state, evaluate_quality_rules_streaming(definition, records))
+
+    def _quality_result(self, state: RunState, results: list[dict[str, Any]]) -> dict[str, Any]:
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
@@ -341,6 +376,11 @@ class SnowflakeStageEffects:
     def publish(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        return self.publish_partitioned(definition, state, len(records))
+
+    def publish_partitioned(
+        self, definition: SourceDefinition, state: RunState, record_count: int
+    ) -> dict[str, Any]:
         publication_id = _stable_id(f"publication:{state.ingestion_run_id}")
         lineage = {
             "source_id": definition.source_id,
@@ -374,7 +414,7 @@ class SnowflakeStageEffects:
                         state.ingestion_run_id,
                         definition.definition_version,
                         definition.destination,
-                        len(records),
+                        record_count,
                         json.dumps(lineage, separators=(",", ":")),
                     ),
                 )
@@ -383,7 +423,7 @@ class SnowflakeStageEffects:
             "status": "STAGED",
             "publication_id": publication_id,
             "target_relation": definition.destination,
-            "record_count": len(records),
+            "record_count": record_count,
             "wrote": True,
         }
 
@@ -495,6 +535,76 @@ def evaluate_quality_rules(
     return results
 
 
+def evaluate_quality_rules_streaming(
+    definition: SourceDefinition, records: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Evaluate the declared vocabulary in one pass without retaining rows."""
+    total = 0
+    source_count = 0
+    missing_geography = 0
+    invalid_year_count = 0
+    invalid_year_examples: list[object] = []
+    missing_columns: set[str] = set()
+    geography_keys = ("fips", "FIPS", "FIPSCode", "county_fips", "geography", "STCNTY", "GEOID")
+    minimum = definition.extra.get("minimum_year")
+    maximum = definition.extra.get("maximum_year")
+    for normalized in records:
+        total += 1
+        row = normalized.get("record")
+        if not isinstance(row, dict):
+            continue
+        source_count += 1
+        if not any(row.get(key) not in (None, "") for key in geography_keys):
+            missing_geography += 1
+        missing_columns.update(
+            column for column in definition.required_columns if column not in row
+        )
+        if minimum is not None and maximum is not None:
+            try:
+                year = int(str(row.get("year")))
+            except (TypeError, ValueError):
+                year = None
+            if year is None or not int(minimum) <= year <= int(maximum):
+                invalid_year_count += 1
+                if len(invalid_year_examples) < 20:
+                    invalid_year_examples.append(row.get("year"))
+    results: list[dict[str, Any]] = []
+    for rule in definition.quality_rules:
+        rule_id = rule.rule_id.casefold()
+        observed: Any = source_count
+        expected: Any = "at_least_one_record"
+        passed = source_count > 0
+        if "geography" in rule_id:
+            observed = {"record_count": source_count, "missing_geography": missing_geography}
+            expected = {"missing_geography": 0}
+            passed = source_count > 0 and missing_geography == 0
+        elif "value_state" in rule_id or "preservation" in rule_id:
+            observed = {"record_count": source_count, "raw_rows_preserved": source_count == total}
+            expected = {"raw_rows_preserved": True}
+            passed = source_count > 0 and source_count == total
+        elif "era" in rule_id and minimum is not None:
+            observed = {
+                "invalid_year_count": invalid_year_count,
+                "invalid_year_examples": invalid_year_examples,
+            }
+            expected = {"invalid_year_count": 0}
+            passed = source_count > 0 and invalid_year_count == 0
+        elif "required" in rule_id and definition.required_columns:
+            observed = {"missing_columns": sorted(missing_columns)}
+            expected = {"missing_columns": []}
+            passed = source_count > 0 and not missing_columns
+        results.append(
+            {
+                "rule_id": rule.rule_id,
+                "severity": rule.severity,
+                "status": "PASSED" if passed else "FAILED",
+                "expected": expected,
+                "observed": observed,
+            }
+        )
+    return results
+
+
 def _acquisition_artifacts(
     acquired: AcquireResult, default_source_uri: str
 ) -> tuple[AcquisitionArtifact, ...]:
@@ -507,6 +617,8 @@ def _acquisition_artifacts(
     if acquired.artifacts:
         return acquired.artifacts
     raw = acquired.raw_payload
+    if raw is None and isinstance(acquired.payload, bytes):
+        raw = acquired.payload
     if raw is None:
         raw = json.dumps(
             acquired.payload, separators=(",", ":"), sort_keys=True, default=str
@@ -527,6 +639,12 @@ def _lineage_rows(
     definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
+    acquisition = state.checkpoint(Stage.ACQUIRE)
+    retrieved_at = (
+        datetime.fromisoformat(acquisition.completed_at)
+        if acquisition is not None and acquisition.completed_at
+        else datetime.now(UTC)
+    )
     for normalized in records:
         source_row = normalized.get("record")
         if not isinstance(source_row, dict):
@@ -548,7 +666,7 @@ def _lineage_rows(
                 str(source_record_id) if source_record_id is not None else None,
                 source_hash,
                 serialized,
-                datetime.now(UTC),
+                retrieved_at,
             )
         )
     return rows
@@ -565,7 +683,7 @@ def _upsert_sql(relation: str, timestamp_column: str) -> str:
 
 
 def _upsert_sql_for_values(relation: str, timestamp_column: str, values: str) -> str:
-    """Build the shared row projection MERGE for a set of bound VALUES rows."""
+    """Insert the first projection only; later revisions live in the ledger."""
     return f"""MERGE INTO {relation} target
 USING (SELECT column1 AS record_id, column2 AS source_id, column3 AS dataset_id,
               column4 AS resource_key, column5 AS source_definition_version,
@@ -575,13 +693,6 @@ USING (SELECT column1 AS record_id, column2 AS source_id, column3 AS dataset_id,
        FROM VALUES
     {values}) source
 ON target.record_id=source.record_id
-WHEN MATCHED THEN UPDATE SET
-  source_id=source.source_id, dataset_id=source.dataset_id,
-  resource_key=source.resource_key,
-  source_definition_version=source.source_definition_version,
-  ingestion_run_id=source.ingestion_run_id, source_record_id=source.source_record_id,
-  source_row_hash=source.source_row_hash, payload=source.payload,
-  retrieved_at=source.retrieved_at, {timestamp_column}=CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN INSERT
   (record_id, source_id, dataset_id, resource_key, source_definition_version,
    ingestion_run_id, source_record_id, source_row_hash, payload, retrieved_at,
@@ -615,3 +726,94 @@ def _execute_upsert_batches(
 _UPSERT_RAW_SQL = _upsert_sql("RAW.GOVERNED_SOURCE_RECORDS", "loaded_at")
 _UPSERT_STAGING_SQL = _upsert_sql("STAGING.GOVERNED_SOURCE_RECORDS", "normalized_at")
 _UPSERT_CONFORMED_SQL = _upsert_sql("CONFORMED.GOVERNED_SOURCE_RECORDS", "conformed_at")
+
+
+def _insert_revisions(
+    cursor: Any,
+    rows: list[tuple[Any, ...]],
+    artifact_id: str,
+    artifact_sha256: str,
+    transformation_version: str | None,
+) -> None:
+    """Retain one immutable revision for each logical row and artifact content."""
+    for start in range(0, len(rows), _UPSERT_BATCH_SIZE):
+        batch = rows[start : start + _UPSERT_BATCH_SIZE]
+        identities = [str(row[0]) for row in batch]
+        if len(identities) != len(set(identities)):
+            raise ValueError("Duplicate logical record in normalized partition")
+        placeholders = ", ".join("%s" for _ in identities)
+        cursor.execute(
+            "SELECT record_id, source_row_hash, normalized_sha256 FROM "
+            "GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS "
+            f"WHERE artifact_sha256=%s AND transformation_version=%s "
+            f"AND record_id IN ({placeholders})",
+            (artifact_sha256, transformation_version or "unspecified", *identities),
+        )
+        prior = {
+            str(record_id): (str(source_digest), str(normalized_digest))
+            for record_id, source_digest, normalized_digest in cursor.fetchall()
+        }
+        for row in batch:
+            normalized_digest = hashlib.sha256(str(row[8]).encode("utf-8")).hexdigest()
+            if str(row[0]) in prior and prior[str(row[0])] != (
+                str(row[7]),
+                normalized_digest,
+            ):
+                raise ValueError("Conflicting logical record in one source artifact")
+        values = ",\n    ".join("(" + ", ".join(["%s"] * 15) + ")" for _ in batch)
+        projected = []
+        for row in batch:
+            normalized_digest = hashlib.sha256(str(row[8]).encode("utf-8")).hexdigest()
+            record_revision = _stable_id(
+                f"record-revision:{row[0]}:{artifact_sha256}:{row[7]}:"
+                f"{normalized_digest}:{transformation_version or 'unspecified'}"
+            )
+            projected.append(
+                (
+                    record_revision,
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    artifact_id,
+                    artifact_sha256,
+                    row[7],
+                    normalized_digest,
+                    transformation_version or "unspecified",
+                    row[8],
+                    row[9],
+                    datetime.now(UTC),
+                )
+            )
+        cursor.execute(
+            """MERGE INTO GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS target
+            USING (SELECT column1 AS record_revision, column2 AS record_id,
+                          column3 AS source_id, column4 AS dataset_id,
+                          column5 AS resource_key, column6 AS source_definition_version,
+                          column7 AS ingestion_run_id, column8 AS artifact_id,
+                          column9 AS artifact_sha256, column10 AS source_row_hash,
+                          column11 AS normalized_sha256,
+                          column12 AS transformation_version,
+                          PARSE_JSON(column13) AS payload, column14 AS retrieved_at,
+                          column15 AS observed_at
+                   FROM VALUES
+    """
+            + values
+            + """ ) source
+            ON target.record_revision=source.record_revision
+            WHEN NOT MATCHED THEN INSERT
+              (record_revision, record_id, source_id, dataset_id, resource_key,
+               source_definition_version, ingestion_run_id, artifact_id,
+               artifact_sha256, source_row_hash, normalized_sha256,
+               transformation_version, payload, retrieved_at, observed_at)
+              VALUES (source.record_revision, source.record_id, source.source_id,
+                      source.dataset_id, source.resource_key,
+                      source.source_definition_version, source.ingestion_run_id,
+                      source.artifact_id, source.artifact_sha256,
+                      source.source_row_hash, source.normalized_sha256,
+                      source.transformation_version, source.payload,
+                      source.retrieved_at, source.observed_at)""",
+            tuple(value for item in projected for value in item),
+        )

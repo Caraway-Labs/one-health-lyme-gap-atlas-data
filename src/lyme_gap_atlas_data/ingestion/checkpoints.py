@@ -7,7 +7,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 from urllib.parse import urlsplit
@@ -18,6 +18,12 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from ..settings import PipelineSettings
+from .partitioning import (
+    MAX_PARTITION_BYTES,
+    MAX_PARTITION_ROWS,
+    NormalizedPartition,
+    canonical_bytes,
+)
 from .types import FailureCategory, RunState, RunStatus, Stage, StageCheckpoint, StageStatus, Tier
 
 
@@ -45,6 +51,24 @@ class RawArtifactStore(Protocol):
     def load_source_artifact(self, run_id: str) -> bytes | None: ...
 
 
+@runtime_checkable
+class PartitionStore(Protocol):
+    def save_partition(self, run_id: str, partition: NormalizedPartition) -> None: ...
+
+    def iter_partitions(self, run_id: str) -> Iterator[NormalizedPartition]: ...
+
+    def complete_partitions(self, run_id: str, count: int) -> None: ...
+
+    def partitions_complete(self, run_id: str) -> bool: ...
+
+
+@runtime_checkable
+class BinaryArtifactStore(Protocol):
+    def save_binary_artifact(self, run_id: str, content: bytes, sha256: str) -> None: ...
+
+    def load_binary_artifact(self, run_id: str) -> bytes | None: ...
+
+
 class InMemoryCheckpointStore:
     """Tier A / test store. Same RunState shape as durable storage."""
 
@@ -52,6 +76,9 @@ class InMemoryCheckpointStore:
         self._runs: dict[str, RunState] = {}
         self._payloads: dict[str, object] = {}
         self._normalized: dict[str, list[dict[str, object]]] = {}
+        self._binary: dict[str, tuple[bytes, str]] = {}
+        self._partitions: dict[str, dict[int, NormalizedPartition]] = {}
+        self._complete: dict[str, int] = {}
 
     def save(self, state: RunState) -> None:
         self._runs[state.ingestion_run_id] = state
@@ -74,6 +101,45 @@ class InMemoryCheckpointStore:
     def load_normalized(self, run_id: str) -> list[dict[str, object]] | None:
         return self._normalized.get(run_id)
 
+    def save_binary_artifact(self, run_id: str, content: bytes, sha256: str) -> None:
+        _verify_binary(content, sha256)
+        previous = self._binary.get(run_id)
+        if previous is not None and previous != (content, sha256):
+            raise ValueError("Binary artifact checkpoint mismatch")
+        self._binary[run_id] = (content, sha256)
+
+    def load_binary_artifact(self, run_id: str) -> bytes | None:
+        item = self._binary.get(run_id)
+        if item is None:
+            return None
+        _verify_binary(*item)
+        return item[0]
+
+    def save_partition(self, run_id: str, partition: NormalizedPartition) -> None:
+        _verify_partition(partition)
+        existing = self._partitions.setdefault(run_id, {}).get(partition.ordinal)
+        if existing is not None and existing != partition:
+            raise ValueError("Normalized partition checkpoint mismatch")
+        if run_id in self._complete and existing is None:
+            raise ValueError("Completed partition set cannot be extended")
+        self._partitions[run_id][partition.ordinal] = partition
+
+    def iter_partitions(self, run_id: str) -> Iterator[NormalizedPartition]:
+        for ordinal, item in sorted(self._partitions.get(run_id, {}).items()):
+            if ordinal != item.ordinal:
+                raise ValueError("Normalized partition ordinal mismatch")
+            _verify_partition(item)
+            yield item
+
+    def complete_partitions(self, run_id: str, count: int) -> None:
+        _verify_partition_set(self.iter_partitions(run_id), count)
+        if run_id in self._complete and self._complete[run_id] != count:
+            raise ValueError("Completed partition count mismatch")
+        self._complete[run_id] = count
+
+    def partitions_complete(self, run_id: str) -> bool:
+        return run_id in self._complete
+
 
 class FileCheckpointStore:
     """Local durable store for developer loops without Snowflake."""
@@ -92,7 +158,7 @@ class FileCheckpointStore:
             raise ValueError("Invalid ingestion_run_id")
         return self.root / f"{run_id}.json"
 
-    def _write_json(self, path: Path, payload: object) -> None:
+    def _write_json(self, path: Path, payload: object, *, compact: bool = False) -> None:
         temporary: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -104,7 +170,13 @@ class FileCheckpointStore:
                 delete=False,
             ) as handle:
                 temporary = Path(handle.name)
-                json.dump(payload, handle, indent=2, separators=(",", ":"), default=str)
+                json.dump(
+                    payload,
+                    handle,
+                    indent=None if compact else 2,
+                    separators=(",", ":"),
+                    default=str,
+                )
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, path)
@@ -152,6 +224,81 @@ class FileCheckpointStore:
         if not all(isinstance(item, dict) for item in payload):
             raise ValueError("Persisted normalized payload contains a non-object row")
         return [dict(item) for item in payload]
+
+    def _binary_path(self, run_id: str) -> Path:
+        return self._path(run_id).with_suffix(".artifact.bin")
+
+    def save_binary_artifact(self, run_id: str, content: bytes, sha256: str) -> None:
+        _verify_binary(content, sha256)
+        path = self._binary_path(run_id)
+        if path.exists():
+            if path.read_bytes() != content:
+                raise ValueError("Binary artifact checkpoint mismatch")
+            metadata_path = self._payload_path(run_id, "artifact-meta")
+            if not metadata_path.exists():
+                self._write_json(metadata_path, {"sha256": sha256})
+            elif self.load_binary_artifact(run_id) != content:
+                raise ValueError("Binary artifact checkpoint mismatch")
+            return
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.root, delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            temporary = None
+            self._write_json(self._payload_path(run_id, "artifact-meta"), {"sha256": sha256})
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def load_binary_artifact(self, run_id: str) -> bytes | None:
+        path = self._binary_path(run_id)
+        if not path.exists():
+            return None
+        metadata_path = self._payload_path(run_id, "artifact-meta")
+        if not metadata_path.exists():
+            raise ValueError("Binary artifact metadata missing")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        content = path.read_bytes()
+        _verify_binary(content, str(metadata["sha256"]))
+        return content
+
+    def _partition_path(self, run_id: str, ordinal: int) -> Path:
+        if ordinal < 0:
+            raise ValueError("Negative partition ordinal")
+        return self._payload_path(run_id, f"part-{ordinal:08d}")
+
+    def save_partition(self, run_id: str, partition: NormalizedPartition) -> None:
+        _verify_partition(partition)
+        path = self._partition_path(run_id, partition.ordinal)
+        if path.exists():
+            if _read_partition(path) != partition:
+                raise ValueError("Normalized partition checkpoint mismatch")
+            return
+        if self.partitions_complete(run_id):
+            raise ValueError("Completed partition set cannot be extended")
+        self._write_json(path, _partition_document(partition), compact=True)
+
+    def iter_partitions(self, run_id: str) -> Iterator[NormalizedPartition]:
+        self._path(run_id)  # validate run ID
+        for path in sorted(self.root.glob(f"{run_id}.part-*.json")):
+            yield _read_partition(path)
+
+    def complete_partitions(self, run_id: str, count: int) -> None:
+        _verify_partition_set(self.iter_partitions(run_id), count)
+        path = self._payload_path(run_id, "partitions-complete")
+        if path.exists():
+            previous = json.loads(path.read_text(encoding="utf-8"))
+            if previous != {"count": count}:
+                raise ValueError("Completed partition count mismatch")
+            return
+        self._write_json(path, {"count": count})
+
+    def partitions_complete(self, run_id: str) -> bool:
+        return self._payload_path(run_id, "partitions-complete").exists()
 
 
 class SnowflakeCheckpointStore:
@@ -250,6 +397,115 @@ class SnowflakeCheckpointStore:
         if not all(isinstance(item, dict) for item in value):
             raise ValueError("Persisted normalized payload contains a non-object row")
         return [dict(item) for item in value]
+
+    def save_partition(self, run_id: str, partition: NormalizedPartition) -> None:
+        _verify_partition(partition)
+        serialized = canonical_bytes(list(partition.records)).decode("utf-8")
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT partition_count
+                    FROM GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS
+                    WHERE ingestion_run_id=%s""",
+                    (run_id,),
+                )
+                completion = cursor.fetchone()
+                if completion is not None and partition.ordinal >= int(completion[0]):
+                    raise ValueError("Completed partition set cannot be extended")
+                cursor.execute(
+                    """MERGE INTO GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS target
+                    USING (SELECT %s AS ingestion_run_id, %s AS partition_ordinal,
+                                  %s AS partition_id, %s AS value_sha256,
+                                  %s AS row_count, %s AS byte_count,
+                                  PARSE_JSON(%s) AS records) source
+                    ON target.ingestion_run_id=source.ingestion_run_id
+                       AND target.partition_ordinal=source.partition_ordinal
+                    WHEN NOT MATCHED THEN INSERT
+                      (ingestion_run_id, partition_ordinal, partition_id,
+                       value_sha256, row_count, byte_count, records)
+                      VALUES (source.ingestion_run_id, source.partition_ordinal,
+                              source.partition_id, source.value_sha256,
+                              source.row_count, source.byte_count, source.records)""",
+                    (
+                        run_id,
+                        partition.ordinal,
+                        partition.partition_id,
+                        partition.sha256,
+                        len(partition.records),
+                        partition.byte_count,
+                        serialized,
+                    ),
+                )
+                cursor.execute(
+                    """SELECT partition_id, value_sha256, row_count, byte_count
+                    FROM GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS
+                    WHERE ingestion_run_id=%s AND partition_ordinal=%s""",
+                    (run_id, partition.ordinal),
+                )
+                stored = cursor.fetchone()
+                if stored is None or tuple(str(item) for item in stored) != (
+                    partition.partition_id,
+                    partition.sha256,
+                    str(len(partition.records)),
+                    str(partition.byte_count),
+                ):
+                    raise ValueError("Normalized partition checkpoint mismatch")
+            connection.commit()
+
+    def iter_partitions(self, run_id: str) -> Iterator[NormalizedPartition]:
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT partition_ordinal, value_sha256, byte_count, records
+                FROM GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS
+                WHERE ingestion_run_id=%s ORDER BY partition_ordinal""",
+                (run_id,),
+            )
+            for ordinal, digest, byte_count, records in cursor:
+                if isinstance(records, str):
+                    records = json.loads(records)
+                yield _partition_from_document(
+                    {
+                        "ordinal": ordinal,
+                        "sha256": digest,
+                        "byte_count": byte_count,
+                        "records": records,
+                    }
+                )
+
+    def complete_partitions(self, run_id: str, count: int) -> None:
+        _verify_partition_set(self.iter_partitions(run_id), count)
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """MERGE INTO GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS target
+                    USING (SELECT %s AS ingestion_run_id, %s AS partition_count) source
+                    ON target.ingestion_run_id=source.ingestion_run_id
+                    WHEN NOT MATCHED THEN INSERT (ingestion_run_id, partition_count)
+                      VALUES (source.ingestion_run_id, source.partition_count)""",
+                    (run_id, count),
+                )
+                cursor.execute(
+                    """SELECT partition_count
+                    FROM GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS
+                    WHERE ingestion_run_id=%s""",
+                    (run_id,),
+                )
+                stored = cursor.fetchone()
+                if stored is None or int(stored[0]) != count:
+                    raise ValueError("Normalized partition completion mismatch")
+            connection.commit()
+
+    def partitions_complete(self, run_id: str) -> bool:
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT partition_count
+                FROM GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS
+                WHERE ingestion_run_id=%s""",
+                (run_id,),
+            )
+            return cursor.fetchone() is not None
 
     def _save_json_document(
         self, *, table: str, value_column: str, run_id: str, value: object
@@ -468,6 +724,64 @@ def _sha256(value: str) -> str:
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _verify_binary(content: bytes, sha256: str) -> None:
+    if _sha256_bytes(content) != sha256:
+        raise ValueError("Binary artifact checksum mismatch")
+
+
+def _verify_partition(partition: NormalizedPartition) -> None:
+    if partition.ordinal < 0 or not partition.records:
+        raise ValueError("Normalized partition must have a nonnegative ordinal and rows")
+    if len(partition.records) > MAX_PARTITION_ROWS or partition.byte_count > MAX_PARTITION_BYTES:
+        raise ValueError("Normalized partition exceeds checkpoint bound")
+    content = canonical_bytes(list(partition.records))
+    if len(content) != partition.byte_count or _sha256_bytes(content) != partition.sha256:
+        raise ValueError("Normalized partition checksum mismatch")
+
+
+def _verify_partition_set(partitions: Iterator[NormalizedPartition], count: int) -> None:
+    expected = 0
+    for partition in partitions:
+        _verify_partition(partition)
+        if partition.ordinal != expected:
+            raise ValueError("Normalized partition sequence has a gap or duplicate")
+        expected += 1
+    if expected != count:
+        raise ValueError("Normalized partition completion count mismatch")
+
+
+def _partition_document(partition: NormalizedPartition) -> dict[str, object]:
+    return {
+        "ordinal": partition.ordinal,
+        "sha256": partition.sha256,
+        "byte_count": partition.byte_count,
+        "records": list(partition.records),
+    }
+
+
+def _partition_from_document(document: object) -> NormalizedPartition:
+    if not isinstance(document, dict) or not isinstance(document.get("records"), list):
+        raise ValueError("Invalid normalized partition document")
+    records = document["records"]
+    if not all(isinstance(item, dict) for item in records):
+        raise ValueError("Normalized partition contains a non-object row")
+    partition = NormalizedPartition(
+        ordinal=int(document["ordinal"]),
+        records=tuple(dict(item) for item in records),
+        sha256=str(document["sha256"]),
+        byte_count=int(document["byte_count"]),
+    )
+    _verify_partition(partition)
+    return partition
+
+
+def _read_partition(path: Path) -> NormalizedPartition:
+    partition = _partition_from_document(json.loads(path.read_text(encoding="utf-8")))
+    if not path.name.endswith(f"part-{partition.ordinal:08d}.json"):
+        raise ValueError("Normalized partition path/ordinal mismatch")
+    return partition
 
 
 def run_state_from_dict(payload: dict[str, object]) -> RunState:

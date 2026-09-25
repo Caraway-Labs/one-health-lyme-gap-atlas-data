@@ -8,9 +8,10 @@ import io
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 from openpyxl import load_workbook  # type: ignore[import-untyped]
@@ -58,6 +59,22 @@ class NormalizeResult:
     records: list[dict[str, Any]]
     transformation_version: str
     detail: dict[str, Any] | None = None
+
+
+@dataclass
+class StreamingNormalizeResult:
+    """Optional bounded normalization result for large canonical sources."""
+
+    records: Iterable[dict[str, object]]
+    transformation_version: str
+    detail: dict[str, Any] | None = None
+
+
+@runtime_checkable
+class StreamingSourceAdapter(Protocol):
+    def normalize_iter(
+        self, definition: SourceDefinition, payload: Any
+    ) -> StreamingNormalizeResult: ...
 
 
 class SourceAdapter(Protocol):

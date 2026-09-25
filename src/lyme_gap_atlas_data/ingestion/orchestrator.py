@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import sqlite3
+import tempfile
 import uuid
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..settings import PipelineSettings
-from .adapters import AcquisitionError, SourceAdapter, get_adapter
-from .checkpoints import CheckpointStore, InMemoryCheckpointStore, PayloadStore, RawArtifactStore
+from .adapters import AcquisitionError, SourceAdapter, StreamingSourceAdapter, get_adapter
+from .checkpoints import (
+    BinaryArtifactStore,
+    CheckpointStore,
+    InMemoryCheckpointStore,
+    PartitionStore,
+    PayloadStore,
+    RawArtifactStore,
+)
+from .identity import deterministic_record_id
+from .partitioning import partition_records
 from .runtime import NoopStageEffects, QualityFailure, SnowflakeStageEffects, StageEffects
 from .source_definition import validate_source_definition
 from .types import (
@@ -129,17 +141,24 @@ class IngestionOrchestrator:
     ) -> RunState:
         adapter = self._adapter(definition)
         effects = self._effects(state)
+        streaming = isinstance(adapter, StreamingSourceAdapter)
+        if streaming and not isinstance(self.store, PartitionStore):
+            raise TypeError("Streaming adapter requires a partition checkpoint store")
         payload = self._payloads.get(state.ingestion_run_id)
         normalized = self._normalized.get(state.ingestion_run_id)
         if payload is None and isinstance(self.store, PayloadStore):
             payload = self.store.load_payload(state.ingestion_run_id)
+        if payload is None and isinstance(self.store, BinaryArtifactStore):
+            raw_binary = self.store.load_binary_artifact(state.ingestion_run_id)
+            if raw_binary is not None:
+                payload = adapter.restore_raw_payload(definition, raw_binary)
         if payload is None and isinstance(self.store, RawArtifactStore):
             raw_payload = self.store.load_source_artifact(state.ingestion_run_id)
             if raw_payload is not None:
                 payload = adapter.restore_raw_payload(definition, raw_payload)
-                if isinstance(self.store, PayloadStore):
+                if isinstance(self.store, PayloadStore) and not isinstance(payload, bytes):
                     self.store.save_payload(state.ingestion_run_id, payload)
-        if normalized is None and isinstance(self.store, PayloadStore):
+        if normalized is None and isinstance(self.store, PayloadStore) and not streaming:
             normalized = self.store.load_normalized(state.ingestion_run_id)
 
         for checkpoint in state.stages:
@@ -187,7 +206,16 @@ class IngestionOrchestrator:
                                 "retrieved_at": datetime.now(UTC).isoformat(),
                             }
                         self._payloads[state.ingestion_run_id] = payload
-                        if isinstance(self.store, PayloadStore):
+                        if isinstance(payload, bytes):
+                            if isinstance(self.store, BinaryArtifactStore):
+                                self.store.save_binary_artifact(
+                                    state.ingestion_run_id, payload, acquired.artifact_sha256
+                                )
+                            elif not isinstance(self.store, RawArtifactStore):
+                                raise TypeError(
+                                    "Binary replay requires an artifact checkpoint store"
+                                )
+                        elif isinstance(self.store, PayloadStore):
                             self.store.save_payload(state.ingestion_run_id, payload)
                         checkpoint.artifact_id = str(artifact["artifact_id"])
                         checkpoint.artifact_sha256 = str(artifact["artifact_sha256"])
@@ -217,20 +245,59 @@ class IngestionOrchestrator:
                     else:
                         if payload is None:
                             raise RuntimeError("NORMALIZE requires ACQUIRE payload")
-                        normalized_result = adapter.normalize(definition, payload)
-                        normalized = normalized_result.records
-                        self._normalized[state.ingestion_run_id] = normalized
-                        if isinstance(self.store, PayloadStore):
-                            self.store.save_normalized(state.ingestion_run_id, normalized)
-                        checkpoint.transformation_version = normalized_result.transformation_version
-                        checkpoint.detail = {
-                            **(normalized_result.detail or {}),
-                            **effects.materialize_normalized(definition, state, normalized),
-                        }
+                        if streaming:
+                            assert isinstance(self.store, PartitionStore)
+                            if not self.store.partitions_complete(state.ingestion_run_id):
+                                streamed = cast(StreamingSourceAdapter, adapter).normalize_iter(
+                                    definition, payload
+                                )
+                                checkpoint.transformation_version = streamed.transformation_version
+                                self.store.save(state)
+                                count = 0
+                                for part in partition_records(streamed.records):
+                                    self.store.save_partition(state.ingestion_run_id, part)
+                                    count += 1
+                                self._validate_partition_identities(
+                                    definition, state.ingestion_run_id
+                                )
+                                self.store.complete_partitions(state.ingestion_run_id, count)
+                            partition_count = 0
+                            record_count = 0
+                            for part in self.store.iter_partitions(state.ingestion_run_id):
+                                effects.materialize_normalized(
+                                    definition, state, list(part.records)
+                                )
+                                partition_count += 1
+                                record_count += len(part.records)
+                            checkpoint.detail = {
+                                "partition_count": partition_count,
+                                "record_count": record_count,
+                                "mode": "bounded_partitions",
+                            }
+                        else:
+                            normalized_result = adapter.normalize(definition, payload)
+                            normalized = normalized_result.records
+                            self._normalized[state.ingestion_run_id] = normalized
+                            if isinstance(self.store, PayloadStore):
+                                self.store.save_normalized(state.ingestion_run_id, normalized)
+                            checkpoint.transformation_version = (
+                                normalized_result.transformation_version
+                            )
+                            checkpoint.detail = {
+                                **(normalized_result.detail or {}),
+                                **effects.materialize_normalized(definition, state, normalized),
+                            }
                 elif checkpoint.stage is Stage.LOAD:
-                    if normalized is None and not state.dry_run:
+                    if streaming and isinstance(self.store, PartitionStore):
+                        loaded = 0
+                        for part in self.store.iter_partitions(state.ingestion_run_id):
+                            effects.load(definition, state, list(part.records))
+                            loaded += len(part.records)
+                        checkpoint.detail = {"record_count": loaded, "mode": "bounded_partitions"}
+                    elif normalized is None and not state.dry_run:
                         raise RuntimeError("LOAD requires NORMALIZE payload")
-                    checkpoint.detail = effects.load(definition, state, normalized or [])
+                    else:
+                        checkpoint.detail = effects.load(definition, state, normalized or [])
                 elif checkpoint.stage is Stage.QUALITY:
                     if state.dry_run and normalized is None:
                         checkpoint.detail = {
@@ -238,14 +305,30 @@ class IngestionOrchestrator:
                             "rules_evaluated": [rule.rule_id for rule in definition.quality_rules],
                             "wrote": False,
                         }
+                    elif streaming and isinstance(self.store, PartitionStore):
+                        records = (
+                            record
+                            for part in self.store.iter_partitions(state.ingestion_run_id)
+                            for record in part.records
+                        )
+                        checkpoint.detail = effects.quality_partitioned(definition, state, records)
                     else:
                         if normalized is None:
                             raise RuntimeError("QUALITY requires NORMALIZE payload")
                         checkpoint.detail = effects.quality(definition, state, normalized or [])
                 elif checkpoint.stage is Stage.PUBLISH_STAGE:
-                    if normalized is None and not state.dry_run:
+                    if streaming and isinstance(self.store, PartitionStore):
+                        record_count = sum(
+                            len(part.records)
+                            for part in self.store.iter_partitions(state.ingestion_run_id)
+                        )
+                        checkpoint.detail = effects.publish_partitioned(
+                            definition, state, record_count
+                        )
+                    elif normalized is None and not state.dry_run:
                         raise RuntimeError("PUBLISH_STAGE requires NORMALIZE payload")
-                    checkpoint.detail = effects.publish(definition, state, normalized or [])
+                    else:
+                        checkpoint.detail = effects.publish(definition, state, normalized or [])
                 elif checkpoint.stage is Stage.DISCOVER:
                     checkpoint.status = StageStatus.SKIPPED
                     checkpoint.detail = {"reason": "not_required_for_source"}
@@ -290,6 +373,30 @@ class IngestionOrchestrator:
         if state.tier in {Tier.B, Tier.C} and not state.dry_run:
             return SnowflakeStageEffects()
         return NoopStageEffects()
+
+    def _validate_partition_identities(self, definition: SourceDefinition, run_id: str) -> None:
+        """Reject duplicate logical rows with a bounded disk-backed index."""
+        assert isinstance(self.store, PartitionStore)
+        with (
+            tempfile.TemporaryDirectory(prefix="atlas-ingestion-ids-") as directory,
+            closing(sqlite3.connect(str(Path(directory) / "identities.sqlite"))) as connection,
+        ):
+            connection.execute("PRAGMA cache_size=-2048")
+            connection.execute("CREATE TABLE identities (record_id TEXT PRIMARY KEY)")
+            for part in self.store.iter_partitions(run_id):
+                for normalized in part.records:
+                    record = normalized.get("record")
+                    if not isinstance(record, dict):
+                        continue
+                    record_id = deterministic_record_id(
+                        definition.resource_key, definition.definition_version, record
+                    )
+                    try:
+                        connection.execute(
+                            "INSERT INTO identities (record_id) VALUES (?)", (record_id,)
+                        )
+                    except sqlite3.IntegrityError as error:
+                        raise ValueError("Duplicate logical record in normalized output") from error
 
 
 class StageFailure(Exception):

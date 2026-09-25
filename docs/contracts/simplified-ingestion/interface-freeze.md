@@ -127,3 +127,31 @@ limitation, not a natural key inferred from geography, year, case, sex, age, or
 other analytical dimensions. See
 `x5j9-record-identity-policy.md` for the bounded evidence and revision
 decision.
+
+## Story #426 bounded replay extension
+
+ADR 0037 extends this freeze without a new CLI or required adapter migration.
+The existing list-returning `normalize` remains supported. A large-source
+adapter may provide `normalize_iter`, yielding rows in a documented stable order.
+The orchestrator partitions that iterator at 250 rows and 900,000 canonical
+JSON bytes, whichever comes first, and never stores the full normalized list.
+The storage-neutral partition operations are `save_partition`,
+`iter_partitions`, `complete_partitions`, and `partitions_complete`. A partition
+is identified within its run by ordinal and content SHA-256. Duplicate content
+at the same ordinal is idempotent; different content fails. The completion
+receipt requires contiguous ordinals. The existing NORMALIZE stage is complete
+only after the receipt and bounded materialization succeed; LOAD, QUALITY and
+PUBLISH_STAGE keep their existing run-status semantics.
+
+Binary `AcquireResult.payload` uses source-faithful bytes and a SHA-256 verified
+artifact checkpoint. Local storage uses a binary file; Snowflake uses the
+existing private Spaces/RAW_ARTIFACTS boundary. No binary value is serialized
+into V070 JSON. Source artifact IDs are capture/run scoped; full SHA-256 is the
+stable cross-run content identity.
+
+The V069 generic projection MERGE is insert-only as of V103 deployment. The
+additive physical revision ledger records a distinct artifact-content/source-row
+combination under the stable logical `record_id` without changing earlier
+run/artifact/value fields. This is a physical input to #190/#193 semantic
+revision and lineage validation, not a new scientific identity model. Existing
+V070 checkpoints and source adapters remain readable and executable.

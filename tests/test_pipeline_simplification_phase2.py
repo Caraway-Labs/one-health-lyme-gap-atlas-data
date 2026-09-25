@@ -842,12 +842,13 @@ def test_generic_row_identity_is_stable_when_source_order_changes() -> None:
     assert shifted_id == original_id
 
 
-def test_generic_projection_merges_update_lineage_and_uses_each_table_timestamp() -> None:
+def test_generic_projection_merges_preserve_original_lineage() -> None:
     for sql, timestamp_column in (
         (_UPSERT_RAW_SQL, "loaded_at"),
         (_UPSERT_STAGING_SQL, "normalized_at"),
         (_UPSERT_CONFORMED_SQL, "conformed_at"),
     ):
-        assert "WHEN MATCHED THEN UPDATE SET" in sql
-        assert f", {timestamp_column}=CURRENT_TIMESTAMP()" in sql
+        assert "WHEN MATCHED THEN UPDATE SET" not in sql
+        assert "WHEN NOT MATCHED THEN INSERT" in sql
+        assert f", {timestamp_column}=CURRENT_TIMESTAMP()" not in sql
         assert f",\n   {timestamp_column})" in sql
