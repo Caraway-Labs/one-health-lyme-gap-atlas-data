@@ -80,7 +80,7 @@ _DERIVED_METHODS = {
 }
 _UNSAFE_VALUE = re.compile(
     r"(?:[a-z][a-z0-9+.-]*://|[?&](?:token|signature|credential|password|secret)=|"
-    r"-----BEGIN [A-Z ]+PRIVATE KEY-----|[A-Za-z]:\\|(?:^|\s)/(?:home|tmp|private|mnt)/)",
+    r"-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----|[A-Za-z]:\\|(?:^|\s)/(?:home|tmp|private|mnt)/)",
     re.IGNORECASE,
 )
 _UNSAFE_KEY = re.compile(
