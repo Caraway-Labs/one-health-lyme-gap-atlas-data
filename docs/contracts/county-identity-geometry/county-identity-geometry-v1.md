@@ -7,6 +7,11 @@ and geometry fields in the frozen `alpha-2026-08-06` baseline. It does not
 choose a map vendor, alter the public API, or make a claim about individual
 risk.
 
+This SVI polygon is **display geometry only**. Story #424's separate
+[`county-analysis-geometry-v1.md`](county-analysis-geometry-v1.md) governs the
+2025 TIGER/Line analytical polygon and raster/grid area weighting. The two
+representations share canonical county FIPS but are not interchangeable.
+
 ## Authoritative source and use review
 
 | Field | Recorded value |
