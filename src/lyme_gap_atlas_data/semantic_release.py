@@ -705,11 +705,12 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "retrieved_at",
         )
     else:
+        # V103 is authoritative for run-pinned generic captures.
         cursor.execute(
             """SELECT record_id, source_id, dataset_id, resource_key,
                     source_definition_version, ingestion_run_id, source_record_id,
                     source_row_hash, payload, retrieved_at
-            FROM CONFORMED.GOVERNED_SOURCE_RECORDS
+            FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS
             WHERE resource_key=%s AND ingestion_run_id=%s AND source_definition_version=%s""",
             (source.resource_key, source.ingestion_run_id, source.definition_version),
         )
@@ -725,7 +726,18 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "payload",
             "retrieved_at",
         )
-    return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+    rows = cursor.fetchall()
+    if not rows and source.source_key not in {"human", "tick", "pathogen"}:
+        cursor.execute(
+            """SELECT record_id, source_id, dataset_id, resource_key,
+                    source_definition_version, ingestion_run_id, source_record_id,
+                    source_row_hash, payload, retrieved_at
+            FROM CONFORMED.GOVERNED_SOURCE_RECORDS
+            WHERE resource_key=%s AND ingestion_run_id=%s AND source_definition_version=%s""",
+            (source.resource_key, source.ingestion_run_id, source.definition_version),
+        )
+        rows = cursor.fetchall()
+    return [dict(zip(columns, row, strict=True)) for row in rows]
 
 
 def _verify_restricted_final_copy_attestations(cursor: Any, release_id: str) -> None:

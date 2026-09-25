@@ -19,17 +19,18 @@ CREATE TABLE IF NOT EXISTS GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS (
     completed_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
 );
 
--- A physical revision stores a distinct artifact-content/record result.
--- Repeat acquisition remains visible in INGESTION_REQUESTS/RAW_ARTIFACTS
--- without changing the first V069 projection row or creating a false revision.
+-- One immutable capture per run/logical record. record_revision identifies
+-- content; an identical recapture retains that identity with new run lineage.
 CREATE TABLE IF NOT EXISTS GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS (
-    record_revision VARCHAR PRIMARY KEY,
+    capture_record_id VARCHAR PRIMARY KEY,
+    record_revision VARCHAR NOT NULL,
     record_id VARCHAR NOT NULL,
     source_id VARCHAR NOT NULL,
     dataset_id VARCHAR NOT NULL,
     resource_key VARCHAR NOT NULL,
     source_definition_version NUMBER NOT NULL,
     ingestion_run_id VARCHAR NOT NULL,
+    source_record_id VARCHAR,
     artifact_id VARCHAR NOT NULL,
     artifact_sha256 VARCHAR(64) NOT NULL,
     source_row_hash VARCHAR(64) NOT NULL,
@@ -46,3 +47,7 @@ GRANT SELECT, INSERT ON TABLE GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS
     TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME;
 GRANT SELECT, INSERT ON TABLE GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS
     TO ROLE OH_LYME_{{ ENV }}_PIPELINE_RUNTIME;
+GRANT USAGE ON SCHEMA GOVERNANCE
+    TO ROLE OH_LYME_{{ ENV }}_MIGRATION_DEPLOYER;
+GRANT SELECT ON TABLE GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS
+    TO ROLE OH_LYME_{{ ENV }}_MIGRATION_DEPLOYER;

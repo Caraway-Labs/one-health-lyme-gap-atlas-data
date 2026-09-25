@@ -149,9 +149,16 @@ existing private Spaces/RAW_ARTIFACTS boundary. No binary value is serialized
 into V070 JSON. Source artifact IDs are capture/run scoped; full SHA-256 is the
 stable cross-run content identity.
 
-The V069 generic projection MERGE is insert-only as of V103 deployment. The
-additive physical revision ledger records a distinct artifact-content/source-row
-combination under the stable logical `record_id` without changing earlier
-run/artifact/value fields. This is a physical input to #190/#193 semantic
+The V069 generic RAW/STAGING/CONFORMED projection MERGE is insert-only as of
+V103 deployment. These first-write rows are convenience projections, not the
+authoritative run-pinned read model. The additive V103 ledger retains one
+immutable capture per run and logical `record_id`, including source record ID,
+value, artifact, and retrieval lineage. Identical recapture has its own run
+capture but the same content-derived `record_revision`; changed content has a
+new revision. Governed generic consumers select
+`GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS` by exact `resource_key`,
+`ingestion_run_id`, and `source_definition_version`. The semantic release reader
+falls back to an exact-run V069 row only for a pre-V103 run without a capture.
+This is a physical input to #190/#193 semantic
 revision and lineage validation, not a new scientific identity model. Existing
 V070 checkpoints and source adapters remain readable and executable.

@@ -48,17 +48,23 @@ aggregate operator status.
 V103 adds two checkpoint tables and one physical source-record revision ledger.
 It changes no existing table or historical row. The first V069 RAW/STAGING/
 CONFORMED projection is now insert-only; a matching `record_id` never updates
-its original run or value. The revision ledger records each distinct combination
-of logical `record_id`, source artifact content SHA-256, source-row hash,
-normalized payload hash, and transformation version,
-with the original run, artifact, value, source metadata, and retrieval time.
-Its `record_revision` is the physical record revision reference used by #193.
+its original run or value. These first-write rows are convenience projections.
+The V103 ledger records an immutable capture for each run and logical record,
+including its source record ID, artifact, value, and retrieval lineage.
+`capture_record_id` identifies the run-specific row; the content-derived
+`record_revision` is the physical record revision reference used by #193.
+An identical recapture creates a new run capture with the same physical
+revision identity, not a false changed revision.
 An unchanged artifact and row yields the same physical revision; a changed
 artifact produces a new immutable physical revision even if the row value is
 unchanged. A changed row value produces a new physical revision and preserves
 the prior one. This ledger supplies physical inputs for #190 observation keys
 and revisions and #193 lineage envelopes; it does not claim that its physical
-revision hash is a semantic `revision:v1` ID or authorize publication. Selecting
+revision hash is a semantic `revision:v1` ID or authorize publication. Governed
+generic consumers select V103 by exact `resource_key`, `ingestion_run_id`, and
+`source_definition_version`. The semantic release reader uses an exact-run V069
+row only for a pre-V103 run without a capture. It never guesses the latest row.
+Selecting
 a current semantic revision remains a governed downstream decision.
 
 ## Consequences and limits

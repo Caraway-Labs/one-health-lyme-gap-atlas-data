@@ -30,6 +30,7 @@ from lyme_gap_atlas_data.ingestion.types import (
     Tier,
     ValidationResult,
 )
+from lyme_gap_atlas_data.semantic_release import SemanticSource, _read_source_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFINITION = ROOT / "config/sources/cdc_x5j9_wybp.yml"
@@ -368,7 +369,7 @@ def test_physical_revision_identity_preserves_prior_lineage() -> None:
         sql, params = cursor.executed[-1]
         assert "WHEN MATCHED THEN UPDATE" not in sql
         assert params is not None
-        return str(params[0]), str(params[6])
+        return str(params[1]), str(params[7])
 
     original, original_run = revision("run-1", "a" * 64, 1)
     unchanged, repeat_run = revision("run-2", "a" * 64, 1)
@@ -379,3 +380,100 @@ def test_physical_revision_identity_preserves_prior_lineage() -> None:
     assert revised_same_value != original
     assert revised_run == "run-3"
     assert revised_value != revised_same_value
+
+
+def test_generic_semantic_read_resolves_each_immutable_run_capture() -> None:
+    class CaptureCursor(_Cursor):
+        def __init__(self) -> None:
+            super().__init__()
+            self.captures: dict[str, tuple[Any, ...]] = {}
+            self.selected: list[tuple[Any, ...]] = []
+
+        def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> None:
+            super().execute(sql, params)
+            if "MERGE INTO GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS" in sql:
+                assert params is not None
+                run = str(params[7])
+                capture = (
+                    params[2],
+                    params[3],
+                    params[4],
+                    params[5],
+                    params[6],
+                    run,
+                    params[8],
+                    params[11],
+                    params[14],
+                    params[15],
+                )
+                self.captures.setdefault(run, capture)
+            elif (
+                "FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS" in sql
+                and "SELECT record_id" in sql
+            ):
+                assert params is not None
+                row = self.captures.get(str(params[1]))
+                self.selected = [row] if row is not None else []
+            elif "FROM CONFORMED.GOVERNED_SOURCE_RECORDS" in sql:
+                self.selected = []
+
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return self.selected
+
+    cursor = CaptureCursor()
+    source = SemanticSource(
+        source_key="context_svi",
+        resource_key="resource",
+        source_id="source",
+        dataset_id="dataset",
+        label="source",
+        vintage="2026",
+        source_url="https://example.test",
+        note="",
+        data_source_version_id="version",
+        ingestion_run_id="run-A",
+        artifact_id="artifact-A",
+        artifact_sha256="a" * 64,
+        definition_version=1,
+        field_map={},
+    )
+    for run, artifact, value in (
+        ("run-A", "a" * 64, 10),
+        ("run-B", "b" * 64, 12),
+        ("run-C", "b" * 64, 12),
+    ):
+        row = (
+            "logical-1",
+            "source",
+            "dataset",
+            "resource",
+            1,
+            run,
+            "publisher-row",
+            "a" * 64,
+            f'{{"record":{{"value":{value}}}}}',
+            "2026-09-24T00:00:00Z",
+        )
+        _insert_revisions(cursor, [row], f"artifact-{run}", artifact, "method-v1")
+
+    assert len(cursor.captures) == 3
+    assert cursor.captures["run-A"][7] == "a" * 64
+    assert cursor.captures["run-A"][5] == "run-A"
+    assert cursor.captures["run-A"][6] == "publisher-row"
+    for run, expected in (("run-A", 10), ("run-B", 12), ("run-C", 12)):
+        rows = _read_source_rows(cursor, replace(source, ingestion_run_id=run))
+        assert len(rows) == 1
+        assert rows[0]["payload"] == f'{{"record":{{"value":{expected}}}}}'
+        assert rows[0]["ingestion_run_id"] == run
+    assert not any("WHEN MATCHED THEN UPDATE" in sql for sql, _ in cursor.executed)
+
+    class LegacyCursor(CaptureCursor):
+        def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> None:
+            super().execute(sql, params)
+            if "FROM CONFORMED.GOVERNED_SOURCE_RECORDS" in sql:
+                self.selected = [cursor.captures["run-A"]]
+
+    legacy = LegacyCursor()
+    legacy_rows = _read_source_rows(legacy, replace(source, ingestion_run_id="run-A"))
+    assert legacy_rows[0]["payload"] == '{"record":{"value":10}}'
+    assert "FROM CONFORMED.GOVERNED_SOURCE_RECORDS" in legacy.executed[-1][0]

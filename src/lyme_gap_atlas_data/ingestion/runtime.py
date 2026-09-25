@@ -735,7 +735,7 @@ def _insert_revisions(
     artifact_sha256: str,
     transformation_version: str | None,
 ) -> None:
-    """Retain one immutable revision for each logical row and artifact content."""
+    """Retain an immutable run capture and stable physical content revision."""
     for start in range(0, len(rows), _UPSERT_BATCH_SIZE):
         batch = rows[start : start + _UPSERT_BATCH_SIZE]
         identities = [str(row[0]) for row in batch]
@@ -760,7 +760,7 @@ def _insert_revisions(
                 normalized_digest,
             ):
                 raise ValueError("Conflicting logical record in one source artifact")
-        values = ",\n    ".join("(" + ", ".join(["%s"] * 15) + ")" for _ in batch)
+        values = ",\n    ".join("(" + ", ".join(["%s"] * 17) + ")" for _ in batch)
         projected = []
         for row in batch:
             normalized_digest = hashlib.sha256(str(row[8]).encode("utf-8")).hexdigest()
@@ -770,6 +770,7 @@ def _insert_revisions(
             )
             projected.append(
                 (
+                    _stable_id(f"capture:{row[5]}:{row[0]}"),
                     record_revision,
                     row[0],
                     row[1],
@@ -777,6 +778,7 @@ def _insert_revisions(
                     row[3],
                     row[4],
                     row[5],
+                    row[6],
                     artifact_id,
                     artifact_sha256,
                     row[7],
@@ -789,29 +791,32 @@ def _insert_revisions(
             )
         cursor.execute(
             """MERGE INTO GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS target
-            USING (SELECT column1 AS record_revision, column2 AS record_id,
-                          column3 AS source_id, column4 AS dataset_id,
-                          column5 AS resource_key, column6 AS source_definition_version,
-                          column7 AS ingestion_run_id, column8 AS artifact_id,
-                          column9 AS artifact_sha256, column10 AS source_row_hash,
-                          column11 AS normalized_sha256,
-                          column12 AS transformation_version,
-                          PARSE_JSON(column13) AS payload, column14 AS retrieved_at,
-                          column15 AS observed_at
+            USING (SELECT column1 AS capture_record_id,
+                          column2 AS record_revision, column3 AS record_id,
+                          column4 AS source_id, column5 AS dataset_id,
+                          column6 AS resource_key, column7 AS source_definition_version,
+                          column8 AS ingestion_run_id, column9 AS source_record_id,
+                          column10 AS artifact_id, column11 AS artifact_sha256,
+                          column12 AS source_row_hash, column13 AS normalized_sha256,
+                          column14 AS transformation_version,
+                          PARSE_JSON(column15) AS payload, column16 AS retrieved_at,
+                          column17 AS observed_at
                    FROM VALUES
     """
             + values
             + """ ) source
-            ON target.record_revision=source.record_revision
+            ON target.capture_record_id=source.capture_record_id
             WHEN NOT MATCHED THEN INSERT
-              (record_revision, record_id, source_id, dataset_id, resource_key,
-               source_definition_version, ingestion_run_id, artifact_id,
+              (capture_record_id, record_revision, record_id, source_id, dataset_id,
+               resource_key, source_definition_version, ingestion_run_id,
+               source_record_id, artifact_id,
                artifact_sha256, source_row_hash, normalized_sha256,
                transformation_version, payload, retrieved_at, observed_at)
-              VALUES (source.record_revision, source.record_id, source.source_id,
-                      source.dataset_id, source.resource_key,
+              VALUES (source.capture_record_id, source.record_revision,
+                      source.record_id, source.source_id, source.dataset_id,
+                      source.resource_key,
                       source.source_definition_version, source.ingestion_run_id,
-                      source.artifact_id, source.artifact_sha256,
+                      source.source_record_id, source.artifact_id, source.artifact_sha256,
                       source.source_row_hash, source.normalized_sha256,
                       source.transformation_version, source.payload,
                       source.retrieved_at, source.observed_at)""",
