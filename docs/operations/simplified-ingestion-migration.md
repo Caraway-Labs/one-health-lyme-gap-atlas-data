@@ -20,6 +20,11 @@ uv run atlas-data runs explain --run-id <id>
 uv run atlas-data runs resume --run-id <id> --definition config/sources/cdc_x5j9_wybp.yml
 ```
 
+For a multi-binary adapter, the same `runs resume` command resolves named
+members from the completed ACQUIRE checkpoint. A missing, ambiguous, changed,
+or corrupt member stops the run; do not retry by refetching a live reference
+file. See [run-pinned artifact member replay v1](../contracts/simplified-ingestion/multi-artifact-replay-v1.md).
+
 For a live routine public source, use `--tier B` in the isolated DEV
 environment. The command persists payloads, stage checkpoints, and generic
 load/quality/publication effects. Tier C is rejected by the CLI and belongs to

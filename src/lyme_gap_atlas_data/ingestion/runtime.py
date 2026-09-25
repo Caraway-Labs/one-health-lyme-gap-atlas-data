@@ -22,6 +22,7 @@ from ..artifacts import create_artifact
 from ..redaction import redact_mapping
 from ..settings import PipelineSettings
 from .adapters import AcquireResult, AcquisitionArtifact
+from .artifact_replay import ArtifactMember, validate_names
 from .identity import deterministic_record_id, publisher_record_id, source_row_hash
 from .types import RunState, SourceDefinition, Stage
 
@@ -72,19 +73,27 @@ class NoopStageEffects:
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
         artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
-        primary = artifacts[0]
+        primary = _primary_artifact(acquired, artifacts)
         return {
-            "artifact_id": f"planned:{state.ingestion_run_id}:{acquired.artifact_sha256[:32]}",
+            "artifact_id": _planned_artifact_id(
+                definition.resource_key, state.ingestion_run_id, primary, len(artifacts)
+            ),
             "artifact_sha256": acquired.artifact_sha256,
             "artifact_uri": None,
             "artifacts": [
-                {
-                    "name": item.name,
-                    "sha256": item.sha256,
-                    "byte_count": len(item.payload),
-                    "media_type": item.media_type,
-                    "source_uri": item.source_uri,
-                }
+                ArtifactMember(
+                    state.ingestion_run_id,
+                    item.name,
+                    item.request_purpose,
+                    _planned_artifact_id(
+                        definition.resource_key, state.ingestion_run_id, item, len(artifacts)
+                    ),
+                    item.source_uri,
+                    item.media_type,
+                    item.sha256,
+                    len(item.payload),
+                    row_count=item.row_count,
+                ).to_dict()
                 for item in artifacts
             ],
             "primary_artifact_name": primary.name,
@@ -159,8 +168,7 @@ class SnowflakeStageEffects:
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
         artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
-        if artifacts[0].sha256 != acquired.artifact_sha256:
-            raise ValueError("acquisition package checksum does not match primary artifact bytes")
+        primary_source = _primary_artifact(acquired, artifacts)
         now = datetime.now(UTC)
         retained: list[dict[str, Any]] = []
         with self._connection_factory() as connection:
@@ -180,12 +188,19 @@ class SnowflakeStageEffects:
                         Body=source_artifact.payload,
                         ContentType=source_artifact.media_type,
                     )
-                    request_id = f"{state.ingestion_run_id}:ACQUIRE:{sequence}"
+                    request_id = (
+                        f"{state.ingestion_run_id}:ACQUIRE:{sequence}"
+                        if len(artifacts) == 1
+                        else f"{state.ingestion_run_id}:ACQUIRE:"
+                        f"{hashlib.sha256(source_artifact.name.encode()).hexdigest()[:32]}"
+                    )
                     # Each capture has its own immutable run/artifact link.
                     # The full SHA-256 remains the stable cross-run content identity.
-                    artifact_id = (
-                        f"{definition.resource_key}:{state.ingestion_run_id}:"
-                        f"{sequence}:{artifact.sha256[:32]}"
+                    artifact_id = _member_artifact_id(
+                        definition.resource_key,
+                        state.ingestion_run_id,
+                        source_artifact,
+                        len(artifacts),
                     )
                     cursor.execute(
                         """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
@@ -252,18 +267,21 @@ class SnowflakeStageEffects:
                         ),
                     )
                     retained.append(
-                        {
-                            "name": source_artifact.name,
-                            "artifact_id": artifact_id,
-                            "sha256": artifact.sha256,
-                            "byte_count": artifact.byte_count,
-                            "media_type": source_artifact.media_type,
-                            "source_uri": source_artifact.source_uri,
-                            "artifact_uri": f"s3://{self.settings.spaces_bucket}/{key}",
-                        }
+                        ArtifactMember(
+                            state.ingestion_run_id,
+                            source_artifact.name,
+                            source_artifact.request_purpose,
+                            artifact_id,
+                            source_artifact.source_uri,
+                            source_artifact.media_type,
+                            artifact.sha256,
+                            artifact.byte_count,
+                            f"s3://{self.settings.spaces_bucket}/{key}",
+                            source_artifact.row_count,
+                        ).to_dict()
                     )
             connection.commit()
-        primary = retained[0]
+        primary = next(item for item in retained if item["name"] == primary_source.name)
         return {
             "artifact_id": primary["artifact_id"],
             "artifact_sha256": primary["sha256"],
@@ -615,6 +633,7 @@ def _acquisition_artifacts(
     their package manifest first so checkpoints have one stable primary ID.
     """
     if acquired.artifacts:
+        validate_names(acquired.artifacts)
         return acquired.artifacts
     raw = acquired.raw_payload
     if raw is None and isinstance(acquired.payload, bytes):
@@ -633,6 +652,41 @@ def _acquisition_artifacts(
     if item.sha256 != acquired.artifact_sha256:
         raise ValueError("acquisition checksum does not match retained artifact bytes")
     return (item,)
+
+
+def _primary_artifact(
+    acquired: AcquireResult, artifacts: tuple[AcquisitionArtifact, ...]
+) -> AcquisitionArtifact:
+    raw = acquired.raw_payload
+    if raw is None and isinstance(acquired.payload, bytes):
+        raw = acquired.payload
+    matches = [
+        item
+        for item in artifacts
+        if item.sha256 == acquired.artifact_sha256
+        and item.media_type == acquired.media_type
+        and (raw is None or item.payload == raw)
+    ]
+    if len(matches) != 1:
+        raise ValueError("Acquisition primary artifact is missing or ambiguous")
+    return matches[0]
+
+
+def _member_artifact_id(
+    resource_key: str, run_id: str, artifact: AcquisitionArtifact, count: int
+) -> str:
+    if count == 1:
+        return f"{resource_key}:{run_id}:1:{artifact.sha256[:32]}"
+    member_id = hashlib.sha256(artifact.name.encode("utf-8")).hexdigest()
+    return f"{resource_key}:{run_id}:{member_id[:32]}"
+
+
+def _planned_artifact_id(
+    resource_key: str, run_id: str, artifact: AcquisitionArtifact, count: int
+) -> str:
+    if count == 1:
+        return f"planned:{run_id}:{artifact.sha256[:32]}"
+    return _member_artifact_id(resource_key, run_id, artifact, count)
 
 
 def _lineage_rows(

@@ -162,3 +162,11 @@ falls back to an exact-run V069 row only for a pre-V103 run without a capture.
 This is a physical input to #190/#193 semantic
 revision and lineage validation, not a new scientific identity model. Existing
 V070 checkpoints and source adapters remain readable and executable.
+
+## Story #432 named member replay extension
+
+[Run-pinned artifact member replay v1](multi-artifact-replay-v1.md) and ADR 0038
+add stable named lookup for runs that retain multiple independent acquisition
+artifacts. The optional adapter hook reconstructs validation/normalization input
+from the run's retained members after a process restart. It does not alter the
+single-artifact API, CLI entry point, partition rules, or V103 revision ledger.

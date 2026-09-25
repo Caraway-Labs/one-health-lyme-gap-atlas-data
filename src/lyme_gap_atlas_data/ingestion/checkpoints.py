@@ -18,6 +18,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from ..settings import PipelineSettings
+from .artifact_replay import ArtifactMember, resolve_member, validate_members
 from .partitioning import (
     MAX_PARTITION_BYTES,
     MAX_PARTITION_ROWS,
@@ -69,6 +70,20 @@ class BinaryArtifactStore(Protocol):
     def load_binary_artifact(self, run_id: str) -> bytes | None: ...
 
 
+@runtime_checkable
+class ArtifactMemberStore(Protocol):
+    def list_artifact_members(self, run_id: str) -> tuple[ArtifactMember, ...]: ...
+
+    def load_artifact_member(
+        self, run_id: str, *, name: str | None = None, role: str | None = None
+    ) -> bytes: ...
+
+
+@runtime_checkable
+class ArtifactMemberWriter(ArtifactMemberStore, Protocol):
+    def save_artifact_member(self, member: ArtifactMember, content: bytes) -> None: ...
+
+
 class InMemoryCheckpointStore:
     """Tier A / test store. Same RunState shape as durable storage."""
 
@@ -77,6 +92,7 @@ class InMemoryCheckpointStore:
         self._payloads: dict[str, object] = {}
         self._normalized: dict[str, list[dict[str, object]]] = {}
         self._binary: dict[str, tuple[bytes, str]] = {}
+        self._members: dict[str, dict[str, tuple[ArtifactMember, bytes]]] = {}
         self._partitions: dict[str, dict[int, NormalizedPartition]] = {}
         self._complete: dict[str, int] = {}
 
@@ -114,6 +130,24 @@ class InMemoryCheckpointStore:
             return None
         _verify_binary(*item)
         return item[0]
+
+    def save_artifact_member(self, member: ArtifactMember, content: bytes) -> None:
+        _verify_member_content(member, content)
+        existing = self._members.setdefault(member.ingestion_run_id, {}).get(member.name)
+        if existing is not None and existing != (member, content):
+            raise ValueError("Artifact member checkpoint mismatch")
+        self._members[member.ingestion_run_id][member.name] = (member, content)
+
+    def list_artifact_members(self, run_id: str) -> tuple[ArtifactMember, ...]:
+        return validate_members(item[0] for item in self._members.get(run_id, {}).values())
+
+    def load_artifact_member(
+        self, run_id: str, *, name: str | None = None, role: str | None = None
+    ) -> bytes:
+        member = resolve_member(self.list_artifact_members(run_id), name=name, role=role)
+        content = self._members[run_id][member.name][1]
+        _verify_member_content(member, content)
+        return content
 
     def save_partition(self, run_id: str, partition: NormalizedPartition) -> None:
         _verify_partition(partition)
@@ -266,6 +300,61 @@ class FileCheckpointStore:
         _verify_binary(content, str(metadata["sha256"]))
         return content
 
+    def _member_paths(self, member: ArtifactMember) -> tuple[Path, Path]:
+        self._path(member.ingestion_run_id)
+        stem = f"{member.ingestion_run_id}.member-{member.member_id}"
+        return self.root / f"{stem}.bin", self.root / f"{stem}.json"
+
+    def save_artifact_member(self, member: ArtifactMember, content: bytes) -> None:
+        _verify_member_content(member, content)
+        path, metadata_path = self._member_paths(member)
+        if path.exists() or metadata_path.exists():
+            if not path.exists() or not metadata_path.exists():
+                raise ValueError("Artifact member checkpoint incomplete")
+            if ArtifactMember.from_dict(json.loads(metadata_path.read_text())) != member:
+                raise ValueError("Artifact member checkpoint mismatch")
+            if self.load_artifact_member(member.ingestion_run_id, name=member.name) != content:
+                raise ValueError("Artifact member checkpoint mismatch")
+            return
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.root, delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            temporary = None
+            self._write_json(metadata_path, member.to_dict())
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def list_artifact_members(self, run_id: str) -> tuple[ArtifactMember, ...]:
+        self._path(run_id)
+        members = validate_members(
+            ArtifactMember.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            for path in self.root.glob(f"{run_id}.member-*.json")
+        )
+        for member in members:
+            if member.ingestion_run_id != run_id:
+                raise ValueError("Artifact member run mismatch")
+            _, metadata_path = self._member_paths(member)
+            if not metadata_path.exists():
+                raise ValueError("Artifact member identity mismatch")
+        return members
+
+    def load_artifact_member(
+        self, run_id: str, *, name: str | None = None, role: str | None = None
+    ) -> bytes:
+        member = resolve_member(self.list_artifact_members(run_id), name=name, role=role)
+        path, _ = self._member_paths(member)
+        if not path.exists():
+            raise ValueError("Artifact member bytes missing")
+        content = path.read_bytes()
+        _verify_member_content(member, content)
+        return content
+
     def _partition_path(self, run_id: str, ordinal: int) -> Path:
         if ordinal < 0:
             raise ValueError("Negative partition ordinal")
@@ -321,13 +410,61 @@ class SnowflakeCheckpointStore:
             cursor.execute(
                 """SELECT artifact_uri, sha256 FROM GOVERNANCE.RAW_ARTIFACTS
                     WHERE ingestion_run_id=%s AND artifact_type='SOURCE_PAYLOAD'
-                    ORDER BY created_at LIMIT 1""",
+                    QUALIFY COUNT(*) OVER () = 1""",
                 (run_id,),
             )
             artifact = cursor.fetchone()
         if artifact is None:
             return None
-        parsed = urlsplit(str(artifact[0]))
+        return self._read_spaces_artifact(str(artifact[0]), str(artifact[1]))
+
+    def list_artifact_members(self, run_id: str) -> tuple[ArtifactMember, ...]:
+        state = self.load(run_id)
+        if state is None:
+            raise ValueError("Ingestion run is missing")
+        checkpoint = state.checkpoint(Stage.ACQUIRE)
+        if checkpoint is None or not isinstance(checkpoint.detail.get("artifacts"), list):
+            return ()
+        members = validate_members(
+            ArtifactMember.from_dict(item) for item in checkpoint.detail["artifacts"]
+        )
+        if any(member.ingestion_run_id != run_id for member in members):
+            raise ValueError("Artifact member run mismatch")
+        return members
+
+    def load_artifact_member(
+        self, run_id: str, *, name: str | None = None, role: str | None = None
+    ) -> bytes:
+        member = resolve_member(self.list_artifact_members(run_id), name=name, role=role)
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT artifact_uri, sha256, byte_count, media_type,
+                          q.endpoint, q.request_purpose, q.retrieved_row_count
+                   FROM GOVERNANCE.RAW_ARTIFACTS a
+                   JOIN GOVERNANCE.INGESTION_REQUESTS q
+                     ON q.ingestion_request_id=a.ingestion_request_id
+                   WHERE a.ingestion_run_id=%s AND a.artifact_id=%s
+                     AND q.ingestion_run_id=%s""",
+                (run_id, member.artifact_id, run_id),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise ValueError("Artifact member ledger row is missing or ambiguous")
+        uri, sha256, byte_count, media_type, source_uri, role_value, row_count = rows[0]
+        if (
+            str(uri) != member.artifact_uri
+            or str(sha256) != member.sha256
+            or int(byte_count) != member.byte_count
+            or str(media_type) != member.media_type
+            or str(source_uri) != member.source_uri
+            or str(role_value) != member.role
+            or (int(row_count) if row_count is not None else None) != member.row_count
+        ):
+            raise ValueError("Artifact member ledger metadata mismatch")
+        return self._read_spaces_artifact(str(uri), member.sha256, member.byte_count)
+
+    def _read_spaces_artifact(self, uri: str, sha256: str, byte_count: int | None = None) -> bytes:
+        parsed = urlsplit(uri)
         settings = self._pipeline_settings()
         if parsed.scheme != "s3" or parsed.netloc != settings.spaces_bucket or not parsed.path:
             raise ValueError("Source artifact is outside the configured private bucket")
@@ -336,7 +473,7 @@ class SnowflakeCheckpointStore:
             raise ValueError("Source artifact is outside the configured environment prefix")
         response = self._spaces().get_object(Bucket=parsed.netloc, Key=key)
         body = response["Body"].read()
-        if _sha256_bytes(body) != str(artifact[1]):
+        if _sha256_bytes(body) != sha256 or (byte_count is not None and len(body) != byte_count):
             raise ValueError("Source artifact checksum mismatch")
         return cast(bytes, body)
 
@@ -729,6 +866,12 @@ def _sha256_bytes(value: bytes) -> str:
 def _verify_binary(content: bytes, sha256: str) -> None:
     if _sha256_bytes(content) != sha256:
         raise ValueError("Binary artifact checksum mismatch")
+
+
+def _verify_member_content(member: ArtifactMember, content: bytes) -> None:
+    if len(content) != member.byte_count:
+        raise ValueError("Artifact member byte count mismatch")
+    _verify_binary(content, member.sha256)
 
 
 def _verify_partition(partition: NormalizedPartition) -> None:
