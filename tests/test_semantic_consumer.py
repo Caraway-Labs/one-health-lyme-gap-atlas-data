@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -235,3 +236,22 @@ def test_machine_readable_schema_and_frozen_examples() -> None:
     invalid["observation"]["artifact_id"] = "private"
     with pytest.raises(ValidationError):
         validator.validate(invalid)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda p: p["measure"].update(warehouse_table="PRIVATE.TABLE"),
+        lambda p: p["observation"].update(value={"warehouse_table": "PRIVATE.TABLE"}),
+        lambda p: p["observation"]["strata"].update(warehouse_table="PRIVATE.TABLE"),
+        lambda p: p["lineage"].update(storage_location="PRIVATE.TABLE"),
+    ],
+)
+def test_helpers_reject_unprojected_fields(mutation: Callable[[dict], None]) -> None:
+    trace, authority = _safe_case()
+    payload = project_consumer(trace, authority, fixture_mode=True)
+    mutation(payload)
+    with pytest.raises(SemanticConsumerError, match="consumer shape"):
+        canonical_consumer_json(payload)
+    with pytest.raises(SemanticConsumerError, match="consumer shape"):
+        page_consumer([payload])

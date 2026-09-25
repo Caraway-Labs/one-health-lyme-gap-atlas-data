@@ -16,10 +16,230 @@ from .semantic_metadata import _safe
 CONTRACT_VERSION = "atlas-semantic-consumer-v1"
 MAX_PAGE_SIZE = 100
 _ID = re.compile(r"^[a-z][a-z0-9_:-]*$")
+_STRATA = {"tick_taxon", "life_stage", "pathogen_target", "collection_method", "testing_scope"}
 
 
 class SemanticConsumerError(ValueError):
     """The trace cannot cross the governed consumer boundary."""
+
+
+def _fields(
+    value: object, required: set[str], optional: set[str] | None = None
+) -> Mapping[str, Any]:
+    """Reject an unreviewed field at every consumer nesting level."""
+    if (
+        not isinstance(value, Mapping)
+        or not required <= value.keys()
+        or set(value) - (required | (optional or set()))
+    ):
+        raise SemanticConsumerError("invalid consumer shape")
+    return value
+
+
+def _scalar(value: object) -> None:
+    if value is not None and not isinstance(value, str | int | float | bool):
+        raise SemanticConsumerError("invalid consumer shape")
+
+
+def _strings(value: object) -> None:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise SemanticConsumerError("invalid consumer shape")
+
+
+def _state(value: object) -> None:
+    item = _fields(value, {"state", "value"})
+    _scalar(item["state"])
+    _scalar(item["value"])
+
+
+def _limitations(value: object) -> None:
+    if not isinstance(value, list):
+        raise SemanticConsumerError("invalid consumer shape")
+    for limit in value:
+        item = _fields(limit, {"category", "code", "text"})
+        for field in item:
+            _scalar(item[field])
+
+
+def _consumer_shape(payload: Mapping[str, Any]) -> None:
+    """Runtime counterpart of the checked-in schema; blocks extra storage fields."""
+    top = _fields(
+        payload,
+        {
+            "contract_version",
+            "evidence_tier",
+            "indicator",
+            "measure",
+            "observation",
+            "provenance",
+            "freshness",
+            "lineage",
+            "release",
+        },
+    )
+    for field in ("contract_version", "evidence_tier"):
+        _scalar(top[field])
+    indicator = _fields(top["indicator"], {"id"})
+    _scalar(indicator["id"])
+    measure = _fields(
+        top["measure"],
+        {
+            "id",
+            "semantic_version",
+            "metadata_id",
+            "metadata_revision",
+            "metadata_revision_id",
+            "meaning_signature",
+            "label",
+            "definition",
+            "description",
+            "type",
+            "origin",
+            "unit",
+            "denominator",
+            "allowed_value_states",
+            "allowed_strata",
+            "applicability",
+            "quality_evidence",
+            "limitations",
+        },
+    )
+    for field in (
+        "id",
+        "semantic_version",
+        "metadata_id",
+        "metadata_revision",
+        "metadata_revision_id",
+        "meaning_signature",
+        "label",
+        "definition",
+        "type",
+        "origin",
+        "unit",
+        "denominator",
+    ):
+        _scalar(measure[field])
+    _state(measure["description"])
+    _strings(measure["allowed_value_states"])
+    _strings(measure["allowed_strata"])
+    applicability = _fields(
+        measure["applicability"],
+        {"geography_grain", "temporal_semantics", "allowed_strata", "origin", "representativeness"},
+    )
+    for field in ("geography_grain", "temporal_semantics", "origin", "representativeness"):
+        _scalar(applicability[field])
+    _strings(applicability["allowed_strata"])
+    quality = _fields(
+        measure["quality_evidence"],
+        {
+            "quality_contract",
+            "propagation_contract",
+            "eligibility_contract",
+            "uncertainty",
+            "evidence_basis",
+        },
+    )
+    for value in quality.values():
+        _state(value)
+    _limitations(measure["limitations"])
+    observation = _fields(
+        top["observation"],
+        {
+            "id",
+            "revision_id",
+            "value",
+            "value_state",
+            "geography",
+            "temporal",
+            "strata",
+            "denominator_value",
+        },
+    )
+    for field in ("id", "revision_id", "value", "value_state", "denominator_value"):
+        _scalar(observation[field])
+    geography = _fields(
+        observation["geography"],
+        {"grain"},
+        {
+            "county_fips",
+            "site_id",
+            "event_id",
+            "representativeness",
+            "county_relationship",
+            "mapping_version",
+            "reported_geography_id",
+            "mapping_status",
+        },
+    )
+    for value in geography.values():
+        _scalar(value)
+    temporal = _fields(observation["temporal"], {"semantics"}, {"start", "end", "date"})
+    for value in temporal.values():
+        _scalar(value)
+    strata = _fields(observation["strata"], set(), _STRATA)
+    for value in strata.values():
+        _scalar(value)
+    provenance = _fields(
+        top["provenance"],
+        {
+            "publisher",
+            "source_id",
+            "dataset_id",
+            "source_version_id",
+            "source_vintage",
+            "method_version",
+            "transformation_version",
+        },
+    )
+    for value in provenance.values():
+        _state(value)
+    freshness = _fields(
+        top["freshness"],
+        {
+            "observation_period",
+            "source_vintage",
+            "retrieved_at",
+            "published_at",
+            "metadata_revised_at",
+        },
+    )
+    for value in freshness.values():
+        _state(value)
+    lineage = _fields(
+        top["lineage"],
+        {
+            "lineage_id",
+            "semantic_observation_id",
+            "semantic_revision_id",
+            "measure_id",
+            "measure_version",
+            "metadata_revision_id",
+            "publisher",
+            "dataset_id",
+            "source_version_id",
+            "source_vintage",
+            "methodology_version",
+            "transformation_version",
+            "limitations",
+            "evidence_basis",
+            "representativeness",
+            "record_refs",
+            "result_id",
+            "result_revision_id",
+            "release_id",
+        },
+    )
+    for field, value in lineage.items():
+        if field == "limitations":
+            _limitations(value)
+        elif field == "record_refs":
+            _strings(value)
+        else:
+            _scalar(value)
+    if top["release"] is not None:
+        release = _fields(top["release"], {"id", "bundle_sha256"})
+        for value in release.values():
+            _scalar(value)
 
 
 def project_consumer(
@@ -118,6 +338,7 @@ def project_consumer(
             else None
         ),
     }
+    _consumer_shape(payload)
     _safe(payload)
     return payload
 
@@ -126,6 +347,7 @@ def canonical_consumer_json(payload: Mapping[str, Any]) -> str:
     """Stable bytes for revision comparison and future generated contracts."""
     if payload.get("contract_version") != CONTRACT_VERSION:
         raise SemanticConsumerError("unsupported consumer contract version")
+    _consumer_shape(payload)
     _safe(payload)
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -155,6 +377,7 @@ def page_consumer(
     for item in items:
         if item.get("contract_version") != CONTRACT_VERSION:
             raise SemanticConsumerError("unsupported consumer contract version")
+        _consumer_shape(item)
         _safe(item)
         identity = (item["observation"]["id"], item["observation"]["revision_id"])
         if identity in seen:
