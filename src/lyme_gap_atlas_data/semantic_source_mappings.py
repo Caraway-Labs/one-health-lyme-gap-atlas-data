@@ -7,9 +7,10 @@ This module performs no ingestion, database access, or publication.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from lyme_gap_atlas_data.semantic_domain import (
     CONTRACT_VERSION as DOMAIN_VERSION,
@@ -46,6 +47,53 @@ _NCLIMGRID_MEASURES = {
     "nclimgrid_tmax": ("TMAX", "tmax"),
     "nclimgrid_tavg": ("TAVG", "tavg"),
 }
+
+
+def _valid_nclimgrid_areas(output: Mapping[str, Any]) -> bool:
+    """Keep source footprint and daily missingness distinct at the mapping gate."""
+    fields = (
+        "expected_area_m2",
+        "intersected_area_m2",
+        "source_supported_area_m2",
+        "valid_area_m2",
+        "source_coverage_fraction",
+        "valid_fraction_of_supported_area",
+    )
+    if output.get("coverage_status") == "OUT_OF_SOURCE_COVERAGE":
+        return output.get("valid_area_m2") == 0 and all(
+            output.get(field) is None for field in fields if field != "valid_area_m2"
+        )
+    expected, intersected, supported, valid, source_fraction, daily_fraction = (
+        output.get(field) for field in fields
+    )
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        for value in (expected, intersected, supported, valid, source_fraction)
+    ):
+        return False
+    expected = cast(float, expected)
+    intersected = cast(float, intersected)
+    supported = cast(float, supported)
+    valid = cast(float, valid)
+    source_fraction = cast(float, source_fraction)
+    if not (expected > 0 and 0 <= valid <= supported <= intersected <= expected * (1 + 1e-8)):
+        return False
+    if not math.isclose(source_fraction, supported / expected, abs_tol=1e-8):
+        return False
+    if supported == 0:
+        return daily_fraction is None and output.get("coverage_status") == "SOURCE_MISSING"
+    if not isinstance(daily_fraction, (int, float)) or isinstance(daily_fraction, bool):
+        return False
+    if not math.isfinite(daily_fraction) or not math.isclose(
+        daily_fraction, valid / supported, abs_tol=1e-8
+    ):
+        return False
+    status = output.get("coverage_status")
+    return (
+        (status == "SOURCE_MISSING" and valid == 0)
+        or (status == "PARTIAL_COVERAGE" and 0 < daily_fraction < 0.95 - 1e-12)
+        or (status == "COMPLETE" and daily_fraction + 1e-12 >= 0.95)
+    )
 
 
 class SemanticMappingError(ValueError):
@@ -272,6 +320,7 @@ def _check_output_scope(
             or output.get("unit") != record.get("unit")
             or (output.get("coverage_status") == "OUT_OF_SOURCE_COVERAGE")
             != str(output.get("county_fips", "")).startswith(("02", "15"))
+            or not _valid_nclimgrid_areas(output)
             or not all(
                 output.get(field)
                 for field in (

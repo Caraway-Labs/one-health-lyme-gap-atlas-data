@@ -166,14 +166,16 @@ def test_native_measures_coverage_and_revision_identity(
         DEFINITION.resource_key, 1, original_prcp
     ) == deterministic_record_id(DEFINITION.resource_key, 1, revised_prcp)
     assert source_row_hash(original_prcp) != source_row_hash(revised_prcp)
-    partial = next(
+    coastal = next(
         row["record"]
         for row in rows
         if row["id"] == "noaa_nclimgrid_daily_202501:01003:2025-01-01:PRCP"
     )
-    assert partial["coverage_status"] == "PARTIAL_COVERAGE"
-    assert partial["value"] is None
-    assert 0 < partial["valid_area_m2"] < partial["expected_area_m2"]
+    assert coastal["coverage_status"] == "COMPLETE"
+    assert isinstance(coastal["value"], float)
+    assert 0 < coastal["source_coverage_fraction"] < 0.95
+    assert coastal["valid_fraction_of_supported_area"] == 1
+    assert coastal["intersected_area_m2"] > coastal["source_supported_area_m2"]
     missing = next(
         row["record"]
         for row in rows
@@ -207,6 +209,49 @@ def test_native_measures_coverage_and_revision_identity(
     )
     assert revised_tavg["value"] == tavg["value"]
     assert revised_tavg["noaa_sha256"] != tavg["noaa_sha256"]
+
+
+def test_static_source_support_and_daily_missingness_are_distinct(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    counties = {
+        **_counties(),
+        "01009": _county(
+            "01009", -100 - STEP / 2, 30 - STEP / 2, -100 + STEP * 1.5, 30 + STEP * 1.5
+        ),
+    }
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.nclimgrid_daily.load_tiger_counties",
+        lambda *args, **kwargs: counties,
+    )
+    path = tmp_path / "daily-missing.nc"
+    _netcdf(path)
+    with h5netcdf.File(path, "r+") as dataset:
+        dataset.variables["prcp"][0, 1, 1] = np.nan
+    rows = list(
+        NClimGridDailyAdapter().normalize_iter(DEFINITION, _inputs(path.read_bytes())).records
+    )
+
+    def prcp(fips: str, day: str) -> dict[str, object]:
+        return next(
+            row["record"]
+            for row in rows
+            if row["id"] == f"noaa_nclimgrid_daily_202501:{fips}:{day}:PRCP"
+        )
+
+    first = prcp("01009", "2025-01-01")
+    second = prcp("01009", "2025-01-02")
+    assert first["coverage_status"] == "PARTIAL_COVERAGE"
+    assert first["value"] is None
+    assert 0 < first["source_coverage_fraction"] < 1
+    assert 0 < first["valid_fraction_of_supported_area"] < 0.95
+    assert second["coverage_status"] == "COMPLETE"
+    assert second["source_coverage_fraction"] == pytest.approx(first["source_coverage_fraction"])
+    assert second["valid_fraction_of_supported_area"] == 1
+    assert prcp("01005", "2025-01-01")["coverage_status"] == "SOURCE_MISSING"
+    assert prcp("01001", "2025-01-01")["value"] == 0
+    assert prcp("02013", "2025-01-01")["coverage_status"] == "OUT_OF_SOURCE_COVERAGE"
+    assert prcp("15001", "2025-01-01")["coverage_status"] == "OUT_OF_SOURCE_COVERAGE"
 
 
 def test_fresh_process_resume_uses_both_retained_members(
@@ -365,7 +410,7 @@ def test_climate_semantic_mapping_preserves_value_and_two_member_scope(
     assert mapping["measure_id"] == "nclimgrid_prcp_county_day"
     for fips, expected in (
         ("01001", (0, "ZERO")),
-        ("01003", (None, "MISSING")),
+        ("01003", (None, "OBSERVED")),
         ("01005", (None, "MISSING")),
         ("02013", (None, "UNAVAILABLE")),
     ):
@@ -375,6 +420,9 @@ def test_climate_semantic_mapping_preserves_value_and_two_member_scope(
             if row["id"] == f"noaa_nclimgrid_daily_202501:{fips}:2025-01-01:PRCP"
         )
         value, state = expected
+        if fips == "01003":
+            value = output["value"]
+            expected = (value, state)
         record = {
             "source_output": output,
             "value": value,
@@ -389,6 +437,16 @@ def test_climate_semantic_mapping_preserves_value_and_two_member_scope(
         ]
         assert _source_value(record, mapping) == expected
         _check_output_scope(record, mapping, edges)
+        if fips == "01003":
+            with pytest.raises(SemanticMappingError):
+                _check_output_scope(
+                    {
+                        **record,
+                        "source_output": {**output, "source_coverage_fraction": 1.0},
+                    },
+                    mapping,
+                    edges,
+                )
         if fips == "02013":
             with pytest.raises(SemanticMappingError):
                 _check_output_scope(

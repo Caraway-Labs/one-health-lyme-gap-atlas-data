@@ -43,7 +43,7 @@ from .types import (
     ValidationResult,
 )
 
-TRANSFORM_VERSION = "atlas-nclimgrid-county-day/1"
+TRANSFORM_VERSION = "atlas-nclimgrid-county-day/2"
 GRID_CRS = "EPSG:4326"
 MEASURES = {
     "prcp": "mm",
@@ -307,10 +307,28 @@ class NClimGridDailyAdapter:
                 for offset in range(monthrange(month_start.year, month_start.month)[1])
             )
             day_positions = {day: index for index, day in enumerate(days)}
+            # The grid rectangle includes water cells with NOAA fill values. Use
+            # evidence from the whole retained month and all four variables to
+            # distinguish source support from a missing value on one day.
+            source_support = np.zeros((len(lat), len(lon)), dtype=bool)
+            for source_variable in MEASURES:
+                monthly_variable = dataset.variables[source_variable]
+                for position in range(len(days)):
+                    monthly_values = np.asarray(monthly_variable[position, :, :], dtype=float)
+                    monthly_fill = monthly_variable.attrs.get("_FillValue")
+                    source_support |= np.isfinite(monthly_values) & (
+                        monthly_values != float(monthly_fill)
+                        if monthly_fill is not None and not math.isnan(float(monthly_fill))
+                        else True
+                    )
             weights = {
                 fips: _weights(county, lat, lon, grid_id)
                 for fips, county in counties.items()
                 if not fips.startswith(("02", "15"))
+            }
+            supported_areas = {
+                fips: math.fsum(area for row, col, area in weight.cells if source_support[row, col])
+                for fips, weight in weights.items()
             }
             for day in expected_days:
                 day_index = day_positions.get(day)
@@ -361,9 +379,10 @@ class NClimGridDailyAdapter:
                                 weight.county_area_m2,
                                 weight.intersected_area_m2,
                             )
+                            supported = supported_areas[fips]
                             if valid == 0:
                                 status, value = "SOURCE_MISSING", None
-                            elif valid / expected + 1e-12 < 0.95:
+                            elif valid / supported + 1e-12 < 0.95:
                                 status, value = "PARTIAL_COVERAGE", None
                             else:
                                 status = "COMPLETE"
@@ -395,6 +414,13 @@ class NClimGridDailyAdapter:
                                 "valid_area_m2": valid,
                                 "expected_area_m2": expected,
                                 "intersected_area_m2": intersected,
+                                "source_supported_area_m2": supported if fips in weights else None,
+                                "source_coverage_fraction": (
+                                    supported / expected if expected is not None else None
+                                ),
+                                "valid_fraction_of_supported_area": (
+                                    valid / supported if fips in weights and supported else None
+                                ),
                                 "grid_id": grid_id,
                                 "grid_crs": GRID_CRS,
                                 "weight_id": weights[fips].weight_id if fips in weights else None,

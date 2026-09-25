@@ -317,10 +317,11 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
             issues.append(
                 ValidationIssue("TIGER_PIN", "Approved 2025 TIGER URL and SHA-256 are required")
             )
-        if definition.extra.get("minimum_valid_area") != 0.95:
+        if definition.extra.get("minimum_supported_area_completeness") != 0.95:
             issues.append(
                 ValidationIssue(
-                    "COMPLETENESS_POLICY", "nClimGrid v1 requires 0.95 minimum valid county area"
+                    "COMPLETENESS_POLICY",
+                    "nClimGrid v1 requires 0.95 daily valid area within source-supported area",
                 )
             )
         if (
