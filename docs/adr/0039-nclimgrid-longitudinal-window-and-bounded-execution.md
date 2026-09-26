@@ -43,14 +43,20 @@ partitions at the #426 limit of 250 rows. Four inspected NOAA files are
 84.0 MB TIGER input per independent run projects about 76.3 GB of analysis
 reference captures before object-store deduplication, if any.
 
-A local source-backed January 1951 run produced 1,560 partitions containing
-635.7 MB of canonical normalized JSON and retained 146.3 MB of NOAA/TIGER
-artifacts. Linear projection is about 577 GB of partition JSON and 131 GB of
+A local source-backed run for each of January 1951, 1988, and 2025 succeeded.
+Together they produced 4,680 partitions containing 1.907 GB of canonical
+normalized JSON and retained 437.3 MB of NOAA/TIGER artifacts. January 1951
+alone used 635.7 MB of partitions and 146.3 MB of artifacts. The reproducible
+full-window report records only 3 captured and 905 not-attempted months.
+Linear projection is about 577 GB of partition JSON and 131 GB of
 artifact captures, before V103 physical rows, indexes, recaptures, and
 environment overhead. Its fresh-process resume after completed ACQUIRE and
 VALIDATE took 24.6 minutes; the interrupted earlier attempt took 17.1 minutes
 before normalization produced a partition under the original eager-weight
-code. This pilot is a local measurement, not a DEV cost or completion claim.
+code. The 1988 and 2025 fresh-process resumes took 21.7 and 11.7 minutes,
+respectively; those runs reused the retained named inputs, and the 2025 run
+reused an ephemeral geometry-weight cache. These are local measurements,
+not DEV cost or full-window completion claims.
 
 **Full-window DEV execution is pending a reviewed cost/window decision and
 the protected application of V103.** The read-only DEV migration ledger

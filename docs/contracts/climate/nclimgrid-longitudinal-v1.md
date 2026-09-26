@@ -112,19 +112,25 @@ and retained/normalized/runtime footprint. `all_days_complete` is a factual
 completeness indicator, not an ML approval or a claim of historical as-of
 availability. Historical first publication time is explicitly unavailable.
 
-The January 1951 local Tier A run used the exact NOAA/TIGER files above. It
-produced 389,856 normalized rows in 1,560 bounded partitions: 385,516
-`COMPLETE` and 4,340 `OUT_OF_SOURCE_COVERAGE` county-day-measure rows; zero
-`PARTIAL_COVERAGE` or `SOURCE_MISSING` for that month. All 3,109 CONUS
-counties had some source support, while 314 had less than 95% of full legal
-county area in the monthly source mask. All 3,109 CONUS county-months had
-every day `COMPLETE` for each measure, yet their historical original
-publication times remain unavailable. This is one local historical month,
-not evidence of a national historical DEV panel.
+The local Tier A canonical runs for **1951-01, 1988-01, and 2025-01** used
+the exact NOAA/TIGER files above and all completed the canonical stages.
+Tier A made no external publication.
+The full-window report selects **3 captured, 905 not attempted, 0 failed, and
+0 unavailable** months. Each captured 31-day month produced 389,856
+normalized rows in 1,560 bounded partitions: 385,516 `COMPLETE` and 4,340
+`OUT_OF_SOURCE_COVERAGE` county-day-measure rows, with zero `PARTIAL_COVERAGE`
+or `SOURCE_MISSING` in these three months. All 3,109 CONUS counties had some
+source support; 314 had less than 95% of full legal county area in the
+monthly source mask. For each month and each measure, all 3,109 CONUS county
+periods had every day `COMPLETE` relative to source-supported area. The
+three source-support signatures matched; this does not establish unchanged
+support for all other months. Historical original publication times remain
+unavailable. These are local source-backed samples, not a historical DEV panel.
 
 The 908-month plan implies 347,562,912 rows and 1,390,854 #426 partitions.
-The January 1951 local partition checkpoint was 635.7 MB and the two retained
-artifacts were 146.3 MB. A simple linear footprint is about 577 GB of
+The three local runs retained 1.907 GB of normalized partition JSON and 437.3
+MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
+and 146.3 MB of artifacts. A simple linear footprint is about 577 GB of
 partition JSON plus about 131 GB of independently retained artifacts, before
 Snowflake V103 physical rows, recaptures, and overhead. This cost and DEV's
 missing V103 migration require human review before a full backfill. No PROD
