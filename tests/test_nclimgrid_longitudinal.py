@@ -160,6 +160,8 @@ def test_coverage_report_preserves_explicit_missing_months(tmp_path: Path) -> No
     assert report["captured_month_count"] == 0
     assert report["not_attempted_months"] == ["202501", "202502"]
     assert report["unavailable_months"] == []
+    assert report["captured_months_by_tier"] == {}
+    assert report["months"][0]["attempted_tiers"] == []  # type: ignore[index]
     assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 1
 
 
@@ -244,6 +246,7 @@ def test_coverage_report_distinguishes_noaa_404_from_unattempted(tmp_path: Path)
     )
     assert report["unavailable_months"] == ["195101"]
     assert report["not_attempted_months"] == ["195102"]
+    assert report["months"][0]["attempted_tiers"] == ["A"]  # type: ignore[index]
 
 
 @pytest.mark.parametrize(

@@ -151,6 +151,7 @@ def build_coverage_report(
                         {
                             "month": month,
                             "status": missing_status,
+                            "attempted_tiers": sorted({run.tier.value for run in runs}),
                             "failed_run_ids": failed,
                             "in_progress_run_ids": in_progress,
                             "review_required_run_ids": review_required,
@@ -274,6 +275,8 @@ def build_coverage_report(
                     {
                         "month": month,
                         "status": "CAPTURED",
+                        "selected_tier": run.tier.value,
+                        "attempted_tiers": sorted({item.tier.value for item in runs}),
                         "selected_run_id": run.ingestion_run_id,
                         "failed_run_ids": failed,
                         "in_progress_run_ids": in_progress,
@@ -310,6 +313,11 @@ def build_coverage_report(
         "end_month": end,
         "expected_month_count": len(expected),
         "captured_month_count": sum(item["status"] == "CAPTURED" for item in month_reports),
+        "captured_months_by_tier": dict(
+            Counter(
+                str(item["selected_tier"]) for item in month_reports if item["status"] == "CAPTURED"
+            )
+        ),
         "not_attempted_months": [
             item["month"] for item in month_reports if item["status"] == "NOT_ATTEMPTED"
         ],

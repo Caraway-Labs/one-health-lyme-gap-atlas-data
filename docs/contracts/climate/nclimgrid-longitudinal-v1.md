@@ -105,7 +105,8 @@ partitions. It emits a JSON month summary and a county-month-measure CSV.
 Failed recaptures do not replace the most recent successful capture. The
 report distinguishes **NOT_ATTEMPTED**, **IN_PROGRESS**, **REVIEW_REQUIRED**,
 **UNAVAILABLE** (terminal NOAA 404), **FAILED**, and **CAPTURED** months; it
-records unique NOAA digests, revisions, expected
+records the selected execution tier, attempted tiers, unique NOAA digests,
+revisions, expected
 and observed days, missing source dates, CONUS/source-supported counties,
 the four coverage states, source-support fractions and signatures, full-day
 complete county-months by measure, retrieval/HTTP/NetCDF modification facts,
