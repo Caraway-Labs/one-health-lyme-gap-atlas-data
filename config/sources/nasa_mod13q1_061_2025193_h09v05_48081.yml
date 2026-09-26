@@ -22,7 +22,7 @@ tiger_sha256: 9c6e9d9076abce2670d1de255de3710c35ecca00a7005d88e012dec52d95f763
 hdf_max_bytes: 300000000
 tiger_max_bytes: 100000000
 run_max_bytes: 384000000
-minimum_qa_valid_fraction_of_supported_area: 0.99
+qa_value_policy: positive_valid_area_with_explicit_partial_status
 measures: [MODIS_NDVI_MEAN, MODIS_EVI_MEAN]
 required_columns: [id, county_fips, period_start, period_end, measure, value, unit, coverage_status, expected_area_m2, intersected_area_m2, source_supported_area_m2, valid_area_m2, qa_valid_fraction_of_supported_area, qa_category_area_m2, native_qa_code_pixel_counts, granule_ur, artifact_sha256_by_member, retrieved_at]
 quality_rules:

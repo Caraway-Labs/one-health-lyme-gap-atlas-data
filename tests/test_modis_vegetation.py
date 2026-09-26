@@ -178,7 +178,7 @@ def test_definition_is_one_pinned_granule_and_semantic_pair() -> None:
     assert not validate_source_definition(
         replace(
             DEFINITION,
-            extra={**DEFINITION.extra, "minimum_qa_valid_fraction_of_supported_area": 0.95},
+            extra={**DEFINITION.extra, "qa_value_policy": "unreviewed"},
         )
     ).ok
     doc = json.loads(
@@ -245,6 +245,20 @@ def test_native_qa_preserves_zero_and_rejection_reasons(
     assert bool(valid_mask[0, 0]) is valid
     if reason:
         assert bool(flags[reason][0, 0])
+
+
+def test_native_qa_flags_can_overlap_without_changing_supported_area() -> None:
+    values = {
+        "qa": np.array([[2048 | 256 | 32768]], dtype=np.uint16),
+        "reliability": np.array([[1]], dtype=np.int8),
+        "ndvi": np.array([[5000]], dtype=np.int16),
+        "evi": np.array([[5000]], dtype=np.int16),
+        "doy": np.array([[194]], dtype=np.int16),
+    }
+    support, valid, flags = _qa_masks(values)
+    assert bool(support[0, 0])
+    assert not bool(valid[0, 0])
+    assert all(bool(flags[name][0, 0]) for name in ("cloud", "shadow", "marginal"))
 
 
 def test_boundary_area_uses_424_exact_intersections() -> None:
@@ -339,16 +353,64 @@ def test_hdf_raster_normalization_is_deterministic_and_qa_bounded(
     )
     output = list(adapter.normalize_iter(DEFINITION, cloudy).records)[0]["record"]
     assert output["coverage_status"] == "PARTIAL_COVERAGE"
-    assert output["value"] is None
+    assert output["value"] is not None
     assert output["qa_category_area_m2"]["cloud"] > 0
     assert _source_value(
-        {**semantic_record, "source_output": output, "value": None, "value_state": "MISSING"},
+        {
+            **semantic_record,
+            "source_output": output,
+            "value": output["value"],
+            "value_state": "OBSERVED",
+        },
         mapping,
-    ) == (None, "MISSING")
+    ) == (output["value"], "OBSERVED")
     cloud_edges = [
         {**edge, "artifact_sha256": cloudy.sha256[edge["member_name"]]} for edge in edges
     ]
     _check_output_scope({**semantic_record, "source_output": output}, mapping, cloud_edges)
+    supported = ndvi["source_supported_area_m2"]
+    for fraction in (0.866798, 0.999999):
+        partial = {
+            **ndvi,
+            "coverage_status": "PARTIAL_COVERAGE",
+            "qa_valid_fraction_of_supported_area": fraction,
+            "valid_area_m2": supported * fraction,
+            "qa_category_area_m2": {
+                **ndvi["qa_category_area_m2"],
+                "qa_valid": supported * fraction,
+            },
+        }
+        _check_output_scope({**semantic_record, "source_output": partial}, mapping, edges)
+        assert _source_value(
+            {"source_output": partial, "value": ndvi["value"], "value_state": "OBSERVED"},
+            mapping,
+        ) == (ndvi["value"], "OBSERVED")
+    zero_valid = {
+        **output,
+        "valid_area_m2": 0.0,
+        "qa_valid_fraction_of_supported_area": 0.0,
+        "qa_category_area_m2": {**output["qa_category_area_m2"], "qa_valid": 0.0},
+        "value": None,
+    }
+    _check_output_scope({**semantic_record, "source_output": zero_valid}, mapping, cloud_edges)
+    assert _source_value(
+        {"source_output": zero_valid, "value": None, "value_state": "MISSING"}, mapping
+    ) == (None, "MISSING")
+    partial_tile = {
+        **partial,
+        "intersected_area_m2": ndvi["expected_area_m2"] * 0.9,
+        "source_supported_area_m2": supported * 0.8,
+        "valid_area_m2": supported * 0.8 * fraction,
+        "source_coverage_fraction": supported * 0.8 / ndvi["expected_area_m2"],
+        "qa_category_area_m2": {
+            **partial["qa_category_area_m2"],
+            "source_supported": supported * 0.8,
+            "qa_valid": supported * 0.8 * fraction,
+        },
+        "coverage_status": "SOURCE_MISSING",
+    }
+    with pytest.raises(SemanticMappingError, match="cannot carry a value"):
+        _check_output_scope({**semantic_record, "source_output": partial_tile}, mapping, edges)
 
 
 def test_named_replay_requires_all_three_members_and_digests() -> None:

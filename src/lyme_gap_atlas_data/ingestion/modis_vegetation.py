@@ -100,9 +100,9 @@ def validate_definition(definition: SourceDefinition) -> list[ValidationIssue]:
         issues.append(
             ValidationIssue("MOD13_GRAIN", "Exact county-composite NDVI/EVI measures required")
         )
-    if extra.get("minimum_qa_valid_fraction_of_supported_area") != 0.99:
+    if extra.get("qa_value_policy") != "positive_valid_area_with_explicit_partial_status":
         issues.append(
-            ValidationIssue("MOD13_COMPLETENESS", "QA-valid supported area threshold is 0.99")
+            ValidationIssue("MOD13_COMPLETENESS", "Explicit QA-valid subset value policy required")
         )
     if (
         extra.get("hdf_max_bytes") != HDF_LIMIT
@@ -591,7 +591,7 @@ class ModisVegetationAdapter:
         fraction = valid / supported if supported else None
         if intersected == 0 or supported == 0 or intersected / expected < 0.999999:
             status = "SOURCE_MISSING"
-        elif fraction is None or fraction + 1e-12 < 0.99:
+        elif valid < supported:
             status = "PARTIAL_COVERAGE"
         else:
             status = "COMPLETE"
@@ -614,7 +614,9 @@ class ModisVegetationAdapter:
                     "period_end": core["RANGEENDINGDATE"],
                     "measure": measure,
                     "source_variable": SDS[kind],
-                    "value": sums[kind] / valid / 10000.0 if status == "COMPLETE" else None,
+                    "value": sums[kind] / valid / 10000.0
+                    if status != "SOURCE_MISSING" and valid > 0
+                    else None,
                     "unit": "unitless_index",
                     "denominator": "qa_valid_source_supported_land_area_m2",
                     "source_scale_divisor": 10000,

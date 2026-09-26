@@ -249,7 +249,11 @@ def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tupl
     state: str
     if mapping_id in _MOD13_MEASURES:
         coverage = output.get("coverage_status")
-        if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        if (
+            coverage in {"COMPLETE", "PARTIAL_COVERAGE"}
+            and isinstance(raw, (int, float))
+            and not isinstance(raw, bool)
+        ):
             if not math.isfinite(raw) or not -0.2 <= raw <= 1.0:
                 raise SemanticMappingError("MOD13Q1 index outside publisher valid range")
             value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
@@ -420,6 +424,8 @@ def _check_output_scope(
         if supported == 0 or intersected / expected < 0.999999:
             if output.get("coverage_status") != "SOURCE_MISSING":
                 raise SemanticMappingError("MOD13Q1 missing tile or support state inconsistent")
+            if output.get("value") is not None:
+                raise SemanticMappingError("MOD13Q1 missing tile cannot carry a value")
             if supported == 0 and qa_fraction is not None:
                 raise SemanticMappingError("MOD13Q1 missing state inconsistent")
         else:
@@ -429,9 +435,12 @@ def _check_output_scope(
                 or not math.isclose(qa_fraction, valid / supported, abs_tol=1e-8)
             ):
                 raise SemanticMappingError("MOD13Q1 QA completeness inconsistent")
-            expected_status = "COMPLETE" if qa_fraction >= 0.99 - 1e-12 else "PARTIAL_COVERAGE"
+            expected_status = "COMPLETE" if valid == supported else "PARTIAL_COVERAGE"
             if output.get("coverage_status") != expected_status:
                 raise SemanticMappingError("MOD13Q1 QA completeness inconsistent")
+            raw = output.get("value")
+            if (valid > 0) != (isinstance(raw, (int, float)) and not isinstance(raw, bool)):
+                raise SemanticMappingError("MOD13Q1 QA-valid area and value availability disagree")
     elif mapping["id"] in _NLCD_MEASURES:
         measure, product = _NLCD_MEASURES[mapping["id"]]
         year = output.get("mapping_year")
