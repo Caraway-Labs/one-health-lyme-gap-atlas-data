@@ -144,9 +144,11 @@ CREATE TABLE IF NOT EXISTS DATASET_DISCOVERY.REVIEWER_ALLOWLIST (
 -- Bounded projections omit full catalog resource_payload and private artifacts.
 -- Registration may retain multiple observations; pagination uses stable IDs.
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_SUMMARY AS
-SELECT r.resource_key, r.catalog_resource_id, d.catalog_dataset_id,
+SELECT o.ingestion_run_id AS discovery_run_id,
+       r.resource_key, r.catalog_resource_id, d.catalog_dataset_id,
        d.catalog_name, d.catalog_record_id, d.metadata_sha256,
        r.resource_type, r.canonical_source_url, r.api_dataset_id,
+       r.is_active AS resource_is_active, d.is_current AS dataset_is_current,
        r.resource_payload:title::VARCHAR AS title,
        r.resource_payload:publisher::VARCHAR AS publisher,
        d.discovered_at, r.registered_at,
@@ -155,10 +157,17 @@ SELECT r.resource_key, r.catalog_resource_id, d.catalog_dataset_id,
 FROM GOVERNANCE.CATALOG_RESOURCES r
 JOIN GOVERNANCE.CATALOG_DATASETS d
   ON d.catalog_dataset_id = r.catalog_dataset_id
-WHERE r.is_active = TRUE AND d.is_current = TRUE;
+JOIN GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS o
+  ON o.catalog_resource_id = r.catalog_resource_id
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY o.ingestion_run_id, r.resource_key
+  ORDER BY o.observed_at DESC, d.discovered_at DESC, r.registered_at DESC,
+           d.catalog_dataset_id DESC, r.catalog_resource_id DESC
+) = 1;
 
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_EVIDENCE AS
-SELECT o.observation_id, o.catalog_dataset_id, o.catalog_resource_id,
+SELECT o.ingestion_run_id AS discovery_run_id,
+       o.observation_id, o.catalog_dataset_id, o.catalog_resource_id,
        o.canonical_resource_key AS resource_key, o.catalog_id,
        o.catalog_record_id, o.matched_term, o.observed_at,
        o.artifact_id, d.metadata_sha256
@@ -170,7 +179,8 @@ JOIN GOVERNANCE.CATALOG_DATASETS d
 -- values become unknown rather than silently truncated facts. This view does
 -- not expose raw payload columns or private artifact bytes.
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_OBSERVATION_FIELDS AS
-SELECT o.observation_id, o.canonical_resource_key AS resource_key,
+SELECT o.ingestion_run_id AS discovery_run_id,
+       o.observation_id, o.canonical_resource_key AS resource_key,
        o.catalog_dataset_id, o.catalog_resource_id, o.observed_at,
        d.metadata_sha256,
        OBJECT_CONSTRUCT_KEEP_NULL(

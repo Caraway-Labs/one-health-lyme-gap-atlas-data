@@ -38,6 +38,11 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
         assert f"DATASET_DISCOVERY.{name}" in source
     assert "recommendation_version_id" in source
     assert "retry_of_run_id" in source
+    summary = source.split("CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_SUMMARY")[1]
+    summary = summary.split("CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_EVIDENCE")[0]
+    assert "PARTITION BY o.ingestion_run_id, r.resource_key" in summary
+    assert "ORDER BY o.observed_at DESC, d.discovered_at DESC" in summary
+    assert "o.ingestion_run_id AS discovery_run_id" in summary
     assert (
         "resource_payload"
         not in source.split("CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_EVIDENCE")[
