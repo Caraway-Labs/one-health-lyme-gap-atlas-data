@@ -313,7 +313,7 @@ SELECT rec.operation_key, rec.recommendation_id, rec.recommendation_version_id,
 FROM DATASET_DISCOVERY.RECOMMENDATIONS rec
 LEFT JOIN (
   SELECT recommendation_version_id,
-         ARRAY_AGG(observation_id) WITHIN GROUP (ORDER BY observation_id)
+         ARRAY_AGG(DISTINCT observation_id) WITHIN GROUP (ORDER BY observation_id)
            AS evidence_observation_ids
   FROM DATASET_DISCOVERY.RECOMMENDATION_EVIDENCE
   GROUP BY recommendation_version_id
