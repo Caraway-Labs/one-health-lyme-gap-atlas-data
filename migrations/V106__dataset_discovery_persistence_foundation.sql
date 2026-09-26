@@ -143,6 +143,12 @@ CREATE TABLE IF NOT EXISTS DATASET_DISCOVERY.REVIEWER_ALLOWLIST (
 
 -- Bounded projections omit full catalog resource_payload and private artifacts.
 -- Registration may retain multiple observations; pagination uses stable IDs.
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_DISCOVERY_CONTEXT AS
+SELECT ingestion_run_id AS discovery_run_id, config_sha256 AS search_fingerprint,
+       completed_at, status
+FROM GOVERNANCE.INGESTION_RUNS
+WHERE resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY';
+
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_SUMMARY AS
 SELECT o.ingestion_run_id AS discovery_run_id,
        r.resource_key, r.catalog_resource_id, d.catalog_dataset_id,

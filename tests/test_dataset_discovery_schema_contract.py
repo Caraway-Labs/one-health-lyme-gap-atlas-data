@@ -26,6 +26,7 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
         "RECOMMENDATION_EVIDENCE",
         "SEARCH_EXPANSION_PROPOSALS",
         "REVIEW_EVENTS",
+        "V_DISCOVERY_CONTEXT",
         "V_CANDIDATE_SUMMARY",
         "V_CANDIDATE_EVIDENCE",
         "V_CANDIDATE_OBSERVATION_FIELDS",
@@ -39,6 +40,7 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
         assert f"DATASET_DISCOVERY.{name}" in source
     assert "recommendation_version_id" in source
     assert "retry_of_run_id" in source
+    assert "resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'" in source
     assert "missing_count NUMBER NOT NULL" in source
     assert "rank_in_run NUMBER NOT NULL" not in source
     assert "PARTITION BY rec.run_id" in source
