@@ -32,6 +32,18 @@ regexes = ['''key_body''']
 useDefault = true
 
 [[allowlists]]
+description = "Public bounded Annual NLCD SourceDefinition resource key, not an authentication key"
+condition = "AND"
+commits = ["d9dc072d1c9e7afab3a4c173cc809641458bf748"]
+paths = [
+  '''^config/sources/usgs_annual_nlcd_c1v2_2025_48081\.yml$''',
+  '''^docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1\.json$''',
+  '''^tests/fixtures/semantic_governance/source-mappings-v1-baseline\.json$''',
+]
+regexTarget = "secret"
+regexes = ['''^usgs_annual_nlcd_c1v2_2025_48081$''']
+
+[[allowlists]]
 description = "Literal non-secret configuration keys and CDC resource identifier"
 commits = ["f065b11d55a6c03af272451666521c68a779be87"]
 regexTarget = "match"
