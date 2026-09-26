@@ -334,6 +334,11 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                 )
             )
 
+    if definition.adapter_kind is AdapterKind.ANNUAL_NLCD:
+        from .annual_nlcd import validate_definition
+
+        issues.extend(validate_definition(definition))
+
     return ValidationResult(ok=not issues, issues=issues)
 
 

@@ -1,0 +1,38 @@
+resource_key: usgs_annual_nlcd_c1v2_2025_48081
+source_id: usgs_annual_nlcd
+dataset_id: annual-nlcd-c1v2-cu
+definition_version: 1
+adapter_kind: annual_nlcd
+endpoint_template: https://usgs-landcover.s3.us-west-2.amazonaws.com/annual-nlcd/c1/v2/cu/tile/
+deterministic_order_clause: county_fips ASC, mapping_year ASC, measure ASC
+incremental_strategy: IMMUTABLE_ANNUAL_RECAPTURE
+onboarding_mode: ROUTINE_PUBLIC
+onboarding_environments: [dev, prod]
+artifact_policy: PUBLIC_SEVEN_YEAR
+expected_refresh_cadence: annual collection update; historical recapture only as immutable revision
+destination: RAW.USGS_ANNUAL_NLCD_C1V2_2025_48081
+geography_semantics: CONUS_COUNTY_FIPS_2025_ANALYSIS
+temporal_semantics: COUNTY_YEAR
+collection_version: C1V2
+mapping_year: 2025
+county_fips: ['48081']
+tile_ids: [H14V15]
+tiger_url: https://www2.census.gov/geo/tiger/TIGER2025/COUNTY/tl_2025_us_county.zip
+tiger_sha256: 9c6e9d9076abce2670d1de255de3710c35ecca00a7005d88e012dec52d95f763
+minimum_valid_fraction_of_supported_area: 1.0
+measures: [FOREST_AREA_SHARE, DEVELOPED_AREA_SHARE, AGRICULTURE_AREA_SHARE, WETLAND_AREA_SHARE, OPEN_WATER_AREA_SHARE, MEAN_IMPERVIOUS_FRACTION, LAND_COVER_CHANGED_AREA_SHARE]
+required_columns: [id, county_fips, mapping_year, measure, source_product, value, unit, coverage_status, expected_area_m2, intersected_area_m2, source_supported_area_m2, valid_area_m2, native_class_area_m2]
+quality_rules:
+  - rule_id: annual_nlcd_required_columns
+    severity: BLOCKING
+  - rule_id: annual_nlcd_geography
+    severity: BLOCKING
+  - rule_id: annual_nlcd_value_state_preservation
+    severity: BLOCKING
+restrictions:
+  - Official USGS requester-pays S3 C1V2 CU tile artifacts only; no legacy or mosaic mixing.
+  - The frozen 2025 TIGER county geometry is the analysis reference; selected tiles must cover each county.
+  - Native class and change codes are categorical; source impervious values are percent and converted explicitly to fraction.
+  - Every product must have complete valid area within the observed source-supported footprint; missing pixels block the measure.
+  - Alaska and Hawaii are out of source coverage; 1985 native change is retained but not interpreted until its comparison period is verified.
+  - No fragmentation, phenology, score, ML feature, PROD publication, or public/API admission.

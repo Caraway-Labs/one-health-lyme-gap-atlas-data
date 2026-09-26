@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -46,6 +47,15 @@ _NCLIMGRID_MEASURES = {
     "nclimgrid_tmin": ("TMIN", "tmin"),
     "nclimgrid_tmax": ("TMAX", "tmax"),
     "nclimgrid_tavg": ("TAVG", "tavg"),
+}
+_NLCD_MEASURES = {
+    "nlcd_forest": ("FOREST_AREA_SHARE", "LndCov"),
+    "nlcd_developed": ("DEVELOPED_AREA_SHARE", "LndCov"),
+    "nlcd_agriculture": ("AGRICULTURE_AREA_SHARE", "LndCov"),
+    "nlcd_wetland": ("WETLAND_AREA_SHARE", "LndCov"),
+    "nlcd_open_water": ("OPEN_WATER_AREA_SHARE", "LndCov"),
+    "nlcd_impervious": ("MEAN_IMPERVIOUS_FRACTION", "FctImp"),
+    "nlcd_change": ("LAND_COVER_CHANGED_AREA_SHARE", "LndChg"),
 }
 
 
@@ -228,7 +238,22 @@ def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tupl
     mapping_id = mapping["id"]
     value: Any
     state: str
-    if mapping_id in _NCLIMGRID_MEASURES:
+    if mapping_id in _NLCD_MEASURES:
+        coverage = output.get("coverage_status")
+        if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            if not math.isfinite(raw) or not 0 <= raw <= 1:
+                raise SemanticMappingError("Annual NLCD fraction outside zero to one")
+            value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
+        elif (
+            coverage in {"PARTIAL_COVERAGE", "SOURCE_MISSING", "UNVERIFIED_FIRST_YEAR_CHANGE"}
+            and raw is None
+        ):
+            value, state = None, "MISSING"
+        elif coverage == "OUT_OF_SOURCE_COVERAGE" and raw is None:
+            value, state = None, "UNAVAILABLE"
+        else:
+            raise SemanticMappingError("invalid Annual NLCD coverage/value state")
+    elif mapping_id in _NCLIMGRID_MEASURES:
         coverage = output.get("coverage_status")
         if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
             value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
@@ -302,7 +327,84 @@ def _check_output_scope(
     output = record["source_output"]
     geography = record["geography"]
     temporal = record["temporal"]
-    if mapping["id"] in _NCLIMGRID_MEASURES:
+    if mapping["id"] in _NLCD_MEASURES:
+        measure, product = _NLCD_MEASURES[mapping["id"]]
+        year = output.get("mapping_year")
+        hashes = output.get("artifact_sha256_by_member")
+        artifact_ids = output.get("artifact_id_by_member")
+        members = set(hashes) if isinstance(hashes, Mapping) else set()
+        tile_ids = {
+            name.split("-")[1]
+            for name in members
+            if isinstance(name, str)
+            and re.fullmatch(r"nlcd-h\d{2}v\d{2}-(lndcov|fctimp|lndchg)-(tif|xml)", name)
+        }
+        expected_members = {
+            f"nlcd-{tile}-{native}-{suffix}"
+            for tile in tile_ids
+            for native in ("lndcov", "fctimp", "lndchg")
+            for suffix in ("tif", "xml")
+        } | {"tiger-2025-analysis-county-zip"}
+        edge_members = {edge.get("member_name") for edge in edges}
+        if (
+            not isinstance(year, int)
+            or not 1985 <= year <= 2025
+            or output.get("id")
+            != f"{mapping['resource_key']}:{geography.get('county_fips')}:{year}:{measure}"
+            or output.get("measure") != measure
+            or output.get("source_product") != product
+            or output.get("county_fips") != geography.get("county_fips")
+            or temporal.get("start") != f"{year}-01-01"
+            or temporal.get("end") != f"{year}-12-31"
+            or output.get("unit") != record.get("unit")
+            or output.get("denominator") != record.get("denominator")
+            or output.get("collection_version") != "C1V2"
+            or (output.get("coverage_status") == "OUT_OF_SOURCE_COVERAGE")
+            != str(output.get("county_fips", "")).startswith(("02", "15"))
+            or (
+                year == 1985 and product == "LndChg" and output.get("coverage_status") == "COMPLETE"
+            )
+            or not all(
+                output.get(field)
+                for field in (
+                    "geometry_digest",
+                    "tiger_sha256",
+                    "weight_version",
+                    "transformation_version",
+                )
+            )
+            or not isinstance(hashes, Mapping)
+            or not isinstance(artifact_ids, Mapping)
+            or not tile_ids
+            or members != expected_members
+            or set(artifact_ids) != members
+            or edge_members != members
+            or len(edges) != len(members)
+            or len({edge.get("ingestion_run_id") for edge in edges}) != 1
+            or any(
+                edge.get("artifact_sha256") != hashes[edge["member_name"]]
+                or edge.get("artifact_id") != artifact_ids[edge["member_name"]]
+                for edge in edges
+            )
+            or hashes["tiger-2025-analysis-county-zip"] != output.get("tiger_sha256")
+        ):
+            raise SemanticMappingError("Annual NLCD scope or named-member lineage mismatch")
+        supported = output.get("source_supported_area_m2")
+        valid = output.get("valid_area_m2")
+        fraction = output.get("valid_fraction_of_supported_area")
+        status = output.get("coverage_status")
+        if status == "COMPLETE" and not (
+            isinstance(supported, (int, float))
+            and supported > 0
+            and isinstance(valid, (int, float))
+            and math.isclose(valid, supported, rel_tol=1e-8)
+            and isinstance(fraction, (int, float))
+            and math.isclose(fraction, 1, abs_tol=1e-8)
+        ):
+            raise SemanticMappingError("Annual NLCD complete state lacks full valid source support")
+        if status == "UNVERIFIED_FIRST_YEAR_CHANGE" and (year != 1985 or product != "LndChg"):
+            raise SemanticMappingError("first-year change state used on wrong product or year")
+    elif mapping["id"] in _NCLIMGRID_MEASURES:
         if len(edges) != 2:
             raise SemanticMappingError("nClimGrid requires NOAA and TIGER lineage edges")
         measure, source_variable = _NCLIMGRID_MEASURES[mapping["id"]]
@@ -450,7 +552,30 @@ def map_record(
         or not all(isinstance(edge, Mapping) for edge in edges)
     ):
         raise SemanticMappingError("source lineage edges required")
-    if mapping_id in _NCLIMGRID_MEASURES:
+    if mapping_id in _NLCD_MEASURES:
+        if len(edges) < 7:
+            raise SemanticMappingError("Annual NLCD requires six tile members and TIGER")
+        versions = authority.get("source_versions")
+        for edge in edges:
+            if edge.get("member_name") == "tiger-2025-analysis-county-zip":
+                tiger = (
+                    versions.get(edge.get("source_version_id"))
+                    if isinstance(versions, Mapping)
+                    else None
+                )
+                if (
+                    not isinstance(tiger, Mapping)
+                    or tiger.get("approved") is not True
+                    or tiger.get("source_vintage") != "2025"
+                    or any(
+                        edge.get(field) != tiger.get(field)
+                        for field in ("resource_key", "source_id", "dataset_id", "source_vintage")
+                    )
+                ):
+                    raise SemanticMappingError("approved 2025 TIGER lineage required")
+            else:
+                _bind_source(edge, mapping, authority)
+    elif mapping_id in _NCLIMGRID_MEASURES:
         if len(edges) != 2:
             raise SemanticMappingError("nClimGrid requires NOAA and TIGER lineage edges")
         _bind_source(edges[0], mapping, authority)
