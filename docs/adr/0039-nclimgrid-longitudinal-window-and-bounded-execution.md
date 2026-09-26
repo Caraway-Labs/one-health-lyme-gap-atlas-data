@@ -38,24 +38,28 @@ artifact replay remains run pinned.
 
 The window implies 27,637 expected days, 86,890,728 county-days,
 347,562,912 county-day-measure records, and at least 1,390,854 normalized
-partitions at the #426 limit of 250 rows. Four inspected NOAA files are
-57.3–62.3 MB; their mean projects about 55.1 GB of NOAA files. Retaining the
+partitions at the #426 limit of 250 rows. Six inspected NOAA files are
+56.6–62.5 MB; their mean projects about 54.7 GB of NOAA files. Retaining the
 84.0 MB TIGER input per independent run projects about 76.3 GB of analysis
 reference captures before object-store deduplication, if any.
 
-A local source-backed run for each of January 1951, 1988, and 2025 succeeded.
-Together they produced 4,680 partitions containing 1.907 GB of canonical
-normalized JSON and retained 437.3 MB of NOAA/TIGER artifacts. January 1951
-alone used 635.7 MB of partitions and 146.3 MB of artifacts. The reproducible
-full-window report records only 3 captured and 905 not-attempted months.
-Linear projection is about 577 GB of partition JSON and 131 GB of
+A local source-backed run for each of January–March 1951, January 1988, and
+January 2025 succeeded. February and March ran in one bounded canonical
+batch; an unchanged rerun skipped both. Together the five captures produced
+7,649 partitions containing 3.187 GB of normalized JSON and retained 724.3
+MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
+and 146.3 MB of artifacts. The reproducible full-window report records only
+5 Tier A captures and 903 not-attempted months. Linear projection is about
+579 GB of partition JSON and 132 GB of
 artifact captures, before V103 physical rows, indexes, recaptures, and
 environment overhead. Its fresh-process resume after completed ACQUIRE and
 VALIDATE took 24.6 minutes; the interrupted earlier attempt took 17.1 minutes
 before normalization produced a partition under the original eager-weight
 code. The 1988 and 2025 fresh-process resumes took 21.7 and 11.7 minutes,
 respectively; those runs reused the retained named inputs, and the 2025 run
-reused an ephemeral geometry-weight cache. These are local measurements,
+reused an ephemeral geometry-weight cache. The adjacent February and March
+batch months took 18.8 and 9.5 minutes respectively, including canonical
+checkpoints. These are local measurements,
 not DEV cost or full-window completion claims.
 
 **Full-window DEV execution is pending a reviewed cost/window decision and

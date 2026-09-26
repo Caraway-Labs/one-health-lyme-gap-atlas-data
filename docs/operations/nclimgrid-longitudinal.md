@@ -24,6 +24,19 @@ mask. It labels this evidence as local source backed. Downloaded NetCDF/TIGER
 files and generated run checkpoints remain outside Git and are never a
 substitute for private governed DEV artifact retention.
 
+The source-backed local two-month batch proof used the approved TIGER bytes
+and downloaded scaled NOAA files in an off-repository fixture root. Each
+`noaa_nclimgrid_daily_YYYYMM` subdirectory contained `nclimgrid-scaled.nc`
+and `tl_2025_us_county.zip`:
+
+```text
+uv run atlas-data source batch --definitions nclimgrid:195102..195103 --tier A --fixture-root <off-repo-fixture-root>
+```
+
+The first invocation produced two successful, independent run IDs. Repeating
+the same command returned `skip_succeeded` for both IDs. This is a local
+execution check, not governed DEV ingestion.
+
 ## Monthly and batch execution after governance gates
 
 The canonical single-month operation remains:

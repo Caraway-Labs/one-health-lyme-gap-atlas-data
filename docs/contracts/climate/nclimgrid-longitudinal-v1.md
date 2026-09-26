@@ -37,8 +37,8 @@ training example.
 ## Representative source-backed schema evidence
 
 The `nclimgrid-inspect-artifact` command validated retained local copies of
-four official files. These are **local source-backed inspections**, not DEV
-ingestion. All four had `time × lat × lon`, a 596 × 1,385 ascending 1/24°
+six official files. These are **local source-backed inspections**, not DEV
+ingestion. All six had `time × lat × lon`, a 596 × 1,385 ascending 1/24°
 grid, Gregorian whole-day time, the native `prcp`, `tmin`, `tmax`, `tavg`
 variables, mm/°C native units, NaN fill, no packing, and the same grid ID
 `f6759ec770aa79789cb9e38f170bdb7b820d1c19e89eb734fc66720c392f0c95`.
@@ -48,6 +48,8 @@ Their monthly source-support union had 469,758 grid cells and SHA-256
 | Month | NOAA SHA-256 | Bytes | Product metadata |
 | --- | --- | ---: | --- |
 | 1951-01 | `2fd26c14f435a3ab43d0ca6dc730c78c217a67ef9e1f0d4246bdfee9bb137d55` | 62,312,946 | `v1-0-0 20220823` |
+| 1951-02 | `726842cb6f2b6d32b62169de4ec4b11f3278f13e35aa3cee82ed534b6f8e0a0d` | 56,598,706 | `v1-0-0 20220823` |
+| 1951-03 | `a56c353e5276c5446cd811dfea87e3204288b466bd569107974d25e24aa2f7a6` | 62,462,691 | `v1-0-0 20220823` |
 | 1988-01 | `3e088ebf0faaf7d3103d9716d0a7a1478137ac91b57d3ca2edee302207587aa1` | 61,955,327 | `v1-0-0 20220829` |
 | 2025-01 | `809a58714578ce654e61e094e5f7d0ee704d332f1ff6a86c644e56de4ee4da31` | 61,013,299 | `v1-0-0 20250404` |
 | 2026-08 | `2f9531cf2c60d8edc53bb08ad93fd4c8fd19174cdce0c86bc5a50f0c9d87ebee` | 57,266,553 | `v1-0-0 20260905` |
@@ -106,34 +108,38 @@ Failed recaptures do not replace the most recent successful capture. The
 report distinguishes **NOT_ATTEMPTED**, **IN_PROGRESS**, **REVIEW_REQUIRED**,
 **UNAVAILABLE** (terminal NOAA 404), **FAILED**, and **CAPTURED** months; it
 records the selected execution tier, attempted tiers, unique NOAA digests,
-revisions, expected
-and observed days, missing source dates, CONUS/source-supported counties,
+revisions, expected and observed days, missing source dates,
+CONUS/source-supported counties,
 the four coverage states, source-support fractions and signatures, full-day
 complete county-months by measure, retrieval/HTTP/NetCDF modification facts,
 and retained/normalized/runtime footprint. `all_days_complete` is a factual
 completeness indicator, not an ML approval or a claim of historical as-of
 availability. Historical first publication time is explicitly unavailable.
 
-The local Tier A canonical runs for **1951-01, 1988-01, and 2025-01** used
-the exact NOAA/TIGER files above and all completed the canonical stages.
-Tier A made no external publication.
-The full-window report selects **3 captured, 905 not attempted, 0 failed, and
-0 unavailable** months. Each captured 31-day month produced 389,856
-normalized rows in 1,560 bounded partitions: 385,516 `COMPLETE` and 4,340
-`OUT_OF_SOURCE_COVERAGE` county-day-measure rows, with zero `PARTIAL_COVERAGE`
-or `SOURCE_MISSING` in these three months. All 3,109 CONUS counties had some
+The local Tier A canonical runs for **1951-01 through 1951-03, 1988-01, and
+2025-01** used the exact NOAA/TIGER files above and all completed the
+canonical stages. February and March ran sequentially in one real `source
+batch` invocation; an unchanged rerun skipped both original run IDs. Tier A
+made no external publication. The full-window report selects **5 captured,
+903 not attempted, 0 failed, 0 unavailable, 0 in progress, and 0 requiring
+review** months, all labelled Tier A. Each captured 31-day month produced
+389,856 normalized rows in 1,560 bounded partitions: 385,516 `COMPLETE` and
+4,340 `OUT_OF_SOURCE_COVERAGE`. February 1951 produced 352,128 rows in 1,409
+partitions: 348,208 `COMPLETE` and 3,920 `OUT_OF_SOURCE_COVERAGE`. There were
+zero `PARTIAL_COVERAGE` or `SOURCE_MISSING` rows in these five months. All
+3,109 CONUS counties had some
 source support; 314 had less than 95% of full legal county area in the
 monthly source mask. For each month and each measure, all 3,109 CONUS county
 periods had every day `COMPLETE` relative to source-supported area. The
-three source-support signatures matched; this does not establish unchanged
+five source-support signatures matched; this does not establish unchanged
 support for all other months. Historical original publication times remain
 unavailable. These are local source-backed samples, not a historical DEV panel.
 
 The 908-month plan implies 347,562,912 rows and 1,390,854 #426 partitions.
-The three local runs retained 1.907 GB of normalized partition JSON and 437.3
+The five local runs retained 3.187 GB of normalized partition JSON and 724.3
 MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
-and 146.3 MB of artifacts. A simple linear footprint is about 577 GB of
-partition JSON plus about 131 GB of independently retained artifacts, before
+and 146.3 MB of artifacts. A simple linear footprint is about 579 GB of
+partition JSON plus about 132 GB of independently retained artifacts, before
 Snowflake V103 physical rows, recaptures, and overhead. This cost and DEV's
 missing V103 migration require human review before a full backfill. No PROD
 or consumer execution is authorized by this contract.
