@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS DATASET_DISCOVERY.RECOMMENDATIONS (
   supersedes_version_id VARCHAR,
   classification VARCHAR NOT NULL,
   relationship_type VARCHAR NOT NULL,
+  relationship_basis VARCHAR NOT NULL,
   relationship_uncertainty VARCHAR,
   rights_state VARCHAR NOT NULL,
   observed_facts VARIANT NOT NULL,

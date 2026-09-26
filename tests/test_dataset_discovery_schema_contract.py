@@ -47,6 +47,7 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
     assert "finalization_operation_key VARCHAR" in source
     assert "resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'" in source
     assert "missing_count NUMBER NOT NULL" in source
+    assert "relationship_basis VARCHAR NOT NULL" in source
     assert "rank_in_run NUMBER NOT NULL" not in source
     assert "PARTITION BY rec.run_id" in source
     assert "rec.priority_score DESC, rec.missing_count ASC" in source
