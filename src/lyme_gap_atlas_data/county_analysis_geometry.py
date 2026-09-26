@@ -9,6 +9,7 @@ import math
 import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 
 import shapefile  # type: ignore[import-untyped]
 from pyproj import CRS, Transformer
@@ -101,9 +102,15 @@ def analysis_crs(county_fips: str) -> str:
     return "EPSG:5070"  # NAD83 / Conus Albers
 
 
+@lru_cache(maxsize=8)
+def _coordinate_transformer(source_crs: str, target_crs: str) -> Transformer:
+    """Reuse immutable projection setup across grid cells in one process."""
+    return Transformer.from_crs(CRS.from_user_input(source_crs), target_crs, always_xy=True)
+
+
 def project_geometry(geometry: BaseGeometry, source_crs: str, target_crs: str) -> BaseGeometry:
     """Project with fixed XY axis order; never simplify or repair topology."""
-    transformer = Transformer.from_crs(CRS.from_user_input(source_crs), target_crs, always_xy=True)
+    transformer = _coordinate_transformer(source_crs, target_crs)
     projected = transform(transformer.transform, geometry)
     if projected.is_empty or not projected.is_valid:
         raise CountyGeometryError("projection produced empty or invalid geometry")

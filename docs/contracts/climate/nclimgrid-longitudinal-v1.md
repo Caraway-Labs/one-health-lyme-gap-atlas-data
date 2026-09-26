@@ -1,0 +1,149 @@
+# NOAA nClimGrid-Daily longitudinal county panel v1
+
+Status: proposed for #443 review; initial Atlas execution is pending the
+label/window, checkpoint-cost, and DEV migration gates in [ADR 0039](../../adr/0039-nclimgrid-longitudinal-window-and-bounded-execution.md).
+Owner: Atlas data stewardship and engineering.
+
+## Frozen NOAA source-availability window (not the Atlas execution target)
+
+| Item | Decision/evidence |
+| --- | --- |
+| Start | 1951-01 |
+| End | 2026-08 |
+| Expected months | 908, in calendar order |
+| Product | NOAA NCEI nClimGrid-Daily v1.0.0 monthly **scaled** NetCDF grids |
+| Source URI | `https://www.ncei.noaa.gov/data/nclimgrid-daily/access/grids/{YYYY}/ncdd-{YYYYMM}-grd-scaled.nc` |
+| Availability check | NOAA year indexes 1951–2026 on 2026-09-26: 908/908 listed, no missing/duplicate scaled month links |
+| End rule | August 2026 was the latest listed scaled month; later months require an explicit window update |
+| Historical first publication | Unavailable; never infer from observation or modification time |
+
+NOAA's [product page](https://www.ncei.noaa.gov/products/land-based-station/nclimgrid-daily)
+describes CONUS data from 1951 to present. The review inventory checks the
+official [monthly grid indexes](https://www.ncei.noaa.gov/data/nclimgrid-daily/access/grids/)
+one year at a time; `atlas-data source nclimgrid-inventory --start 195101
+--end 202608` reproduces the selected-month listing. An index link is
+availability evidence, not a capture or checksum. A later 404 or corrupt
+artifact is recorded as a failed monthly run and never silently replaced by
+preliminary data.
+
+The 908 months describe listed NOAA availability and the bounds of generated
+definitions, **not** an approved Atlas backfill. Data #110/#113 require
+eligible county-period counts and historical as-of evidence; machine-learning
+#23 has no approved target or horizon. The [window and checkpoint assessment](../../operations/nclimgrid-window-and-checkpoint-assessment.md)
+sets out a provisional 2008-01 through 2025-12 initial candidate and smaller
+and larger alternatives. No candidate is ML feature admission or approval to
+ingest. Older NOAA history remains an optional future extension.
+
+## Representative source-backed schema evidence
+
+The `nclimgrid-inspect-artifact` command validated retained local copies of
+six official files. These are **local source-backed inspections**, not DEV
+ingestion. All six had `time × lat × lon`, a 596 × 1,385 ascending 1/24°
+grid, Gregorian whole-day time, the native `prcp`, `tmin`, `tmax`, `tavg`
+variables, mm/°C native units, NaN fill, no packing, and the same grid ID
+`f6759ec770aa79789cb9e38f170bdb7b820d1c19e89eb734fc66720c392f0c95`.
+Their monthly source-support union had 469,758 grid cells and SHA-256
+`65debe9c65efb232b8a574e176a0ad4ebe5726b9026b124c6b26f448bb54e3ac`.
+
+| Month | NOAA SHA-256 | Bytes | Product metadata |
+| --- | --- | ---: | --- |
+| 1951-01 | `2fd26c14f435a3ab43d0ca6dc730c78c217a67ef9e1f0d4246bdfee9bb137d55` | 62,312,946 | `v1-0-0 20220823` |
+| 1951-02 | `726842cb6f2b6d32b62169de4ec4b11f3278f13e35aa3cee82ed534b6f8e0a0d` | 56,598,706 | `v1-0-0 20220823` |
+| 1951-03 | `a56c353e5276c5446cd811dfea87e3204288b466bd569107974d25e24aa2f7a6` | 62,462,691 | `v1-0-0 20220823` |
+| 1988-01 | `3e088ebf0faaf7d3103d9716d0a7a1478137ac91b57d3ca2edee302207587aa1` | 61,955,327 | `v1-0-0 20220829` |
+| 2025-01 | `809a58714578ce654e61e094e5f7d0ee704d332f1ff6a86c644e56de4ee4da31` | 61,013,299 | `v1-0-0 20250404` |
+| 2026-08 | `2f9531cf2c60d8edc53bb08ad93fd4c8fd19174cdce0c86bc5a50f0c9d87ebee` | 57,266,553 | `v1-0-0 20260905` |
+
+Matching samples do not prove that all 908 files share a schema. Each monthly
+VALIDATE independently checks version, variables, dimensions, units, fill,
+grid, and time before normalization. A changed coordinate grid fails the
+frozen longitudinal pin rather than being silently combined with earlier
+months. The source-support mask remains derived separately from every retained
+monthly artifact; changes can be reported without assuming the source is
+spatially constant.
+
+## Definition and execution identity
+
+`nclimgrid:YYYYMM` is a deterministic virtual definition accepted by the
+canonical `source validate`, `source run`, and `runs resume` commands. It is
+generated from the committed January #198 YAML with a reviewed canonical
+template digest. Only resource key, scaled URL, destination, and month change;
+the generated definition also pins the longitudinal grid/window identity and
+its own SHA-256. The definition digest is stored in the ACQUIRE detail and in
+generated normalized rows. A resume refuses a different generated definition.
+The legacy January #198 definition remains valid and its row content is not
+changed by this extension.
+
+`source nclimgrid-batch --definitions nclimgrid:YYYYMM..YYYYMM --tier B` handles at
+most twelve consecutive months. It validates all definitions before running,
+accepts only generated month ranges (no YAML/path list or unrelated adapter),
+uses the shared orchestrator for one run per month, skips already successful
+months, resumes failed runs, and stops on an unresolved failure. A nonterminal
+run requires explicit operator inspection and `runs resume` so another live
+worker cannot be mistaken for a stale interruption. `--recapture` explicitly
+creates new captures for completed months, retaining prior SHA-256 and V103
+revision lineage. Each month retains separate NOAA and TIGER named members;
+after completed ACQUIRE, VALIDATE/NORMALIZE replay those retained bytes only.
+The ephemeral geometry-weight cache is keyed by TIGER SHA-256 and grid ID and
+is never used as governed state.
+
+All scientific values, units, #424 analytical geometry and area weighting,
+monthly source-support mask, 95% daily valid/source-supported completeness,
+missing/partial/zero/out-of-source states, and NOAA-supplied TAVG remain as in
+the [#198 source contract](nclimgrid-daily-v1.md). No rolling feature,
+anomaly, drought measure, PRISM copy, or publication is created here.
+
+The #188 semantic mapping registry retains its reviewed January 2025 entries.
+`nclimgrid_month_mapping_registry(path, YYYYMM)` derives the same four mapping
+rules for exactly one frozen-window month, with that month's resource key and
+source vintage. Each rule still requires an independently approved exact
+source-version authority and NOAA/TIGER lineage. A caller maps one month at a
+time; a 1951 rule rejects a 1988 source tuple. This avoids registering a
+historical month under the January 2025 semantic source identity.
+
+## Reproducible coverage and limitations
+
+`source nclimgrid-report` streams selected successful run-pinned normalized
+partitions. It emits a JSON month summary and a county-month-measure CSV.
+Failed recaptures do not replace the most recent successful capture. The
+report distinguishes **NOT_ATTEMPTED**, **IN_PROGRESS**, **REVIEW_REQUIRED**,
+**UNAVAILABLE** (terminal NOAA 404), **FAILED**, and **CAPTURED** months; it
+records the selected execution tier, attempted tiers, unique NOAA digests,
+revisions, expected and observed days, missing source dates,
+CONUS/source-supported counties,
+the four coverage states, source-support fractions and signatures, full-day
+complete county-months by measure, retrieval/HTTP/NetCDF modification facts,
+and retained/normalized/runtime footprint. `all_days_complete` is a factual
+completeness indicator, not an ML approval or a claim of historical as-of
+availability. Historical first publication time is explicitly unavailable.
+
+The local Tier A canonical runs for **1951-01 through 1951-03, 1988-01, and
+2025-01** used the exact NOAA/TIGER files above and all completed the
+canonical stages. February and March ran sequentially in one real `source
+batch` invocation; an unchanged rerun skipped both original run IDs. Tier A
+made no external publication. The full-window report selects **5 captured,
+903 not attempted, 0 failed, 0 unavailable, 0 in progress, and 0 requiring
+review** months, all labelled Tier A. Each captured 31-day month produced
+389,856 normalized rows in 1,560 bounded partitions: 385,516 `COMPLETE` and
+4,340 `OUT_OF_SOURCE_COVERAGE`. February 1951 produced 352,128 rows in 1,409
+partitions: 348,208 `COMPLETE` and 3,920 `OUT_OF_SOURCE_COVERAGE`. There were
+zero `PARTIAL_COVERAGE` or `SOURCE_MISSING` rows in these five months. All
+3,109 CONUS counties had some
+source support; 314 had less than 95% of full legal county area in the
+monthly source mask. For each month and each measure, all 3,109 CONUS county
+periods had every day `COMPLETE` relative to source-supported area. The
+five source-support signatures matched; this does not establish unchanged
+support for all other months. Historical original publication times remain
+unavailable. These are local source-backed samples, not a historical DEV panel.
+
+The 908-month NOAA availability range would imply 347,562,912 rows and
+1,390,854 #426 partitions **if fully ingested**.
+The five local runs retained 3.187 GB of normalized partition JSON and 724.3
+MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
+and 146.3 MB of artifacts. A simple linear footprint is about 579 GB of
+partition JSON plus about 132 GB of independently retained artifacts, before
+Snowflake V103 physical rows, recaptures, and overhead. These figures do not
+make the 908 months an Atlas target. The smaller candidate volumes and V103
+retention/query implications are in the linked assessment. DEV's missing V103
+migration requires human review before any Tier B backfill. No PROD
+or consumer execution is authorized by this contract.

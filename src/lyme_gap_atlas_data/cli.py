@@ -903,6 +903,145 @@ def source_run(
         raise typer.Exit(code=1)
 
 
+@source_app.command("nclimgrid-inventory")
+def source_nclimgrid_inventory(
+    start: str = typer.Option("195101", "--start"),
+    end: str = typer.Option("202608", "--end"),
+) -> None:
+    """Inspect bounded NOAA scaled-month listings for the frozen window."""
+    from .ingestion.nclimgrid_longitudinal import scaled_inventory
+
+    typer.echo(json.dumps(scaled_inventory(start, end), indent=2))
+
+
+@source_app.command("nclimgrid-inspect-artifact")
+def source_nclimgrid_inspect_artifact(
+    path: str = typer.Option(..., "--path"),
+    month: str = typer.Option(..., "--month"),
+) -> None:
+    """Inspect a bounded local NOAA file for historical schema and mask drift."""
+    from .ingestion.nclimgrid_longitudinal import inspect_scaled_artifact
+
+    typer.echo(json.dumps(inspect_scaled_artifact(Path(path), month), indent=2))
+
+
+@source_app.command("nclimgrid-report")
+def source_nclimgrid_report(
+    start: str = typer.Option("195101", "--start"),
+    end: str = typer.Option("202608", "--end"),
+    county_csv: str = typer.Option(..., "--county-csv"),
+    output: str = typer.Option(..., "--output"),
+) -> None:
+    """Report county-month-measure coverage from run-pinned partitions."""
+    from .ingestion.nclimgrid_coverage import build_coverage_report, write_report_json
+
+    report = build_coverage_report(_run_store(), start=start, end=end, county_csv=Path(county_csv))
+    write_report_json(report, Path(output))
+    typer.echo(json.dumps({"report": str(output), "county_csv": str(county_csv)}))
+
+
+@source_app.command("nclimgrid-batch")
+def source_nclimgrid_batch(
+    definitions: str = typer.Option(..., "--definitions"),
+    tier: str = typer.Option("A", "--tier"),
+    fixture_root: str | None = typer.Option(None, "--fixture-root"),
+    recapture: bool = typer.Option(False, "--recapture"),
+) -> None:
+    """Run at most twelve generated nClimGrid months through the canonical orchestrator."""
+    from .ingestion.nclimgrid_daily import NClimGridDailyAdapter
+    from .ingestion.nclimgrid_longitudinal import batch_definition_specs, definition_mapping
+    from .ingestion.types import RunState, RunStatus, Stage
+
+    specs = batch_definition_specs(definitions)
+    loaded = [load_source_definition(spec) for spec in specs]
+    for spec, definition in zip(specs, loaded, strict=True):
+        month = spec.removeprefix("nclimgrid:")
+        if (
+            definition.adapter_kind is not AdapterKind.NCLIMGRID_DAILY
+            or definition.extra.get("longitudinal_window_version")
+            != definition_mapping(month)["longitudinal_window_version"]
+            or definition.extra.get("source_definition_sha256")
+            != definition_mapping(month)["source_definition_sha256"]
+        ):
+            raise ValueError(f"Batch requires exact generated nClimGrid definition: {spec}")
+    keys = [definition.resource_key for definition in loaded]
+    if len(keys) != len(set(keys)):
+        raise ValueError("Batch registers the same resource_key more than once")
+    selected_tier = Tier(tier.upper())
+    if selected_tier not in {Tier.A, Tier.B}:
+        raise ValueError("Batch supports only local Tier A and governed DEV Tier B")
+    if selected_tier is Tier.A and fixture_root is None:
+        raise ValueError("Tier A batch requires --fixture-root")
+    for definition in loaded:
+        result = IngestionOrchestrator().validate(definition)
+        if not result.ok:
+            raise ValueError(
+                f"Invalid batch definition: {definition.resource_key}: {result.issues}"
+            )
+    store = (
+        FileCheckpointStore(_DEFAULT_RUN_STORE)
+        if selected_tier is Tier.A
+        else SnowflakeCheckpointStore()
+    )
+    existing: dict[str, list[RunState]] = {}
+    for state in store.list_runs():
+        if state.resource_key in keys:
+            existing.setdefault(state.resource_key, []).append(state)
+    climate_adapter = NClimGridDailyAdapter()
+    outcomes: list[dict[str, str]] = []
+
+    def run_stamp(run: RunState) -> tuple[str, str]:
+        checkpoint = run.checkpoint(Stage.ACQUIRE)
+        return ((checkpoint.completed_at or "") if checkpoint else "", run.ingestion_run_id)
+
+    for definition in loaded:
+        prior = existing.get(definition.resource_key, [])
+        prior.sort(key=run_stamp)
+        if any(run.status not in {RunStatus.SUCCEEDED, RunStatus.FAILED} for run in prior):
+            raise ValueError(
+                f"Inspect and explicitly resume nonterminal run for {definition.resource_key}"
+            )
+        successful = [run for run in prior if run.status.value == "SUCCEEDED"]
+        if successful and not recapture:
+            acquire = successful[-1].checkpoint(Stage.ACQUIRE)
+            prior_digest = acquire.detail.get("source_definition_sha256") if acquire else None
+            current_digest = definition.extra.get("source_definition_sha256")
+            if prior_digest != current_digest:
+                raise ValueError(
+                    f"Definition changed for {definition.resource_key}; "
+                    "review and recapture explicitly"
+                )
+            outcomes.append(
+                {
+                    "resource_key": definition.resource_key,
+                    "action": "skip_succeeded",
+                    "run_id": successful[-1].ingestion_run_id,
+                }
+            )
+            continue
+        fixture = Path(fixture_root) / definition.resource_key if fixture_root is not None else None
+        orchestrator = IngestionOrchestrator(store, fixture_dir=fixture, adapter=climate_adapter)
+        incomplete = [run for run in prior if run.status is RunStatus.FAILED]
+        if incomplete and not recapture:
+            state = orchestrator.resume(incomplete[-1].ingestion_run_id, definition=definition)
+            action = "resume"
+        else:
+            state = orchestrator.run(definition, tier=selected_tier)
+            action = "run"
+        outcomes.append(
+            {
+                "resource_key": definition.resource_key,
+                "action": action,
+                "run_id": state.ingestion_run_id,
+                "status": state.status.value,
+            }
+        )
+        if state.status.value != "SUCCEEDED":
+            typer.echo(json.dumps(outcomes, indent=2))
+            raise typer.Exit(code=1)
+    typer.echo(json.dumps(outcomes, indent=2))
+
+
 @source_app.command("capture-routine-public-evidence")
 def source_capture_routine_public_evidence(
     definition: str = typer.Option(..., "--definition"),
