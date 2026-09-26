@@ -46,7 +46,10 @@ regexes = ['''^nasa_mod13q1_061_2025193_h09v05_48081$''']
 [[allowlists]]
 description = "Public bounded Annual NLCD SourceDefinition resource key, not an authentication key"
 condition = "AND"
-commits = ["d9dc072d1c9e7afab3a4c173cc809641458bf748"]
+commits = [
+  "d9dc072d1c9e7afab3a4c173cc809641458bf748",
+  "95d55db050cdfa9f07a4c88758441ede528e6ce2",
+]
 paths = [
   '''^config/sources/usgs_annual_nlcd_c1v2_2025_48081\.yml$''',
   '''^docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1\.json$''',
