@@ -36,10 +36,15 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
         "V_RECOMMENDATION_HISTORY",
         "V_ACCEPTED_RECOMMENDATIONS_FOR_HANDOFF",
         "V_DISCOVERY_RUN_SUMMARY",
+        "V_RUN_RECEIPTS",
+        "V_CANDIDATE_OUTCOME_RECEIPTS",
+        "V_RECOMMENDATION_RECEIPTS",
+        "V_FINALIZATION_RECEIPTS",
     ):
         assert f"DATASET_DISCOVERY.{name}" in source
     assert "recommendation_version_id" in source
     assert "retry_of_run_id" in source
+    assert "finalization_operation_key VARCHAR" in source
     assert "resource_key = 'catalog_discovery' AND run_mode = 'DISCOVERY'" in source
     assert "missing_count NUMBER NOT NULL" in source
     assert "rank_in_run NUMBER NOT NULL" not in source

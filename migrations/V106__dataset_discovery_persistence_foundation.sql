@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS DATASET_DISCOVERY.RUNS (
   trace_id VARCHAR,
   host_session_id VARCHAR,
   counters VARIANT,
+  finalization_operation_key VARCHAR,
   stop_reason VARCHAR,
   redacted_error_code VARCHAR,
   request_fingerprint VARCHAR(64) NOT NULL
@@ -292,3 +293,43 @@ LEFT JOIN DATASET_DISCOVERY.CANDIDATE_OUTCOMES o ON o.run_id = r.run_id
 GROUP BY r.run_id, r.retry_of_run_id, r.mode, r.status,
          r.started_at, r.heartbeat_at, r.completed_at, r.counters,
          r.stop_reason, r.redacted_error_code;
+
+-- Runtime receipt reads are narrow and keyed by operation/run identity. They
+-- support replay after Snowflake committed but before the client saw an ACK.
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_RUN_RECEIPTS AS
+SELECT run_id, operation_key, retry_of_run_id, request_fingerprint
+FROM DATASET_DISCOVERY.RUNS;
+
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_OUTCOME_RECEIPTS AS
+SELECT operation_key, run_id, resource_key, catalog_dataset_id,
+       catalog_resource_id, evidence_snapshot_id, outcome, reason_code
+FROM DATASET_DISCOVERY.CANDIDATE_OUTCOMES;
+
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_RECOMMENDATION_RECEIPTS AS
+SELECT rec.operation_key, rec.recommendation_id, rec.recommendation_version_id,
+       rec.run_id, rec.resource_key, rec.equivalent_to_version_id,
+       rec.assertion_sha256, evidence.evidence_observation_ids,
+       proposals.proposal_ids
+FROM DATASET_DISCOVERY.RECOMMENDATIONS rec
+LEFT JOIN (
+  SELECT recommendation_version_id,
+         ARRAY_AGG(observation_id) WITHIN GROUP (ORDER BY observation_id)
+           AS evidence_observation_ids
+  FROM DATASET_DISCOVERY.RECOMMENDATION_EVIDENCE
+  GROUP BY recommendation_version_id
+) evidence ON evidence.recommendation_version_id = rec.recommendation_version_id
+LEFT JOIN (
+  SELECT recommendation_version_id,
+         ARRAY_AGG(proposal_id) WITHIN GROUP (ORDER BY proposal_id) AS proposal_ids
+  FROM DATASET_DISCOVERY.SEARCH_EXPANSION_PROPOSALS
+  GROUP BY recommendation_version_id
+) proposals ON proposals.recommendation_version_id = rec.recommendation_version_id
+WHERE rec.commit_complete = TRUE;
+
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_FINALIZATION_RECEIPTS AS
+SELECT run_id, finalization_operation_key AS operation_key, status,
+       counters:processed_count::NUMBER AS processed_count,
+       counters:recommendation_count::NUMBER AS recommendation_count,
+       stop_reason
+FROM DATASET_DISCOVERY.RUNS
+WHERE completed_at IS NOT NULL AND finalization_operation_key IS NOT NULL;
