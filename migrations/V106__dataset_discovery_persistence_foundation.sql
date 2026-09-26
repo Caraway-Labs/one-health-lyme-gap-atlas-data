@@ -330,6 +330,7 @@ CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_FINALIZATION_RECEIPTS AS
 SELECT run_id, finalization_operation_key AS operation_key, status,
        counters:processed_count::NUMBER AS processed_count,
        counters:recommendation_count::NUMBER AS recommendation_count,
+       counters:budget_usage AS budget_usage,
        stop_reason
 FROM DATASET_DISCOVERY.RUNS
 WHERE completed_at IS NOT NULL AND finalization_operation_key IS NOT NULL;
