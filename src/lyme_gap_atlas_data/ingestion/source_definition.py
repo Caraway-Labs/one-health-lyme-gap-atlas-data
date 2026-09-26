@@ -34,6 +34,7 @@ _PLATFORM_TO_ADAPTER: dict[str, AdapterKind] = {
     "neon_release_package": AdapterKind.NEON_RELEASE_PACKAGE,
     "NCLIMGRID_DAILY": AdapterKind.NCLIMGRID_DAILY,
     "nclimgrid_daily": AdapterKind.NCLIMGRID_DAILY,
+    "modis_vegetation": AdapterKind.MODIS_VEGETATION,
 }
 
 
@@ -333,6 +334,11 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                     "NCLIMGRID_GRAIN", "nClimGrid v1 requires CONUS county-day semantics"
                 )
             )
+
+    if definition.adapter_kind is AdapterKind.MODIS_VEGETATION:
+        from .modis_vegetation import validate_definition
+
+        issues.extend(validate_definition(definition))
 
     if definition.adapter_kind is AdapterKind.ANNUAL_NLCD:
         from .annual_nlcd import validate_definition

@@ -22,6 +22,7 @@ class AdapterKind(StrEnum):
     NEON_RELEASE_PACKAGE = "neon_release_package"
     NCLIMGRID_DAILY = "nclimgrid_daily"
     ANNUAL_NLCD = "annual_nlcd"
+    MODIS_VEGETATION = "modis_vegetation"
 
 
 class AuthMode(StrEnum):

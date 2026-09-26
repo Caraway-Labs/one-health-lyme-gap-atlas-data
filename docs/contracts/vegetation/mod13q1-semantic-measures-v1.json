@@ -1,0 +1,36 @@
+{
+  "contract_version": "atlas-semantic-domain-v1",
+  "status": "CANDIDATE_PENDING_STEWARD_REVIEW",
+  "measures": [
+    {
+      "measure_id": "mod13q1_ndvi_mean_county_composite",
+      "indicator_id": "terra_modis_vegetation_condition_ndvi",
+      "semantic_version": "1.0.0",
+      "definition": "Area-weighted mean of MOD13Q1.061 scaled NDVI within QA-valid source-supported land pixels intersecting a frozen 2025 county polygon for one publisher 16-day composite.",
+      "data_type": "NUMBER",
+      "unit": "unitless_index",
+      "denominator": "qa_valid_source_supported_land_area_m2",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "DERIVED",
+      "methodology_version": "atlas-mod13q1-county-composite/1",
+      "allowed_value_states": ["OBSERVED", "ZERO", "MISSING", "UNAVAILABLE"]
+    },
+    {
+      "measure_id": "mod13q1_evi_mean_county_composite",
+      "indicator_id": "terra_modis_vegetation_condition_evi",
+      "semantic_version": "1.0.0",
+      "definition": "Area-weighted mean of MOD13Q1.061 scaled EVI within QA-valid source-supported land pixels intersecting a frozen 2025 county polygon for one publisher 16-day composite.",
+      "data_type": "NUMBER",
+      "unit": "unitless_index",
+      "denominator": "qa_valid_source_supported_land_area_m2",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "DERIVED",
+      "methodology_version": "atlas-mod13q1-county-composite/1",
+      "allowed_value_states": ["OBSERVED", "ZERO", "MISSING", "UNAVAILABLE"]
+    }
+  ]
+}

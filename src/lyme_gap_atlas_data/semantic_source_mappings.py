@@ -57,6 +57,15 @@ _NLCD_MEASURES = {
     "nlcd_impervious": ("MEAN_IMPERVIOUS_FRACTION", "FctImp"),
     "nlcd_change": ("LAND_COVER_CHANGED_AREA_SHARE", "LndChg"),
 }
+_MOD13_MEASURES = {
+    "mod13q1_ndvi": ("MODIS_NDVI_MEAN", "250m 16 days NDVI"),
+    "mod13q1_evi": ("MODIS_EVI_MEAN", "250m 16 days EVI"),
+}
+_MOD13_MEMBERS = {
+    "mod13q1-061-h09v05-2025193-hdf",
+    "mod13q1-061-h09v05-2025193-cmr",
+    "tiger-2025-analysis-county-zip",
+}
 
 
 def _valid_nclimgrid_areas(output: Mapping[str, Any]) -> bool:
@@ -238,7 +247,17 @@ def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tupl
     mapping_id = mapping["id"]
     value: Any
     state: str
-    if mapping_id in _NLCD_MEASURES:
+    if mapping_id in _MOD13_MEASURES:
+        coverage = output.get("coverage_status")
+        if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            if not math.isfinite(raw) or not -0.2 <= raw <= 1.0:
+                raise SemanticMappingError("MOD13Q1 index outside publisher valid range")
+            value, state = raw, "ZERO" if raw == 0 else "OBSERVED"
+        elif coverage in {"PARTIAL_COVERAGE", "SOURCE_MISSING"} and raw is None:
+            value, state = None, "MISSING"
+        else:
+            raise SemanticMappingError("invalid MOD13Q1 coverage/value state")
+    elif mapping_id in _NLCD_MEASURES:
         coverage = output.get("coverage_status")
         if coverage == "COMPLETE" and isinstance(raw, (int, float)) and not isinstance(raw, bool):
             if not math.isfinite(raw) or not 0 <= raw <= 1:
@@ -327,7 +346,93 @@ def _check_output_scope(
     output = record["source_output"]
     geography = record["geography"]
     temporal = record["temporal"]
-    if mapping["id"] in _NLCD_MEASURES:
+    if mapping["id"] in _MOD13_MEASURES:
+        measure, source_variable = _MOD13_MEASURES[mapping["id"]]
+        hashes = output.get("artifact_sha256_by_member")
+        artifact_ids = output.get("artifact_id_by_member")
+        if not isinstance(hashes, Mapping) or not isinstance(artifact_ids, Mapping):
+            raise SemanticMappingError("MOD13Q1 named-member lineage required")
+        if (
+            set(hashes) != _MOD13_MEMBERS
+            or set(artifact_ids) != _MOD13_MEMBERS
+            or len(edges) != 3
+            or {edge.get("member_name") for edge in edges} != _MOD13_MEMBERS
+            or len({edge.get("ingestion_run_id") for edge in edges}) != 1
+            or any(
+                edge.get("artifact_sha256") != hashes.get(edge.get("member_name"))
+                or edge.get("artifact_id") != artifact_ids.get(edge.get("member_name"))
+                for edge in edges
+            )
+            or output.get("id") != f"{mapping['resource_key']}:48081:2025-07-12:{measure}"
+            or output.get("county_fips") != geography.get("county_fips")
+            or output.get("county_fips") != "48081"
+            or output.get("period_start") != temporal.get("start")
+            or output.get("period_end") != temporal.get("end")
+            or output.get("period_start") != "2025-07-12"
+            or output.get("period_end") != "2025-07-27"
+            or output.get("measure") != measure
+            or output.get("source_variable") != source_variable
+            or output.get("collection") != "MOD13Q1.061"
+            or output.get("granule_ur") != "MOD13Q1.A2025193.h09v05.061.2025212122804"
+            or output.get("unit") != record.get("unit")
+            or output.get("denominator") != record.get("denominator")
+            or not all(
+                output.get(field)
+                for field in (
+                    "geometry_digest",
+                    "grid_id",
+                    "weight_id",
+                    "weight_version",
+                    "transformation_version",
+                    "retrieved_at",
+                    "source_production_at",
+                    "cmr_granule_id",
+                )
+            )
+            or output.get("first_proven_availability_at") != output.get("retrieved_at")
+        ):
+            raise SemanticMappingError("MOD13Q1 source scope or named-member lineage mismatch")
+        expected = output.get("expected_area_m2")
+        intersected = output.get("intersected_area_m2")
+        supported = output.get("source_supported_area_m2")
+        valid = output.get("valid_area_m2")
+        source_fraction = output.get("source_coverage_fraction")
+        qa_fraction = output.get("qa_valid_fraction_of_supported_area")
+        categories = output.get("qa_category_area_m2")
+        qa_counts = output.get("native_qa_code_pixel_counts")
+        if not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+            for value in (expected, intersected, supported, valid, source_fraction)
+        ):
+            raise SemanticMappingError("MOD13Q1 area evidence missing")
+        if not (
+            expected > 0
+            and 0 <= valid <= supported <= intersected <= expected * (1 + 1e-8)
+            and math.isclose(source_fraction, supported / expected, abs_tol=1e-8)
+            and isinstance(categories, Mapping)
+            and isinstance(qa_counts, Mapping)
+            and isinstance(categories.get("source_supported"), (int, float))
+            and isinstance(categories.get("qa_valid"), (int, float))
+            and math.isclose(categories.get("source_supported", -1), supported, abs_tol=1e-6)
+            and math.isclose(categories.get("qa_valid", -1), valid, abs_tol=1e-6)
+        ):
+            raise SemanticMappingError("MOD13Q1 area evidence inconsistent")
+        if supported == 0 or intersected / expected < 0.999999:
+            if output.get("coverage_status") != "SOURCE_MISSING":
+                raise SemanticMappingError("MOD13Q1 missing tile or support state inconsistent")
+            if supported == 0 and qa_fraction is not None:
+                raise SemanticMappingError("MOD13Q1 missing state inconsistent")
+        else:
+            if (
+                not isinstance(qa_fraction, (int, float))
+                or not math.isfinite(qa_fraction)
+                or not math.isclose(qa_fraction, valid / supported, abs_tol=1e-8)
+            ):
+                raise SemanticMappingError("MOD13Q1 QA completeness inconsistent")
+            expected_status = "COMPLETE" if qa_fraction >= 0.99 - 1e-12 else "PARTIAL_COVERAGE"
+            if output.get("coverage_status") != expected_status:
+                raise SemanticMappingError("MOD13Q1 QA completeness inconsistent")
+    elif mapping["id"] in _NLCD_MEASURES:
         measure, product = _NLCD_MEASURES[mapping["id"]]
         year = output.get("mapping_year")
         hashes = output.get("artifact_sha256_by_member")
@@ -552,7 +657,30 @@ def map_record(
         or not all(isinstance(edge, Mapping) for edge in edges)
     ):
         raise SemanticMappingError("source lineage edges required")
-    if mapping_id in _NLCD_MEASURES:
+    if mapping_id in _MOD13_MEASURES:
+        if len(edges) != 3:
+            raise SemanticMappingError("MOD13Q1 requires HDF, CMR and TIGER lineage edges")
+        versions = authority.get("source_versions")
+        for edge in edges:
+            if edge.get("member_name") == "tiger-2025-analysis-county-zip":
+                tiger = (
+                    versions.get(edge.get("source_version_id"))
+                    if isinstance(versions, Mapping)
+                    else None
+                )
+                if (
+                    not isinstance(tiger, Mapping)
+                    or tiger.get("approved") is not True
+                    or tiger.get("source_vintage") != "2025"
+                    or any(
+                        edge.get(field) != tiger.get(field)
+                        for field in ("resource_key", "source_id", "dataset_id", "source_vintage")
+                    )
+                ):
+                    raise SemanticMappingError("approved 2025 TIGER lineage required")
+            else:
+                _bind_source(edge, mapping, authority)
+    elif mapping_id in _NLCD_MEASURES:
         if len(edges) < 7:
             raise SemanticMappingError("Annual NLCD requires six tile members and TIGER")
         versions = authority.get("source_versions")

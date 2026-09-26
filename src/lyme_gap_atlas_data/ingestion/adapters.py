@@ -928,6 +928,10 @@ _REGISTRY: dict[AdapterKind, SourceAdapter] = {
 
 
 def get_adapter(kind: AdapterKind) -> SourceAdapter:
+    if kind is AdapterKind.MODIS_VEGETATION:
+        from .modis_vegetation import ModisVegetationAdapter
+
+        return ModisVegetationAdapter()
     if kind is AdapterKind.ANNUAL_NLCD:
         from .annual_nlcd import AnnualNLCDAdapter
 
