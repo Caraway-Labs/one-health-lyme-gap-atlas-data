@@ -73,6 +73,15 @@ this narrowly bridges the live transition without recreating a retired role or
 granting owner rights to the routine runtime. All other historical migration
 role mappings remain literal and are not a replay mechanism for a new database.
 
+## User feedback READ exception (ADR 0040 / Data #129)
+
+`OH_LYME_{ENV}_READ` remains forbidden from table DML on feedback base tables
+and may only call `GOVERNANCE.SP_SUBMIT_USER_FEEDBACK` and
+`GOVERNANCE.SP_REDACT_FEEDBACK_FOR_ACCOUNT`, plus `SELECT` on
+`GOVERNANCE.V_USER_FEEDBACK_ANALYST`. This is not a general write grant; each
+further mutation procedure on `READ` requires its own ADR (see
+[ADR 0040](../adr/0040-user-feedback-write-boundary.md)).
+
 ## Privilege-contract tests
 
 See `tests/test_snowflake_role_model.py`.
