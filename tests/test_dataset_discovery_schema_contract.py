@@ -43,6 +43,8 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
     assert "PARTITION BY o.ingestion_run_id, r.resource_key" in summary
     assert "ORDER BY o.observed_at DESC, d.discovered_at DESC" in summary
     assert "o.ingestion_run_id AS discovery_run_id" in summary
+    assert "LENGTH(r.resource_payload:title::VARCHAR) <= 300" in summary
+    assert "LENGTH(r.resource_payload:publisher::VARCHAR) <= 200" in summary
     assert (
         "resource_payload"
         not in source.split("CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_EVIDENCE")[
