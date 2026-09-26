@@ -16,6 +16,10 @@ NOAA nClimGrid-Daily scaled monthly county-day context is specified in
 [`docs/contracts/climate/nclimgrid-daily-v1.md`](docs/contracts/climate/nclimgrid-daily-v1.md).
 The bounded January 2025 SourceDefinition is
 [`config/sources/noaa_nclimgrid_daily_202501.yml`](config/sources/noaa_nclimgrid_daily_202501.yml).
+Annual NLCD Collection 1.2 county-year land-cover context is specified in
+[`docs/contracts/land-cover/annual-nlcd-c1v2-v1.md`](docs/contracts/land-cover/annual-nlcd-c1v2-v1.md).
+Its initial bounded requester-pays tile SourceDefinition selects 2025 H14V15 and
+county 48081; it does not initiate a national or multi-year acquisition.
 The adapter uses `h5netcdf` with its required `h5py` HDF5 backend to read NOAA's
 NetCDF4 artifact day by day; neither library changes the governed run/replay path.
 See workspace ADR 0005 and data ADR 0027 (tiered operating model) before

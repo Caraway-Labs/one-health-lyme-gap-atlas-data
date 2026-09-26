@@ -928,6 +928,10 @@ _REGISTRY: dict[AdapterKind, SourceAdapter] = {
 
 
 def get_adapter(kind: AdapterKind) -> SourceAdapter:
+    if kind is AdapterKind.ANNUAL_NLCD:
+        from .annual_nlcd import AnnualNLCDAdapter
+
+        return AnnualNLCDAdapter()
     if kind is AdapterKind.NCLIMGRID_DAILY:
         from .nclimgrid_daily import NClimGridDailyAdapter
 
