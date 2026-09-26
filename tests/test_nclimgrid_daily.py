@@ -533,6 +533,12 @@ def test_climate_semantic_mapping_preserves_value_and_two_member_scope(
         ]
         assert _source_value(record, mapping) == expected
         _check_output_scope(record, mapping, edges)
+        with pytest.raises(SemanticMappingError):
+            _check_output_scope(
+                {**record, "source_output": {**output, "source_year_month": "198801"}},
+                mapping,
+                edges,
+            )
         if fips == "01003":
             with pytest.raises(SemanticMappingError):
                 _check_output_scope(

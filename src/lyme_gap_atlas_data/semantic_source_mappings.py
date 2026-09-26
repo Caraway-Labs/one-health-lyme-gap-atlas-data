@@ -553,8 +553,12 @@ def _check_output_scope(
             f"{mapping['resource_key']}:{geography.get('county_fips')}:"
             f"{output.get('observation_date')}:{measure}"
         )
+        mapped_month = str(mapping["resource_key"]).rsplit("_", 1)[-1]
+        observation_month = str(output.get("observation_date", ""))[:7].replace("-", "")
         if (
             output.get("id") != expected_id
+            or output.get("source_year_month") != mapped_month
+            or observation_month != mapped_month
             or output.get("measure") != measure
             or output.get("source_variable") != source_variable
             or output.get("county_fips") != geography.get("county_fips")
