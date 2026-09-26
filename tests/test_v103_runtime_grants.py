@@ -68,3 +68,13 @@ def test_v103_remains_additive_without_historical_row_mutation() -> None:
     assert statements.count("CREATE TABLE IF NOT EXISTS GOVERNANCE.") == 3
     assert not re.search(r"\b(?:DROP|ALTER|UPDATE|DELETE|TRUNCATE|REVOKE)\b", statements)
     assert "SCHEMA_MIGRATIONS" not in statements
+
+
+def test_v103_does_not_self_grant_schema_usage_without_schema_authority() -> None:
+    source = V103.read_text(encoding="utf-8")
+    statements = re.sub(r"--[^\n]*", "", source).upper()
+    assert not re.search(r"GRANT\s+USAGE\s+ON\s+SCHEMA\s+GOVERNANCE\b", statements)
+    assert (
+        "GRANT SELECT ON TABLE GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS\n"
+        "    TO ROLE OH_LYME_{{ ENV }}_MIGRATION_DEPLOYER;"
+    ) in source
