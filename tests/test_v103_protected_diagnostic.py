@@ -23,15 +23,23 @@ SPEC.loader.exec_module(diagnostic)
 
 
 def _fixture_query(
-    *, visible: bool = True, wrong_owner: bool = False, wrong_type: bool = False
+    *,
+    visible: bool = True,
+    wrong_owner: bool = False,
+    wrong_type: bool = False,
+    wrong_checksum: bool = False,
+    missing_runtime: str | None = None,
+    v104_applied: bool = True,
 ) -> tuple[diagnostic.Query, list[str]]:
     called: list[str] = []
     expected = diagnostic._source_tables()
     applied = [
         {"VERSION": item["version"], "FILENAME": item["filename"], "SHA256": item["sha256"]}
         for item in migration_plan(DEV_DATABASE)
-        if item["version"] != "V103"
+        if item["version"] != "V104" or v104_applied
     ]
+    if wrong_checksum:
+        next(row for row in applied if row["VERSION"] == "V103")["SHA256"] = "0" * 64
 
     def query(sql: str) -> list[dict[str, Any]]:
         called.append(sql)
@@ -98,6 +106,7 @@ def _fixture_query(
                 grants = [
                     {"grantee_name": diagnostic.RUNTIME_ROLE, "privilege": privilege}
                     for privilege in ("SELECT", "INSERT")
+                    if privilege != missing_runtime
                 ]
                 if name == "GOVERNED_SOURCE_RECORD_REVISIONS":
                     grants.append(
@@ -136,29 +145,84 @@ def test_invisible_tables_are_unknown_not_absent() -> None:
     query, called = _fixture_query(visible=False)
     result = diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")
     assert result["disposition"] == "INSUFFICIENT_VISIBILITY"
-    assert result["ledger"]["only_v103_pending"] is True
+    assert result["ledger"]["v103_present"] is True
     assert all(table["exists"] == "UNKNOWN" for table in result["tables"].values())
     assert all(re.match(r"^(SELECT|SHOW|DESCRIBE)\b", sql) for sql in called)
     assert all("ONE_HEALTH_LYME_GAP_ATLAS_PROD" not in sql for sql in called)
 
 
-def test_visible_matching_state_is_review_only() -> None:
-    query, called = _fixture_query()
+@pytest.mark.parametrize("v104_applied", [True, False])
+def test_visible_matching_state_ignores_unrelated_later_migration(
+    v104_applied: bool,
+) -> None:
+    query, called = _fixture_query(v104_applied=v104_applied)
     result = diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")
-    assert result["disposition"] == "SAFE_FOR_REVIEWED_RETRY"
+    assert result["disposition"] == "VERIFIED_APPLIED"
+    assert result["ledger"]["v103_source_matches"] is True
+    assert ("V104" in result["ledger"]["pending_versions"]) is not v104_applied
     assert all(table["definition_matches_v103"] is True for table in result["tables"].values())
     assert all(re.match(r"^(SELECT|SHOW|DESCRIBE)\b", sql) for sql in called)
 
 
 @pytest.mark.parametrize(
-    ("wrong_owner", "wrong_type", "disposition"),
-    [(True, False, "PARTIAL_STATE_REPAIR_REQUIRED"), (False, True, "DEFINITION_MISMATCH")],
+    ("wrong_owner", "wrong_type"),
+    [(True, False), (False, True)],
 )
-def test_ownership_and_definition_mismatch_stop_retry_recommendation(
-    wrong_owner: bool, wrong_type: bool, disposition: str
+def test_ownership_and_definition_mismatch_stop_verification(
+    wrong_owner: bool, wrong_type: bool
 ) -> None:
     query, _ = _fixture_query(wrong_owner=wrong_owner, wrong_type=wrong_type)
-    assert diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")["disposition"] == disposition
+    assert diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")["disposition"] == (
+        "APPLIED_STATE_MISMATCH"
+    )
+
+
+def test_ledger_checksum_mismatch_takes_precedence_over_live_state() -> None:
+    query, called = _fixture_query(wrong_checksum=True, wrong_type=True)
+    result = diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")
+    assert result["disposition"] == "LEDGER_SOURCE_MISMATCH"
+    assert result["ledger"]["v103_source_matches"] is False
+    assert all(re.match(r"^(SELECT|SHOW|DESCRIBE)\b", sql) for sql in called)
+
+
+def test_future_v105_pending_does_not_block_v103_verification() -> None:
+    query, _ = _fixture_query()
+    plan = migration_plan(DEV_DATABASE) + [
+        {"version": "V105", "filename": "V105__future.sql", "sha256": "1" * 64}
+    ]
+    with patch.object(diagnostic, "migration_plan", return_value=plan):
+        result = diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")
+    assert result["disposition"] == "VERIFIED_APPLIED"
+    assert result["ledger"]["pending_versions"] == ["V105"]
+
+
+@pytest.mark.parametrize("missing_runtime", ["SELECT", "INSERT"])
+def test_missing_runtime_grant_fails_verification(missing_runtime: str) -> None:
+    query, _ = _fixture_query(missing_runtime=missing_runtime)
+    assert diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")["disposition"] == (
+        "APPLIED_STATE_MISMATCH"
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "expected_disposition"),
+    [
+        ({}, "VERIFIED_APPLIED"),
+        ({"visible": False}, "INSUFFICIENT_VISIBILITY"),
+        ({"wrong_owner": True}, "APPLIED_STATE_MISMATCH"),
+        ({"wrong_checksum": True}, "LEDGER_SOURCE_MISMATCH"),
+    ],
+)
+def test_every_diagnostic_disposition_queries_metadata_only(
+    options: dict[str, Any], expected_disposition: str
+) -> None:
+    query, called = _fixture_query(**options)
+    assert diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")["disposition"] == (
+        expected_disposition
+    )
+    assert called
+    assert all(re.match(r"^(SELECT|SHOW|DESCRIBE)\b", sql) and ";" not in sql for sql in called)
+    assert all("ONE_HEALTH_LYME_GAP_ATLAS_PROD" not in sql for sql in called)
 
 
 def test_snow_cli_guard_rejects_mutation_without_invoking_cli() -> None:
@@ -172,6 +236,10 @@ def test_snow_cli_guard_rejects_mutation_without_invoking_cli() -> None:
 def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert workflow[True]["workflow_dispatch"]["inputs"]["diagnose_v103_state"]["type"] == "boolean"
+    assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
+        "diagnose_v103_state",
+        "diagnose_query_id",
+    }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
         step["run"]

@@ -1,4 +1,4 @@
-"""Bounded, read-only V103 DEV recovery evidence under the migration identity."""
+"""Bounded, read-only V103 DEV post-application verification."""
 
 from __future__ import annotations
 
@@ -131,6 +131,7 @@ def diagnose(query: Query, expected_warehouse: str, source_commit: str) -> dict[
         f"SELECT VERSION, FILENAME, SHA256 FROM {SCHEMA}.SCHEMA_MIGRATIONS ORDER BY VERSION",
     )
     applied = {str(_value(row, "VERSION")): row for row in ledger or []}
+    v103_receipt = applied.get("V103")
     pending = (
         [item["version"] for item in migration_plan(DEV_DATABASE) if item["version"] not in applied]
         if ledger is not None
@@ -139,8 +140,16 @@ def diagnose(query: Query, expected_warehouse: str, source_commit: str) -> dict[
     result["ledger"] = {
         "latest": max(applied) if ledger is not None and applied else "UNKNOWN",
         "v103_present": "UNKNOWN" if ledger is None else "V103" in applied,
+        "v103_filename": _value(v103_receipt, "FILENAME") if v103_receipt else "UNKNOWN",
+        "v103_sha256": _value(v103_receipt, "SHA256") if v103_receipt else "UNKNOWN",
+        "v103_source_matches": (
+            "UNKNOWN"
+            if ledger is None or v103_receipt is None
+            else _value(v103_receipt, "FILENAME") == migration.filename
+            and _value(v103_receipt, "SHA256") == migration.sha256
+        ),
+        "applied_versions": sorted(applied) if ledger is not None else "UNKNOWN",
         "pending_versions": pending if pending is not None else "UNKNOWN",
-        "only_v103_pending": "UNKNOWN" if pending is None else pending == ["V103"],
     }
 
     schema_rows = _try_query(
@@ -260,12 +269,20 @@ def diagnose(query: Query, expected_warehouse: str, source_commit: str) -> dict[
         }
     result["tables"] = tables
 
-    if any(table.get("definition_matches_v103") is False for table in tables.values()):
-        disposition = "DEFINITION_MISMATCH"
+    if result["ledger"]["v103_source_matches"] is False:
+        disposition = "LEDGER_SOURCE_MISMATCH"
     elif (
-        (pending is not None and pending != ["V103"])
+        result["ledger"]["v103_present"] is False
         or any(
-            table.get("owned_by_migration_role") is False or table.get("conflicting_grants") is True
+            (table.get("exists") is True and table.get("table_type") != "TABLE")
+            or table.get("definition_matches_v103") is False
+            or table.get("owned_by_migration_role") is False
+            or table.get("conflicting_grants") is True
+            or (
+                isinstance(table.get("runtime_select_insert"), dict)
+                and not all(table["runtime_select_insert"].values())
+            )
+            or table.get("migration_select") is False
             for table in tables.values()
         )
         or result["schema"]["managed_access"] is True
@@ -273,7 +290,7 @@ def diagnose(query: Query, expected_warehouse: str, source_commit: str) -> dict[
         or result["schema"]["migration_create_table"] is False
         or result["schema"]["runtime_role_visible"] is False
     ):
-        disposition = "PARTIAL_STATE_REPAIR_REQUIRED"
+        disposition = "APPLIED_STATE_MISMATCH"
     elif (
         any(table["exists"] is not True for table in tables.values())
         or any(
@@ -283,13 +300,14 @@ def diagnose(query: Query, expected_warehouse: str, source_commit: str) -> dict[
             for table in tables.values()
         )
         or ledger is None
+        or result["ledger"]["v103_source_matches"] == "UNKNOWN"
         or not schema
         or schema_grants is None
         or result["schema"]["runtime_role_visible"] == "UNKNOWN"
     ):
         disposition = "INSUFFICIENT_VISIBILITY"
     else:
-        disposition = "SAFE_FOR_REVIEWED_RETRY"
+        disposition = "VERIFIED_APPLIED"
     result["disposition"] = disposition
     return result
 
