@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       source_definition:
-        description: SourceDefinition path, generated month, or bounded batch definition set
+        description: SourceDefinition path, generated month, or nClimGrid month range
         required: true
         default: config/sources/cdc_x5j9_wybp.yml
         type: string
@@ -26,7 +26,7 @@ on:
         type: choice
         options:
           - run
-          - batch
+          - nclimgrid-batch
           - resume
           - validate
           - inspect
@@ -98,7 +98,7 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
         run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.operation == 'run' || inputs.operation == 'batch' || inputs.operation == 'resume'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume'
         run: |
           if [ "${{ inputs.tier }}" = "B" ] && [ "${{ inputs.environment_name }}" != "dev" ]; then
             echo "::error::Tier B runs are limited to the dev GitHub Environment."
@@ -109,7 +109,7 @@ jobs:
             exit 1
           fi
       - name: Execute orchestrator operation with ephemeral Snowflake key
-        if: inputs.operation == 'run' || inputs.operation == 'batch' || inputs.operation == 'resume'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
@@ -186,12 +186,12 @@ jobs:
             uv run atlas-data source run \
               --definition "$SOURCE_DEFINITION" \
               --tier "${{ inputs.tier }}"
-          elif [ "${{ inputs.operation }}" = "batch" ]; then
+          elif [ "${{ inputs.operation }}" = "nclimgrid-batch" ]; then
             extra_args=()
             if [ "${{ inputs.recapture }}" = "true" ]; then
               extra_args+=(--recapture)
             fi
-            uv run atlas-data source batch \
+            uv run atlas-data source nclimgrid-batch \
               --definitions "$SOURCE_DEFINITION" \
               --tier "${{ inputs.tier }}" "${extra_args[@]}"
           else

@@ -940,20 +940,30 @@ def source_nclimgrid_report(
     typer.echo(json.dumps({"report": str(output), "county_csv": str(county_csv)}))
 
 
-@source_app.command("batch")
-def source_batch(
+@source_app.command("nclimgrid-batch")
+def source_nclimgrid_batch(
     definitions: str = typer.Option(..., "--definitions"),
     tier: str = typer.Option("A", "--tier"),
     fixture_root: str | None = typer.Option(None, "--fixture-root"),
     recapture: bool = typer.Option(False, "--recapture"),
 ) -> None:
-    """Run at most twelve definitions sequentially through the canonical orchestrator."""
+    """Run at most twelve generated nClimGrid months through the canonical orchestrator."""
     from .ingestion.nclimgrid_daily import NClimGridDailyAdapter
-    from .ingestion.nclimgrid_longitudinal import batch_definition_specs
+    from .ingestion.nclimgrid_longitudinal import batch_definition_specs, definition_mapping
     from .ingestion.types import RunState, RunStatus, Stage
 
     specs = batch_definition_specs(definitions)
     loaded = [load_source_definition(spec) for spec in specs]
+    for spec, definition in zip(specs, loaded, strict=True):
+        month = spec.removeprefix("nclimgrid:")
+        if (
+            definition.adapter_kind is not AdapterKind.NCLIMGRID_DAILY
+            or definition.extra.get("longitudinal_window_version")
+            != definition_mapping(month)["longitudinal_window_version"]
+            or definition.extra.get("source_definition_sha256")
+            != definition_mapping(month)["source_definition_sha256"]
+        ):
+            raise ValueError(f"Batch requires exact generated nClimGrid definition: {spec}")
     keys = [definition.resource_key for definition in loaded]
     if len(keys) != len(set(keys)):
         raise ValueError("Batch registers the same resource_key more than once")
@@ -1010,10 +1020,7 @@ def source_batch(
             )
             continue
         fixture = Path(fixture_root) / definition.resource_key if fixture_root is not None else None
-        adapter = (
-            climate_adapter if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY else None
-        )
-        orchestrator = IngestionOrchestrator(store, fixture_dir=fixture, adapter=adapter)
+        orchestrator = IngestionOrchestrator(store, fixture_dir=fixture, adapter=climate_adapter)
         incomplete = [run for run in prior if run.status is RunStatus.FAILED]
         if incomplete and not recapture:
             state = orchestrator.resume(incomplete[-1].ingestion_run_id, definition=definition)

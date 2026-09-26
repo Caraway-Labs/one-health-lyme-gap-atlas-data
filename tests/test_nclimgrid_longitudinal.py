@@ -11,6 +11,7 @@ import pytest
 
 from lyme_gap_atlas_data.ingestion.nclimgrid_coverage import (
     build_coverage_report,
+    canonical_counties,
     selected_successful_runs,
 )
 from lyme_gap_atlas_data.ingestion.nclimgrid_longitudinal import (
@@ -91,9 +92,30 @@ def test_batch_specs_are_bounded_and_reject_duplicate_registration(tmp_path: Pat
     with pytest.raises(ValueError, match="twelve"):
         batch_definition_specs("nclimgrid:195101..195202")
     path = tmp_path / "definitions.txt"
-    path.write_text("nclimgrid:195101\nnclimgrid:195101\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="unique"):
+    path.write_text("nclimgrid:195101\nnclimgrid:195102\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="requires nclimgrid"):
         batch_definition_specs(str(path))
+    with pytest.raises(ValueError, match="requires nclimgrid"):
+        batch_definition_specs("config/sources/cdc_x5j9_wybp.yml")
+    with pytest.raises(ValueError, match="requires nclimgrid"):
+        batch_definition_specs("nclimgrid:195101")
+
+
+@pytest.mark.parametrize("recapture", [False, True])
+def test_nclimgrid_batch_rejects_non_climate_file_before_opening_store(
+    tmp_path: Path, monkeypatch: Any, recapture: bool
+) -> None:
+    import lyme_gap_atlas_data.cli as cli
+
+    path = tmp_path / "other.yml"
+    path.write_text("adapter_kind: socrata\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "FileCheckpointStore",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("store opened")),
+    )
+    with pytest.raises(ValueError, match="requires nclimgrid"):
+        cli.source_nclimgrid_batch(str(path), "A", str(tmp_path), recapture)
 
 
 @pytest.mark.parametrize("month", ["195101", "198801", "202501", "202608"])
@@ -163,6 +185,80 @@ def test_coverage_report_preserves_explicit_missing_months(tmp_path: Path) -> No
     assert report["captured_months_by_tier"] == {}
     assert report["months"][0]["attempted_tiers"] == []  # type: ignore[index]
     assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_packaged_canonical_counties_are_unique_and_well_formed() -> None:
+    assert len(canonical_counties()) == 3144
+    assert "01001" in canonical_counties()
+
+
+@pytest.mark.parametrize("mutation", ["none", "missing", "duplicate", "substituted", "unexpected"])
+def test_coverage_report_checks_county_identity_matrix(
+    tmp_path: Path, monkeypatch: Any, mutation: str
+) -> None:
+    import lyme_gap_atlas_data.ingestion.nclimgrid_coverage as coverage
+
+    monkeypatch.setattr(coverage, "canonical_counties", lambda: frozenset({"01001", "01003"}))
+    run = RunState(
+        "county-run",
+        "noaa_nclimgrid_daily_195101",
+        2,
+        Tier.A,
+        RunStatus.SUCCEEDED,
+        stages=[
+            StageCheckpoint(
+                stage=Stage.ACQUIRE, status=StageStatus.COMPLETED, artifact_sha256="noaa-digest"
+            )
+        ],
+    )
+    records = [
+        {
+            "record": {
+                "county_fips": county,
+                "observation_date": f"1951-01-{day:02d}",
+                "measure": measure,
+                "coverage_status": "COMPLETE",
+                "noaa_sha256": "noaa-digest",
+                "source_supported_area_m2": 1.0,
+                "source_coverage_fraction": 1.0,
+            }
+        }
+        for county in ("01001", "01003")
+        for day in range(1, 32)
+        for measure in ("PRCP", "TMIN", "TMAX", "TAVG")
+    ]
+    if mutation == "missing":
+        records.pop()
+    elif mutation == "duplicate":
+        records[-1] = records[0]
+    elif mutation == "substituted":
+        records = [
+            {"record": {**item["record"], "county_fips": "01005"}}
+            if item["record"]["county_fips"] == "01003"
+            else item
+            for item in records
+        ]
+    elif mutation == "unexpected":
+        records.append({"record": {**records[0]["record"], "county_fips": "01005"}})
+
+    class Store:
+        def list_runs(self) -> list[RunState]:
+            return [run]
+
+        def iter_partitions(self, _run_id: str) -> object:
+            return iter([SimpleNamespace(byte_count=100, records=records)])
+
+    if mutation == "none":
+        report = build_coverage_report(
+            Store(), start="195101", end="195101", county_csv=tmp_path / "complete.csv"
+        )  # type: ignore[arg-type]
+        assert report["captured_month_count"] == 1
+    else:
+        with pytest.raises(ValueError, match="Duplicate|Incomplete|Unexpected"):
+            build_coverage_report(
+                Store(), start="195101", end="195101", county_csv=tmp_path / "drift.csv"
+            )  # type: ignore[arg-type]
+        assert not (tmp_path / "drift.csv").exists()
 
 
 def test_coverage_report_rejects_cross_measure_source_support_drift(tmp_path: Path) -> None:
@@ -307,8 +403,6 @@ def test_batch_skips_completed_month_and_resumes_failed_month(
 ) -> None:
     import lyme_gap_atlas_data.cli as cli
 
-    definitions = tmp_path / "months.txt"
-    definitions.write_text("nclimgrid:195101\nnclimgrid:195102\n", encoding="utf-8")
     completed = RunState(
         "run-january",
         "noaa_nclimgrid_daily_195101",
@@ -354,6 +448,6 @@ def test_batch_skips_completed_month_and_resumes_failed_month(
 
     monkeypatch.setattr(cli, "FileCheckpointStore", Store)
     monkeypatch.setattr(cli, "IngestionOrchestrator", Orchestrator)
-    cli.source_batch(str(definitions), "A", str(tmp_path), False)
+    cli.source_nclimgrid_batch("nclimgrid:195101..195102", "A", str(tmp_path), False)
     assert calls == ["run-february"]
     assert "skip_succeeded" in capsys.readouterr().out

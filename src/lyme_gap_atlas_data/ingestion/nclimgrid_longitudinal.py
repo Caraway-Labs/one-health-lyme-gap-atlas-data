@@ -56,19 +56,13 @@ def expected_days(year_month: str) -> int:
 
 
 def batch_definition_specs(value: str, *, maximum: int = 12) -> tuple[str, ...]:
-    """Resolve a bounded definition file or frozen nClimGrid month range."""
+    """Resolve only a bounded range of generated nClimGrid definitions."""
     if not 1 <= maximum <= 12:
         raise ValueError("Batch bound must be between one and twelve")
-    if value.startswith("nclimgrid:") and ".." in value:
-        start, end = value.removeprefix("nclimgrid:").split("..", 1)
-        specs = tuple(f"nclimgrid:{month}" for month in months(start, end))
-    else:
-        path = Path(value)
-        specs = tuple(
-            line.strip()
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        )
+    if not re.fullmatch(r"nclimgrid:\d{6}\.\.\d{6}", value):
+        raise ValueError("nClimGrid batch requires nclimgrid:YYYYMM..YYYYMM")
+    start, end = value.removeprefix("nclimgrid:").split("..", 1)
+    specs = tuple(f"nclimgrid:{month}" for month in months(start, end))
     if not specs or len(specs) > maximum or len(specs) != len(set(specs)):
         raise ValueError("Batch must contain one to twelve unique definitions")
     return specs

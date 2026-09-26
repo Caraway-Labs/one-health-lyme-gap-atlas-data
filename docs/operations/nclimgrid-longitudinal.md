@@ -2,8 +2,10 @@
 
 The [longitudinal contract](../contracts/climate/nclimgrid-longitudinal-v1.md)
 and [ADR 0039](../adr/0039-nclimgrid-longitudinal-window-and-bounded-execution.md)
-define the proposed 1951-01 through 2026-08 scaled window. The first 908-month
-DEV backfill is **not authorized by this runbook**: the cost/window review and
+define 1951-01 through 2026-08 as NOAA source availability. The
+[initial-window and checkpoint assessment](nclimgrid-window-and-checkpoint-assessment.md)
+sets out provisional Atlas candidates. A 908-month
+DEV backfill is **not authorized by this runbook**: the label/window review and
 protected V103 migration are outstanding. No PROD or public release is part of
 this procedure.
 
@@ -30,7 +32,7 @@ and downloaded scaled NOAA files in an off-repository fixture root. Each
 and `tl_2025_us_county.zip`:
 
 ```text
-uv run atlas-data source batch --definitions nclimgrid:195102..195103 --tier A --fixture-root <off-repo-fixture-root>
+uv run atlas-data source nclimgrid-batch --definitions nclimgrid:195102..195103 --tier A --fixture-root <off-repo-fixture-root>
 ```
 
 The first invocation produced two successful, independent run IDs. Repeating
@@ -48,9 +50,10 @@ uv run atlas-data runs resume --run-id <run-id> --definition nclimgrid:195101
 ```
 
 The existing generic `run-ingestion.yml` workflow accepts the same generated
-definition. Its `batch` operation accepts a range such as
-`nclimgrid:195101..195112` and calls `source batch` with the DEV runtime
-identity. Each invocation is limited to twelve source definitions and one
+definition. Its `nclimgrid-batch` operation accepts a range such as
+`nclimgrid:195101..195112` and calls `source nclimgrid-batch` with the DEV runtime
+identity. Each invocation is limited to twelve generated nClimGrid definitions; a
+YAML/path list or unrelated adapter cannot enter the batch or `--recapture` path. One
 month is one independent run. Rerunning a batch skips successful months and
 resumes `FAILED` months. A `RUNNING` or other nonterminal run must first be
 inspected to rule out a concurrent worker, then resumed explicitly with its

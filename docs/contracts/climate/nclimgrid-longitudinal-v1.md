@@ -1,10 +1,10 @@
 # NOAA nClimGrid-Daily longitudinal county panel v1
 
-Status: proposed for #443 review; full historical execution is pending the
-cost/window and DEV migration gates in [ADR 0039](../../adr/0039-nclimgrid-longitudinal-window-and-bounded-execution.md).
+Status: proposed for #443 review; initial Atlas execution is pending the
+label/window, checkpoint-cost, and DEV migration gates in [ADR 0039](../../adr/0039-nclimgrid-longitudinal-window-and-bounded-execution.md).
 Owner: Atlas data stewardship and engineering.
 
-## Frozen candidate source window
+## Frozen NOAA source-availability window (not the Atlas execution target)
 
 | Item | Decision/evidence |
 | --- | --- |
@@ -26,13 +26,13 @@ availability evidence, not a capture or checksum. A later 404 or corrupt
 artifact is recorded as a failed monthly run and never silently replaced by
 preliminary data.
 
-Data #110/#113 need eligible county-period counts, missingness, revisions,
-and actual as-of availability. Machine-learning #23 has no approved target or
-horizon as of this decision, so the full verified scaled history maximizes
-reuse for seasonality, interannual comparison, and later temporal split design.
-This contract grants no ML feature admission. Existing human-surveillance
-label history may be shorter; an eligible climate month is not an eligible
-training example.
+The 908 months describe listed NOAA availability and the bounds of generated
+definitions, **not** an approved Atlas backfill. Data #110/#113 require
+eligible county-period counts and historical as-of evidence; machine-learning
+#23 has no approved target or horizon. The [window and checkpoint assessment](../../operations/nclimgrid-window-and-checkpoint-assessment.md)
+sets out a provisional 2008-01 through 2025-12 initial candidate and smaller
+and larger alternatives. No candidate is ML feature admission or approval to
+ingest. Older NOAA history remains an optional future extension.
 
 ## Representative source-backed schema evidence
 
@@ -74,8 +74,9 @@ generated normalized rows. A resume refuses a different generated definition.
 The legacy January #198 definition remains valid and its row content is not
 changed by this extension.
 
-`source batch --definitions nclimgrid:YYYYMM..YYYYMM --tier B` handles at
+`source nclimgrid-batch --definitions nclimgrid:YYYYMM..YYYYMM --tier B` handles at
 most twelve consecutive months. It validates all definitions before running,
+accepts only generated month ranges (no YAML/path list or unrelated adapter),
 uses the shared orchestrator for one run per month, skips already successful
 months, resumes failed runs, and stops on an unresolved failure. A nonterminal
 run requires explicit operator inspection and `runs resume` so another live
@@ -135,11 +136,14 @@ five source-support signatures matched; this does not establish unchanged
 support for all other months. Historical original publication times remain
 unavailable. These are local source-backed samples, not a historical DEV panel.
 
-The 908-month plan implies 347,562,912 rows and 1,390,854 #426 partitions.
+The 908-month NOAA availability range would imply 347,562,912 rows and
+1,390,854 #426 partitions **if fully ingested**.
 The five local runs retained 3.187 GB of normalized partition JSON and 724.3
 MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
 and 146.3 MB of artifacts. A simple linear footprint is about 579 GB of
 partition JSON plus about 132 GB of independently retained artifacts, before
-Snowflake V103 physical rows, recaptures, and overhead. This cost and DEV's
-missing V103 migration require human review before a full backfill. No PROD
+Snowflake V103 physical rows, recaptures, and overhead. These figures do not
+make the 908 months an Atlas target. The smaller candidate volumes and V103
+retention/query implications are in the linked assessment. DEV's missing V103
+migration requires human review before any Tier B backfill. No PROD
 or consumer execution is authorized by this contract.

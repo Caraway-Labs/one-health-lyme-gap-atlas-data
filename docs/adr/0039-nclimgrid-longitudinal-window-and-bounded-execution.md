@@ -15,7 +15,8 @@ per-month partition design also makes the full historical cost material.
 
 ## Decision proposed for review
 
-Select **1951-01 through 2026-08 inclusive**, the broadest contiguous scaled
+Record **1951-01 through 2026-08 inclusive** as NOAA source availability,
+not an approved Atlas execution window. This is the broadest contiguous scaled
 monthly range found in NOAA's official year indexes on 2026-09-26. The 908
 expected months comprise 75 complete years plus eight scaled months in 2026.
 The source is only NOAA nClimGrid-Daily v1.0.0 **scaled** monthly NetCDF.
@@ -34,9 +35,17 @@ one run per month. The #424 county/grid weights may be reused only in process
 when the verified TIGER and grid identities match. The cache is disposable;
 artifact replay remains run pinned.
 
+The [window and checkpoint assessment](../operations/nclimgrid-window-and-checkpoint-assessment.md)
+proposes 2008-01 through 2025-12 as a provisional initial Atlas candidate,
+with alternatives and exact estimates. The read-only DEV role cannot inspect
+conformed county-year rows, so this is pending steward verification of label
+continuity and #110/#113/#23 decisions. Older NOAA history remains an optional
+future extension.
+
 ## Cost and execution gate
 
-The window implies 27,637 expected days, 86,890,728 county-days,
+Ingesting the complete NOAA availability range would imply 27,637 expected
+days, 86,890,728 county-days,
 347,562,912 county-day-measure records, and at least 1,390,854 normalized
 partitions at the #426 limit of 250 rows. Six inspected NOAA files are
 56.6–62.5 MB; their mean projects about 54.7 GB of NOAA files. Retaining the
@@ -50,9 +59,10 @@ batch; an unchanged rerun skipped both. Together the five captures produced
 MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
 and 146.3 MB of artifacts. The reproducible full-window report records only
 5 Tier A captures and 903 not-attempted months. Linear projection is about
-579 GB of partition JSON and 132 GB of
-artifact captures, before V103 physical rows, indexes, recaptures, and
-environment overhead. Its fresh-process resume after completed ACQUIRE and
+579 GB of uncompressed local partition JSON and 132 GB of
+artifact captures, before V103 physical storage, recaptures, and
+environment overhead. Snowflake compression and physical bytes remain
+unmeasured. Its fresh-process resume after completed ACQUIRE and
 VALIDATE took 24.6 minutes; the interrupted earlier attempt took 17.1 minutes
 before normalization produced a partition under the original eager-weight
 code. The 1988 and 2025 fresh-process resumes took 21.7 and 11.7 minutes,
@@ -72,10 +82,10 @@ and Snowflake V103 physical storage are unknown. [Snowflake documents](https://d
 time does not measure DEV warehouse active time, account credit price, or
 compressed storage. A DEV cost budget needs a measured protected pilot.
 
-**Full-window DEV execution is pending a reviewed cost/window decision and
-the protected application of V103.** The read-only DEV migration ledger
+**Any longitudinal DEV execution is pending a reviewed label/window and
+checkpoint-cost decision and the protected application of V103.** The read-only DEV migration ledger
 contained V101/V102 but no V103 on 2026-09-26. The current read role cannot
-inspect the source-run ledger. Do not infer that the selected 908 months have
+inspect the source-run ledger. Do not infer that the 908 NOAA months have
 been ingested or that a retrospective NOAA observation was available at a
 historical prediction cutoff.
 
@@ -92,8 +102,8 @@ HTTP Last-Modified, NetCDF date_modified, or current retrieval time.
 
 ## Alternatives considered
 
-- An arbitrary short recent window: insufficiently justified while #23 is
-  open and NOAA supplies a much longer consistent scaled record.
+- Treating all NOAA availability as the initial Atlas backfill: no approved
+  target or demonstrated pre-2008 label overlap justifies the checkpoint cost.
 - One all-history blob or run: violates independent monthly capture and
   bounded #426 replay.
 - Preliminary substitution: changes the approved source product.
@@ -102,9 +112,11 @@ HTTP Last-Modified, NetCDF date_modified, or current retrieval time.
 
 ## Acceptance and rollout
 
-Review this candidate window, projected footprint, retention feasibility,
-and DEV migration before authorizing broad batches. Execute one to twelve
-months at a time through the generic protected ingestion workflow. Re-run a
+Review county-year label coverage, candidate window, projected footprint,
+retention feasibility, and DEV migration before any Tier B execution. A
+measured single-month Tier B checkpoint pilot is the recommended prerequisite.
+Execute one to twelve months at a time through the nClimGrid-only operation
+of the protected ingestion workflow. Re-run a
 failed batch to skip successful months and resume failed runs; explicitly
 resume an interrupted nonterminal run after confirming it is inactive. A
 recapture requires an explicit operator flag. The longitudinal report reads

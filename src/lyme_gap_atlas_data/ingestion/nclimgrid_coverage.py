@@ -7,6 +7,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -21,6 +22,23 @@ STATUSES = (
     "OUT_OF_SOURCE_COVERAGE",
 )
 PREFIX = "noaa_nclimgrid_daily_"
+
+
+def canonical_counties() -> frozenset[str]:
+    """Load the governed 2022 county identities used by #198 normalization."""
+    identities = (
+        files("lyme_gap_atlas_data")
+        .joinpath("data/canonical-county-fips-2022.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    if (
+        not identities
+        or len(identities) != len(set(identities))
+        or any(len(value) != 5 or not value.isdigit() for value in identities)
+    ):
+        raise ValueError("Invalid packaged canonical county identity asset")
+    return frozenset(identities)
 
 
 class CoverageStore(Protocol):
@@ -72,6 +90,7 @@ def build_coverage_report(
     memory. A failed recapture cannot replace an earlier successful capture.
     """
     expected = months(start, end)
+    expected_counties = canonical_counties()
     runs_by_month = _month_runs(store.list_runs(), set(expected))
     county_csv.parent.mkdir(parents=True, exist_ok=True)
     temporary = county_csv.with_name(county_csv.name + ".tmp")
@@ -185,6 +204,10 @@ def build_coverage_report(
                         if not isinstance(record, dict):
                             raise ValueError("Normalized nClimGrid record is missing")
                         county = str(record["county_fips"])
+                        if county not in expected_counties:
+                            raise ValueError(
+                                f"Unexpected canonical county identity in {month}: {county}"
+                            )
                         day = str(record["observation_date"])
                         measure = str(record["measure"])
                         status = str(record["coverage_status"])
@@ -230,7 +253,11 @@ def build_coverage_report(
                         status_totals[status] += 1
                         upstream_date_modified.add(str(record.get("upstream_date_modified", "")))
                 days = expected_days(month)
-                if len(counts) != 3144 * len(MEASURES) or len(seen) != 3144 * days * len(MEASURES):
+                if (
+                    {county for county, _measure in counts} != expected_counties
+                    or len(counts) != len(expected_counties) * len(MEASURES)
+                    or len(seen) != len(expected_counties) * days * len(MEASURES)
+                ):
                     raise ValueError(f"Incomplete normalized nClimGrid county-day matrix: {month}")
                 first_day = date(int(month[:4]), int(month[4:]), 1)
                 missing_source_days = [
