@@ -32,6 +32,18 @@ regexes = ['''key_body''']
 useDefault = true
 
 [[allowlists]]
+description = "Public pinned MOD13Q1 county-composite SourceDefinition resource key, not an authentication key"
+condition = "AND"
+commits = ["95d55db050cdfa9f07a4c88758441ede528e6ce2"]
+paths = [
+  '''^config/sources/nasa_mod13q1_061_2025193_h09v05_48081\.yml$''',
+  '''^docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1\.json$''',
+  '''^tests/fixtures/semantic_governance/source-mappings-v1-baseline\.json$''',
+]
+regexTarget = "secret"
+regexes = ['''^nasa_mod13q1_061_2025193_h09v05_48081$''']
+
+[[allowlists]]
 description = "Public bounded Annual NLCD SourceDefinition resource key, not an authentication key"
 condition = "AND"
 commits = ["d9dc072d1c9e7afab3a4c173cc809641458bf748"]
