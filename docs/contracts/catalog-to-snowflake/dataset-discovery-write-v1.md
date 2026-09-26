@@ -1,6 +1,6 @@
 # Dataset Discovery write contract v1 (draft)
 
-Data #449 owns these procedures and the `DATASET_DISCOVERY` tables. This draft starts with `SP_CREATE_RUN`; candidate outcome, recommendation bundle, finalization, review and handoff procedures remain separate work. No migration is approved for application while data #454 or ADR 0041 approval is open.
+Data #449 owns these procedures and the `DATASET_DISCOVERY` tables. This draft includes `SP_CREATE_RUN`, `SP_RECORD_CANDIDATE_OUTCOME`, and `SP_FINALIZE_RUN`; recommendation bundle, review and handoff procedures remain separate work. No migration is approved for application while data #454 or ADR 0041 approval is open.
 
 ## Create-run request
 
@@ -9,3 +9,11 @@ Data #449 owns these procedures and the `DATASET_DISCOVERY` tables. This draft s
 The fingerprint is SHA-256 of the UTF-8, sorted-key, compact JSON serialization of every metadata field except `trace_id` and `host_session_id`. Those transport correlations can change after a lost acknowledgment. The procedure recomputes the digest, rejects unexpected or missing fields, and rejects replay of an operation key with a conflicting digest or retry parent. A reused requested run ID under a different key fails. An explicit retry requires a distinct key/run ID and a terminal retry-eligible parent.
 
 Inside one explicit transaction the procedure updates the pre-created `WRITE_SERIALIZATION` row, reads existing state, inserts or returns the committed run, then commits. Errors roll back. This is a design to be proven with concurrent, independent DEV Snowflake sessions; static tests and local JS syntax checks cannot establish Snowflake lock behavior. The runtime role receives only procedure `USAGE` after owner/security approval and protected migration application, never direct `RUNS` DML.
+
+## Candidate outcome request
+
+`SP_RECORD_CANDIDATE_OUTCOME(request_json)` accepts the exact typed `CandidateOutcomeReceipt`: operation/run/resource keys, catalog dataset and resource IDs, evidence snapshot, outcome and optional reason code. It returns that receipt. Within the same serialized transaction, it returns an identical prior operation, rejects conflicting replay or a second outcome for the run/resource, requires an open run with the same snapshot, and verifies candidate IDs against `V_CANDIDATE_SUMMARY` for that snapshot. The outcome ID is a deterministic SHA-256 of its operation key. Untrusted free text cannot enter `outcome` or `reason_code`; only bounded uppercase codes are accepted. The runtime receives procedure `USAGE` only after the same approval and protected migration gates.
+
+## Terminal finalization request
+
+`SP_FINALIZE_RUN(request_json)` accepts the exact typed `RunFinalizationReceipt`: operation/run IDs, terminal status, processed and recommendation counts, allowlisted nonnegative budget usage counters, and optional stop reason. It acquires the same serialization row, returns an identical prior finalization, and rejects a conflicting replay or an already terminal run. Before updating `RUNS`, it recomputes processed and recommendation counts from committed candidate outcomes and recommendation versions. It stores the terminal status, completion time, finalization key, stop reason and usage counters in one transaction. `V_FINALIZATION_RECEIPTS` exposes the receipt for lost-acknowledgment recovery. A partially persisted run is never labeled successful merely because the client requested success.
