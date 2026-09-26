@@ -88,7 +88,7 @@ def test_user_feedback_triage_migration_is_not_dev_only() -> None:
 
 def test_triage_procedures_use_execute_as_owner() -> None:
     source = _migration_source()
-    assert source.count("EXECUTE AS OWNER") == 4
+    assert source.count("EXECUTE AS OWNER") == 5
 
 
 def test_triage_grants_usage_and_select_to_owner_only() -> None:
@@ -99,7 +99,8 @@ def test_triage_grants_usage_and_select_to_owner_only() -> None:
     assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_REVEAL_FEEDBACK_ACCOUNT" in source
     assert "GRANT USAGE ON PROCEDURE GOVERNANCE.SP_REDACT_USER_FEEDBACK" in source
     assert source.count("TO ROLE OH_LYME_{{ ENV }}_OWNER") == 5
-    assert "TO ROLE OH_LYME_{{ ENV }}_READ" not in source
+    assert source.count("TO ROLE OH_LYME_{{ ENV }}_READ") == 1
+    assert "SP_EXPORT_FEEDBACK_FOR_ACCOUNT" in source
     assert "TO ROLE OH_LYME_{{ ENV }}_RUNTIME" not in source
     assert "API_RUNTIME" not in source
     assert "API_READER" not in source

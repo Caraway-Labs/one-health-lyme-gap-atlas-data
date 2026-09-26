@@ -327,6 +327,43 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_EXPORT_FEEDBACK_FOR_ACCOUNT(
+  ACCOUNT_ID VARCHAR
+)
+RETURNS VARIANT
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+BEGIN
+  IF (ACCOUNT_ID IS NULL OR LENGTH(TRIM(ACCOUNT_ID)) = 0 OR LENGTH(TRIM(ACCOUNT_ID)) > 128) THEN
+    RETURN OBJECT_CONSTRUCT('status', 'rejected', 'reason', 'invalid_account_id');
+  END IF;
+  RETURN (
+    SELECT OBJECT_CONSTRUCT(
+      'status', 'ok',
+      'rows', COALESCE(ARRAY_AGG(OBJECT_CONSTRUCT(
+        'feedback_id', f.feedback_id,
+        'category', f.category,
+        'route_id', f.route_id,
+        'received_at', TO_VARCHAR(f.received_at),
+        'message', f.message,
+        'contact_email_existed', IFF(c.feedback_id IS NOT NULL, TRUE, FALSE)
+      )), ARRAY_CONSTRUCT())
+    )
+    FROM GOVERNANCE.USER_FEEDBACK f
+    INNER JOIN GOVERNANCE.USER_FEEDBACK_ACCOUNT a
+      ON a.feedback_id = f.feedback_id
+    LEFT JOIN GOVERNANCE.USER_FEEDBACK_CONTACT c
+      ON c.feedback_id = f.feedback_id
+    WHERE a.account_id = TRIM(:ACCOUNT_ID)
+  );
+END;
+$$;
+
+GRANT USAGE ON PROCEDURE GOVERNANCE.SP_EXPORT_FEEDBACK_FOR_ACCOUNT(VARCHAR)
+  TO ROLE OH_LYME_{{ ENV }}_READ;
+
 GRANT SELECT ON VIEW GOVERNANCE.V_USER_FEEDBACK_TRIAGE
   TO ROLE OH_LYME_{{ ENV }}_OWNER;
 
