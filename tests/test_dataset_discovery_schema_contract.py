@@ -30,6 +30,7 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
         "V_CANDIDATE_EVIDENCE",
         "V_CANDIDATE_OBSERVATION_FIELDS",
         "V_CANDIDATE_GOVERNED_STATUS",
+        "V_RANKED_RECOMMENDATIONS",
         "V_PENDING_RECOMMENDATIONS",
         "V_RECOMMENDATION_HISTORY",
         "V_ACCEPTED_RECOMMENDATIONS_FOR_HANDOFF",
@@ -38,6 +39,10 @@ def test_v106_has_required_record_and_bounded_read_surfaces() -> None:
         assert f"DATASET_DISCOVERY.{name}" in source
     assert "recommendation_version_id" in source
     assert "retry_of_run_id" in source
+    assert "missing_count NUMBER NOT NULL" in source
+    assert "rank_in_run NUMBER NOT NULL" not in source
+    assert "PARTITION BY rec.run_id" in source
+    assert "rec.priority_score DESC, rec.missing_count ASC" in source
     summary = source.split("CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_SUMMARY")[1]
     summary = summary.split("CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_CANDIDATE_EVIDENCE")[0]
     assert "PARTITION BY o.ingestion_run_id, r.resource_key" in summary

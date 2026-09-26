@@ -88,9 +88,9 @@ CREATE TABLE IF NOT EXISTS DATASET_DISCOVERY.RECOMMENDATIONS (
   dimensions VARIANT NOT NULL,
   ranking_formula_version VARCHAR NOT NULL,
   relationship_adjustment NUMBER NOT NULL,
+  missing_count NUMBER NOT NULL,
   priority_score NUMBER NOT NULL,
   priority_bucket VARCHAR NOT NULL,
-  rank_in_run NUMBER NOT NULL,
   rationale VARCHAR NOT NULL,
   created_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
   commit_complete BOOLEAN NOT NULL DEFAULT TRUE
@@ -220,11 +220,26 @@ FROM GOVERNANCE.CATALOG_RESOURCES r
 LEFT JOIN GOVERNANCE.DATA_SOURCE_VERSIONS v ON v.resource_key = r.resource_key
 GROUP BY r.resource_key;
 
+-- Sequential writes cannot know the final ordinal until the run is complete.
+-- Derive it deterministically from immutable priority inputs for each read.
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_RANKED_RECOMMENDATIONS AS
+SELECT rec.*,
+       ROW_NUMBER() OVER (
+         PARTITION BY rec.run_id
+         ORDER BY CASE rec.priority_bucket
+                    WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1
+                    WHEN 'LOW' THEN 2 ELSE 3 END,
+                  rec.priority_score DESC, rec.missing_count ASC,
+                  rec.resource_key ASC, rec.recommendation_version_id ASC
+       ) AS rank_in_run
+FROM DATASET_DISCOVERY.RECOMMENDATIONS rec
+WHERE rec.commit_complete = TRUE;
+
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_PENDING_RECOMMENDATIONS AS
 SELECT rec.recommendation_version_id, rec.recommendation_id, rec.run_id,
        rec.resource_key, rec.priority_bucket, rec.priority_score,
        rec.rank_in_run, rec.rationale, rec.rights_state, rec.created_at
-FROM DATASET_DISCOVERY.RECOMMENDATIONS rec
+FROM DATASET_DISCOVERY.V_RANKED_RECOMMENDATIONS rec
 LEFT JOIN DATASET_DISCOVERY.REVIEW_EVENTS rev
   ON rev.recommendation_version_id = rec.recommendation_version_id
 WHERE rec.commit_complete = TRUE
@@ -238,7 +253,7 @@ SELECT rec.recommendation_id, rec.recommendation_version_id, rec.run_id,
        rec.resource_key, rec.assertion_sha256, rec.equivalent_to_version_id,
        rec.supersedes_version_id, rec.created_at, rev.review_event_id,
        rev.decision, rev.new_state, rev.reviewer_user, rev.reviewed_at
-FROM DATASET_DISCOVERY.RECOMMENDATIONS rec
+FROM DATASET_DISCOVERY.V_RANKED_RECOMMENDATIONS rec
 LEFT JOIN DATASET_DISCOVERY.REVIEW_EVENTS rev
   ON rev.recommendation_version_id = rec.recommendation_version_id
 WHERE rec.commit_complete = TRUE;
