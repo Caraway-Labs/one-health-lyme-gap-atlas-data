@@ -423,24 +423,6 @@ def test_fresh_process_resume_replays_all_named_inputs(
     assert {row["record"]["measure"] for row in rows} == set(MEASURES)
 
 
-def test_live_tier_a_requires_explicit_bounded_nlcd_opt_in(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    orchestrator = IngestionOrchestrator(FileCheckpointStore(tmp_path / "runs"))
-    with pytest.raises(ValueError, match="fixture_dir"):
-        orchestrator.run(DEFINITION, tier=Tier.A)
-    with pytest.raises(ValueError, match="limited to bounded Annual NLCD"):
-        orchestrator.run(DEFINITION, tier=Tier.B, local_live_acquire=True)
-    monkeypatch.setattr(
-        IngestionOrchestrator,
-        "_execute",
-        lambda _self, _definition, state, *, fail_after_stage: state,
-    )
-    state = orchestrator.run(DEFINITION, tier=Tier.A, local_live_acquire=True)
-    assert state.tier is Tier.A
-    assert not state.dry_run
-
-
 def test_acquire_counts_tiger_in_total_byte_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

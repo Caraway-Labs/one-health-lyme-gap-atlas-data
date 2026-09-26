@@ -148,6 +148,13 @@ def test_context_fixture_runs_succeed(path: Path, fixture: Path) -> None:
     assert state.status.value == "SUCCEEDED"
 
 
+def test_tier_a_requires_fixture_or_dry_run() -> None:
+    definition = load_source_definition(X5J9)
+    orchestrator = IngestionOrchestrator(store=InMemoryCheckpointStore())
+    with pytest.raises(ValueError, match="Tier A requires fixture_dir or --dry-run"):
+        orchestrator.run(definition, tier=Tier.A)
+
+
 def test_starter_definition_yaml_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "example.yml"
     path.write_text(
