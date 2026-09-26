@@ -1,0 +1,40 @@
+resource_key: nasa_mod13q1_061_2025193_h09v05_48081
+source_id: nasa_mod13q1
+dataset_id: MOD13Q1.061
+definition_version: 1
+adapter_kind: modis_vegetation
+endpoint_template: https://cmr.earthdata.nasa.gov/search/granules.json?collection_concept_id=C1748066515-LPCLOUD&granule_ur=MOD13Q1.A2025193.h09v05.061.2025212122804&page_size=2
+deterministic_order_clause: county_fips ASC, period_start ASC, measure ASC
+incremental_strategy: IMMUTABLE_COMPOSITE_RECAPTURE
+onboarding_mode: ROUTINE_PUBLIC
+onboarding_environments: [dev]
+artifact_policy: PUBLIC_SEVEN_YEAR
+expected_refresh_cadence: one pinned 16-day source composite; historical revision only as immutable capture
+destination: RAW.NASA_MOD13Q1_061_2025193_H09V05_48081
+geography_semantics: CONUS_COUNTY_FIPS_2025_ANALYSIS
+temporal_semantics: COUNTY_16_DAY_COMPOSITE
+collection_concept_id: C1748066515-LPCLOUD
+granule_ur: MOD13Q1.A2025193.h09v05.061.2025212122804
+tile_id: h09v05
+county_fips: ['48081']
+tiger_url: https://www2.census.gov/geo/tiger/TIGER2025/COUNTY/tl_2025_us_county.zip
+tiger_sha256: 9c6e9d9076abce2670d1de255de3710c35ecca00a7005d88e012dec52d95f763
+hdf_max_bytes: 300000000
+tiger_max_bytes: 100000000
+run_max_bytes: 384000000
+qa_value_policy: positive_valid_area_with_explicit_partial_status
+measures: [MODIS_NDVI_MEAN, MODIS_EVI_MEAN]
+required_columns: [id, county_fips, period_start, period_end, measure, value, unit, coverage_status, expected_area_m2, intersected_area_m2, source_supported_area_m2, valid_area_m2, qa_valid_fraction_of_supported_area, qa_category_area_m2, native_qa_code_pixel_counts, granule_ur, artifact_sha256_by_member, retrieved_at]
+quality_rules:
+  - rule_id: mod13_required_columns
+    severity: BLOCKING
+  - rule_id: mod13_geography
+    severity: BLOCKING
+  - rule_id: mod13_value_state_preservation
+    severity: BLOCKING
+restrictions:
+  - Exactly one named MOD13Q1.061 Terra HDF granule, its CMR metadata, and the pinned 2025 TIGER geometry.
+  - Normal local Earthdata HTTP credential chain only; credentials are never retained as artifacts.
+  - QA-valid land area and source-supported land area are separate; no masked-value zero fill.
+  - Composite observation period is distinct from first proven artifact availability.
+  - No MODIS-VIIRS splice, phenology timing, score, ML feature, PROD publication, or public/API admission.
