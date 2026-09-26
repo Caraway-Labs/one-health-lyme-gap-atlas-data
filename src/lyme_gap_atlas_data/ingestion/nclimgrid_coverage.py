@@ -102,11 +102,28 @@ def build_coverage_report(
                 runs = runs_by_month.get(month, [])
                 successes = selected_successful_runs(runs)
                 failed = sorted(
-                    run.ingestion_run_id for run in runs if run.status is not RunStatus.SUCCEEDED
+                    run.ingestion_run_id for run in runs if run.status is RunStatus.FAILED
+                )
+                in_progress = sorted(
+                    run.ingestion_run_id
+                    for run in runs
+                    if run.status in {RunStatus.PENDING, RunStatus.RUNNING}
+                )
+                review_required = sorted(
+                    run.ingestion_run_id
+                    for run in runs
+                    if run.status
+                    in {
+                        RunStatus.EXCEPTION_REVIEW,
+                        RunStatus.OPERATOR_INTERVENTION,
+                        RunStatus.POLICY_BLOCKED,
+                        RunStatus.PAUSED,
+                    }
                 )
                 unavailable = sorted(
                     run.ingestion_run_id
                     for run in runs
+                    if run.status is RunStatus.FAILED
                     if (checkpoint := run.checkpoint(Stage.ACQUIRE))
                     and checkpoint.redacted_diagnostic_code == "NCLIMGRID_UNAVAILABLE"
                 )
@@ -120,13 +137,23 @@ def build_coverage_report(
                 )
                 if not successes:
                     missing_status = (
-                        "UNAVAILABLE" if unavailable else "FAILED" if failed else "NOT_ATTEMPTED"
+                        "IN_PROGRESS"
+                        if in_progress
+                        else "REVIEW_REQUIRED"
+                        if review_required
+                        else "UNAVAILABLE"
+                        if failed and len(unavailable) == len(failed)
+                        else "FAILED"
+                        if failed
+                        else "NOT_ATTEMPTED"
                     )
                     month_reports.append(
                         {
                             "month": month,
                             "status": missing_status,
                             "failed_run_ids": failed,
+                            "in_progress_run_ids": in_progress,
+                            "review_required_run_ids": review_required,
                             "unavailable_run_ids": unavailable,
                             "expected_days": expected_days(month),
                             "observed_days": 0,
@@ -249,6 +276,8 @@ def build_coverage_report(
                         "status": "CAPTURED",
                         "selected_run_id": run.ingestion_run_id,
                         "failed_run_ids": failed,
+                        "in_progress_run_ids": in_progress,
+                        "review_required_run_ids": review_required,
                         "unavailable_run_ids": unavailable,
                         "successful_run_ids": [r.ingestion_run_id for r in successes],
                         "unique_noaa_digests": digests,
@@ -288,6 +317,12 @@ def build_coverage_report(
             item["month"] for item in month_reports if item["status"] == "UNAVAILABLE"
         ],
         "failed_months": [item["month"] for item in month_reports if item["status"] == "FAILED"],
+        "in_progress_months": [
+            item["month"] for item in month_reports if item["status"] == "IN_PROGRESS"
+        ],
+        "review_required_months": [
+            item["month"] for item in month_reports if item["status"] == "REVIEW_REQUIRED"
+        ],
         "months_with_at_least_one_all_complete_county_by_measure": measure_history,
         "historical_publication_time": "UNAVAILABLE",
         "selected_retained_artifact_bytes": total_retained_bytes,

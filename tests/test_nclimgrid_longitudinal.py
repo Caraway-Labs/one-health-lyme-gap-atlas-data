@@ -246,6 +246,36 @@ def test_coverage_report_distinguishes_noaa_404_from_unattempted(tmp_path: Path)
     assert report["not_attempted_months"] == ["195102"]
 
 
+@pytest.mark.parametrize(
+    ("run_status", "month_status", "summary_field"),
+    [
+        (RunStatus.RUNNING, "IN_PROGRESS", "in_progress_months"),
+        (RunStatus.POLICY_BLOCKED, "REVIEW_REQUIRED", "review_required_months"),
+        (RunStatus.FAILED, "FAILED", "failed_months"),
+    ],
+)
+def test_coverage_report_preserves_non_success_run_state(
+    tmp_path: Path, run_status: RunStatus, month_status: str, summary_field: str
+) -> None:
+    run = RunState("run-1", "noaa_nclimgrid_daily_195101", 2, Tier.A, run_status)
+
+    class Store:
+        def list_runs(self) -> list[RunState]:
+            return [run]
+
+        def iter_partitions(self, _run_id: str) -> object:
+            raise AssertionError("Unfinished run partitions must not be read")
+
+    report = build_coverage_report(
+        Store(),
+        start="195101",
+        end="195101",
+        county_csv=tmp_path / "county.csv",  # type: ignore[arg-type]
+    )
+    assert report[summary_field] == ["195101"]
+    assert report["months"][0]["status"] == month_status  # type: ignore[index]
+
+
 def test_failed_recapture_does_not_replace_last_successful_month() -> None:
     def run(run_id: str, status: RunStatus, time: str) -> RunState:
         return RunState(
