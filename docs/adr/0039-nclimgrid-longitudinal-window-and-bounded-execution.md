@@ -62,6 +62,16 @@ batch months took 18.8 and 9.5 minutes respectively, including canonical
 checkpoints. These are local measurements,
 not DEV cost or full-window completion claims.
 
+At the 2026-09-26 published rates, [DigitalOcean Spaces Standard](https://docs.digitalocean.com/products/spaces/details/pricing/)
+includes 250 GiB in the $5 monthly subscription and charges $0.02/GiB-month
+above it. The projected 132 GB of independently retained artifacts is about
+123 GiB, or about $2.46/month of incremental storage **if all of it falls
+above the existing allowance**. Current bucket usage, recaptures, transfer,
+and Snowflake V103 physical storage are unknown. [Snowflake documents](https://docs.snowflake.com/en/user-guide/warehouses-overview)
+1 credit/hour for a running Gen1 X-Small warehouse, but local Tier A wall
+time does not measure DEV warehouse active time, account credit price, or
+compressed storage. A DEV cost budget needs a measured protected pilot.
+
 **Full-window DEV execution is pending a reviewed cost/window decision and
 the protected application of V103.** The read-only DEV migration ledger
 contained V101/V102 but no V103 on 2026-09-26. The current read role cannot
