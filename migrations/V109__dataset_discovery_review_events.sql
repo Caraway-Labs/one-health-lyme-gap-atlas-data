@@ -25,6 +25,33 @@ LEFT JOIN (
 ) rev ON rev.recommendation_version_id = rec.recommendation_version_id
 WHERE rec.commit_complete = TRUE;
 
+-- Human review can inspect the bounded assertion and references without
+-- reading mutable catalog payloads or source-approval tables.
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_REVIEW_RECOMMENDATION_DETAIL AS
+SELECT rec.recommendation_version_id, rec.recommendation_id, rec.run_id,
+       rec.resource_key, rec.catalog_dataset_id, rec.catalog_resource_id,
+       rec.evidence_snapshot_id, rec.assertion_sha256,
+       rec.classification, rec.relationship_type, rec.relationship_basis,
+       rec.rights_state, rec.observed_facts, rec.inferences, rec.unknowns,
+       rec.dimensions, rec.ranking_formula_version,
+       rec.relationship_adjustment, rec.missing_count,
+       rec.priority_score, rec.priority_bucket, rec.rank_in_run,
+       rec.rationale, rec.created_at, state.review_state,
+       state.latest_review_event_id
+FROM DATASET_DISCOVERY.V_RANKED_RECOMMENDATIONS rec
+JOIN DATASET_DISCOVERY.V_CURRENT_REVIEW_STATE state
+  ON state.recommendation_version_id = rec.recommendation_version_id;
+
+CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_REVIEW_EVIDENCE AS
+SELECT evidence.recommendation_version_id, evidence.observation_id,
+       evidence.catalog_dataset_id, evidence.catalog_resource_id,
+       evidence.field_name, evidence.metadata_sha256,
+       evidence.observed_at
+FROM DATASET_DISCOVERY.RECOMMENDATION_EVIDENCE evidence
+JOIN DATASET_DISCOVERY.RECOMMENDATIONS rec
+  ON rec.recommendation_version_id = evidence.recommendation_version_id
+WHERE rec.commit_complete = TRUE;
+
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_PENDING_RECOMMENDATIONS AS
 SELECT rec.recommendation_version_id, rec.recommendation_id, rec.run_id,
        rec.resource_key, rec.priority_bucket, rec.priority_score,

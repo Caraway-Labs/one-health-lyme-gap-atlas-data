@@ -51,6 +51,8 @@ def test_review_views_expose_current_state_and_exact_version() -> None:
     sql = SQL.read_text(encoding="utf-8").upper()
     for view in (
         "V_CURRENT_REVIEW_STATE",
+        "V_REVIEW_RECOMMENDATION_DETAIL",
+        "V_REVIEW_EVIDENCE",
         "V_PENDING_RECOMMENDATIONS",
         "V_RECOMMENDATION_HISTORY",
         "V_ACCEPTED_RECOMMENDATIONS_FOR_HANDOFF",
