@@ -34,6 +34,7 @@ from .runtime import (
 )
 from .source_definition import validate_source_definition
 from .types import (
+    AdapterKind,
     FailureCategory,
     RunState,
     RunStatus,
@@ -88,6 +89,7 @@ class IngestionOrchestrator:
         *,
         tier: Tier,
         dry_run: bool = False,
+        local_live_acquire: bool = False,
         fail_after_stage: str | None = None,
         run_id: str | None = None,
     ) -> RunState:
@@ -107,7 +109,14 @@ class IngestionOrchestrator:
                 "Invalid SourceDefinition: "
                 + "; ".join(f"{issue.code}:{issue.message}" for issue in validation.issues)
             )
-        if tier is Tier.A and self.fixture_dir is None and not dry_run:
+        if local_live_acquire and (
+            tier is not Tier.A
+            or dry_run
+            or self.fixture_dir is not None
+            or definition.adapter_kind is not AdapterKind.ANNUAL_NLCD
+        ):
+            raise ValueError("Local live acquisition is limited to bounded Annual NLCD Tier A")
+        if tier is Tier.A and self.fixture_dir is None and not dry_run and not local_live_acquire:
             raise ValueError("Tier A requires fixture_dir or --dry-run")
 
         state = RunState(

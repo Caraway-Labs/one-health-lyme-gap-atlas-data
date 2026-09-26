@@ -299,14 +299,31 @@ class AnnualNLCDAdapter:
             tiger = (fixture_dir / "tl_2025_us_county.zip").read_bytes()
         else:
             try:
-                with httpx.Client(timeout=120, follow_redirects=True) as web:
-                    response = web.get(SOURCE_URL)
+                with (
+                    httpx.Client(timeout=120, follow_redirects=True) as web,
+                    web.stream("GET", SOURCE_URL) as response,
+                ):
                     response.raise_for_status()
-                    tiger = response.content
+                    length = response.headers.get("Content-Length")
+                    if length is not None and int(length) > _MAX_ARTIFACT_BYTES:
+                        raise AcquisitionError("TIGER exceeds bounded size", code="TIGER_SIZE")
+                    chunks: list[bytes] = []
+                    tiger_bytes = 0
+                    for chunk in response.iter_bytes():
+                        tiger_bytes += len(chunk)
+                        if (
+                            tiger_bytes > _MAX_ARTIFACT_BYTES
+                            or total_bytes + tiger_bytes > _MAX_RUN_BYTES
+                        ):
+                            raise AcquisitionError("TIGER exceeds bounded size", code="TIGER_SIZE")
+                        chunks.append(chunk)
+                    tiger = b"".join(chunks)
             except httpx.HTTPError as error:
                 raise AcquisitionError("TIGER acquisition failed", code="TIGER_GET") from error
             if hashlib.sha256(tiger).hexdigest() != SELECTED_ARTIFACT_SHA256:
                 raise AcquisitionError("Approved TIGER artifact changed", code="TIGER_DIGEST")
+        if len(tiger) > _MAX_ARTIFACT_BYTES or total_bytes + len(tiger) > _MAX_RUN_BYTES:
+            raise AcquisitionError("TIGER exceeds bounded size", code="TIGER_SIZE")
         artifacts.append(
             AcquisitionArtifact(
                 TIGER_MEMBER, tiger, "application/zip", SOURCE_URL, "ANALYSIS_REFERENCE"

@@ -881,6 +881,9 @@ def source_run(
     definition: str = typer.Option(..., "--definition"),
     tier: str = typer.Option("A", "--tier", help="A=local fixture, B=DEV, C=PROD protected"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    local_live_acquire: bool = typer.Option(
+        False, "--local-live-acquire", help="Bounded Annual NLCD Tier-A live capture only"
+    ),
     fixture_dir: str | None = typer.Option(None, "--fixture-dir"),
     fail_after_stage: str | None = typer.Option(None, "--fail-after-stage"),
 ) -> None:
@@ -896,6 +899,7 @@ def source_run(
         loaded,
         tier=selected_tier,
         dry_run=dry_run,
+        local_live_acquire=local_live_acquire,
         fail_after_stage=fail_after_stage,
     )
     typer.echo(json.dumps(state.to_dict(), indent=2))

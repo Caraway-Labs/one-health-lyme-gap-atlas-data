@@ -21,6 +21,7 @@ from lyme_gap_atlas_data.county_analysis_geometry import (
     GridCell,
     grid_intersection_weights,
 )
+from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
 from lyme_gap_atlas_data.ingestion.annual_nlcd import (
     _CRS,
     CLASSES,
@@ -420,3 +421,55 @@ def test_fresh_process_resume_replays_all_named_inputs(
     ]
     assert len(rows) == 7
     assert {row["record"]["measure"] for row in rows} == set(MEASURES)
+
+
+def test_live_tier_a_requires_explicit_bounded_nlcd_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    orchestrator = IngestionOrchestrator(FileCheckpointStore(tmp_path / "runs"))
+    with pytest.raises(ValueError, match="fixture_dir"):
+        orchestrator.run(DEFINITION, tier=Tier.A)
+    with pytest.raises(ValueError, match="limited to bounded Annual NLCD"):
+        orchestrator.run(DEFINITION, tier=Tier.B, local_live_acquire=True)
+    monkeypatch.setattr(
+        IngestionOrchestrator,
+        "_execute",
+        lambda _self, _definition, state, *, fail_after_stage: state,
+    )
+    state = orchestrator.run(DEFINITION, tier=Tier.A, local_live_acquire=True)
+    assert state.tier is Tier.A
+    assert not state.dry_run
+
+
+def test_acquire_counts_tiger_in_total_byte_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs = _inputs()
+    for name, payload in inputs.payloads.items():
+        if name == "tiger-2025-analysis-county-zip":
+            filename = "tl_2025_us_county.zip"
+        else:
+            _, tile, product, suffix = name.split("-")
+            codes = {"lndcov": "LndCov", "fctimp": "FctImp", "lndchg": "LndChg"}
+            filename = Path(_key(tile.upper(), codes[product], 2025, suffix)).name
+        (tmp_path / filename).write_bytes(payload)
+    usgs_bytes = sum(
+        len(payload)
+        for name, payload in inputs.payloads.items()
+        if name != "tiger-2025-analysis-county-zip"
+    )
+    monkeypatch.setattr("lyme_gap_atlas_data.ingestion.annual_nlcd._MAX_RUN_BYTES", usgs_bytes + 1)
+    with pytest.raises(AcquisitionError, match="TIGER exceeds bounded size"):
+        AnnualNLCDAdapter().acquire(DEFINITION, fixture_dir=tmp_path)
+    maximum_usgs_member = max(
+        len(payload)
+        for name, payload in inputs.payloads.items()
+        if name != "tiger-2025-analysis-county-zip"
+    )
+    (tmp_path / "tl_2025_us_county.zip").write_bytes(b"x" * (maximum_usgs_member + 1))
+    monkeypatch.setattr("lyme_gap_atlas_data.ingestion.annual_nlcd._MAX_RUN_BYTES", 512_000_000)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.annual_nlcd._MAX_ARTIFACT_BYTES", maximum_usgs_member
+    )
+    with pytest.raises(AcquisitionError, match="TIGER exceeds bounded size"):
+        AnnualNLCDAdapter().acquire(DEFINITION, fixture_dir=tmp_path)
