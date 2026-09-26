@@ -45,6 +45,18 @@ semantics for `READ`. The exception rests on all five points below:
 5. **Introduce a dedicated API mutation role** if the mutation surface grows
    beyond these two procedures or the API moves past one process.
 
+## Atomic mutation
+
+Snowflake Scripting does not commit a procedure as one implicit transaction.
+`SP_SUBMIT_USER_FEEDBACK` and `SP_REDACT_FEEDBACK_FOR_ACCOUNT` use an explicit
+`BEGIN TRANSACTION` / `COMMIT` around each logical mutation set. On failure the
+exception handler executes `ROLLBACK` and returns `status=failed` with
+`reason=persistence_failed`. The result object does not include `SQLERRM`,
+feedback text, or contact email. A `CONTEXT_JSON` value of `__rollback_probe__`
+is reserved for DEV proof: the procedure inserts and then raises inside the
+transaction so the caller can observe that no partial row remains. The API
+contract cannot emit that string.
+
 ## Idempotency invariant
 
 V1 feedback idempotency is correct only while the API runs as exactly one process

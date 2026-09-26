@@ -77,8 +77,9 @@ DECLARE
   msg_len NUMBER;
   email_trim VARCHAR;
   context_variant VARIANT;
+  rollback_probe EXCEPTION (-20002, 'rollback probe');
 BEGIN
-  -- Re-validate; return safe reason codes (never echo MESSAGE or SQLERRM text).
+  -- Re-validate and return safe reason codes. Do not echo the message or a SQL error.
   IF (SUBMISSION_TOKEN IS NULL OR LENGTH(TRIM(SUBMISSION_TOKEN)) = 0
       OR LENGTH(TRIM(SUBMISSION_TOKEN)) > 64) THEN
     RETURN OBJECT_CONSTRUCT('status', 'rejected', 'reason', 'invalid_submission_token');
@@ -136,10 +137,18 @@ BEGIN
 
   IF (existing_count > 0) THEN
     IF (existing_fp = PAYLOAD_FINGERPRINT) THEN
-      INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS (
-        event_id, feedback_id, event_type, rationale, actor_user, actor_role, created_at
-      ) SELECT UUID_STRING(), :existing_id, 'replayed', NULL,
-               CURRENT_USER(), CURRENT_ROLE(), CURRENT_TIMESTAMP();
+      BEGIN
+        BEGIN TRANSACTION;
+        INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS (
+          event_id, feedback_id, event_type, rationale, actor_user, actor_role, created_at
+        ) SELECT UUID_STRING(), :existing_id, 'replayed', NULL,
+                 CURRENT_USER(), CURRENT_ROLE(), CURRENT_TIMESTAMP();
+        COMMIT;
+      EXCEPTION
+        WHEN OTHER THEN
+          ROLLBACK;
+          RETURN OBJECT_CONSTRUCT('status', 'failed', 'reason', 'persistence_failed');
+      END;
       RETURN OBJECT_CONSTRUCT(
         'status', 'replayed',
         'feedback_id', :existing_id,
@@ -149,36 +158,71 @@ BEGIN
     RETURN OBJECT_CONSTRUCT('status', 'mismatch');
   END IF;
 
+  -- DEV rollback fixture. The API emits only a JSON object or null, never this string.
+  IF (CONTEXT_JSON = '__rollback_probe__') THEN
+    new_feedback_id := UUID_STRING();
+    received_ts := CURRENT_TIMESTAMP();
+    BEGIN
+      BEGIN TRANSACTION;
+      INSERT INTO GOVERNANCE.USER_FEEDBACK (
+        feedback_id, received_at, stored_at, schema_version, category, message,
+        route_id, context, app_version, submission_token, payload_fingerprint,
+        triage_state, duplicate_of_feedback_id
+      ) SELECT :new_feedback_id, :received_ts, :received_ts, :SCHEMA_VERSION, :CATEGORY,
+               'rollback probe', :ROUTE_ID, NULL, :APP_VERSION,
+               TRIM(:SUBMISSION_TOKEN), :PAYLOAD_FINGERPRINT, 'new', NULL;
+      RAISE rollback_probe;
+      COMMIT;
+    EXCEPTION
+      WHEN OTHER THEN
+        ROLLBACK;
+        RETURN OBJECT_CONSTRUCT('status', 'failed', 'reason', 'persistence_failed');
+    END;
+  END IF;
+
   new_feedback_id := UUID_STRING();
   received_ts := CURRENT_TIMESTAMP();
   IF (CONTEXT_JSON IS NULL OR LENGTH(TRIM(CONTEXT_JSON)) = 0) THEN
     context_variant := NULL;
   ELSE
-    context_variant := PARSE_JSON(CONTEXT_JSON);
+    BEGIN
+      context_variant := PARSE_JSON(CONTEXT_JSON);
+    EXCEPTION
+      WHEN OTHER THEN
+        RETURN OBJECT_CONSTRUCT('status', 'rejected', 'reason', 'invalid_context');
+    END;
   END IF;
 
-  INSERT INTO GOVERNANCE.USER_FEEDBACK (
-    feedback_id, received_at, stored_at, schema_version, category, message,
-    route_id, context, app_version, submission_token, payload_fingerprint,
-    triage_state, duplicate_of_feedback_id
-  ) SELECT :new_feedback_id, :received_ts, :received_ts, :SCHEMA_VERSION, :CATEGORY,
-           TRIM(:MESSAGE), :ROUTE_ID, :context_variant, :APP_VERSION,
-           TRIM(:SUBMISSION_TOKEN), :PAYLOAD_FINGERPRINT, 'new', NULL;
+  BEGIN
+    BEGIN TRANSACTION;
+    INSERT INTO GOVERNANCE.USER_FEEDBACK (
+      feedback_id, received_at, stored_at, schema_version, category, message,
+      route_id, context, app_version, submission_token, payload_fingerprint,
+      triage_state, duplicate_of_feedback_id
+    ) SELECT :new_feedback_id, :received_ts, :received_ts, :SCHEMA_VERSION, :CATEGORY,
+             TRIM(:MESSAGE), :ROUTE_ID, :context_variant, :APP_VERSION,
+             TRIM(:SUBMISSION_TOKEN), :PAYLOAD_FINGERPRINT, 'new', NULL;
 
-  IF (email_trim IS NOT NULL) THEN
-    INSERT INTO GOVERNANCE.USER_FEEDBACK_CONTACT (feedback_id, email, supplied_at)
-      SELECT :new_feedback_id, :email_trim, :received_ts;
-  END IF;
+    IF (email_trim IS NOT NULL) THEN
+      INSERT INTO GOVERNANCE.USER_FEEDBACK_CONTACT (feedback_id, email, supplied_at)
+        SELECT :new_feedback_id, :email_trim, :received_ts;
+    END IF;
 
-  IF (ACCOUNT_ID IS NOT NULL AND LENGTH(TRIM(ACCOUNT_ID)) > 0) THEN
-    INSERT INTO GOVERNANCE.USER_FEEDBACK_ACCOUNT (feedback_id, account_id)
-      SELECT :new_feedback_id, TRIM(:ACCOUNT_ID);
-  END IF;
+    IF (ACCOUNT_ID IS NOT NULL AND LENGTH(TRIM(ACCOUNT_ID)) > 0) THEN
+      INSERT INTO GOVERNANCE.USER_FEEDBACK_ACCOUNT (feedback_id, account_id)
+        SELECT :new_feedback_id, TRIM(:ACCOUNT_ID);
+    END IF;
 
-  INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS (
-    event_id, feedback_id, event_type, rationale, actor_user, actor_role, created_at
-  ) SELECT UUID_STRING(), :new_feedback_id, 'submitted', NULL,
-           CURRENT_USER(), CURRENT_ROLE(), :received_ts;
+    INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS (
+      event_id, feedback_id, event_type, rationale, actor_user, actor_role, created_at
+    ) SELECT UUID_STRING(), :new_feedback_id, 'submitted', NULL,
+             CURRENT_USER(), CURRENT_ROLE(), :received_ts;
+    COMMIT;
+  EXCEPTION
+    WHEN OTHER THEN
+      ROLLBACK;
+      RETURN OBJECT_CONSTRUCT('status', 'failed', 'reason', 'persistence_failed');
+  END;
 
   RETURN OBJECT_CONSTRUCT(
     'status', 'created',
@@ -207,27 +251,35 @@ BEGIN
     RETURN OBJECT_CONSTRUCT('status', 'rejected', 'reason', 'invalid_reason');
   END IF;
 
-  SELECT COUNT(*) INTO :removed_count
-    FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT
-    WHERE account_id = TRIM(:ACCOUNT_ID);
+  -- Events, contact deletes, and account-link deletes commit or roll back together.
+  -- Does not update USER_FEEDBACK.message. Event rows store no message or email.
+  BEGIN
+    BEGIN TRANSACTION;
+    SELECT COUNT(*) INTO :removed_count
+      FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT
+      WHERE account_id = TRIM(:ACCOUNT_ID);
 
-  -- Append linkage_removed before deleting links. Does not update USER_FEEDBACK.message.
-  -- Does not store message body or email on the event row.
-  INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS (
-    event_id, feedback_id, event_type, rationale, actor_user, actor_role, created_at
-  ) SELECT UUID_STRING(), a.feedback_id, 'linkage_removed', TRIM(:REASON),
-           CURRENT_USER(), CURRENT_ROLE(), CURRENT_TIMESTAMP()
-    FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT a
-    WHERE a.account_id = TRIM(:ACCOUNT_ID);
+    INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS (
+      event_id, feedback_id, event_type, rationale, actor_user, actor_role, created_at
+    ) SELECT UUID_STRING(), a.feedback_id, 'linkage_removed', TRIM(:REASON),
+             CURRENT_USER(), CURRENT_ROLE(), CURRENT_TIMESTAMP()
+      FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT a
+      WHERE a.account_id = TRIM(:ACCOUNT_ID);
 
-  DELETE FROM GOVERNANCE.USER_FEEDBACK_CONTACT
-    WHERE feedback_id IN (
-      SELECT feedback_id FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT
-      WHERE account_id = TRIM(:ACCOUNT_ID)
-    );
+    DELETE FROM GOVERNANCE.USER_FEEDBACK_CONTACT
+      WHERE feedback_id IN (
+        SELECT feedback_id FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT
+        WHERE account_id = TRIM(:ACCOUNT_ID)
+      );
 
-  DELETE FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT
-    WHERE account_id = TRIM(:ACCOUNT_ID);
+    DELETE FROM GOVERNANCE.USER_FEEDBACK_ACCOUNT
+      WHERE account_id = TRIM(:ACCOUNT_ID);
+    COMMIT;
+  EXCEPTION
+    WHEN OTHER THEN
+      ROLLBACK;
+      RETURN OBJECT_CONSTRUCT('status', 'failed', 'reason', 'persistence_failed');
+  END;
 
   RETURN OBJECT_CONSTRUCT(
     'status', 'linkage_removed',

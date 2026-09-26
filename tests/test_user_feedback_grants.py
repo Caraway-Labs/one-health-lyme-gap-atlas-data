@@ -25,6 +25,16 @@ def _analyst_view_sql(source: str) -> str:
     return source[start:grant_at]
 
 
+def _submit_procedure_sql(source: str) -> str:
+    marker = "CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_SUBMIT_USER_FEEDBACK"
+    start = source.index(marker)
+    redact_at = source.index(
+        "CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_REDACT_FEEDBACK_FOR_ACCOUNT",
+        start,
+    )
+    return source[start:redact_at]
+
+
 def _redact_procedure_sql(source: str) -> str:
     marker = "CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_REDACT_FEEDBACK_FOR_ACCOUNT"
     start = source.index(marker)
@@ -69,6 +79,36 @@ def test_analyst_view_excludes_protected_columns() -> None:
     view_sql = _analyst_view_sql(_migration_source()).lower()
     for forbidden in ("email", "account_id", "message", "submission_token", "payload_fingerprint"):
         assert forbidden not in view_sql
+
+
+def _assert_explicit_transaction(procedure_sql: str) -> None:
+    begin_at = procedure_sql.index("BEGIN TRANSACTION")
+    commit_at = procedure_sql.index("COMMIT", begin_at)
+    rollback_at = procedure_sql.index("ROLLBACK", commit_at)
+    assert begin_at < commit_at < rollback_at
+    assert "SQLERRM" not in procedure_sql
+    assert "persistence_failed" in procedure_sql
+
+
+def test_submit_and_redact_procedures_are_transactional() -> None:
+    source = _migration_source()
+    submit_sql = _submit_procedure_sql(source)
+    redact_sql = _redact_procedure_sql(source)
+    _assert_explicit_transaction(submit_sql)
+    _assert_explicit_transaction(redact_sql)
+    assert submit_sql.count("BEGIN TRANSACTION") >= 3
+    assert "__rollback_probe__" in submit_sql
+    assert "RAISE rollback_probe" in submit_sql
+    message_insert = submit_sql.index("TRIM(:MESSAGE)")
+    begin_at = submit_sql.rindex("BEGIN TRANSACTION", 0, message_insert)
+    commit_at = submit_sql.index("COMMIT", message_insert)
+    rollback_at = submit_sql.index("ROLLBACK", commit_at)
+    event_insert = submit_sql.rindex(
+        "INSERT INTO GOVERNANCE.USER_FEEDBACK_EVENTS",
+        begin_at,
+        commit_at,
+    )
+    assert begin_at < message_insert < event_insert < commit_at < rollback_at
 
 
 def test_account_redaction_does_not_update_message() -> None:
