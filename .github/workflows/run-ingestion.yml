@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       source_definition:
-        description: Path to SourceDefinition YAML under the repo
+        description: SourceDefinition path, generated month, or bounded batch definition set
         required: true
         default: config/sources/cdc_x5j9_wybp.yml
         type: string
@@ -26,6 +26,7 @@ on:
         type: choice
         options:
           - run
+          - batch
           - resume
           - validate
           - inspect
@@ -42,6 +43,11 @@ on:
         description: Existing run id for resume/inspect
         required: false
         type: string
+      recapture:
+        description: Explicitly create new captures for completed batch definitions
+        required: false
+        default: false
+        type: boolean
       publish:
         description: Request publish/stage (still subject to Tier C protections)
         required: false
@@ -88,9 +94,11 @@ jobs:
         run: uv sync --extra dev
       - name: Validate definition
         if: inputs.operation == 'validate' || inputs.operation == 'run'
-        run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+        env:
+          SOURCE_DEFINITION: ${{ inputs.source_definition }}
+        run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.operation == 'run' || inputs.operation == 'resume'
+        if: inputs.operation == 'run' || inputs.operation == 'batch' || inputs.operation == 'resume'
         run: |
           if [ "${{ inputs.tier }}" = "B" ] && [ "${{ inputs.environment_name }}" != "dev" ]; then
             echo "::error::Tier B runs are limited to the dev GitHub Environment."
@@ -101,7 +109,10 @@ jobs:
             exit 1
           fi
       - name: Execute orchestrator operation with ephemeral Snowflake key
-        if: inputs.operation == 'run' || inputs.operation == 'resume'
+        if: inputs.operation == 'run' || inputs.operation == 'batch' || inputs.operation == 'resume'
+        env:
+          SOURCE_DEFINITION: ${{ inputs.source_definition }}
+          INGESTION_RUN_ID: ${{ inputs.run_id }}
         run: |
           set -euo pipefail
           for required_var in \
@@ -173,17 +184,27 @@ jobs:
 
           if [ "${{ inputs.operation }}" = "run" ]; then
             uv run atlas-data source run \
-              --definition "${{ inputs.source_definition }}" \
+              --definition "$SOURCE_DEFINITION" \
               --tier "${{ inputs.tier }}"
+          elif [ "${{ inputs.operation }}" = "batch" ]; then
+            extra_args=()
+            if [ "${{ inputs.recapture }}" = "true" ]; then
+              extra_args+=(--recapture)
+            fi
+            uv run atlas-data source batch \
+              --definitions "$SOURCE_DEFINITION" \
+              --tier "${{ inputs.tier }}" "${extra_args[@]}"
           else
-            test -n "${{ inputs.run_id }}"
+            test -n "$INGESTION_RUN_ID"
             uv run atlas-data runs resume \
-              --run-id "${{ inputs.run_id }}" \
-              --definition "${{ inputs.source_definition }}"
+              --run-id "$INGESTION_RUN_ID" \
+              --definition "$SOURCE_DEFINITION"
           fi
       - name: Inspect definition
         if: inputs.operation == 'inspect'
-        run: uv run atlas-data source inspect --definition "${{ inputs.source_definition }}"
+        env:
+          SOURCE_DEFINITION: ${{ inputs.source_definition }}
+        run: uv run atlas-data source inspect --definition "$SOURCE_DEFINITION"
       - name: Publish gate note
         if: inputs.publish == true && inputs.environment_name == 'production'
         run: |

@@ -10,6 +10,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import h5netcdf  # type: ignore[import-untyped]
+import httpx
 import numpy as np
 import pytest
 from shapely.geometry import box
@@ -19,6 +20,7 @@ from lyme_gap_atlas_data.county_analysis_geometry import (
     GeometryLineage,
     analysis_crs,
 )
+from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
 from lyme_gap_atlas_data.ingestion.checkpoints import FileCheckpointStore
 from lyme_gap_atlas_data.ingestion.identity import deterministic_record_id, source_row_hash
 from lyme_gap_atlas_data.ingestion.nclimgrid_daily import (
@@ -114,6 +116,51 @@ def _netcdf(path: Path, *, revised: bool = False) -> bytes:
             )
             variable.attrs["units"] = unit
     return path.read_bytes()
+
+
+def test_longitudinal_grid_pin_rejects_changed_coordinates(tmp_path: Path) -> None:
+    from lyme_gap_atlas_data.ingestion.nclimgrid_longitudinal import EXPECTED_GRID_ID
+
+    path = tmp_path / "changed-grid.nc"
+    _netcdf(path)
+    with (
+        h5netcdf.File(path, "r") as dataset,
+        pytest.raises(ValueError, match="frozen longitudinal grid"),
+    ):
+        NClimGridDailyAdapter._metadata(dataset, "202501", expected_grid_id=EXPECTED_GRID_ID)
+
+
+def test_noaa_404_is_distinct_from_other_retrieval_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def client_for(failing_url: str) -> object:
+        class Client:
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            def __enter__(self) -> Client:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                pass
+
+            def get(self, url: str) -> httpx.Response:
+                request = httpx.Request("GET", url)
+                return httpx.Response(404 if url == failing_url else 200, request=request)
+
+        return Client
+
+    for failing_url, code in (
+        (DEFINITION.endpoint_template, "NCLIMGRID_UNAVAILABLE"),
+        (str(DEFINITION.extra["tiger_url"]), "NCLIMGRID_ACQUIRE"),
+    ):
+        monkeypatch.setattr(
+            "lyme_gap_atlas_data.ingestion.nclimgrid_daily.httpx.Client",
+            client_for(failing_url),
+        )
+        with pytest.raises(AcquisitionError) as raised:
+            NClimGridDailyAdapter().acquire(DEFINITION)
+        assert raised.value.code == code
 
 
 def _inputs(data: bytes) -> RetainedInputs:
@@ -254,6 +301,30 @@ def test_static_source_support_and_daily_missingness_are_distinct(
     assert prcp("15001", "2025-01-01")["coverage_status"] == "OUT_OF_SOURCE_COVERAGE"
 
 
+def test_month_batch_reuses_only_matching_grid_and_tiger_weights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lyme_gap_atlas_data.ingestion.nclimgrid_daily as climate
+
+    monkeypatch.setattr(climate, "load_tiger_counties", lambda *args, **kwargs: _counties())
+    original_weights = climate._weights
+    calls: list[str] = []
+
+    def counted_weights(*args: object, **kwargs: object) -> object:
+        calls.append("weight")
+        return original_weights(*args, **kwargs)
+
+    monkeypatch.setattr(climate, "_weights", counted_weights)
+    adapter = NClimGridDailyAdapter()
+    first = _netcdf(tmp_path / "first.nc")
+    revised = _netcdf(tmp_path / "revised.nc", revised=True)
+    list(adapter.normalize_iter(DEFINITION, _inputs(first)).records)
+    first_count = len(calls)
+    assert first_count == 3
+    list(adapter.normalize_iter(DEFINITION, _inputs(revised)).records)
+    assert len(calls) == first_count
+
+
 def test_fresh_process_resume_uses_both_retained_members(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -285,6 +356,31 @@ def test_fresh_process_resume_uses_both_retained_members(
     assert acquisition.completed_at[:10] != "2025-01-01"
     assert len(acquisition.detail["artifacts"]) == 2
     assert acquisition.detail["upstream_last_modified"] is None
+
+
+def test_changed_generated_definition_blocks_run_pinned_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.nclimgrid_daily.load_tiger_counties",
+        lambda *args, **kwargs: _counties(),
+    )
+    fixture = tmp_path / "fixtures"
+    fixture.mkdir()
+    (fixture / "nclimgrid-scaled.nc").write_bytes(_netcdf(tmp_path / "fixture.nc"))
+    (fixture / "tl_2025_us_county.zip").write_bytes(b"fixture-tiger")
+    original = replace(DEFINITION, extra={**DEFINITION.extra, "source_definition_sha256": "a" * 64})
+    changed = replace(original, extra={**original.extra, "source_definition_sha256": "b" * 64})
+    store_path = tmp_path / "runs"
+    first = IngestionOrchestrator(FileCheckpointStore(store_path), fixture_dir=fixture).run(
+        original, tier=Tier.A, fail_after_stage="ACQUIRE"
+    )
+    assert first.status is RunStatus.FAILED
+    resumed = IngestionOrchestrator(FileCheckpointStore(store_path)).resume(
+        first.ingestion_run_id, definition=changed
+    )
+    assert resumed.status is RunStatus.FAILED
+    assert resumed.checkpoint("VALIDATE").status.value == "FAILED"
 
 
 def test_partial_partition_resume_is_run_pinned(

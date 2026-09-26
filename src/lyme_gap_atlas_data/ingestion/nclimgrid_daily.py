@@ -142,6 +142,19 @@ def _text(value: Any) -> str:
 class NClimGridDailyAdapter:
     kind = AdapterKind.NCLIMGRID_DAILY
 
+    def __init__(self) -> None:
+        # A bounded batch can reuse the exact #424 weights while processing
+        # independent monthly runs. This is a disposable performance cache;
+        # retained NOAA/TIGER artifacts remain the governed inputs per run.
+        self._geometry_cache: (
+            tuple[
+                tuple[str, str],
+                dict[str, CountyAnalysisGeometry],
+                dict[str, CountyWeights],
+            ]
+            | None
+        ) = None
+
     def acquire(
         self, definition: SourceDefinition, *, fixture_dir: Path | None = None
     ) -> AcquireResult:
@@ -159,6 +172,16 @@ class NClimGridDailyAdapter:
                     tiger_response = client.get(str(definition.extra["tiger_url"]))
                     tiger_response.raise_for_status()
                     tiger = tiger_response.content
+            except httpx.HTTPStatusError as error:
+                raise AcquisitionError(
+                    "nClimGrid acquisition failed",
+                    code=(
+                        "NCLIMGRID_UNAVAILABLE"
+                        if error.response.status_code == 404
+                        and str(error.request.url) == definition.endpoint_template
+                        else "NCLIMGRID_ACQUIRE"
+                    ),
+                ) from error
             except httpx.HTTPError as error:
                 raise AcquisitionError(
                     "nClimGrid acquisition failed", code="NCLIMGRID_ACQUIRE"
@@ -187,6 +210,7 @@ class NClimGridDailyAdapter:
             detail={
                 "upstream_last_modified": modified,
                 "source_year_month": definition.extra["year_month"],
+                "source_definition_sha256": definition.extra.get("source_definition_sha256"),
             },
         )
 
@@ -200,6 +224,10 @@ class NClimGridDailyAdapter:
         tiger = store.load_artifact_member(run_id, name=TIGER_MEMBER, role="ANALYSIS_REFERENCE")
         state = cast(CheckpointStore, store).load(run_id)
         checkpoint = state.checkpoint(Stage.ACQUIRE) if state else None
+        if checkpoint and checkpoint.detail.get("source_definition_sha256") != definition.extra.get(
+            "source_definition_sha256"
+        ):
+            raise ValueError("nClimGrid source definition changed since ACQUIRE")
         return RetainedInputs(
             noaa,
             tiger,
@@ -220,7 +248,11 @@ class NClimGridDailyAdapter:
         try:
             inputs = self._inputs(payload)
             with h5netcdf.File(io.BytesIO(inputs.noaa), "r") as dataset:
-                self._metadata(dataset, str(definition.extra["year_month"]))
+                self._metadata(
+                    dataset,
+                    str(definition.extra["year_month"]),
+                    expected_grid_id=definition.extra.get("expected_grid_id"),
+                )
             if hashlib.sha256(inputs.tiger).hexdigest() != inputs.tiger_sha256:
                 raise ValueError("TIGER replay digest mismatch")
         except (OSError, KeyError, TypeError, ValueError) as error:
@@ -246,7 +278,7 @@ class NClimGridDailyAdapter:
 
     @staticmethod
     def _metadata(
-        dataset: Any, year_month: str
+        dataset: Any, year_month: str, *, expected_grid_id: object = None
     ) -> tuple[np.ndarray, np.ndarray, tuple[date, ...], str]:
         lat = np.asarray(dataset.variables["lat"][:], dtype=float)
         lon = np.asarray(dataset.variables["lon"][:], dtype=float)
@@ -281,25 +313,35 @@ class NClimGridDailyAdapter:
             native_unit = _text(variable.attrs["units"])
             if native_unit != ("millimeter" if measure == "prcp" else unit):
                 raise ValueError(f"{measure} unit changed: {native_unit}")
+            if expected_grid_id is not None and (
+                "_FillValue" not in variable.attrs
+                or not math.isnan(float(variable.attrs["_FillValue"]))
+            ):
+                raise ValueError(f"{measure} longitudinal fill policy changed")
             if "scale_factor" in variable.attrs or "add_offset" in variable.attrs:
                 raise ValueError(f"{measure} packing changed")
         grid_id = hashlib.sha256(lat.tobytes() + lon.tobytes() + GRID_CRS.encode()).hexdigest()
+        if expected_grid_id is not None and grid_id != expected_grid_id:
+            raise ValueError("nClimGrid coordinates differ from frozen longitudinal grid")
         return lat, lon, dates, grid_id
 
     def _records(
         self, definition: SourceDefinition, inputs: RetainedInputs
     ) -> Iterator[dict[str, object]]:
+        if hashlib.sha256(inputs.tiger).hexdigest() != inputs.tiger_sha256:
+            raise ValueError("TIGER replay digest mismatch")
         canonical = (
             files("lyme_gap_atlas_data")
             .joinpath("data/canonical-county-fips-2022.txt")
             .read_text(encoding="utf-8")
             .splitlines()
         )
-        counties = load_tiger_counties(
-            inputs.tiger, canonical, expected_artifact_sha256=inputs.tiger_sha256
-        )
         with h5netcdf.File(io.BytesIO(inputs.noaa), "r") as dataset:
-            lat, lon, days, grid_id = self._metadata(dataset, str(definition.extra["year_month"]))
+            lat, lon, days, grid_id = self._metadata(
+                dataset,
+                str(definition.extra["year_month"]),
+                expected_grid_id=definition.extra.get("expected_grid_id"),
+            )
             year_month = str(definition.extra["year_month"])
             month_start = date(int(year_month[:4]), int(year_month[4:]), 1)
             expected_days = tuple(
@@ -321,15 +363,16 @@ class NClimGridDailyAdapter:
                         if monthly_fill is not None and not math.isnan(float(monthly_fill))
                         else True
                     )
-            weights = {
-                fips: _weights(county, lat, lon, grid_id)
-                for fips, county in counties.items()
-                if not fips.startswith(("02", "15"))
-            }
-            supported_areas = {
-                fips: math.fsum(area for row, col, area in weight.cells if source_support[row, col])
-                for fips, weight in weights.items()
-            }
+            cache_key = (inputs.tiger_sha256, grid_id)
+            if self._geometry_cache is not None and self._geometry_cache[0] == cache_key:
+                _, counties, weights = self._geometry_cache
+            else:
+                counties = load_tiger_counties(
+                    inputs.tiger, canonical, expected_artifact_sha256=inputs.tiger_sha256
+                )
+                weights = {}
+                self._geometry_cache = (cache_key, counties, weights)
+            supported_areas: dict[str, float] = {}
             for day in expected_days:
                 day_index = day_positions.get(day)
                 for measure, unit in MEASURES.items():
@@ -364,7 +407,15 @@ class NClimGridDailyAdapter:
                                 None,
                             )
                         else:
+                            if fips not in weights:
+                                weights[fips] = _weights(county, lat, lon, grid_id)
                             weight = weights[fips]
+                            if fips not in supported_areas:
+                                supported_areas[fips] = math.fsum(
+                                    area
+                                    for row, col, area in weight.cells
+                                    if source_support[row, col]
+                                )
                             valid_cells = (
                                 [
                                     (area, values[row, col])
@@ -404,6 +455,15 @@ class NClimGridDailyAdapter:
                                 "county_fips": fips,
                                 "observation_date": day.isoformat(),
                                 "source_year_month": definition.extra["year_month"],
+                                **(
+                                    {
+                                        "source_definition_sha256": definition.extra[
+                                            "source_definition_sha256"
+                                        ]
+                                    }
+                                    if "source_definition_sha256" in definition.extra
+                                    else {}
+                                ),
                                 "source_time_present": day_index is not None,
                                 "measure": measure.upper(),
                                 "source_variable": measure,

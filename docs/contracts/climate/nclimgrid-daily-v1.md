@@ -1,5 +1,8 @@
 # NOAA nClimGrid-Daily county-day v1
 
+The proposed [#443 longitudinal extension](nclimgrid-longitudinal-v1.md)
+reuses this scientific contract for independently retained scaled months.
+
 Status: proposed for protected source and scientific review under #198 and #202. Owner: Atlas data stewardship and engineering. This contract implements [ADR 0036](../../adr/0036-county-analysis-geometry-and-area-weighting.md), [ADR 0037](../../adr/0037-binary-replay-and-bounded-ingestion-revisions.md), and [ADR 0038](../../adr/0038-run-pinned-artifact-member-replay.md). It does not authorize source promotion, public release, or ML feature use.
 
 ## Source and artifact policy

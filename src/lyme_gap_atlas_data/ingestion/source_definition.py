@@ -59,6 +59,10 @@ def _as_stages(raw: Any, adapter: AdapterKind) -> tuple[Stage, ...]:
 
 def load_source_definition(path: Path | str) -> SourceDefinition:
     """Load a versioned SourceDefinition from YAML (legacy profiles supported)."""
+    if str(path).startswith("nclimgrid:"):
+        from .nclimgrid_longitudinal import definition_mapping
+
+        return source_definition_from_mapping(definition_mapping(str(path).split(":", 1)[1]))
     document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError("Source definition must be a mapping")
@@ -294,6 +298,11 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
 
     if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY:
         from ..county_analysis_geometry import SELECTED_ARTIFACT_SHA256, SOURCE_URL
+        from .nclimgrid_longitudinal import (
+            EXPECTED_GRID_ID,
+            WINDOW_VERSION,
+            definition_mapping,
+        )
 
         year_month = str(definition.extra.get("year_month", ""))
         expected_endpoint = (
@@ -334,6 +343,28 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                     "NCLIMGRID_GRAIN", "nClimGrid v1 requires CONUS county-day semantics"
                 )
             )
+        if definition.extra.get("longitudinal_window_version") is not None and (
+            definition.extra.get("longitudinal_window_version") != WINDOW_VERSION
+            or definition.extra.get("expected_grid_id") != EXPECTED_GRID_ID
+        ):
+            issues.append(
+                ValidationIssue(
+                    "NCLIMGRID_LONGITUDINAL_GRID_PIN",
+                    "Longitudinal definitions require the frozen v1 grid identity",
+                )
+            )
+        if definition.extra.get("longitudinal_window_version") == WINDOW_VERSION:
+            try:
+                expected = source_definition_from_mapping(definition_mapping(year_month))
+            except ValueError:
+                expected = None
+            if definition != expected:
+                issues.append(
+                    ValidationIssue(
+                        "NCLIMGRID_LONGITUDINAL_DEFINITION_PIN",
+                        "Generated month definition differs from the reviewed template",
+                    )
+                )
 
     if definition.adapter_kind is AdapterKind.MODIS_VEGETATION:
         from .modis_vegetation import validate_definition

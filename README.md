@@ -14,6 +14,8 @@ The repository contains two deliberately separate capabilities:
 The governed pipeline contract is in `docs/contracts/catalog-to-snowflake/`.
 NOAA nClimGrid-Daily scaled monthly county-day context is specified in
 [`docs/contracts/climate/nclimgrid-daily-v1.md`](docs/contracts/climate/nclimgrid-daily-v1.md).
+The proposed longitudinal window, monthly batch commands, and coverage report
+are in the [nClimGrid longitudinal runbook](docs/operations/nclimgrid-longitudinal.md).
 The bounded January 2025 SourceDefinition is
 [`config/sources/noaa_nclimgrid_daily_202501.yml`](config/sources/noaa_nclimgrid_daily_202501.yml).
 Annual NLCD Collection 1.2 county-year land-cover context is specified in

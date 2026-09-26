@@ -155,6 +155,33 @@ def load_mapping_registry(path: Path) -> dict[str, Mapping[str, Any]]:
     return result
 
 
+def nclimgrid_month_mapping_registry(path: Path, year_month: str) -> dict[str, Mapping[str, Any]]:
+    """Bind the four reviewed climate rules to one exact source month.
+
+    The committed January rules remain the template. A registry returned here
+    can map only the requested month; callers process other months separately.
+    """
+    from lyme_gap_atlas_data.ingestion.nclimgrid_longitudinal import definition_mapping
+
+    definition = definition_mapping(year_month)
+    result = load_mapping_registry(path)
+    for identity in _NCLIMGRID_MEASURES:
+        template = result[identity]
+        if (
+            template.get("resource_key") != "noaa_nclimgrid_daily_202501"
+            or template.get("vintage") != "v1.0.0-scaled-202501"
+            or template.get("source_id") != definition["source_id"]
+            or template.get("dataset_id") != definition["dataset_id"]
+        ):
+            raise SemanticMappingError("reviewed January nClimGrid mapping changed")
+        result[identity] = {
+            **template,
+            "resource_key": definition["resource_key"],
+            "vintage": f"v1.0.0-scaled-{year_month}",
+        }
+    return result
+
+
 def _required(mapping: Mapping[str, Any], field: str) -> Any:
     value = mapping.get(field)
     if value is None or value == "":
