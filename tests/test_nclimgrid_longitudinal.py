@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -160,6 +161,56 @@ def test_coverage_report_preserves_explicit_missing_months(tmp_path: Path) -> No
     assert report["not_attempted_months"] == ["202501", "202502"]
     assert report["unavailable_months"] == []
     assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_coverage_report_rejects_cross_measure_source_support_drift(tmp_path: Path) -> None:
+    run = RunState(
+        "drift-run",
+        "noaa_nclimgrid_daily_195101",
+        2,
+        Tier.A,
+        RunStatus.SUCCEEDED,
+        stages=[
+            StageCheckpoint(
+                stage=Stage.ACQUIRE,
+                status=StageStatus.COMPLETED,
+                artifact_sha256="noaa-digest",
+            )
+        ],
+    )
+
+    class Store:
+        def list_runs(self) -> list[RunState]:
+            return [run]
+
+        def iter_partitions(self, _run_id: str) -> object:
+            return iter(
+                [
+                    SimpleNamespace(
+                        byte_count=100,
+                        records=[
+                            {
+                                "record": {
+                                    "county_fips": "01001",
+                                    "observation_date": "1951-01-01",
+                                    "measure": measure,
+                                    "coverage_status": "COMPLETE",
+                                    "noaa_sha256": "noaa-digest",
+                                    "source_supported_area_m2": area,
+                                    "source_coverage_fraction": 1.0,
+                                }
+                            }
+                            for measure, area in (("PRCP", 10.0), ("TMIN", 9.0))
+                        ],
+                    )
+                ]
+            )
+
+    with pytest.raises(ValueError, match="source support changed"):
+        build_coverage_report(
+            Store(), start="195101", end="195101", county_csv=tmp_path / "drift.csv"
+        )  # type: ignore[arg-type]
+    assert not (tmp_path / "drift.csv").exists()
 
 
 def test_coverage_report_distinguishes_noaa_404_from_unattempted(tmp_path: Path) -> None:

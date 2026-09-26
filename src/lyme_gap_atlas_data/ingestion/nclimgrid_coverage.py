@@ -139,6 +139,7 @@ def build_coverage_report(
                     raise ValueError(f"Successful nClimGrid run lacks ACQUIRE digest: {month}")
                 counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
                 support: dict[tuple[str, str], tuple[float | None, float | None]] = {}
+                county_support: dict[str, tuple[float | None, float | None]] = {}
                 seen: set[tuple[str, str, str]] = set()
                 observed: set[str] = set()
                 represented: set[str] = set()
@@ -176,7 +177,7 @@ def build_coverage_report(
                         if record.get("source_time_present") is True:
                             counts[key]["source_time_days"] += 1
                             observed.add(day)
-                        support[key] = (
+                        current_support = (
                             float(record["source_supported_area_m2"])
                             if record.get("source_supported_area_m2") is not None
                             else None,
@@ -184,6 +185,12 @@ def build_coverage_report(
                             if record.get("source_coverage_fraction") is not None
                             else None,
                         )
+                        if (key in support and support[key] != current_support) or (
+                            county in county_support and county_support[county] != current_support
+                        ):
+                            raise ValueError(f"Monthly nClimGrid source support changed: {month}")
+                        support[key] = current_support
+                        county_support[county] = current_support
                         if not county.startswith(("02", "15")):
                             represented.add(county)
                             supported_area = support[key][0]
@@ -232,9 +239,7 @@ def build_coverage_report(
                 total_retained_bytes += artifact_bytes
                 total_partition_bytes += normalized_bytes
                 total_runtime_seconds += runtime_seconds or 0.0
-                monthly_support = {
-                    county: support[(county, "PRCP")] for county in sorted(represented)
-                }
+                monthly_support = {county: county_support[county] for county in sorted(represented)}
                 support_digest = hashlib.sha256(
                     json.dumps(monthly_support, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest()
