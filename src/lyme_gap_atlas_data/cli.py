@@ -940,6 +940,33 @@ def source_nclimgrid_report(
     typer.echo(json.dumps({"report": str(output), "county_csv": str(county_csv)}))
 
 
+@source_app.command("nclimgrid-pilot-measure")
+def source_nclimgrid_pilot_measure(
+    action: str = typer.Option(..., "--action"),
+    run_id: str | None = typer.Option(None, "--run-id"),
+) -> None:
+    """Run bounded read-only preflight or measurements for the January 2025 pilot."""
+    from .ingestion import nclimgrid_pilot_measurement as measurement
+
+    actions = {
+        "preflight": lambda: measurement.preflight(),
+        "inspect": lambda: measurement.inspect_run(_required_run_id(run_id)),
+        "ordered-read": lambda: measurement.ordered_read(_required_run_id(run_id)),
+        "report": lambda: measurement.time_report(_required_run_id(run_id)),
+    }
+    if action not in actions:
+        raise typer.BadParameter("Use preflight, inspect, ordered-read, or report")
+    if action == "preflight" and run_id is not None:
+        raise typer.BadParameter("Preflight does not accept a run ID")
+    typer.echo(json.dumps(actions[action](), default=str, sort_keys=True))
+
+
+def _required_run_id(run_id: str | None) -> str:
+    if not run_id:
+        raise typer.BadParameter("This measurement requires --run-id")
+    return run_id
+
+
 @source_app.command("nclimgrid-batch")
 def source_nclimgrid_batch(
     definitions: str = typer.Option(..., "--definitions"),
