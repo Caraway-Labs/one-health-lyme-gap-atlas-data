@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = ROOT / "scripts/bootstrap_dataset_discovery_runtime_user_dev.sql"
+ATTACHMENT = ROOT / "scripts/attach_dataset_discovery_auth_policy_dev.sql"
 
 
 def test_runtime_identity_bootstrap_is_dev_only_and_has_no_secret_or_extra_role() -> None:
@@ -15,7 +16,7 @@ def test_runtime_identity_bootstrap_is_dev_only_and_has_no_secret_or_extra_role(
         if not line.lstrip().startswith("--")
     ).upper()
     statements = [statement.strip() for statement in source.split(";") if statement.strip()]
-    assert len(statements) == 6
+    assert len(statements) == 5
     assert statements[0].startswith("CREATE USER IF NOT EXISTS OH_LYME_DEV_DATASET_DISCOVERY_SVC")
     assert "TYPE = SERVICE_AGENT" in statements[0]
     assert "DEFAULT_ROLE = OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME" in statements[0]
@@ -32,7 +33,16 @@ def test_runtime_identity_bootstrap_is_dev_only_and_has_no_secret_or_extra_role(
     assert "AUTHENTICATION_METHODS = ('PROGRAMMATIC_ACCESS_TOKEN')" in statements[4]
     assert "NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED" in statements[4]
     assert "REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS = TRUE" in statements[4]
-    assert " ".join(statements[5].split()) == (
+    attachment_source = "\n".join(
+        line
+        for line in ATTACHMENT.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("--")
+    ).upper()
+    attachment_statements = [
+        statement.strip() for statement in attachment_source.split(";") if statement.strip()
+    ]
+    assert len(attachment_statements) == 1
+    assert " ".join(attachment_statements[0].split()) == (
         "ALTER USER OH_LYME_DEV_DATASET_DISCOVERY_SVC SET AUTHENTICATION POLICY "
         "ONE_HEALTH_LYME_GAP_ATLAS_DEV.SECURITY.DATASET_DISCOVERY_SERVICE_AGENT_AUTH"
     )

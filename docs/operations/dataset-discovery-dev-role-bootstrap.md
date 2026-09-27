@@ -49,7 +49,7 @@ ingestion runtime for either identity.
 The separately reviewed DEV service-user bootstrap is
 [`scripts/bootstrap_dataset_discovery_runtime_user_dev.sql`](../../scripts/bootstrap_dataset_discovery_runtime_user_dev.sql).
 It creates `OH_LYME_DEV_DATASET_DISCOVERY_SVC` with `TYPE = SERVICE_AGENT`, grants
-only `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME`, and assigns the dedicated
+only `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME`, and creates the dedicated
 `ONE_HEALTH_LYME_GAP_ATLAS_DEV.SECURITY.DATASET_DISCOVERY_SERVICE_AGENT_AUTH`
 authentication policy to that user alone. That policy allows only
 `PROGRAMMATIC_ACCESS_TOKEN`, requires role restriction for service users, and
@@ -57,6 +57,15 @@ sets `NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED`. It does not alter the
 account-wide policy. A future network policy attached to this user would still
 be enforced. This is DEV manual/shadow scope; PROD hardening may later evaluate
 workload identity federation or fixed-egress network policy.
+
+Run the identity/policy creation script first. Before executing the separate
+[`scripts/attach_dataset_discovery_auth_policy_dev.sql`](../../scripts/attach_dataset_discovery_auth_policy_dev.sql),
+run `SHOW AUTHENTICATION POLICIES ON USER OH_LYME_DEV_DATASET_DISCOVERY_SVC`.
+Execute attachment only when the effective result is `BUILT-IN`. If the
+dedicated policy is already attached, skip attachment; Snowflake rejects
+re-attaching even the same policy. If another policy is effective, stop for
+security review. This keeps replay from momentarily removing an effective
+policy just to set it again.
 
 Before execution, verify the
 administrative connection identity and check whether that user already exists;
