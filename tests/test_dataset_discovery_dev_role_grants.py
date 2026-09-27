@@ -86,3 +86,21 @@ def test_runtime_and_reviewer_have_no_base_table_or_cross_authority_grants() -> 
             assert "SP_FINALIZE_RUN" not in statement
         assert "GRANT DELETE" not in statement
         assert "GRANT ALL" not in statement
+
+
+def test_initial_human_reviewer_onboarding_is_ledgered_and_dev_only() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V115")
+    assert "V115" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
+    assert "V115" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    with pytest.raises(ValueError, match="DEV-only"):
+        render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    statements = sql_statements(ROOT / "migrations" / migration.filename)
+    assert len(statements) == 2
+    assert statements[0] == "USE DATABASE {{ DATABASE }}"
+    assert statements[1].startswith("INSERT INTO DATASET_DISCOVERY.REVIEWER_ALLOWLIST")
+    assert statements[1].count("'MATTHEWCARAWAY'") == 2
+    assert "WHERE NOT EXISTS" in statements[1]
+    assert "CURRENT_USER()" in statements[1]
+    assert "GRANT ROLE" not in statements[1]
