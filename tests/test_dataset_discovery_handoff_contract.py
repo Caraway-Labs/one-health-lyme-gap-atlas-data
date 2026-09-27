@@ -51,3 +51,4 @@ def test_unknown_rights_can_be_investigated_without_acquisition() -> None:
     assert "POLICY_BLOCKED" in sql
     assert "V_HANDOFF_RECEIPTS" in sql
     assert "V_DATASET_DISCOVERY_INVESTIGATION_QUEUE" in sql
+    assert "RELATIONSHIP_TYPE" in sql

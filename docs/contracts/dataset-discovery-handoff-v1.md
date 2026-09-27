@@ -39,7 +39,9 @@ investigable, with a restricted access boundary. Only a current, reviewed
 written by the agent or reviewer command. Without a reviewed finding, unknown
 rights never become a hard block.
 
-The handoff result vocabulary is `HANDED_OFF`, `ALREADY_GOVERNED`,
+The handoff receipt carries the original relationship type, so an accepted
+mirror or alternate distribution is distinguishable and can be investigated
+against its canonical resource. The handoff result vocabulary is `HANDED_OFF`, `ALREADY_GOVERNED`,
 `POLICY_BLOCKED`, `REJECTED_OR_STALE`, `MISSING_EVIDENCE`,
 `RETRYABLE_FAILURE`, `TERMINAL_FAILURE`. A duplicate/mirror relationship is
 retained in queue metadata for investigation rather than silently discarded.

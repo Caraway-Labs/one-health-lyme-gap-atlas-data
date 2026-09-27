@@ -50,7 +50,8 @@ FROM GOVERNANCE.DATASET_DISCOVERY_INVESTIGATION_REQUESTS h;
 
 CREATE OR REPLACE VIEW DATASET_DISCOVERY.V_HANDOFF_RECEIPTS AS
 SELECT handoff_id, operation_key, recommendation_version_id, review_event_id,
-       disposition, investigation_status, acquisition_boundary, created_at
+       relationship_type, disposition, investigation_status,
+       acquisition_boundary, created_at
 FROM GOVERNANCE.DATASET_DISCOVERY_INVESTIGATION_REQUESTS;
 
 CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_HANDOFF_DATASET_DISCOVERY_RECOMMENDATION(
@@ -107,21 +108,24 @@ try {
   if (!allowed.next() || allowed.next()) throw new Error('REVIEWER_NOT_ALLOWLISTED');
 
   var old = query(
-    'SELECT handoff_id, review_event_id, disposition, investigation_status, ' +
-    'acquisition_boundary FROM GOVERNANCE.DATASET_DISCOVERY_INVESTIGATION_REQUESTS ' +
+    'SELECT handoff_id, review_event_id, relationship_type, disposition, ' +
+    'investigation_status, acquisition_boundary ' +
+    'FROM GOVERNANCE.DATASET_DISCOVERY_INVESTIGATION_REQUESTS ' +
     'WHERE operation_key = ?', [operation_key]);
   if (old.next()) {
     var old_id = old.getColumnValue(1);
     var old_event = old.getColumnValue(2);
-    var old_disposition = old.getColumnValue(3);
-    var old_status = old.getColumnValue(4);
-    var old_boundary = old.getColumnValue(5);
+    var old_relationship = old.getColumnValue(3);
+    var old_disposition = old.getColumnValue(4);
+    var old_status = old.getColumnValue(5);
+    var old_boundary = old.getColumnValue(6);
     if (old.next() || old_id !== handoff_id ||
         old_event !== P_REVIEW_EVENT_ID) throw new Error('CONFLICTING_HANDOFF_REPLAY');
     snowflake.execute({sqlText: 'COMMIT'});
     return {handoff_id: handoff_id, operation_key: operation_key,
       recommendation_version_id: P_RECOMMENDATION_VERSION_ID,
-      review_event_id: P_REVIEW_EVENT_ID, disposition: old_disposition,
+      review_event_id: P_REVIEW_EVENT_ID, relationship_type: old_relationship,
+      disposition: old_disposition,
       investigation_status: old_status, acquisition_boundary: old_boundary};
   }
 
@@ -219,7 +223,8 @@ try {
   snowflake.execute({sqlText: 'COMMIT'});
   return {handoff_id: handoff_id, operation_key: operation_key,
     recommendation_version_id: P_RECOMMENDATION_VERSION_ID,
-    review_event_id: P_REVIEW_EVENT_ID, disposition: disposition,
+    review_event_id: P_REVIEW_EVENT_ID, relationship_type: relationship,
+    disposition: disposition,
     investigation_status: investigation_status, acquisition_boundary: boundary};
 } catch (error) {
   snowflake.execute({sqlText: 'ROLLBACK'});
