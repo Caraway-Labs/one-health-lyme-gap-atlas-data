@@ -125,6 +125,9 @@ def test_adr_states_five_exception_points_and_single_process_idempotency() -> No
     assert "EXECUTE AS OWNER" in text
     assert "SP_SUBMIT_USER_FEEDBACK" in text
     assert "SP_REDACT_FEEDBACK_FOR_ACCOUNT" in text
+    assert "SP_EXPORT_FEEDBACK_FOR_ACCOUNT" in text
+    assert "account-scoped" in text
+    assert "server-verified" in text or "verified token" in text
     assert "V_USER_FEEDBACK_ANALYST" in text
     assert "does not permit arbitrary future mutation" in text
     assert "dedicated API mutation role" in text
@@ -138,6 +141,7 @@ def test_role_model_documents_read_feedback_exception() -> None:
     doc = ROLE_MODEL_PATH.read_text(encoding="utf-8")
     assert "SP_SUBMIT_USER_FEEDBACK" in doc
     assert "SP_REDACT_FEEDBACK_FOR_ACCOUNT" in doc
+    assert "SP_EXPORT_FEEDBACK_FOR_ACCOUNT" in doc
     assert "not a general write grant" in doc
     assert "remains forbidden from table DML" in doc
 

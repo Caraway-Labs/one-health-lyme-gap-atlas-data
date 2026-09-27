@@ -30,6 +30,7 @@ on:
           - resume
           - validate
           - inspect
+          - nclimgrid-pilot-measurement
       tier:
         description: Risk tier (A local/fixture via job, B DEV, C PROD protected)
         required: true
@@ -43,6 +44,16 @@ on:
         description: Existing run id for resume/inspect
         required: false
         type: string
+      measurement_action:
+        description: Read-only January 2025 pilot measurement
+        required: false
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - inspect
+          - ordered-read
+          - report
       recapture:
         description: Explicitly create new captures for completed batch definitions
         required: false
@@ -65,7 +76,7 @@ jobs:
   ingest:
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment_name }}
+    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -79,12 +90,12 @@ jobs:
       SNOWFLAKE_AUTH_METHOD: key_pair
       SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
       SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
-      SPACES_REGION: ${{ secrets.SPACES_REGION }}
-      SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
-      SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
-      SPACES_PREFIX: ${{ secrets.SPACES_PREFIX }}
-      SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
-      SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+      SPACES_REGION: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_REGION || '' }}
+      SPACES_ENDPOINT: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_ENDPOINT || '' }}
+      SPACES_BUCKET: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_BUCKET || '' }}
+      SPACES_PREFIX: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_PREFIX || '' }}
+      SPACES_ACCESS_KEY_ID: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_ACCESS_KEY_ID || '' }}
+      SPACES_SECRET_ACCESS_KEY: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_SECRET_ACCESS_KEY || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -98,7 +109,10 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
         run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement'
+        env:
+          SOURCE_DEFINITION: ${{ inputs.source_definition }}
+          MEASUREMENT_RUN_ID: ${{ inputs.run_id }}
         run: |
           if [ "${{ inputs.tier }}" = "B" ] && [ "${{ inputs.environment_name }}" != "dev" ]; then
             echo "::error::Tier B runs are limited to the dev GitHub Environment."
@@ -108,28 +122,50 @@ jobs:
             echo "::error::Tier C execution belongs to the protected promote/publication workflows."
             exit 1
           fi
+          if [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then
+            test "${{ inputs.environment_name }}" = "dev"
+            test "${{ inputs.tier }}" = "B"
+            test "$SOURCE_DEFINITION" = "config/sources/noaa_nclimgrid_daily_202501.yml"
+            test "${{ inputs.recapture }}" = "false"
+            test "${{ inputs.publish }}" = "false"
+            if [ "${{ inputs.measurement_action }}" = "preflight" ]; then
+              test -z "$MEASUREMENT_RUN_ID"
+            else
+              test -n "$MEASUREMENT_RUN_ID"
+            fi
+          fi
       - name: Execute orchestrator operation with ephemeral Snowflake key
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
+          MEASUREMENT_ACTION: ${{ inputs.measurement_action }}
         run: |
           set -euo pipefail
           for required_var in \
             SNOWFLAKE_USER \
             SNOWFLAKE_ROLE \
             SNOWFLAKE_PRIVATE_KEY_B64 \
-            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE \
-            SPACES_ENDPOINT \
-            SPACES_BUCKET \
-            SPACES_ACCESS_KEY_ID \
-            SPACES_SECRET_ACCESS_KEY
+            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
           do
             if [ -z "${!required_var:-}" ]; then
               echo "::error::Missing required generic-ingestion configuration: $required_var"
               exit 1
             fi
           done
+          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ]; then
+            for required_var in \
+              SPACES_ENDPOINT \
+              SPACES_BUCKET \
+              SPACES_ACCESS_KEY_ID \
+              SPACES_SECRET_ACCESS_KEY
+            do
+              if [ -z "${!required_var:-}" ]; then
+                echo "::error::Missing required generic-ingestion configuration: $required_var"
+                exit 1
+              fi
+            done
+          fi
           key_file="$RUNNER_TEMP/oh-lyme-ingestion-key.p8"
           trap 'rm -f "$key_file"' EXIT
           umask 077
@@ -182,7 +218,13 @@ jobs:
               )
           PY
 
-          if [ "${{ inputs.operation }}" = "run" ]; then
+          if [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then
+            if [ -n "$INGESTION_RUN_ID" ]; then
+              uv run atlas-data source nclimgrid-pilot-measure --action "$MEASUREMENT_ACTION" --run-id "$INGESTION_RUN_ID"
+            else
+              uv run atlas-data source nclimgrid-pilot-measure --action "$MEASUREMENT_ACTION"
+            fi
+          elif [ "${{ inputs.operation }}" = "run" ]; then
             uv run atlas-data source run \
               --definition "$SOURCE_DEFINITION" \
               --tier "${{ inputs.tier }}"
