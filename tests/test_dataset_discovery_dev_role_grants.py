@@ -25,6 +25,10 @@ def test_account_bootstrap_is_explicitly_dev_only() -> None:
     assert "TO ROLE OH_LYME_DEV_DATASET_DISCOVERY_WRITE_OWNER" in sql
     assert "GRANT ROLE OH_LYME_DEV_DATASET_DISCOVERY_WRITE_OWNER" in sql
     assert "TO ROLE OH_LYME_DEV_MIGRATION_DEPLOYER" in sql
+    assert sql.count("GRANT USAGE ON DATABASE ONE_HEALTH_LYME_GAP_ATLAS_DEV") == 3
+    assert sql.count("GRANT USAGE ON SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE") == 2
+    assert "GRANT SELECT ON TABLE ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.CATALOG_DATASETS" in sql
+    assert sql.count("GRANT USAGE ON WAREHOUSE OH_LYME_DEV_INGEST_XS_WH") == 2
     for forbidden in ("OH_LYME_PROD", "CREATE USER", "ALTER USER", "GRANT MANAGE GRANTS"):
         assert forbidden not in sql
 
@@ -47,6 +51,10 @@ def test_v114_is_protected_dev_only_and_keeps_runtime_reviewer_narrow() -> None:
     assert "GRANT READ SESSION" not in sql
     assert "CREATE ROLE" not in sql
     assert "GRANT MANAGE GRANTS" not in sql
+    assert "GRANT USAGE ON DATABASE" not in sql
+    assert "GRANT USAGE ON SCHEMA GOVERNANCE" not in sql
+    assert "GRANT SELECT ON TABLE GOVERNANCE.CATALOG_DATASETS" not in sql
+    assert "GRANT USAGE ON WAREHOUSE" not in sql
     assert "GRANT OWNERSHIP ON PROCEDURE" in sql
     assert sql.count("COPY CURRENT GRANTS") == 6
     for procedure in (

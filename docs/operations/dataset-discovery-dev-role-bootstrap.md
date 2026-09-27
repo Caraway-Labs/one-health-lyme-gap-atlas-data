@@ -24,12 +24,17 @@ snow sql -c BVB26657_PAT -f scripts/bootstrap_dataset_discovery_roles_dev.sql
 The file creates only three `OH_LYME_DEV_DATASET_DISCOVERY_*` roles, grants
 `READ SESSION` only to the non-login write owner, and places that owner role
 under `OH_LYME_DEV_MIGRATION_DEPLOYER` for Snowflake's ownership-transfer
-rule. It assigns no reviewer or runtime user. Account-role bootstrap must be
+rule. It also grants database reachability, Governance schema reachability,
+one account-owned catalog-table read, and warehouse usage because the
+protected migration role cannot grant privileges on those objects. It assigns
+no reviewer or runtime user. Account-role bootstrap must be
 audited separately from the migration ledger; record the reviewed file SHA,
 query IDs, role grants and effective hierarchy without credentials.
 
 Before V114 can run, confirm these exact grants with read-only `SHOW GRANTS TO
-ROLE` and reject any unexpected inherited role or privilege. V114 grants no
+ROLE` and reject any unexpected inherited role or privilege. The bootstrap is
+safe to replay after a partial protected run: repeated `CREATE ROLE IF NOT
+EXISTS` and exact grants resolve to the same roles and privileges. V114 grants no
 base-table DML to runtime/reviewer. It grants the write owner only the listed
 procedure dependencies and moves ownership of the six reviewed procedures.
 Run V106–V114 only through the protected DEV workflow, then verify receipts
