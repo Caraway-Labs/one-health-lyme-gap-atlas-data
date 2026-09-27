@@ -538,6 +538,12 @@ class SnowflakeCheckpointStore:
     def save_partition(self, run_id: str, partition: NormalizedPartition) -> None:
         _verify_partition(partition)
         serialized = canonical_bytes(list(partition.records)).decode("utf-8")
+        # VARIANT normalizes JSON numbers (for example 0.0 to 0). Keep the
+        # canonical bytes as a string so readback can verify the original hash.
+        stored_document = json.dumps(
+            {"format": "canonical-json-v1", "canonical_json": serialized},
+            separators=(",", ":"),
+        )
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
@@ -571,7 +577,7 @@ class SnowflakeCheckpointStore:
                         partition.sha256,
                         len(partition.records),
                         partition.byte_count,
-                        serialized,
+                        stored_document,
                     ),
                 )
                 cursor.execute(
@@ -593,15 +599,22 @@ class SnowflakeCheckpointStore:
     def iter_partitions(self, run_id: str) -> Iterator[NormalizedPartition]:
         with self._connection_factory() as connection, connection.cursor() as cursor:
             cursor.execute(
-                """SELECT partition_ordinal, value_sha256, byte_count, records
+                """SELECT partition_ordinal, partition_id, value_sha256,
+                          row_count, byte_count, records
                 FROM GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS
                 WHERE ingestion_run_id=%s ORDER BY partition_ordinal""",
                 (run_id,),
             )
-            for ordinal, digest, byte_count, records in cursor:
+            for ordinal, partition_id, digest, row_count, byte_count, records in cursor:
                 if isinstance(records, str):
                     records = json.loads(records)
-                yield _partition_from_document(
+                if isinstance(records, dict):
+                    if records.get("format") != "canonical-json-v1" or not isinstance(
+                        records.get("canonical_json"), str
+                    ):
+                        raise ValueError("Invalid normalized partition document")
+                    records = json.loads(records["canonical_json"])
+                partition = _partition_from_document(
                     {
                         "ordinal": ordinal,
                         "sha256": digest,
@@ -609,6 +622,11 @@ class SnowflakeCheckpointStore:
                         "records": records,
                     }
                 )
+                if str(partition_id) != partition.partition_id or int(row_count) != len(
+                    partition.records
+                ):
+                    raise ValueError("Normalized partition metadata mismatch")
+                yield partition
 
     def complete_partitions(self, run_id: str, count: int) -> None:
         _verify_partition_set(self.iter_partitions(run_id), count)
