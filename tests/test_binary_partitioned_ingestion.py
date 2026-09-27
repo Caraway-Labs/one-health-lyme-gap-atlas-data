@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -282,7 +283,9 @@ def test_snowflake_partition_replay_and_completion_query_shape() -> None:
     part = next(partition_records([{"record": {"id": 1}}]))
     cursor = _Cursor(
         (1,),
-        rows=[(part.ordinal, part.sha256, part.byte_count, list(part.records))],
+        rows=[
+            (part.ordinal, part.partition_id, part.sha256, 1, part.byte_count, list(part.records))
+        ],
     )
     connection = _Connection(cursor)
     store = SnowflakeCheckpointStore(connection_factory=lambda: connection)
@@ -292,6 +295,110 @@ def test_snowflake_partition_replay_and_completion_query_shape() -> None:
     assert connection.committed
     assert any("ORDER BY partition_ordinal" in sql for sql, _ in cursor.executed)
     assert any("INGESTION_RUN_PARTITION_COMPLETIONS" in sql for sql, _ in cursor.executed)
+
+
+def test_snowflake_partition_preserves_float_canonical_bytes_across_variant() -> None:
+    part = next(
+        partition_records(
+            [
+                {
+                    "record": {
+                        "id": "county-day",
+                        "value": 0.0,
+                        "fraction": 1.0,
+                        "nested": {"label": "Niño", "present": True, "missing": None},
+                    }
+                }
+            ]
+        )
+    )
+    write_cursor = _Cursor(fetches=[None, (part.partition_id, part.sha256, 1, part.byte_count)])
+    SnowflakeCheckpointStore(connection_factory=lambda: _Connection(write_cursor)).save_partition(
+        "run-1", part
+    )
+    stored_json = write_cursor.executed[1][1][-1]
+    assert isinstance(stored_json, str)
+    stored = json.loads(stored_json)
+    assert stored["format"] == "canonical-json-v1"
+    assert '"value":0.0' in stored["canonical_json"]
+    assert '"fraction":1.0' in stored["canonical_json"]
+
+    # Snowflake returns VARIANT as a JSON string. Numeric values in an array
+    # would become 0 and 1, but the canonical JSON string is preserved.
+    read_cursor = _Cursor(
+        (1,),
+        rows=[
+            (part.ordinal, part.partition_id, part.sha256, 1, part.byte_count, json.dumps(stored))
+        ],
+    )
+    store = SnowflakeCheckpointStore(connection_factory=lambda: _Connection(read_cursor))
+    assert list(store.iter_partitions("run-1")) == [part]
+    store.complete_partitions("run-1", 1)
+
+    changed = dict(stored)
+    changed["canonical_json"] = changed["canonical_json"].replace('"value":0.0', '"value":0')
+    corrupt_cursor = _Cursor(
+        rows=[
+            (part.ordinal, part.partition_id, part.sha256, 1, part.byte_count, json.dumps(changed))
+        ]
+    )
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        list(
+            SnowflakeCheckpointStore(
+                connection_factory=lambda: _Connection(corrupt_cursor)
+            ).iter_partitions("run-1")
+        )
+
+    for partition_id, row_count in (("wrong-id", 1), (part.partition_id, 2)):
+        metadata_cursor = _Cursor(
+            rows=[
+                (
+                    part.ordinal,
+                    partition_id,
+                    part.sha256,
+                    row_count,
+                    part.byte_count,
+                    json.dumps(stored),
+                )
+            ]
+        )
+        with pytest.raises(ValueError, match="metadata mismatch"):
+            list(
+                SnowflakeCheckpointStore(
+                    connection_factory=lambda metadata_cursor=metadata_cursor: _Connection(
+                        metadata_cursor
+                    )
+                ).iter_partitions("run-1")
+            )
+
+
+def test_snowflake_completion_rejects_gapped_and_duplicate_ordinals() -> None:
+    parts = list(partition_records([{"record": {"id": 1}}, {"record": {"id": 2}}], max_rows=1))
+
+    def row(part: Any) -> tuple[Any, ...]:
+        return (
+            part.ordinal,
+            part.partition_id,
+            part.sha256,
+            len(part.records),
+            part.byte_count,
+            list(part.records),
+        )
+
+    for rows in (
+        [row(parts[0]), row(replace(parts[1], ordinal=2))],
+        [row(parts[0]), row(replace(parts[1], ordinal=0))],
+        [row(parts[1]), row(parts[0])],
+    ):
+        cursor = _Cursor(rows=rows)
+        with pytest.raises(ValueError, match="gap or duplicate"):
+            SnowflakeCheckpointStore(
+                connection_factory=lambda cursor=cursor: _Connection(cursor)
+            ).complete_partitions("run-1", 2)
+        assert not any(
+            "MERGE INTO GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS" in sql
+            for sql, _ in cursor.executed
+        )
 
 
 def test_snowflake_binary_replay_verifies_source_bytes() -> None:
