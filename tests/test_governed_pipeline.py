@@ -530,7 +530,8 @@ def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology(
     generic = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
     assert "workflow_dispatch:" in generic
     assert "atlas-data source" in generic
-    assert "environment: ${{ inputs.environment_name }}" in generic
+    assert "inputs.operation == 'nclimgrid-pilot-measurement' && 'dev'" in generic
+    assert "|| inputs.environment_name }}" in generic
     assert "operation" in generic
     assert "must not encode source" in generic.lower() or "source business logic" in generic.lower()
 
@@ -1717,6 +1718,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V102",
         "V103",
         "V104",
+        "V105",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1724,13 +1726,14 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 69
+    assert len(prod_plan) == 70
     assert "V034" not in {item["version"] for item in prod_plan}
     assert "V066" in {item["version"] for item in prod_plan}
     assert "V067" in {item["version"] for item in prod_plan}
     assert "V070" in {item["version"] for item in prod_plan}
     assert "V103" in {item["version"] for item in prod_plan}
     assert "V104" in {item["version"] for item in prod_plan}
+    assert "V105" in {item["version"] for item in prod_plan}
     assert "V068" in {item["version"] for item in prod_plan}
     assert "V069" in {item["version"] for item in prod_plan}
     assert "V071" in {item["version"] for item in prod_plan}
