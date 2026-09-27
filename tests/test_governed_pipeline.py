@@ -530,7 +530,8 @@ def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology(
     generic = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
     assert "workflow_dispatch:" in generic
     assert "atlas-data source" in generic
-    assert "environment: ${{ inputs.environment_name }}" in generic
+    assert "inputs.operation == 'nclimgrid-pilot-measurement' && 'dev'" in generic
+    assert "|| inputs.environment_name }}" in generic
     assert "operation" in generic
     assert "must not encode source" in generic.lower() or "source business logic" in generic.lower()
 
