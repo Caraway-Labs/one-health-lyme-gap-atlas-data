@@ -596,6 +596,90 @@ class SnowflakeCheckpointStore:
                     raise ValueError("Normalized partition checkpoint mismatch")
             connection.commit()
 
+    def save_partition_batch(self, run_id: str, partitions: list[NormalizedPartition]) -> None:
+        """Commit a bounded group only after every insert-only row is verified."""
+        if not partitions:
+            return
+        if len(partitions) > 8:
+            raise ValueError("Normalized partition batch exceeds eight partitions")
+        ordinals = [part.ordinal for part in partitions]
+        if len(set(ordinals)) != len(ordinals):
+            raise ValueError("Duplicate normalized partition ordinal in batch")
+        documents = []
+        for part in partitions:
+            _verify_partition(part)
+            serialized = canonical_bytes(list(part.records)).decode("utf-8")
+            documents.append(
+                json.dumps(
+                    {"format": "canonical-json-v1", "canonical_json": serialized},
+                    separators=(",", ":"),
+                )
+            )
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT partition_count FROM GOVERNANCE.INGESTION_RUN_PARTITION_COMPLETIONS "
+                    "WHERE ingestion_run_id=%s",
+                    (run_id,),
+                )
+                completion = cursor.fetchone()
+                if completion is not None and max(ordinals) >= int(completion[0]):
+                    raise ValueError("Completed partition set cannot be extended")
+                for part, document in zip(partitions, documents, strict=True):
+                    cursor.execute(
+                        """MERGE INTO GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS target
+                        USING (SELECT %s AS ingestion_run_id, %s AS partition_ordinal,
+                                      %s AS partition_id, %s AS value_sha256,
+                                      %s AS row_count, %s AS byte_count,
+                                      PARSE_JSON(%s) AS records) source
+                        ON target.ingestion_run_id=source.ingestion_run_id
+                           AND target.partition_ordinal=source.partition_ordinal
+                        WHEN NOT MATCHED THEN INSERT
+                          (ingestion_run_id, partition_ordinal, partition_id,
+                           value_sha256, row_count, byte_count, records)
+                          VALUES (source.ingestion_run_id, source.partition_ordinal,
+                                  source.partition_id, source.value_sha256,
+                                  source.row_count, source.byte_count, source.records)""",
+                        (
+                            run_id,
+                            part.ordinal,
+                            part.partition_id,
+                            part.sha256,
+                            len(part.records),
+                            part.byte_count,
+                            document,
+                        ),
+                    )
+                placeholders = ", ".join("%s" for _ in ordinals)
+                cursor.execute(
+                    "SELECT partition_ordinal, partition_id, value_sha256, row_count, "
+                    "byte_count FROM GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS "
+                    f"WHERE ingestion_run_id=%s AND partition_ordinal IN ({placeholders})",
+                    (run_id, *ordinals),
+                )
+                observed = cursor.fetchall()
+                expected = {
+                    (
+                        part.ordinal,
+                        part.partition_id,
+                        part.sha256,
+                        len(part.records),
+                        part.byte_count,
+                    )
+                    for part in partitions
+                }
+                if (
+                    len(observed) != len(partitions)
+                    or {
+                        (int(row[0]), str(row[1]), str(row[2]), int(row[3]), int(row[4]))
+                        for row in observed
+                    }
+                    != expected
+                ):
+                    raise ValueError("Normalized partition checkpoint mismatch")
+            connection.commit()
+
     def iter_partitions(self, run_id: str) -> Iterator[NormalizedPartition]:
         with self._connection_factory() as connection, connection.cursor() as cursor:
             cursor.execute(

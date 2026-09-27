@@ -28,6 +28,8 @@ from lyme_gap_atlas_data.ingestion.types import (
     RunState,
     RunStatus,
     Stage,
+    StageCheckpoint,
+    StageStatus,
     Tier,
     ValidationResult,
 )
@@ -277,6 +279,110 @@ def test_snowflake_partition_uses_bounded_additive_row() -> None:
     )
     with pytest.raises(ValueError, match="Completed partition set"):
         completed_store.save_partition("run-1", replace(part, ordinal=1))
+
+
+def test_snowflake_partition_batch_reduces_reads_and_commits() -> None:
+    parts = list(partition_records([{"record": {"id": i}} for i in range(8)], max_rows=1))
+
+    class BatchCursor(_Cursor):
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return [
+                (p.ordinal, p.partition_id, p.sha256, len(p.records), p.byte_count) for p in parts
+            ]
+
+    cursor = BatchCursor()
+    connection = _Connection(cursor)
+    SnowflakeCheckpointStore(connection_factory=lambda: connection).save_partition_batch(
+        "run-1", parts
+    )
+    assert connection.committed
+    sql = [statement for statement, _ in cursor.executed]
+    assert len(sql) == 10  # one completion read, eight insert-only MERGEs, one readback
+    assert len(sql) < (8 * 3) / 2  # fewer than half the former checkpoint statements
+    assert sum("INGESTION_RUN_PARTITION_COMPLETIONS" in item for item in sql) == 1
+    assert sum("SELECT partition_ordinal, partition_id" in item for item in sql) == 1
+    assert all("WHEN MATCHED" not in item for item in sql)
+
+    class CorruptCursor(BatchCursor):
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            rows = super().fetchall()
+            return [*rows[:-1], (7, "wrong", parts[-1].sha256, 1, parts[-1].byte_count)]
+
+    corrupt_connection = _Connection(CorruptCursor())
+    with pytest.raises(ValueError, match="checkpoint mismatch"):
+        SnowflakeCheckpointStore(
+            connection_factory=lambda: corrupt_connection
+        ).save_partition_batch("run-1", parts)
+    assert not corrupt_connection.committed
+    with pytest.raises(ValueError, match="exceeds eight"):
+        SnowflakeCheckpointStore(connection_factory=lambda: connection).save_partition_batch(
+            "run-1", [*parts, replace(parts[0], ordinal=8)]
+        )
+
+
+def test_snowflake_stage_batches_reuse_transaction_without_changing_merges() -> None:
+    definition = load_source_definition(DEFINITION)
+    state = RunState(
+        ingestion_run_id="run-1",
+        resource_key=definition.resource_key,
+        source_definition_version=definition.definition_version,
+        tier=Tier.B,
+        status=RunStatus.RUNNING,
+    )
+    records = [[{"record": {"id": str(i), "value": i}}] for i in range(8)]
+    connections: list[_Connection] = []
+
+    def factory() -> _Connection:
+        connection = _Connection(_Cursor())
+        connections.append(connection)
+        return connection
+
+    effects = SnowflakeStageEffects(connection_factory=factory)
+    effects.materialize_partition_batch(definition, state, records)
+    assert len(connections) == 1 and connections[0].committed
+    assert len(connections[0]._cursor.executed) == 16
+    assert all("WHEN MATCHED" not in sql for sql, _ in connections[0]._cursor.executed)
+    effects.load_partition_batch(definition, state, records)
+    assert len(connections) == 2 and connections[1].committed
+    assert len(connections[1]._cursor.executed) == 8
+
+    state.stages.extend(
+        [
+            StageCheckpoint(
+                stage=Stage.ACQUIRE,
+                status=StageStatus.COMPLETED,
+                artifact_id="artifact-1",
+                artifact_sha256="a" * 64,
+            ),
+            StageCheckpoint(
+                stage=Stage.NORMALIZE,
+                status=StageStatus.COMPLETED,
+                transformation_version="method-v1",
+            ),
+        ]
+    )
+    effects.load_partition_batch(definition, state, records)
+    revision_sql = [sql for sql, _ in connections[2]._cursor.executed]
+    assert len(connections) == 3 and connections[2].committed
+    assert len(revision_sql) == 24
+    assert (
+        sum("MERGE INTO GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS" in sql for sql in revision_sql)
+        == 8
+    )
+    assert all("WHEN MATCHED" not in sql for sql in revision_sql)
+
+    class FailingCursor(_Cursor):
+        def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> None:
+            if len(self.executed) == 3:
+                raise RuntimeError("warehouse failure")
+            super().execute(sql, params)
+
+    failed = _Connection(FailingCursor())
+    with pytest.raises(RuntimeError, match="warehouse failure"):
+        SnowflakeStageEffects(connection_factory=lambda: failed).materialize_partition_batch(
+            definition, state, records
+        )
+    assert not failed.committed
 
 
 def test_snowflake_partition_replay_and_completion_query_shape() -> None:

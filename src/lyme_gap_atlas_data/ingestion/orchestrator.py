@@ -22,9 +22,10 @@ from .checkpoints import (
     PartitionStore,
     PayloadStore,
     RawArtifactStore,
+    SnowflakeCheckpointStore,
 )
 from .identity import deterministic_record_id
-from .partitioning import partition_records
+from .partitioning import NormalizedPartition, partition_records
 from .runtime import (
     NoopStageEffects,
     QualityFailure,
@@ -319,21 +320,36 @@ class IngestionOrchestrator:
                                 checkpoint.transformation_version = streamed.transformation_version
                                 self.store.save(state)
                                 count = 0
+                                pending: list[NormalizedPartition] = []
                                 for part in partition_records(streamed.records):
-                                    self.store.save_partition(state.ingestion_run_id, part)
+                                    if isinstance(self.store, SnowflakeCheckpointStore):
+                                        pending.append(part)
+                                        if len(pending) == 8:
+                                            self._save_partition_batch(
+                                                state.ingestion_run_id, pending
+                                            )
+                                            pending = []
+                                    else:
+                                        self.store.save_partition(state.ingestion_run_id, part)
                                     count += 1
+                                self._save_partition_batch(state.ingestion_run_id, pending)
                                 self._validate_partition_identities(
                                     definition, state.ingestion_run_id
                                 )
                                 self.store.complete_partitions(state.ingestion_run_id, count)
                             partition_count = 0
                             record_count = 0
+                            pending_records: list[list[dict[str, Any]]] = []
                             for part in self.store.iter_partitions(state.ingestion_run_id):
-                                effects.materialize_normalized(
-                                    definition, state, list(part.records)
-                                )
+                                pending_records.append(list(part.records))
                                 partition_count += 1
                                 record_count += len(part.records)
+                                if len(pending_records) == 8:
+                                    self._materialize_batch(
+                                        effects, definition, state, pending_records
+                                    )
+                                    pending_records = []
+                            self._materialize_batch(effects, definition, state, pending_records)
                             checkpoint.detail = {
                                 "partition_count": partition_count,
                                 "record_count": record_count,
@@ -355,9 +371,14 @@ class IngestionOrchestrator:
                 elif checkpoint.stage is Stage.LOAD:
                     if streaming and isinstance(self.store, PartitionStore):
                         loaded = 0
+                        pending_records = []
                         for part in self.store.iter_partitions(state.ingestion_run_id):
-                            effects.load(definition, state, list(part.records))
+                            pending_records.append(list(part.records))
                             loaded += len(part.records)
+                            if len(pending_records) == 8:
+                                self._load_batch(effects, definition, state, pending_records)
+                                pending_records = []
+                        self._load_batch(effects, definition, state, pending_records)
                         checkpoint.detail = {"record_count": loaded, "mode": "bounded_partitions"}
                     elif normalized is None and not state.dry_run:
                         raise RuntimeError("LOAD requires NORMALIZE payload")
@@ -431,6 +452,43 @@ class IngestionOrchestrator:
         state.next_action = "none"
         self.store.save(state)
         return state
+
+    def _save_partition_batch(self, run_id: str, partitions: list[NormalizedPartition]) -> None:
+        if not partitions:
+            return
+        if isinstance(self.store, SnowflakeCheckpointStore):
+            self.store.save_partition_batch(run_id, partitions)
+        else:
+            for part in partitions:
+                cast(PartitionStore, self.store).save_partition(run_id, part)
+
+    @staticmethod
+    def _materialize_batch(
+        effects: StageEffects,
+        definition: SourceDefinition,
+        state: RunState,
+        partitions: list[list[dict[str, Any]]],
+    ) -> None:
+        if isinstance(effects, SnowflakeStageEffects):
+            if partitions:
+                effects.materialize_partition_batch(definition, state, partitions)
+        else:
+            for records in partitions:
+                effects.materialize_normalized(definition, state, records)
+
+    @staticmethod
+    def _load_batch(
+        effects: StageEffects,
+        definition: SourceDefinition,
+        state: RunState,
+        partitions: list[list[dict[str, Any]]],
+    ) -> None:
+        if isinstance(effects, SnowflakeStageEffects):
+            if partitions:
+                effects.load_partition_batch(definition, state, partitions)
+        else:
+            for records in partitions:
+                effects.load(definition, state, records)
 
     def _effects(self, state: RunState) -> StageEffects:
         if self._effects_override is not None:
