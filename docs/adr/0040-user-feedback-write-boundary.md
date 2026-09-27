@@ -22,28 +22,53 @@ proportion to V1.
 
 ## Decision
 
-Grant `OH_LYME_{{ ENV }}_READ` `USAGE` on exactly two `EXECUTE AS OWNER`
-procedures - `GOVERNANCE.SP_SUBMIT_USER_FEEDBACK` and
-`GOVERNANCE.SP_REDACT_FEEDBACK_FOR_ACCOUNT` - and `SELECT` on
-`GOVERNANCE.V_USER_FEEDBACK_ANALYST` only. Do not grant table DML or base-table
-`SELECT` on feedback relations to `READ` or `RUNTIME`. Owner triage, reveal,
-and operator redaction grants land in a later story (#130), not here.
+Grant `OH_LYME_{{ ENV }}_READ` `USAGE` on `EXECUTE AS OWNER` feedback
+procedures and `SELECT` on `GOVERNANCE.V_USER_FEEDBACK_ANALYST` only. Do not
+grant table DML or base-table `SELECT` on feedback relations to `READ` or
+`RUNTIME`. Owner triage, reveal, and operator redaction stay on `OWNER`.
+
+Story #129 approved two procedures. Story #130 / migration V105 adds a third,
+account-scoped privacy export. The approved READ capabilities are now:
+
+1. `GOVERNANCE.SP_SUBMIT_USER_FEEDBACK` — submit a feedback record.
+2. `GOVERNANCE.SP_REDACT_FEEDBACK_FOR_ACCOUNT` — remove account linkage and
+   contact rows for a server-verified account. The submitted message stays.
+3. `GOVERNANCE.SP_EXPORT_FEEDBACK_FOR_ACCOUNT` — return only that account's
+   category, route, received time, message, and whether a contact email exists.
+
+The export procedure is read-only in product semantics. It still uses
+`EXECUTE AS OWNER` because `READ` must not `SELECT` the protected feedback,
+contact, or account tables. The API passes only the account id taken from the
+verified Supabase token. The procedure does not accept a client-supplied
+account id from the feedback request body.
 
 This is a deliberate, narrow exception to ADR 0030's direct-DML read-only
 semantics for `READ`. The exception rests on all five points below:
 
-1. **No sixth role.** The API already uses `OH_LYME_{ENV}_READ`. A new user,
-   key, or secret is not justified for two procedures.
+1. **No sixth role yet.** The API already uses `OH_LYME_{ENV}_READ`. A new
+   user, key, or secret is not justified for these three bounded procedures.
+   The API also cannot use the `OWNER` analyst surface: that role can triage,
+   reveal contact, and redact message text. Privacy export must not carry
+   those powers.
 2. **`EXECUTE AS OWNER` plus `USAGE` is least privilege.** The caller cannot
-   pass SQL or name tables. The procedure re-validates arguments and writes only
-   the feedback relations.
-3. **`READ` may invoke only** `SP_SUBMIT_USER_FEEDBACK` and
-   `SP_REDACT_FEEDBACK_FOR_ACCOUNT`, and may `SELECT` only
-   `V_USER_FEEDBACK_ANALYST`.
+   pass SQL or name tables. Each procedure re-validates its arguments. Submit
+   and linkage removal write only the feedback relations. Export reads only
+   the rows whose account link matches the argument and does not return the
+   contact email itself.
+3. **`READ` may invoke only** `SP_SUBMIT_USER_FEEDBACK`,
+   `SP_REDACT_FEEDBACK_FOR_ACCOUNT`, and
+   `SP_EXPORT_FEEDBACK_FOR_ACCOUNT`, and may `SELECT` only
+   `V_USER_FEEDBACK_ANALYST`. Direct base-table protected reads remain
+   forbidden. On the API path, account id arguments come from the verified
+   token, not from the browser body.
 4. **This precedent does not permit arbitrary future mutation procedures on
-   `READ`.** Each new grant needs its own ADR.
-5. **Introduce a dedicated API mutation role** if the mutation surface grows
-   beyond these two procedures or the API moves past one process.
+   `READ`,** and it does not permit arbitrary future owner-rights procedures
+   on `READ`. Each new grant needs its own ADR. Export does not authorize
+   reveal, triage, or message redaction for `READ`.
+5. **Introduce a dedicated API mutation role** or a protected-data role when the
+   mutation surface grows beyond submit and account-linkage removal, when
+   protected reads grow beyond this one account-scoped export, or when the
+   API moves past one process.
 
 ## Atomic mutation
 
@@ -76,7 +101,10 @@ separate OWNER procedure in #130.
 ## Consequences
 
 - Migration `V104__user_feedback_submission.sql` creates the four GOVERNANCE
-  tables, the two procedures, and the analyst view.
+  tables, the submit and linkage-removal procedures, and the analyst view.
+- Migration `V105__user_feedback_triage.sql` adds OWNER triage, reveal, and
+  message redaction, plus the READ account-scoped export procedure.
 - Static grant tests lock the READ exception surface.
-- Expanding writes beyond these two procedures requires a new ADR and, when
-  the surface grows or topology scales, a dedicated mutation role.
+- Expanding writes or protected reads beyond the three procedures above
+  requires a new ADR and, when the surface grows or topology scales, a
+  dedicated mutation or protected-data role.
