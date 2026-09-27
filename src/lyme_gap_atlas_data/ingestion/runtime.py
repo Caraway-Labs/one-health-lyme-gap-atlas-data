@@ -23,6 +23,7 @@ from ..redaction import redact_mapping
 from ..settings import PipelineSettings
 from .adapters import AcquireResult, AcquisitionArtifact
 from .artifact_replay import ArtifactMember, validate_names
+from .bulk_stage import remove_transport, stage_json_rows
 from .identity import deterministic_record_id, publisher_record_id, source_row_hash
 from .types import RunState, SourceDefinition, Stage
 
@@ -397,6 +398,72 @@ class SnowflakeStageEffects:
                             normalization.transformation_version if normalization else None,
                         )
             connection.commit()
+
+    def materialize_bulk_batch(
+        self,
+        definition: SourceDefinition,
+        state: RunState,
+        partitions: list[list[dict[str, Any]]],
+    ) -> None:
+        """Apply one staged set to both first-write projections."""
+        documents = _bulk_lineage_documents(definition, state, partitions)
+        if not documents:
+            return
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                source = stage_json_rows(
+                    cursor, run_id=state.ingestion_run_id, kind="records", rows=documents
+                )
+                _verify_bulk_source(cursor, source, len(documents))
+                _merge_bulk_projection(
+                    cursor, "STAGING.GOVERNED_SOURCE_RECORDS", "normalized_at", source
+                )
+                _merge_bulk_projection(
+                    cursor, "CONFORMED.GOVERNED_SOURCE_RECORDS", "conformed_at", source
+                )
+            connection.commit()
+            with connection.cursor() as cursor:
+                remove_transport(cursor, source)
+
+    def load_bulk_batch(
+        self,
+        definition: SourceDefinition,
+        state: RunState,
+        partitions: list[list[dict[str, Any]]],
+    ) -> None:
+        """Commit RAW and immutable captures from one bounded staged set."""
+        documents = _bulk_lineage_documents(definition, state, partitions)
+        if not documents:
+            return
+        artifact = state.checkpoint(Stage.ACQUIRE)
+        normalization = state.checkpoint(Stage.NORMALIZE)
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                source = stage_json_rows(
+                    cursor, run_id=state.ingestion_run_id, kind="records", rows=documents
+                )
+                _verify_bulk_source(cursor, source, len(documents))
+                if artifact is not None and artifact.artifact_id and artifact.artifact_sha256:
+                    _check_bulk_revision_conflicts(
+                        cursor,
+                        source,
+                        artifact.artifact_sha256,
+                        normalization.transformation_version if normalization else None,
+                    )
+                _merge_bulk_projection(cursor, "RAW.GOVERNED_SOURCE_RECORDS", "loaded_at", source)
+                if artifact is not None and artifact.artifact_id and artifact.artifact_sha256:
+                    _merge_bulk_revisions(
+                        cursor,
+                        source,
+                        artifact.artifact_id,
+                        artifact.artifact_sha256,
+                        normalization.transformation_version if normalization else None,
+                    )
+            connection.commit()
+            with connection.cursor() as cursor:
+                remove_transport(cursor, source)
 
     def quality(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
@@ -783,6 +850,151 @@ def _lineage_rows(
 
 def _stable_id(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _bulk_lineage_documents(
+    definition: SourceDefinition,
+    state: RunState,
+    partitions: list[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    if len(partitions) > 64:
+        raise ValueError("Bulk projection batch exceeds 64 partitions")
+    rows = _lineage_rows(definition, state, (row for part in partitions for row in part))
+    identities = [str(row[0]) for row in rows]
+    if len(identities) != len(set(identities)):
+        raise ValueError("Duplicate logical record in bulk projection")
+    keys = (
+        "record_id",
+        "source_id",
+        "dataset_id",
+        "resource_key",
+        "source_definition_version",
+        "ingestion_run_id",
+        "source_record_id",
+        "source_row_hash",
+        "payload",
+        "retrieved_at",
+    )
+    documents = [dict(zip(keys, row, strict=True)) for row in rows]
+    for document in documents:
+        retrieved_at = document["retrieved_at"]
+        if not isinstance(retrieved_at, datetime):
+            raise ValueError("Invalid retrieval timestamp in bulk projection")
+        document["retrieved_at"] = retrieved_at.isoformat()
+        document["payload_sha256"] = hashlib.sha256(str(document["payload"]).encode()).hexdigest()
+    return documents
+
+
+def _verify_bulk_source(cursor: Any, source: str, expected_count: int) -> None:
+    """Fail before any projection write if upload lost or changed a row."""
+    cursor.execute(
+        f"""SELECT COUNT(*), COUNT(DISTINCT $1:record_id::VARCHAR),
+                   COUNT_IF(SHA2($1:payload::VARCHAR, 256)
+                            <> $1:payload_sha256::VARCHAR)
+            FROM {source}"""
+    )
+    observed = cursor.fetchone()
+    if observed is None or (int(observed[0]), int(observed[1]), int(observed[2] or 0)) != (
+        expected_count,
+        expected_count,
+        0,
+    ):
+        raise ValueError("Bulk transport row count or payload checksum mismatch")
+
+
+def _bulk_record_source(source: str) -> str:
+    return f"""SELECT $1:record_id::VARCHAR AS record_id,
+                     $1:source_id::VARCHAR AS source_id,
+                     $1:dataset_id::VARCHAR AS dataset_id,
+                     $1:resource_key::VARCHAR AS resource_key,
+                     $1:source_definition_version::NUMBER AS source_definition_version,
+                     $1:ingestion_run_id::VARCHAR AS ingestion_run_id,
+                     AS_VARCHAR($1:source_record_id) AS source_record_id,
+                     $1:source_row_hash::VARCHAR AS source_row_hash,
+                     PARSE_JSON($1:payload::VARCHAR) AS payload,
+                     $1:payload::VARCHAR AS payload_text,
+                     TO_TIMESTAMP_TZ($1:retrieved_at::VARCHAR) AS retrieved_at
+              FROM {source}"""
+
+
+def _merge_bulk_projection(cursor: Any, relation: str, timestamp_column: str, source: str) -> None:
+    cursor.execute(
+        f"""MERGE INTO {relation} target
+        USING ({_bulk_record_source(source)}) source
+        ON target.record_id=source.record_id
+        WHEN NOT MATCHED THEN INSERT
+          (record_id, source_id, dataset_id, resource_key, source_definition_version,
+           ingestion_run_id, source_record_id, source_row_hash, payload, retrieved_at,
+           {timestamp_column})
+          VALUES (source.record_id, source.source_id, source.dataset_id,
+                  source.resource_key, source.source_definition_version,
+                  source.ingestion_run_id, source.source_record_id,
+                  source.source_row_hash, source.payload, source.retrieved_at,
+                  CURRENT_TIMESTAMP())"""
+    )
+
+
+def _check_bulk_revision_conflicts(
+    cursor: Any, source: str, artifact_sha256: str, transformation_version: str | None
+) -> None:
+    """Reject a reused artifact/record key with changed normalized content."""
+    cursor.execute(
+        f"""SELECT COUNT(*) FROM ({_bulk_record_source(source)}) source
+        JOIN GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS prior
+          ON prior.artifact_sha256=%s
+         AND prior.transformation_version=%s
+         AND prior.record_id=source.record_id
+        WHERE prior.source_row_hash<>source.source_row_hash
+           OR prior.normalized_sha256<>SHA2(source.payload_text, 256)""",
+        (artifact_sha256, transformation_version or "unspecified"),
+    )
+    result = cursor.fetchone()
+    if result is None or int(result[0]) != 0:
+        raise ValueError("Conflicting logical record in one source artifact")
+
+
+def _merge_bulk_revisions(
+    cursor: Any,
+    source: str,
+    artifact_id: str,
+    artifact_sha256: str,
+    transformation_version: str | None,
+) -> None:
+    """Insert captures for this run; deterministic physical revisions remain stable."""
+    version = transformation_version or "unspecified"
+    cursor.execute(
+        f"""MERGE INTO GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS target
+        USING (SELECT SHA2('capture:' || source.ingestion_run_id || ':' ||
+                           source.record_id, 256) AS capture_record_id,
+                      SHA2('record-revision:' || source.record_id || ':' || %s || ':' ||
+                           source.source_row_hash || ':' ||
+                           SHA2(source.payload_text, 256) || ':' || %s, 256)
+                           AS record_revision,
+                      source.record_id, source.source_id, source.dataset_id,
+                      source.resource_key, source.source_definition_version,
+                      source.ingestion_run_id, source.source_record_id,
+                      %s AS artifact_id, %s AS artifact_sha256,
+                      source.source_row_hash,
+                      SHA2(source.payload_text, 256) AS normalized_sha256,
+                      %s AS transformation_version, source.payload,
+                      source.retrieved_at
+               FROM ({_bulk_record_source(source)}) source) source
+        ON target.capture_record_id=source.capture_record_id
+        WHEN NOT MATCHED THEN INSERT
+          (capture_record_id, record_revision, record_id, source_id, dataset_id,
+           resource_key, source_definition_version, ingestion_run_id,
+           source_record_id, artifact_id, artifact_sha256, source_row_hash,
+           normalized_sha256, transformation_version, payload, retrieved_at,
+           observed_at)
+          VALUES (source.capture_record_id, source.record_revision,
+                  source.record_id, source.source_id, source.dataset_id,
+                  source.resource_key, source.source_definition_version,
+                  source.ingestion_run_id, source.source_record_id,
+                  source.artifact_id, source.artifact_sha256, source.source_row_hash,
+                  source.normalized_sha256, source.transformation_version,
+                  source.payload, source.retrieved_at, CURRENT_TIMESTAMP())""",
+        (artifact_sha256, version, artifact_id, artifact_sha256, version),
+    )
 
 
 def _upsert_sql(relation: str, timestamp_column: str) -> str:

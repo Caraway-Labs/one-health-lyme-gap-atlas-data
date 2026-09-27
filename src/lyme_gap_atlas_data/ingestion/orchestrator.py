@@ -324,7 +324,7 @@ class IngestionOrchestrator:
                                 for part in partition_records(streamed.records):
                                     if isinstance(self.store, SnowflakeCheckpointStore):
                                         pending.append(part)
-                                        if len(pending) == 8:
+                                        if len(pending) == 64:
                                             self._save_partition_batch(
                                                 state.ingestion_run_id, pending
                                             )
@@ -344,7 +344,7 @@ class IngestionOrchestrator:
                                 pending_records.append(list(part.records))
                                 partition_count += 1
                                 record_count += len(part.records)
-                                if len(pending_records) == 8:
+                                if len(pending_records) == 64:
                                     self._materialize_batch(
                                         effects, definition, state, pending_records
                                     )
@@ -375,7 +375,7 @@ class IngestionOrchestrator:
                         for part in self.store.iter_partitions(state.ingestion_run_id):
                             pending_records.append(list(part.records))
                             loaded += len(part.records)
-                            if len(pending_records) == 8:
+                            if len(pending_records) == 64:
                                 self._load_batch(effects, definition, state, pending_records)
                                 pending_records = []
                         self._load_batch(effects, definition, state, pending_records)
@@ -457,7 +457,7 @@ class IngestionOrchestrator:
         if not partitions:
             return
         if isinstance(self.store, SnowflakeCheckpointStore):
-            self.store.save_partition_batch(run_id, partitions)
+            self.store.save_bulk_partition_batch(run_id, partitions)
         else:
             for part in partitions:
                 cast(PartitionStore, self.store).save_partition(run_id, part)
@@ -471,7 +471,7 @@ class IngestionOrchestrator:
     ) -> None:
         if isinstance(effects, SnowflakeStageEffects):
             if partitions:
-                effects.materialize_partition_batch(definition, state, partitions)
+                effects.materialize_bulk_batch(definition, state, partitions)
         else:
             for records in partitions:
                 effects.materialize_normalized(definition, state, records)
@@ -485,7 +485,7 @@ class IngestionOrchestrator:
     ) -> None:
         if isinstance(effects, SnowflakeStageEffects):
             if partitions:
-                effects.load_partition_batch(definition, state, partitions)
+                effects.load_bulk_batch(definition, state, partitions)
         else:
             for records in partitions:
                 effects.load(definition, state, records)
