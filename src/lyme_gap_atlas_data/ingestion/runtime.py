@@ -313,6 +313,30 @@ class SnowflakeStageEffects:
             "wrote": True,
         }
 
+    def materialize_partition_batch(
+        self,
+        definition: SourceDefinition,
+        state: RunState,
+        partitions: list[list[dict[str, Any]]],
+    ) -> None:
+        """Reuse one transaction for a bounded set of projection partitions."""
+        if len(partitions) > 8:
+            raise ValueError("Projection batch exceeds eight partitions")
+        if not partitions:
+            return
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                for records in partitions:
+                    rows = _lineage_rows(definition, state, records)
+                    _execute_upsert_batches(
+                        cursor, "STAGING.GOVERNED_SOURCE_RECORDS", "normalized_at", rows
+                    )
+                    _execute_upsert_batches(
+                        cursor, "CONFORMED.GOVERNED_SOURCE_RECORDS", "conformed_at", rows
+                    )
+            connection.commit()
+
     def load(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
@@ -342,6 +366,37 @@ class SnowflakeStageEffects:
             "physical_relation": "RAW.GOVERNED_SOURCE_RECORDS",
             "wrote": True,
         }
+
+    def load_partition_batch(
+        self,
+        definition: SourceDefinition,
+        state: RunState,
+        partitions: list[list[dict[str, Any]]],
+    ) -> None:
+        """Commit RAW and immutable revisions together for bounded partitions."""
+        if len(partitions) > 8:
+            raise ValueError("Load batch exceeds eight partitions")
+        if not partitions:
+            return
+        artifact = state.checkpoint(Stage.ACQUIRE)
+        normalization = state.checkpoint(Stage.NORMALIZE)
+        with self._connection_factory() as connection:
+            connection.autocommit(False)
+            with connection.cursor() as cursor:
+                for records in partitions:
+                    rows = _lineage_rows(definition, state, records)
+                    _execute_upsert_batches(
+                        cursor, "RAW.GOVERNED_SOURCE_RECORDS", "loaded_at", rows
+                    )
+                    if artifact is not None and artifact.artifact_id and artifact.artifact_sha256:
+                        _insert_revisions(
+                            cursor,
+                            rows,
+                            artifact.artifact_id,
+                            artifact.artifact_sha256,
+                            normalization.transformation_version if normalization else None,
+                        )
+            connection.commit()
 
     def quality(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
