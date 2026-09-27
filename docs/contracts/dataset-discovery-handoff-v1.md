@@ -13,6 +13,9 @@ canonical `resource_key`, evidence snapshot and evidence observation IDs travel
 with the request. Transport clients submit only the version ID and current
 review event ID. They cannot provide a reviewer name, rights finding, catalog
 identity, or disposition. The procedure derives those from committed records.
+The forward V113 procedure also verifies that referenced catalog observations
+belong to the recommendation's pinned discovery run. A matching observation ID
+in another run is insufficient for investigation intake.
 
 One logical handoff key is `handoff-v1:<recommendation_version_id>`. The server
 derives its ID with SHA-256, serializes admission with `WRITE_SERIALIZATION`,
@@ -38,6 +41,8 @@ investigable, with a restricted access boundary. Only a current, reviewed
 `POLICY_BLOCKED`. That policy ledger is governed owner managed and cannot be
 written by the agent or reviewer command. Without a reviewed finding, unknown
 rights never become a hard block.
+V113 requires nonempty reviewer and evidence-reference values before a rights
+finding can support a hard policy disposition.
 
 The handoff receipt carries the original relationship type, so an accepted
 mirror or alternate distribution is distinguishable and can be investigated
