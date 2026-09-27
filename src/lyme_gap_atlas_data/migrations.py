@@ -190,6 +190,20 @@ def render_migration(migration: Migration, database: str) -> str:
     return rendered
 
 
+def _executable_migration_sql(migration: Migration, database: str) -> str:
+    """Avoid a connector-parsed empty statement after trailing SQL comments.
+
+    The migration source and its ledger checksum remain unchanged. Only the
+    statement stream handed to the connector drops final comment-only lines.
+    """
+    lines = render_migration(migration, database).splitlines()
+    while lines and (not lines[-1].strip() or lines[-1].lstrip().startswith("--")):
+        lines.pop()
+    if not lines:
+        raise ValueError(f"Migration {migration.version} has no executable SQL")
+    return "\n".join(lines) + "\n"
+
+
 def migration_plan(database: str) -> list[dict[str, str]]:
     """Return the non-secret, source-checksummed plan for an allowed target."""
     return [
@@ -510,7 +524,7 @@ def apply_migrations(
         with connect(
             _migration_settings(settings, migration, database), include_database=False
         ) as connection:
-            connection.execute_string(render_migration(migration, database))
+            connection.execute_string(_executable_migration_sql(migration, database))
             with connection.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.SCHEMA_MIGRATIONS
