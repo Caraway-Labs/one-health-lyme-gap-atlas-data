@@ -204,6 +204,7 @@ try {
   var disposition = reviewed_rights === 'KNOWN_PROHIBITED' ? 'POLICY_BLOCKED' :
     governed ? 'ALREADY_GOVERNED' : 'HANDED_OFF';
   var boundary = reviewed_rights === 'KNOWN_RESTRICTED' ||
+    reviewed_rights === 'KNOWN_PROHIBITED' ||
     resource_type === 'CONTROLLED_ACCESS' ? 'NO_AUTOMATED_ACQUISITION' :
     'INVESTIGATE_BEFORE_ACQUISITION';
   var investigation_status = disposition === 'HANDED_OFF' ? 'PENDING' :
