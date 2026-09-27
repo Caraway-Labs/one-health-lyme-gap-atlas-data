@@ -44,6 +44,8 @@ def test_review_transition_is_serialized_append_only_and_replay_safe() -> None:
     assert "STALE_REVIEW_STATE" in sql
     assert "TERMINAL_REVIEW_REQUIRES_CORRECTION" in sql
     assert "ACCEPTED_REVIEW_IS_TERMINAL" in sql
+    assert "RECOMMENDATION_EVIDENCE_MISMATCH" in sql
+    assert "DUPLICATE_RECOMMENDATION_FACT" in sql
     assert "COMMIT" in sql and "ROLLBACK" in sql
 
 

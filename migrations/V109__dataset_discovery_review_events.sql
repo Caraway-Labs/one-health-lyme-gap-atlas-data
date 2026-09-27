@@ -232,17 +232,59 @@ try {
   );
   if (prior_id.next()) throw new Error('REVIEW_EVENT_ID_ALREADY_USED');
   var recommendation = query(
-    'SELECT recommendation_version_id FROM DATASET_DISCOVERY.RECOMMENDATIONS ' +
+    'SELECT recommendation_version_id, observed_facts, ' +
+    'catalog_dataset_id, catalog_resource_id ' +
+    'FROM DATASET_DISCOVERY.RECOMMENDATIONS ' +
     'WHERE recommendation_version_id = ? AND commit_complete = TRUE',
     [r.recommendation_version_id]
   );
   if (!recommendation.next()) throw new Error('RECOMMENDATION_VERSION_MISSING');
+  var observed_facts = recommendation.getColumnValue(2);
+  var catalog_dataset_id = recommendation.getColumnValue(3);
+  var catalog_resource_id = recommendation.getColumnValue(4);
   if (recommendation.next()) throw new Error('DUPLICATE_VERSION_STATE');
+  if (!Array.isArray(observed_facts) || observed_facts.length < 1 ||
+      observed_facts.length > 100) {
+    throw new Error('RECOMMENDATION_FACTS_INVALID');
+  }
+  var expected_evidence = {};
+  for (var fact_index = 0; fact_index < observed_facts.length; fact_index++) {
+    var fact = observed_facts[fact_index];
+    if (fact === null || typeof fact !== 'object' ||
+        fact.evidence === null || typeof fact.evidence !== 'object' ||
+        typeof fact.field !== 'string' ||
+        typeof fact.evidence.observation_id !== 'string' ||
+        fact.evidence.catalog_dataset_id !== catalog_dataset_id ||
+        fact.evidence.catalog_resource_id !== catalog_resource_id) {
+      throw new Error('RECOMMENDATION_FACTS_INVALID');
+    }
+    var fact_key = fact.evidence.observation_id + String.fromCharCode(31) + fact.field;
+    if (Object.prototype.hasOwnProperty.call(expected_evidence, fact_key)) {
+      throw new Error('DUPLICATE_RECOMMENDATION_FACT');
+    }
+    expected_evidence[fact_key] = true;
+  }
   var evidence = query(
-    'SELECT COUNT(*) FROM DATASET_DISCOVERY.RECOMMENDATION_EVIDENCE ' +
+    'SELECT observation_id, field_name, catalog_dataset_id, catalog_resource_id ' +
+    'FROM DATASET_DISCOVERY.RECOMMENDATION_EVIDENCE ' +
     'WHERE recommendation_version_id = ?', [r.recommendation_version_id]
   );
-  if (!evidence.next() || evidence.getColumnValue(1) < 1) {
+  var actual_evidence = {};
+  var evidence_count = 0;
+  while (evidence.next()) {
+    evidence_count++;
+    if (evidence_count > 100) throw new Error('RECOMMENDATION_EVIDENCE_OVERFLOW');
+    var evidence_key = evidence.getColumnValue(1) + String.fromCharCode(31) +
+      evidence.getColumnValue(2);
+    if (!Object.prototype.hasOwnProperty.call(expected_evidence, evidence_key) ||
+        Object.prototype.hasOwnProperty.call(actual_evidence, evidence_key) ||
+        evidence.getColumnValue(3) !== catalog_dataset_id ||
+        evidence.getColumnValue(4) !== catalog_resource_id) {
+      throw new Error('RECOMMENDATION_EVIDENCE_MISMATCH');
+    }
+    actual_evidence[evidence_key] = true;
+  }
+  if (evidence_count !== observed_facts.length) {
     throw new Error('RECOMMENDATION_EVIDENCE_MISSING');
   }
   var current = query(
