@@ -6,6 +6,11 @@ on:
         description: Optional failed migration DDL query ID; inspect only, without applying migrations
         required: false
         type: string
+      diagnose_v103_state:
+        description: Inspect V103 DEV migration state with the protected migration identity; read-only
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -49,6 +54,14 @@ jobs:
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
+          if [ "$DIAGNOSE_V103_STATE" = "true" ]; then
+            if [ -n "$DIAGNOSE_QUERY_ID" ]; then
+              echo 'Choose one diagnostic mode.' >&2
+              exit 2
+            fi
+            uv run python scripts/diagnose_v103_dev.py --config-file "$config_file"
+            exit 0
+          fi
           if [ -n "$DIAGNOSE_QUERY_ID" ]; then
             [[ "$DIAGNOSE_QUERY_ID" =~ ^[0-9a-f-]{36}$ ]]
             snow --config-file "$config_file" sql -c oh_lyme_dev \
@@ -72,6 +85,7 @@ jobs:
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
         env:
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
+          DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
