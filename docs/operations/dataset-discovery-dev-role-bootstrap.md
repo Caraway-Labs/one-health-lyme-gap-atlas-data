@@ -45,3 +45,16 @@ runtime service credential are separate attributable onboarding actions.
 They require live `USER_PERSON`/service denial tests before either identity
 is used for the end-to-end DEV proof. Do not substitute `ACCOUNTADMIN` or the
 ingestion runtime for either identity.
+
+The separately reviewed DEV service-user bootstrap is
+[`scripts/bootstrap_dataset_discovery_runtime_user_dev.sql`](../../scripts/bootstrap_dataset_discovery_runtime_user_dev.sql).
+It creates `OH_LYME_DEV_DATASET_DISCOVERY_SVC` with `TYPE = SERVICE` and grants
+only `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME`. Before execution, verify the
+administrative connection identity and check whether that user already exists;
+after execution, inspect the exact user-role grant. Create a role-restricted PAT
+as a distinct credential step, with the secret captured directly into an
+approved local credential store and later a DigitalOcean managed secret. Do
+not include a token value in SQL files, CLI arguments, logs, review artifacts,
+or Git. A service-user login must resolve to the runtime role and must fail
+human review and handoff procedure calls. Do not assign either the reviewer or
+write-owner role to this user. This DEV bootstrap does not authorize PROD.
