@@ -48,10 +48,22 @@ ingestion runtime for either identity.
 
 The separately reviewed DEV service-user bootstrap is
 [`scripts/bootstrap_dataset_discovery_runtime_user_dev.sql`](../../scripts/bootstrap_dataset_discovery_runtime_user_dev.sql).
-It creates `OH_LYME_DEV_DATASET_DISCOVERY_SVC` with `TYPE = SERVICE` and grants
-only `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME`. Before execution, verify the
+It creates `OH_LYME_DEV_DATASET_DISCOVERY_SVC` with `TYPE = SERVICE_AGENT`, grants
+only `OH_LYME_DEV_DATASET_DISCOVERY_RUNTIME`, and assigns the dedicated
+`ONE_HEALTH_LYME_GAP_ATLAS_DEV.SECURITY.DATASET_DISCOVERY_SERVICE_AGENT_AUTH`
+authentication policy to that user alone. That policy allows only
+`PROGRAMMATIC_ACCESS_TOKEN`, requires role restriction for service users, and
+sets `NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED`. It does not alter the
+account-wide policy. A future network policy attached to this user would still
+be enforced. This is DEV manual/shadow scope; PROD hardening may later evaluate
+workload identity federation or fixed-egress network policy.
+
+Before execution, verify the
 administrative connection identity and check whether that user already exists;
-after execution, inspect the exact user-role grant. Create a role-restricted PAT
+after execution, inspect the exact user-role grant, `SHOW AUTHENTICATION POLICIES
+ON USER`, `SHOW AUTHENTICATION POLICIES ON ACCOUNT`, and `DESCRIBE AUTHENTICATION
+POLICY` results. An existing policy is not replaced by `IF NOT EXISTS`; any
+unexpected properties require a separate reviewed correction. Create a role-restricted PAT
 as a distinct credential step, with the secret captured directly into an
 approved local credential store and later a DigitalOcean managed secret. Do
 not include a token value in SQL files, CLI arguments, logs, review artifacts,
