@@ -1728,6 +1728,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V112",
         "V113",
         "V114",
+        "V115",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
@@ -1752,6 +1753,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "V112" in {item["version"] for item in prod_plan}
     assert "V113" in {item["version"] for item in prod_plan}
     assert "V114" not in {item["version"] for item in prod_plan}
+    assert "V115" not in {item["version"] for item in prod_plan}
     assert "V068" in {item["version"] for item in prod_plan}
     assert "V069" in {item["version"] for item in prod_plan}
     assert "V071" in {item["version"] for item in prod_plan}
