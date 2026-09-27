@@ -187,13 +187,19 @@ def test_ledger_checksum_mismatch_takes_precedence_over_live_state() -> None:
 
 def test_future_migration_pending_does_not_block_v103_verification() -> None:
     query, _ = _fixture_query()
-    plan = migration_plan(DEV_DATABASE) + [
-        {"version": "V106", "filename": "V106__future.sql", "sha256": "1" * 64}
-    ]
+    plan = migration_plan(DEV_DATABASE)
+    future_version = f"V{max(int(item['version'][1:]) for item in plan) + 1:03d}"
+    plan.append(
+        {
+            "version": future_version,
+            "filename": f"{future_version}__future.sql",
+            "sha256": "1" * 64,
+        }
+    )
     with patch.object(diagnostic, "migration_plan", return_value=plan):
         result = diagnostic.diagnose(query, "DEV_WH", "reviewed-commit")
     assert result["disposition"] == "VERIFIED_APPLIED"
-    assert result["ledger"]["pending_versions"] == ["V106"]
+    assert result["ledger"]["pending_versions"] == [future_version]
 
 
 @pytest.mark.parametrize("missing_runtime", ["SELECT", "INSERT"])
