@@ -11,14 +11,6 @@ on:
         required: false
         type: boolean
         default: false
-      data449_rollback_run_id:
-        description: Optional labeled DEV-only Data #449 rollback test run; no migrations applied
-        required: false
-        type: string
-      data449_rollback_resource_key:
-        description: Candidate resource key for the prepared Data #449 rollback run
-        required: false
-        type: string
 permissions:
   contents: read
 jobs:
@@ -76,23 +68,6 @@ jobs:
               -q "SELECT QUERY_ID, REGEXP_SUBSTR(UPPER(QUERY_TEXT), '(CREATE|ALTER|GRANT|REVOKE|USE)') AS STATEMENT_KIND, ERROR_CODE, REGEXP_REPLACE(ERROR_MESSAGE, '(?i)(password|secret|token|private[[:space:]_-]*key)[^[:space:],;]*', '[REDACTED]') AS REDACTED_ERROR_MESSAGE, ROLE_NAME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT=>10000)) WHERE QUERY_ID='$DIAGNOSE_QUERY_ID' AND REGEXP_LIKE(UPPER(QUERY_TEXT), '(CREATE|ALTER|GRANT|REVOKE|USE)[[:space:]]+')" --format JSON
             exit 0
           fi
-          if [ -n "$DATA449_ROLLBACK_RUN_ID" ] || [ -n "$DATA449_ROLLBACK_RESOURCE_KEY" ]; then
-            if [ -z "$DATA449_ROLLBACK_RUN_ID" ] || [ -z "$DATA449_ROLLBACK_RESOURCE_KEY" ]; then
-              echo 'Both Data #449 rollback inputs are required.' >&2
-              exit 2
-            fi
-            if [ "$GITHUB_REF" != 'refs/heads/codex/data-449-dataset-discovery-acceptance' ]; then
-              echo 'Data #449 rollback probe is limited to its review branch.' >&2
-              exit 2
-            fi
-            SNOWFLAKE_AUTH_METHOD=key_pair \
-            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
-            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
-            uv run python scripts/verify_dataset_discovery_rollback_fault_dev.py \
-              --run-id "$DATA449_ROLLBACK_RUN_ID" \
-              --resource-key "$DATA449_ROLLBACK_RESOURCE_KEY"
-            exit 0
-          fi
           # Migration versions, filenames, checksums, and timestamps are deployment
           # metadata. Emit them before a guarded apply so a mismatch is diagnosable
           # without revealing credentials, payloads, or connection configuration.
@@ -111,8 +86,6 @@ jobs:
         env:
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
-          DATA449_ROLLBACK_RUN_ID: ${{ inputs.data449_rollback_run_id }}
-          DATA449_ROLLBACK_RESOURCE_KEY: ${{ inputs.data449_rollback_resource_key }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}

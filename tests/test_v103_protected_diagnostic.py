@@ -245,8 +245,6 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
         "diagnose_v103_state",
         "diagnose_query_id",
-        "data449_rollback_run_id",
-        "data449_rollback_resource_key",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
@@ -267,21 +265,3 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         < shell.index("apply-migrations")
     )
     assert "QUERY_HISTORY_BY_USER" in shell
-
-
-def test_data449_fault_branch_is_dev_only_and_exits_before_migrations() -> None:
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    shell = next(
-        step["run"]
-        for step in workflow["jobs"]["deploy"]["steps"]
-        if step.get("name") == "Configure and verify the DEV Snowflake service connection"
-    )
-    branch = shell.split('if [ -n "$DATA449_ROLLBACK_RUN_ID" ]', 1)[1].split("\nfi\n", 1)[0]
-    assert "refs/heads/codex/data-449-dataset-discovery-acceptance" in branch
-    assert "verify_dataset_discovery_rollback_fault_dev.py" in branch
-    assert re.search(r"\n\s*exit 0\s*$", branch)
-    assert "reconcile-legacy-dev-migrations" not in branch
-    assert "apply-migrations" not in branch
-    assert shell.index('if [ -n "$DATA449_ROLLBACK_RUN_ID" ]') < shell.index(
-        "reconcile-legacy-dev-migrations"
-    )
