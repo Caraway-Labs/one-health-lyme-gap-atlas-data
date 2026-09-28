@@ -1,8 +1,8 @@
 # Dataset Discovery governed investigation handoff v1
 
-Owner: data platform (data #450). This contract is a draft until ADR 0041 and
-the procedure owner/security model are approved. Applying its migration needs
-the protected migration ledger; a passing fixture test is not DEV proof.
+Owner: data platform (data #450). ADR 0041 accepts the procedure owner/security
+model. Applying migrations still requires the protected ledger, and DEV proof
+does not authorize PROD promotion.
 
 ## Boundary
 
