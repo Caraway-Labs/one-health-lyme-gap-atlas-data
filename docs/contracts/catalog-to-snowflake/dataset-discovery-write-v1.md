@@ -14,7 +14,7 @@ Inside one explicit transaction the procedure updates the pre-created `WRITE_SER
 
 `SP_RECORD_CANDIDATE_OUTCOME(request_json)` accepts the exact typed `CandidateOutcomeReceipt`: operation/run/resource keys, catalog dataset and resource IDs, evidence snapshot, outcome and optional reason code. It returns that receipt. Within the same serialized transaction, it returns an identical prior operation, rejects conflicting replay or a second outcome for the run/resource, requires an open run with the same snapshot, and verifies candidate IDs against `V_CANDIDATE_SUMMARY` for that snapshot. The outcome ID is a deterministic SHA-256 of its operation key. Untrusted free text cannot enter `outcome` or `reason_code`; only bounded uppercase codes are accepted. The runtime receives procedure `USAGE` only after the same approval and protected migration gates.
 
-DEV forward migration V118 adds an optional, allowlisted `decision_record` to the
+DEV forward migration V120 adds an optional, allowlisted `decision_record` to the
 same candidate-outcome transaction and receipt. It records model/config/prompt
 identities, semantic task, classification, relationship, dimension values and
 observation IDs, unknown field names, validator code, abstention reason, and
@@ -22,10 +22,10 @@ final outcome. It rejects unexpected keys, unbounded free text, and a decision
 whose final outcome differs from the outcome row. Exact operation-key replay
 compares the normalized stored decision; conflicting replay fails closed.
 Historical V107 checksums are unchanged. Recommendation versions already retain
-validated analysis and ranking; V118 addresses unsuccessful decisions without
+validated analysis and ranking; V120 addresses unsuccessful decisions without
 retaining prompts, model reasoning, raw catalog payloads, or secret values.
 
-DEV forward migration V117 corrects the bounded observation projection. For
+DEV forward migration V119 corrects the bounded observation projection. For
 Data.gov, `issued`, `modified`, `spatial`, `temporal`, `license`, and
 `accessLevel` fall back to the retained `metadata_payload.catalog_record.dcat`
 path when the normalized top-level key is absent. Explicit length bounds make

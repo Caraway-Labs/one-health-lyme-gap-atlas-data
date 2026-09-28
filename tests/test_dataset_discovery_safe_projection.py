@@ -5,21 +5,21 @@ from pathlib import Path
 from lyme_gap_atlas_data.migrations import load_migrations, migration_plan
 
 SQL = Path(__file__).resolve().parents[1] / (
-    "migrations/V117__dev_dataset_discovery_safe_metadata_projection.sql"
+    "migrations/V119__dev_dataset_discovery_safe_metadata_projection.sql"
 )
 AUDIT_SQL = Path(__file__).resolve().parents[1] / (
-    "migrations/V118__dev_dataset_discovery_candidate_decision_audit.sql"
+    "migrations/V120__dev_dataset_discovery_candidate_decision_audit.sql"
 )
 
 
 def test_forward_migration_is_dev_only_and_preserves_grants() -> None:
-    assert "V117" in {item.version for item in load_migrations()}
-    assert "V117" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
-    assert "V117" not in {
+    assert "V119" in {item.version for item in load_migrations()}
+    assert "V119" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
+    assert "V119" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
-    assert "V118" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
-    assert "V118" not in {
+    assert "V120" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
+    assert "V120" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
     sql = SQL.read_text(encoding="utf-8")
