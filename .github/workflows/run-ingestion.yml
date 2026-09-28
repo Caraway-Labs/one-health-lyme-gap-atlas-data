@@ -77,7 +77,7 @@ jobs:
   ingest:
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    environment: ${{ (inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary') && 'dev' || inputs.environment_name }}
+    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
