@@ -1,6 +1,6 @@
 # 0040: Set-oriented governed ingestion persistence
 
-Status: Proposed for protected review
+Status: Accepted after protected DEV validation (2026-09-28)
 Date: 2026-09-27
 Owner: Atlas data stewardship and engineering
 
@@ -86,13 +86,32 @@ V117 is additive. There is no DELETE, TRUNCATE, DROP, CREATE OR REPLACE, reset,
 or backfill of historical V069/V103 data. Existing partitions retain the
 canonical-json-v1 envelope and remain readable. Existing successful run IDs
 and artifacts remain unchanged. The orchestration still skips successful
-months and resumes failed ones. No recapture, migration execution, DEV batch,
-PROD operation, or public release is performed by this code change.
+months and resumes failed ones. The code does not itself schedule recapture,
+historical ingestion, PROD operation, or public release.
 
-Before considering the design validated, separately authorize one governed
-January 2025 DEV recapture and compare exact source SHA, runtime identity,
-statement classes, wall time, row/partition/completion/revision counts,
-coverage signature, fresh-process ordered read, unchanged rerun, failed-run
-preservation, transport storage, and attributable credits with both earlier
-benchmarks. A passing test supports a reviewed next-month plan, not replay of
-already successful history.
+## Protected validation and adoption
+
+The separately authorized January 2025 Tier B DEV recapture used persistence
+SHA `0adbfe2266fbbae73f4101c2c6b09defa9519f28` in protected workflow
+`36371872821` and created governed run
+`c2eb2146-005d-44d2-bac4-e2805ca42577`. V117 had already been applied in
+DEV through the protected migration workflow; PR #491 restored its exact
+applied checksum to canonical `main`. The protected transport canary passed.
+
+The governed run completed in 25m38.119s with 815 Snowflake queries, including
+233 MERGEs, 153 SELECTs, 186 COMMITs, 93 ALTER_SESSIONs, 75 PUT_FILES, and
+75 REMOVE_FILES. It retained 389,856 normalized rows in 1,560 logical
+partitions, 389,856 revision rows, and a completion covering all partitions.
+Protected inspect, fresh-process ordered read, and the January coverage report
+passed. One unchanged non-recapture dispatch returned `skip_succeeded`; all
+earlier successful and failed January evidence remained intact. A read-only
+stage listing found zero residual transport objects. Exact attributable
+credits and uploaded transport bytes were unavailable and are not inferred.
+The evidence and workflow links are recorded in the
+[operations investigation](../operations/nclimgrid-set-persistence-investigation.md).
+
+The steward accepted the observed bounded design, including 64-partition
+recovery groups and the remaining 233 MERGEs / 815 queries. Further reduction
+is optional performance refinement, not a condition for this decision.
+This acceptance authorizes merging the implementation; it does not approve
+historical ingestion, PROD execution, or a new governed recapture.

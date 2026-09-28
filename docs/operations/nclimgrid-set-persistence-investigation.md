@@ -1,10 +1,10 @@
 # nClimGrid Snowflake persistence investigation
 
 Baseline: January 2025, 389,856 normalized rows, 1,560 logical partitions.
-This is a code-shape accounting against `main` at `eb98472` and the reported
-post-#487 protected benchmark. It is not a reconstructed query-history export;
-the exact call-site attribution of every observed statement remains to be
-measured in the next authorized DEV benchmark.
+The first section preserves the pre-implementation code-shape accounting
+against `main` at `eb98472` and the reported post-#487 protected benchmark.
+It is not a reconstructed query-history export. The protected #488 result and
+its query-text attribution appear below.
 
 | Class | Current approximate January shape | Why it exists | Set-oriented shape |
 | --- | ---: | --- | ---: |
@@ -44,10 +44,10 @@ About 25 groups give approximately 125 destination MERGEs and 25 revision
 conflict SELECTs, 50 transport integrity SELECTs, about 75 upload statements, 75 exact transport cleanup
 statements, and 75 explicit commits.
 Run-level work, connector statements, stage reads, and any retries remain.
-Actual total queries, runtime, compute, and stage storage require a protected
-benchmark; no success claim follows from this estimate.
+The estimates alone did not establish runtime, query count, compute, or stage
+storage; the protected result below supplies the measurements available now.
 
-## Benchmark and preservation gate
+## Pre-benchmark preservation gate
 
 Only a separately authorized January 2025 governed recapture may measure this
 change. It must create a new run and retain the prior successful January runs,
@@ -103,6 +103,9 @@ tables (56 queries), 214.901s for STAGING (25), 213.967s for CONFORMED (25),
 query-text spans, not exclusive stage execution times. Source transport upload
 bytes and attributable compute credits were not available from this runtime
 history view; do not infer either from canonical partition or artifact bytes.
+The benchmark exercised persistence SHA `0adbfe2`; later commits added only
+read-only history measurement, its ledger-status correction, and benchmark
+documentation. They did not change the exercised persistence path.
 
 Protected inspect `36373674078` confirmed 389,856 normalized rows, 1,560
 logical partitions with ordinals 0–1559, 672,364,924 canonical bytes, a
@@ -127,8 +130,9 @@ and bytes under the new run prefix and across the transport stage. Active and
 time-travel table bytes were not visible to the runtime; Account Usage may
 report them later with latency and without exact run attribution.
 
-The observed design is far better than the partition-coupled baseline, but
-815 total queries and 233 MERGEs remain above the investigation's aspirational
-few-hundred-query and tens-of-MERGEs shape. The merge decision therefore
-requires human review of that residual shape; this evidence does not authorize
-historical execution, PROD changes, or automatic merge.
+The steward accepted the bounded, recoverable design for merge on this
+evidence. The residual 815 queries and 233 MERGEs exceed the earlier
+aspirational shape, but no further optimization is required in PR #488.
+Any residual performance refinement belongs in a separate, non-blocking
+follow-up. This acceptance does not authorize historical ingestion or PROD
+changes.
