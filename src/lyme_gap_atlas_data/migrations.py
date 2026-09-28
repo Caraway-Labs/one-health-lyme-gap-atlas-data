@@ -55,6 +55,8 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V114",
     "V115",
     "V116",
+    "V117",
+    "V118",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",

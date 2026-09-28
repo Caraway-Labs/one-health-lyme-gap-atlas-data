@@ -14,6 +14,28 @@ Inside one explicit transaction the procedure updates the pre-created `WRITE_SER
 
 `SP_RECORD_CANDIDATE_OUTCOME(request_json)` accepts the exact typed `CandidateOutcomeReceipt`: operation/run/resource keys, catalog dataset and resource IDs, evidence snapshot, outcome and optional reason code. It returns that receipt. Within the same serialized transaction, it returns an identical prior operation, rejects conflicting replay or a second outcome for the run/resource, requires an open run with the same snapshot, and verifies candidate IDs against `V_CANDIDATE_SUMMARY` for that snapshot. The outcome ID is a deterministic SHA-256 of its operation key. Untrusted free text cannot enter `outcome` or `reason_code`; only bounded uppercase codes are accepted. The runtime receives procedure `USAGE` only after the same approval and protected migration gates.
 
+DEV forward migration V118 adds an optional, allowlisted `decision_record` to the
+same candidate-outcome transaction and receipt. It records model/config/prompt
+identities, semantic task, classification, relationship, dimension values and
+observation IDs, unknown field names, validator code, abstention reason, and
+final outcome. It rejects unexpected keys, unbounded free text, and a decision
+whose final outcome differs from the outcome row. Exact operation-key replay
+compares the normalized stored decision; conflicting replay fails closed.
+Historical V107 checksums are unchanged. Recommendation versions already retain
+validated analysis and ranking; V118 addresses unsuccessful decisions without
+retaining prompts, model reasoning, raw catalog payloads, or secret values.
+
+DEV forward migration V117 corrects the bounded observation projection. For
+Data.gov, `issued`, `modified`, `spatial`, `temporal`, `license`, and
+`accessLevel` fall back to the retained `metadata_payload.catalog_record.dcat`
+path when the normalized top-level key is absent. Explicit length bounds make
+oversize fields NULL. The view also exposes bounded keyword/theme text,
+resource/distribution title, role, type, URL, purpose, media/format, parent
+dataset ID, catalog record ID, and public harvest-documentation locator. It
+preserves observation identity and grants with `COPY GRANTS`, without exposing
+the nested raw record or private artifact bytes. These DEV-only migrations do
+not authorize PROD application.
+
 ## Terminal finalization request
 
 `SP_FINALIZE_RUN(request_json)` accepts the exact typed `RunFinalizationReceipt`: operation/run IDs, terminal status, processed and recommendation counts, allowlisted nonnegative budget usage counters, and optional stop reason. It acquires the same serialization row, returns an identical prior finalization, and rejects a conflicting replay or an already terminal run. Before updating `RUNS`, it recomputes processed and recommendation counts from committed candidate outcomes and recommendation versions. It stores the terminal status, completion time, finalization key, stop reason and usage counters in one transaction. `V_FINALIZATION_RECEIPTS` exposes the receipt for lost-acknowledgment recovery. A partially persisted run is never labeled successful merely because the client requested success.
