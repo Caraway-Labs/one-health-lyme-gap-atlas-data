@@ -25,6 +25,16 @@ Historical V107 checksums are unchanged. Recommendation versions already retain
 validated analysis and ranking; V120 addresses unsuccessful decisions without
 retaining prompts, model reasoning, raw catalog payloads, or secret values.
 
+DEV forward migration V121 replaces only the candidate-outcome procedure with
+`COPY GRANTS`; V119 and V120 remain immutable. The existing `decision_record`
+VARIANT carries bounded provider invocation, transport, parse, validator
+stage/code/path, token usage, response schema version, and SHA-256 response
+fingerprint. It also preserves safe parsed classification, dimensions, citations,
+and unknown field identifiers when evidence validation rejects a typed result.
+The procedure rejects unexpected fields, incoherent call sequencing, unbounded
+values, and conflicting operation-key replay in the same serialized transaction.
+It never accepts raw response text, prompts, credentials, or protected metadata.
+
 DEV forward migration V119 corrects the bounded observation projection. For
 Data.gov, `issued`, `modified`, `spatial`, `temporal`, `license`, and
 `accessLevel` fall back to the retained `metadata_payload.catalog_record.dcat`

@@ -10,6 +10,9 @@ SQL = Path(__file__).resolve().parents[1] / (
 AUDIT_SQL = Path(__file__).resolve().parents[1] / (
     "migrations/V120__dev_dataset_discovery_candidate_decision_audit.sql"
 )
+DIAGNOSTIC_SQL = Path(__file__).resolve().parents[1] / (
+    "migrations/V121__dev_dataset_discovery_model_validation_diagnostics.sql"
+)
 
 
 def test_forward_migration_is_dev_only_and_preserves_grants() -> None:
@@ -20,6 +23,10 @@ def test_forward_migration_is_dev_only_and_preserves_grants() -> None:
     }
     assert "V120" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
     assert "V120" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "V121" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
+    assert "V121" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
     sql = SQL.read_text(encoding="utf-8")
@@ -60,3 +67,27 @@ def test_decision_audit_is_atomic_with_candidate_outcome() -> None:
     assert "decision_record)" in sql
     assert "CONFLICTING_OPERATION_REPLAY" in sql
     assert "COPY GRANTS" in sql
+
+
+def test_validation_diagnostic_is_bounded_and_uses_same_atomic_receipt() -> None:
+    sql = DIAGNOSTIC_SQL.read_text(encoding="utf-8")
+    for field in (
+        "model_call_attempted",
+        "model_call_succeeded_transport",
+        "structured_parse_succeeded",
+        "validation_stage",
+        "validation_error_code",
+        "validation_field",
+        "validator_name",
+        "validator_version",
+        "token_usage",
+        "response_schema_version",
+        "response_fingerprint",
+    ):
+        assert f"{field}: true" in sql
+    assert "INVALID_MODEL_CALL_SEQUENCE" in sql
+    assert "INVALID_DECISION_TOKEN_USAGE" in sql
+    assert "BEGIN TRANSACTION" in sql
+    assert "CONFLICTING_OPERATION_REPLAY" in sql
+    assert "COPY GRANTS" in sql
+    assert "ADD COLUMN" not in sql

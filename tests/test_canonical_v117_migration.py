@@ -14,7 +14,7 @@ def test_v117_matches_existing_dev_receipt_and_owner() -> None:
     migrations = load_migrations()
     versions = [item.version for item in migrations]
     assert len(versions) == len(set(versions))
-    assert [version for version in versions if version >= "V117"] == [
+    assert [version for version in versions if "V117" <= version <= "V120"] == [
         "V117",
         "V119",
         "V120",
@@ -33,5 +33,5 @@ def test_applied_sequence_is_dev_only_with_intentional_gap() -> None:
     assert {"V117", "V119", "V120"} <= DEV_ONLY_MIGRATION_VERSIONS
     dev = [item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")]
     prod = {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")}
-    assert [version for version in dev if version >= "V117"] == ["V117", "V119", "V120"]
+    assert [version for version in dev if "V117" <= version <= "V120"] == ["V117", "V119", "V120"]
     assert not {"V117", "V118", "V119", "V120"} & prod
