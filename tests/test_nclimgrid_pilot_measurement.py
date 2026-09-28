@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -332,6 +333,78 @@ def test_cli_exposes_only_semantic_measurement_arguments():
         "action",
         "run_id",
     }
+
+
+def test_benchmark_history_is_bounded_to_run_and_reports_transport_residue(monkeypatch):
+    start = datetime(2026, 9, 28, 2, 59, tzinfo=UTC)
+    end = start + timedelta(minutes=26)
+    statements = []
+    rows = [
+        ("before", "SELECT", "SELECT 1", start - timedelta(seconds=1), start),
+        (
+            "merge",
+            "MERGE",
+            "MERGE INTO GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS",
+            start,
+            start + timedelta(seconds=2),
+        ),
+        (
+            "put",
+            "PUT",
+            "PUT file://transport",
+            start + timedelta(seconds=3),
+            start + timedelta(seconds=4),
+        ),
+        (
+            "remove",
+            "REMOVE",
+            "REMOVE @GOVERNANCE.INGESTION_BULK_STAGE",
+            start + timedelta(seconds=5),
+            start + timedelta(seconds=6),
+        ),
+        ("after", "SELECT", "SELECT 2", end + timedelta(seconds=1), end + timedelta(seconds=2)),
+    ]
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, sql):
+            statements.append(sql)
+
+        def fetchall(self):
+            return rows if len(statements) == 1 else []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setattr(pilot, "_run", lambda _run_id: _state(RunStatus.SUCCEEDED))
+    monkeypatch.setattr(
+        pilot,
+        "_identity",
+        lambda: dict.fromkeys(
+            ("user_matches", "role_matches", "database_matches", "warehouse_matches"), True
+        ),
+    )
+    monkeypatch.setattr(pilot, "_query_one", lambda _sql, _params: (start, end))
+    monkeypatch.setattr(pilot, "connect", lambda _settings: Connection())
+    result = pilot.benchmark_history("run-1")
+    assert result["query_count"] == 3
+    assert result["query_type_counts"] == {"MERGE": 1, "PUT": 1, "REMOVE": 1}
+    assert result["path_spans"]["checkpoint"]["query_count"] == 1
+    assert result["transport_object_count"] == 0
+    assert statements[0].startswith("SELECT ")
+    assert statements[1] == "LIST @GOVERNANCE.INGESTION_BULK_STAGE/run-1/"
 
 
 def test_measurement_workflow_is_read_only_and_confined_to_dev():

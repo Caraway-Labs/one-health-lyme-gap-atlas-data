@@ -55,6 +55,7 @@ on:
           - inspect
           - ordered-read
           - report
+          - benchmark-history
       recapture:
         description: Explicitly create new captures for completed batch definitions
         required: false
