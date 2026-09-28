@@ -31,6 +31,7 @@ on:
           - validate
           - inspect
           - nclimgrid-pilot-measurement
+          - nclimgrid-first-tranche-review
           - bulk-transport-canary
       tier:
         description: Risk tier (A local/fixture via job, B DEV, C PROD protected)
@@ -78,7 +79,7 @@ jobs:
   ingest:
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.environment_name }}
+    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'nclimgrid-first-tranche-review' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -92,12 +93,12 @@ jobs:
       SNOWFLAKE_AUTH_METHOD: key_pair
       SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
       SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
-      SPACES_REGION: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_REGION || '' }}
-      SPACES_ENDPOINT: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_ENDPOINT || '' }}
-      SPACES_BUCKET: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_BUCKET || '' }}
-      SPACES_PREFIX: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_PREFIX || '' }}
-      SPACES_ACCESS_KEY_ID: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_ACCESS_KEY_ID || '' }}
-      SPACES_SECRET_ACCESS_KEY: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_SECRET_ACCESS_KEY || '' }}
+      SPACES_REGION: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'nclimgrid-first-tranche-review' && secrets.SPACES_REGION || '' }}
+      SPACES_ENDPOINT: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'nclimgrid-first-tranche-review' && secrets.SPACES_ENDPOINT || '' }}
+      SPACES_BUCKET: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'nclimgrid-first-tranche-review' && secrets.SPACES_BUCKET || '' }}
+      SPACES_PREFIX: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'nclimgrid-first-tranche-review' && secrets.SPACES_PREFIX || '' }}
+      SPACES_ACCESS_KEY_ID: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'nclimgrid-first-tranche-review' && secrets.SPACES_ACCESS_KEY_ID || '' }}
+      SPACES_SECRET_ACCESS_KEY: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'nclimgrid-first-tranche-review' && secrets.SPACES_SECRET_ACCESS_KEY || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -111,7 +112,7 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
         run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'nclimgrid-first-tranche-review' || inputs.operation == 'bulk-transport-canary'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           MEASUREMENT_RUN_ID: ${{ inputs.run_id }}
@@ -136,6 +137,14 @@ jobs:
               test -n "$MEASUREMENT_RUN_ID"
             fi
           fi
+          if [ "${{ inputs.operation }}" = "nclimgrid-first-tranche-review" ]; then
+            test "${{ inputs.environment_name }}" = "dev"
+            test "${{ inputs.tier }}" = "B"
+            test "$SOURCE_DEFINITION" = "nclimgrid:200801..200803"
+            test -z "$MEASUREMENT_RUN_ID"
+            test "${{ inputs.recapture }}" = "false"
+            test "${{ inputs.publish }}" = "false"
+          fi
           if [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then
             test "${{ inputs.environment_name }}" = "dev"
             test "${{ inputs.tier }}" = "B"
@@ -144,7 +153,7 @@ jobs:
             test -z "$MEASUREMENT_RUN_ID"
           fi
       - name: Execute orchestrator operation with ephemeral Snowflake key
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'nclimgrid-first-tranche-review' || inputs.operation == 'bulk-transport-canary'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
@@ -162,7 +171,7 @@ jobs:
               exit 1
             fi
           done
-          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ] && [ "${{ inputs.operation }}" != "bulk-transport-canary" ]; then
+          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ] && [ "${{ inputs.operation }}" != "nclimgrid-first-tranche-review" ] && [ "${{ inputs.operation }}" != "bulk-transport-canary" ]; then
             for required_var in \
               SPACES_ENDPOINT \
               SPACES_BUCKET \
@@ -227,7 +236,9 @@ jobs:
               )
           PY
 
-          if [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then
+          if [ "${{ inputs.operation }}" = "nclimgrid-first-tranche-review" ]; then
+            uv run python scripts/verify_nclimgrid_first_tranche.py
+          elif [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then
             uv run python scripts/nclimgrid_bulk_transport_canary.py
           elif [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then
             if [ -n "$INGESTION_RUN_ID" ]; then

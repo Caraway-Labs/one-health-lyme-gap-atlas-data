@@ -417,7 +417,10 @@ def test_measurement_workflow_is_read_only_and_confined_to_dev():
     workflow = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
     assert "nclimgrid-pilot-measurement" in workflow
     assert "inputs.operation == 'nclimgrid-pilot-measurement' && 'dev'" in workflow
-    assert "inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_BUCKET" in workflow
+    assert (
+        "inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != "
+        "'nclimgrid-first-tranche-review' && secrets.SPACES_BUCKET"
+    ) in workflow
     assert 'test "${{ inputs.recapture }}" = "false"' in workflow
     assert 'test "${{ inputs.publish }}" = "false"' in workflow
     assert (
@@ -433,3 +436,17 @@ def test_measurement_workflow_is_read_only_and_confined_to_dev():
     assert "atlas-data source nclimgrid-batch" not in block
     assert "atlas-data runs resume" not in block
     assert "apply-migrations" not in block
+
+
+def test_first_tranche_review_workflow_is_read_only_and_range_locked():
+    workflow = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
+    assert "inputs.operation == 'nclimgrid-first-tranche-review' && 'dev'" in workflow
+    assert 'test "$SOURCE_DEFINITION" = "nclimgrid:200801..200803"' in workflow
+    assert 'test -z "$MEASUREMENT_RUN_ID"' in workflow
+    block = workflow.split(
+        'if [ "${{ inputs.operation }}" = "nclimgrid-first-tranche-review" ]; then', 2
+    )[-1]
+    block = block.split('elif [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then', 1)[0]
+    assert "uv run python scripts/verify_nclimgrid_first_tranche.py" in block
+    assert "atlas-data source nclimgrid-batch" not in block
+    assert "atlas-data runs resume" not in block
