@@ -396,7 +396,13 @@ def test_benchmark_history_is_bounded_to_run_and_reports_transport_residue(monke
             ("user_matches", "role_matches", "database_matches", "warehouse_matches"), True
         ),
     )
-    monkeypatch.setattr(pilot, "_query_one", lambda _sql, _params: (start, end))
+
+    def run_window(sql, params):
+        assert "status='COMPLETED'" in sql
+        assert params == ("run-1",)
+        return start, end
+
+    monkeypatch.setattr(pilot, "_query_one", run_window)
     monkeypatch.setattr(pilot, "connect", lambda _settings: Connection())
     result = pilot.benchmark_history("run-1")
     assert result["query_count"] == 3

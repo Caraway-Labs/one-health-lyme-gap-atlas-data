@@ -407,7 +407,7 @@ def benchmark_history(run_id: str) -> dict[str, object]:
         raise MeasurementError("Benchmark history requires a succeeded protected DEV run")
     window = _query_one(
         "SELECT started_at, completed_at FROM GOVERNANCE.INGESTION_RUNS "
-        "WHERE ingestion_run_id=%s AND status='SUCCEEDED'",
+        "WHERE ingestion_run_id=%s AND status='COMPLETED'",
         (run_id,),
     )
     if window is None or not isinstance(window[0], datetime) or not isinstance(window[1], datetime):
