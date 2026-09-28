@@ -70,18 +70,25 @@ def one(connection, sql, params=()):
         cursor.close()
 
 
-def retry_prepared(repository, request_path: Path) -> None:
+def retry_prepared(connection, repository, request_path: Path) -> None:
     request = RecommendationWrite.model_validate_json(request_path.read_text(encoding="utf-8"))
     run_id = request.identity.run_id
     if not run_id.startswith("data449-rollback-"):
         raise ValueError("rollback retry requires a labeled DEV test run")
-    assert repository.get_recommendation(request.operation_key) is None
+    prior = repository.get_recommendation(request.operation_key)
     receipt = repository.save_recommendation(request)
     assert receipt.identity == request.identity
     assert receipt.evidence_observation_ids == request.evidence_observation_ids
     assert receipt.proposal_ids == request.proposal_ids
     assert repository.get_recommendation(request.operation_key) == receipt
     assert repository.save_recommendation(request) == receipt
+    persisted = one(
+        connection,
+        "SELECT COUNT(*), COUNT(DISTINCT recommendation_version_id) "
+        "FROM DATASET_DISCOVERY.V_RECOMMENDATION_RECEIPTS WHERE operation_key = %s",
+        (request.operation_key,),
+    )
+    assert persisted == (1, 1)
     final = repository.finalize_run(
         RunFinalizationReceipt(
             operation_key=f"finalize:{run_id}",
@@ -99,6 +106,8 @@ def retry_prepared(repository, request_path: Path) -> None:
             "successful_retry": True,
             "exact_replay": True,
             "receipt_consistent": True,
+            "receipt_existed_before_retry": prior is not None,
+            "logical_versions": persisted[1],
             "final_status": final.status,
         }
     )
@@ -123,7 +132,7 @@ def main():
         )
         repository = SnowflakeRecommendationRepository(connection)
         if args.retry_rollback is not None:
-            retry_prepared(repository, args.retry_rollback)
+            retry_prepared(connection, repository, args.retry_rollback)
             return
         candidate = one(
             connection,
