@@ -55,6 +55,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V114",
     "V115",
     "V116",
+    "V117",
     "V119",
     "V120",
 }
@@ -244,7 +245,9 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version == "V072":
+    if migration.version in {"V072", "V117"}:
+        if migration.version == "V117" and database != DEV_DATABASE:
+            raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"
     if migration.version not in VIEW_OWNER_MIGRATION_VERSIONS:
         return None
