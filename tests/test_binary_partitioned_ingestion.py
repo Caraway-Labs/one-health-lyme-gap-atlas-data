@@ -22,7 +22,11 @@ from lyme_gap_atlas_data.ingestion.checkpoints import (
 )
 from lyme_gap_atlas_data.ingestion.orchestrator import IngestionOrchestrator
 from lyme_gap_atlas_data.ingestion.partitioning import MAX_PARTITION_BYTES, partition_records
-from lyme_gap_atlas_data.ingestion.runtime import SnowflakeStageEffects, _insert_revisions
+from lyme_gap_atlas_data.ingestion.runtime import (
+    SnowflakeStageEffects,
+    _bulk_record_source,
+    _insert_revisions,
+)
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.ingestion.types import (
     AdapterKind,
@@ -342,6 +346,20 @@ def test_bulk_transport_is_content_addressed_and_does_not_overwrite() -> None:
     assert stage_json_rows(cursor, run_id="run-1", kind="partitions", rows=[{"id": 1}]) == staged
     with pytest.raises(ValueError, match="Unsafe"):
         stage_json_rows(cursor, run_id="../run", kind="partitions", rows=[{"id": 1}])
+
+
+def test_staged_retrieval_timestamp_matches_existing_ltz_columns() -> None:
+    projection_schema = (
+        ROOT / "migrations/V069__generic_ingestion_records_and_publications.sql"
+    ).read_text(encoding="utf-8")
+    revision_schema = (
+        ROOT / "migrations/V103__bounded_ingestion_partitions_and_revisions.sql"
+    ).read_text(encoding="utf-8")
+    assert projection_schema.count("retrieved_at TIMESTAMP_LTZ NOT NULL") == 3
+    assert "retrieved_at TIMESTAMP_LTZ NOT NULL" in revision_schema
+    staged_sql = _bulk_record_source("@GOVERNANCE.INGESTION_BULK_STAGE/run/records/file")
+    assert "TO_TIMESTAMP_LTZ($1:retrieved_at::VARCHAR) AS retrieved_at" in staged_sql
+    assert "TO_TIMESTAMP_TZ(" not in staged_sql
 
 
 def test_bulk_stage_migration_is_additive_and_owner_executed() -> None:

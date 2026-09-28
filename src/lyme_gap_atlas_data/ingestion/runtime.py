@@ -913,7 +913,7 @@ def _bulk_record_source(source: str) -> str:
                      $1:source_row_hash::VARCHAR AS source_row_hash,
                      PARSE_JSON($1:payload::VARCHAR) AS payload,
                      $1:payload::VARCHAR AS payload_text,
-                     TO_TIMESTAMP_TZ($1:retrieved_at::VARCHAR) AS retrieved_at
+                     TO_TIMESTAMP_LTZ($1:retrieved_at::VARCHAR) AS retrieved_at
               FROM {source}"""
 
 

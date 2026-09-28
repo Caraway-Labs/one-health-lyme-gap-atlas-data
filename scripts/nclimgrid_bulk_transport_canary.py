@@ -31,6 +31,47 @@ class _CaptureCursor:
         return (0,)
 
 
+def _verify_destination_types(cursor: Any) -> None:
+    common = {
+        "RECORD_ID": "VARCHAR",
+        "SOURCE_ID": "VARCHAR",
+        "DATASET_ID": "VARCHAR",
+        "RESOURCE_KEY": "VARCHAR",
+        "SOURCE_DEFINITION_VERSION": "NUMBER",
+        "INGESTION_RUN_ID": "VARCHAR",
+        "SOURCE_RECORD_ID": "VARCHAR",
+        "SOURCE_ROW_HASH": "VARCHAR",
+        "PAYLOAD": "VARIANT",
+        "RETRIEVED_AT": "TIMESTAMP_LTZ",
+    }
+    relations = {
+        "STAGING.GOVERNED_SOURCE_RECORDS": {**common, "NORMALIZED_AT": "TIMESTAMP_LTZ"},
+        "CONFORMED.GOVERNED_SOURCE_RECORDS": {**common, "CONFORMED_AT": "TIMESTAMP_LTZ"},
+        "RAW.GOVERNED_SOURCE_RECORDS": {**common, "LOADED_AT": "TIMESTAMP_LTZ"},
+        "GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS": {
+            **common,
+            "CAPTURE_RECORD_ID": "VARCHAR",
+            "RECORD_REVISION": "VARCHAR",
+            "ARTIFACT_ID": "VARCHAR",
+            "ARTIFACT_SHA256": "VARCHAR",
+            "NORMALIZED_SHA256": "VARCHAR",
+            "TRANSFORMATION_VERSION": "VARCHAR",
+            "OBSERVED_AT": "TIMESTAMP_LTZ",
+        },
+    }
+    for relation, expected in relations.items():
+        cursor.execute(f"DESCRIBE TABLE {relation}")
+        actual = {str(row[0]).upper(): str(row[1]).upper() for row in cursor.fetchall()}
+        differences = {
+            column: (kind, actual.get(column))
+            for column, kind in expected.items()
+            if not actual.get(column, "").startswith(kind)
+        }
+        if differences:
+            raise AssertionError(f"Live destination type mismatch {relation}: {differences}")
+    print("Live projection and revision destination types match V069/V103")
+
+
 def main() -> None:
     settings = SnowflakeSettings()
     if (
@@ -69,6 +110,7 @@ def main() -> None:
             "OH_LYME_DEV_INGEST_XS_WH",
         ):
             raise SystemExit(f"Unexpected runtime identity: {identity}")
+        _verify_destination_types(cursor)
         prefix = f"@GOVERNANCE.INGESTION_BULK_STAGE/{run_id}/records"
         cursor.execute(f"LIST {prefix}")
         if cursor.fetchall():
@@ -80,8 +122,8 @@ def main() -> None:
                            = $1:payload_sha256::VARCHAR),
                            COUNT_IF(AS_VARCHAR($1:source_record_id) IS NULL),
                            COUNT_IF(PARSE_JSON($1:payload::VARCHAR):value::NUMBER = 1),
-                           COUNT_IF(TO_TIMESTAMP_TZ($1:retrieved_at::VARCHAR)
-                           = TO_TIMESTAMP_TZ('2025-01-15T12:34:56+00:00'))
+                           COUNT_IF(TO_TIMESTAMP_LTZ($1:retrieved_at::VARCHAR)
+                           = TO_TIMESTAMP_LTZ('2025-01-15T12:34:56+00:00'))
                     FROM {source}"""
             )
             result = cursor.fetchone()
