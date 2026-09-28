@@ -13,6 +13,9 @@ AUDIT_SQL = Path(__file__).resolve().parents[1] / (
 DIAGNOSTIC_SQL = Path(__file__).resolve().parents[1] / (
     "migrations/V121__dev_dataset_discovery_model_validation_diagnostics.sql"
 )
+PROVIDER_SQL = Path(__file__).resolve().parents[1] / (
+    "migrations/V122__dev_dataset_discovery_provider_completion_diagnostics.sql"
+)
 
 
 def test_forward_migration_is_dev_only_and_preserves_grants() -> None:
@@ -27,6 +30,10 @@ def test_forward_migration_is_dev_only_and_preserves_grants() -> None:
     }
     assert "V121" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
     assert "V121" not in {
+        item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
+    }
+    assert "V122" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")}
+    assert "V122" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
     }
     sql = SQL.read_text(encoding="utf-8")
@@ -87,6 +94,25 @@ def test_validation_diagnostic_is_bounded_and_uses_same_atomic_receipt() -> None
         assert f"{field}: true" in sql
     assert "INVALID_MODEL_CALL_SEQUENCE" in sql
     assert "INVALID_DECISION_TOKEN_USAGE" in sql
+    assert "BEGIN TRANSACTION" in sql
+    assert "CONFLICTING_OPERATION_REPLAY" in sql
+    assert "COPY GRANTS" in sql
+    assert "ADD COLUMN" not in sql
+
+
+def test_provider_completion_projection_is_bounded_and_atomic() -> None:
+    sql = PROVIDER_SQL.read_text(encoding="utf-8")
+    for field in (
+        "provider_response_status",
+        "provider_incomplete_reason",
+        "provider_error_code",
+        "provider_response_id_hash",
+    ):
+        assert f"{field}: true" in sql
+    assert "MAX_OUTPUT_TOKENS" in sql
+    assert "CONTENT_FILTER" in sql
+    assert "INVALID_PROVIDER_RESPONSE_ID_HASH" in sql
+    assert "UNEXPECTED_DECISION_FIELD" in sql
     assert "BEGIN TRANSACTION" in sql
     assert "CONFLICTING_OPERATION_REPLAY" in sql
     assert "COPY GRANTS" in sql

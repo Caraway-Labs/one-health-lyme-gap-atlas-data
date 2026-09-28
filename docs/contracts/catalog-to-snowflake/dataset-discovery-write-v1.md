@@ -35,6 +35,14 @@ The procedure rejects unexpected fields, incoherent call sequencing, unbounded
 values, and conflicting operation-key replay in the same serialized transaction.
 It never accepts raw response text, prompts, credentials, or protected metadata.
 
+DEV forward migration V122 replaces that procedure with `COPY GRANTS`, retaining
+the same atomic outcome receipt and replay checks. Four optional completion facts
+are allowlisted: normalized provider status, SDK-enumerated incomplete reason,
+SDK-enumerated error code, and SHA-256 of the provider response ID. The procedure
+rejects unrecognized values and never stores provider error messages, literal
+response IDs, response bodies, prompts, or hidden reasoning. No table column is
+added; V119-V121 and their ledger entries remain immutable.
+
 DEV forward migration V119 corrects the bounded observation projection. For
 Data.gov, `issued`, `modified`, `spatial`, `temporal`, `license`, and
 `accessLevel` fall back to the retained `metadata_payload.catalog_record.dcat`
