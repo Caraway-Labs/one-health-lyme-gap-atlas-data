@@ -11,11 +11,6 @@ on:
         required: false
         type: boolean
         default: false
-      data450_post_intake_fault:
-        description: One-shot protected DEV-only Data #450 rollback probe on the fixed fixture
-        required: false
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
@@ -88,8 +83,7 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
           uv run atlas-data pipeline apply-migrations \
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
-          if [ "$DATA450_POST_INTAKE_FAULT" = "true" ]; then
-            test "$GITHUB_REF_NAME" = 'codex/data-450-governed-dataset-handoff'
+          if [ "$GITHUB_REF_NAME" = 'codex/data-450-governed-dataset-handoff' ]; then
             test "$SNOWFLAKE_DATABASE" = 'ONE_HEALTH_LYME_GAP_ATLAS_DEV'
             test "$SNOWFLAKE_ROLE" = 'OH_LYME_DEV_MIGRATION_DEPLOYER'
             SNOWFLAKE_AUTH_METHOD=key_pair \
@@ -100,7 +94,6 @@ jobs:
         env:
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
-          DATA450_POST_INTAKE_FAULT: ${{ inputs.data450_post_intake_fault }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
