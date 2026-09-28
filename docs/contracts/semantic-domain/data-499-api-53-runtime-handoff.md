@@ -1,14 +1,18 @@
 # Data #499: API #53 runtime metadata handoff
 
-Status: source reviewed; deployment and API-role query proof pending. This is a
-consumer-safe Data publication contract, not an approved public HTTP shape.
+Status: owner-approved bounded null semantics; DEV V123 deployed, V124
+identity correction pending verification. This is a consumer-safe Data
+publication contract, not an approved public HTTP shape.
 
 ## Source and binding
 
 Use `ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.CURRENT_INDICATOR_METADATA_V`
 and `ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.CURRENT_MEASURE_METADATA_V`.
 The corresponding DEV objects use `ONE_HEALTH_LYME_GAP_ATLAS_DEV`. V123 creates
-the views from the immutable V071 release hierarchy. Both join the single
+the views from the immutable V071 release hierarchy; V124 corrects the measure
+view for the historical release builder's reversed physical column binding.
+The builder is corrected for future releases. V124 reads the legacy rows
+without rewriting immutable history. Both views join the single
 `ATLAS` current pointer to a `PUBLISHED` release. Candidate or failed release
 rows cannot appear without a reviewed pointer transition. Rollback changes
 both views together by changing that pointer. No observation scan is involved.
@@ -38,10 +42,12 @@ IDs are stable V071 semantic identity, not labels or warehouse row IDs.
 is the exact governed release ID. Neither is the #194 consumer serializer
 version. The view projections do not independently revise metadata.
 
-The current county release does not persist governed domain/category,
+The owner has approved bounded null metadata for API #53. The current county
+release does not persist governed domain/category,
 measure definition, denominator, supported strata, source relationship, or
 standards mapping on these hierarchy rows. The corresponding columns are
-SQL `NULL`; they must not be filled from labels, observation rows, or internal
+SQL `NULL`; API #53 may expose these nulls and must not fill them from labels,
+observation rows, or internal
 source artifacts. `geography_type` and `temporal_grain` carry the stored
 semantics verbatim, including values such as `COUNTY_FIPS_5`, `STATE`,
 `snapshot`, `2023`, or `as published`; they are not normalized capability
@@ -71,11 +77,16 @@ private identifiers, and internal derived-result stores. It does not promote
 ## Evidence and rollout
 
 Local migration-contract tests prove render/role routing and SQL allowlist
-intent only. They do not prove Snowflake object creation, `READ` access, denial
-of base tables, or current-pointer contents. Deploy V123 through the normal
-checksum-validated DEV migration workflow; prove both SELECTs as
+intent only. DEV workflow run 36435934703 applied V123 at commit `77f68ef`;
+the DEV ledger records checksum `d0d9cb658da7a7c993944c6509cf58411e22f7832f0596ccf592d5dad02d7cac`.
+`OH_LYME_DEV_READ` read six indicator rows and fourteen measure rows for
+`governed-2026-09-17-unknown-coverage` / schema `1.0.0`. Live inspection found
+all fourteen V123 measure parent links broken because the historical release
+builder bound measure and indicator IDs in reverse physical columns. This is
+the reason for forward-only V124; V123 alone is not the final consumer view.
+After V124, prove both SELECTs as
 `OH_LYME_DEV_READ`, inspect grants and denied base-table access, then use the
 protected PROD promotion path and repeat with the actual API role. Record
 release ID/version from both views and `CURRENT_RELEASE_V` before declaring
-API #53 unblocked in a live environment. No production data or existing view
-definition is changed by V123.
+API #53 unblocked in a live environment. No production data or pre-existing
+presentation view definition is changed by V123/V124.

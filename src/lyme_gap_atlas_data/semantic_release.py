@@ -1519,7 +1519,7 @@ def _insert_hierarchy(cursor: Any, manifest: SemanticManifest) -> None:
     ]
     cursor.executemany(
         """INSERT INTO PRESENTATION.SEMANTIC_MEASURES
-        (release_id, measure_id, indicator_id, label, data_type, unit, geography_semantics,
+        (release_id, indicator_id, measure_id, label, data_type, unit, geography_semantics,
          temporal_resolution, missingness_semantics, methodology, limitation)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         [(manifest.release_id, *measure) for measure in measures],

@@ -29,8 +29,21 @@ def test_current_metadata_migration_is_bounded() -> None:
             assert restricted not in sql
 
 
+def test_measure_identity_correction_is_view_only() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V124")
+    for database, env in ((DEV_DATABASE, "DEV"), (PROD_DATABASE, "PROD")):
+        sql = render_migration(migration, database).upper()
+        assert migration_execution_role(migration, database) == f"OH_LYME_{env}_OWNER"
+        assert f"TO ROLE OH_LYME_{env}_READ" in sql
+        assert "UPDATE " not in sql
+        assert "SEMANTIC_OBSERVATIONS" not in sql
+        assert "DIRECT_INDICATOR.INDICATOR_ID = M.INDICATOR_ID" in sql
+        assert "LEGACY_INDICATOR.INDICATOR_ID = M.MEASURE_ID" in sql
+
+
 def test_current_pointer_excludes_candidate_and_follows_rollback() -> None:
     migration = next(item for item in load_migrations() if item.version == "V123")
+    correction = next(item for item in load_migrations() if item.version == "V124")
     connection = sqlite3.connect(":memory:")
     connection.execute("ATTACH DATABASE ':memory:' AS PRESENTATION")
     connection.executescript(
@@ -55,7 +68,7 @@ def test_current_pointer_excludes_candidate_and_follows_rollback() -> None:
           ('current', 'stable-id', 'Current', 'Current definition', 'Current limit'),
           ('candidate', 'candidate-id', 'Candidate', 'Candidate definition', 'Candidate limit');
         INSERT INTO PRESENTATION.SEMANTIC_MEASURES VALUES
-          ('old', 'old-measure', 'old-id', 'Old', 'number', 'cases', 'STATE', '2020', '', '', ''),
+          ('old', 'old-id', 'old-measure', 'Old', 'number', 'cases', 'STATE', '2020', '', '', ''),
           ('current', 'stable-measure', 'stable-id', 'Current', 'number', 'cases',
            'COUNTY_FIPS_5', '2023', '', '', ''),
           ('candidate', 'candidate-measure', 'candidate-id', 'Candidate', 'number',
@@ -66,6 +79,9 @@ def test_current_pointer_excludes_candidate_and_follows_rollback() -> None:
     for definition in definitions:
         statement = definition.split(";", maxsplit=1)[0]
         connection.execute("CREATE VIEW IF NOT EXISTS " + statement)
+    connection.execute("DROP VIEW PRESENTATION.CURRENT_MEASURE_METADATA_V")
+    corrected_view = correction.source.split("CREATE OR REPLACE VIEW ", maxsplit=1)[1]
+    connection.execute("CREATE VIEW " + corrected_view.split(";", maxsplit=1)[0])
 
     def ids() -> tuple[list[str], list[str]]:
         indicator_ids = [
