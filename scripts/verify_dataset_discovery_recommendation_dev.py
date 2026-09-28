@@ -5,6 +5,7 @@ DATASET_DISCOVERY_PAT_FILE set to the local role-restricted runtime PAT path.
 This writes an explicitly labeled test run, never a governed source decision.
 """
 
+import argparse
 import hashlib
 import os
 import uuid
@@ -69,7 +70,46 @@ def one(connection, sql, params=()):
         cursor.close()
 
 
+def retry_prepared(repository, request_path: Path) -> None:
+    request = RecommendationWrite.model_validate_json(request_path.read_text(encoding="utf-8"))
+    run_id = request.identity.run_id
+    if not run_id.startswith("data449-rollback-"):
+        raise ValueError("rollback retry requires a labeled DEV test run")
+    assert repository.get_recommendation(request.operation_key) is None
+    receipt = repository.save_recommendation(request)
+    assert receipt.identity == request.identity
+    assert receipt.evidence_observation_ids == request.evidence_observation_ids
+    assert receipt.proposal_ids == request.proposal_ids
+    assert repository.get_recommendation(request.operation_key) == receipt
+    assert repository.save_recommendation(request) == receipt
+    final = repository.finalize_run(
+        RunFinalizationReceipt(
+            operation_key=f"finalize:{run_id}",
+            run_id=run_id,
+            status="SUCCEEDED_WITH_RECOMMENDATIONS",
+            processed_count=1,
+            recommendation_count=1,
+        )
+    )
+    assert repository.get_finalization(run_id) == final
+    print(
+        {
+            "run_id": run_id,
+            "recommendation_version_id": request.identity.recommendation_version_id,
+            "successful_retry": True,
+            "exact_replay": True,
+            "receipt_consistent": True,
+            "final_status": final.status,
+        }
+    )
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare-rollback", type=Path)
+    mode.add_argument("--retry-rollback", type=Path)
+    args = parser.parse_args()
     connection = connect()
     try:
         assert one(
@@ -81,6 +121,10 @@ def main():
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
             "OH_LYME_DEV_INGEST_XS_WH",
         )
+        repository = SnowflakeRecommendationRepository(connection)
+        if args.retry_rollback is not None:
+            retry_prepared(repository, args.retry_rollback)
+            return
         candidate = one(
             connection,
             "SELECT s.discovery_run_id, s.resource_key, s.catalog_dataset_id, "
@@ -101,8 +145,9 @@ def main():
         snapshot, resource, dataset, catalog_resource, observation, observed_at, sha, title = (
             candidate
         )
-        run_id = "data449-acceptance-" + uuid.uuid4().hex
-        repository = SnowflakeRecommendationRepository(connection)
+        run_id = (
+            "data449-rollback-" if args.prepare_rollback is not None else "data449-acceptance-"
+        ) + uuid.uuid4().hex
         metadata = RunCreateMetadata(
             mode="DEV_MANUAL",
             trigger_type="MANUAL",
@@ -192,6 +237,21 @@ def main():
             relationship=relationship,
             rationale=render_rationale(analysis.rationale_claims),
         )
+        if args.prepare_rollback is not None:
+            # The file contains bounded public catalog facts, no credentials.
+            # Keep it outside the repository and supply it to the retry step.
+            with args.prepare_rollback.open("x", encoding="utf-8") as handle:
+                handle.write(request.model_dump_json())
+            print(
+                {
+                    "run_id": run_id,
+                    "recommendation_version_id": version_id,
+                    "operation_key": request.operation_key,
+                    "prepared_only": True,
+                    "request_path": str(args.prepare_rollback),
+                }
+            )
+            return
 
         # Independent sessions race on exactly the same logical write.
         def commit(_):
