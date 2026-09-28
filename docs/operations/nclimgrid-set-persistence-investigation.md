@@ -69,3 +69,66 @@ After review, identify the next outstanding approved month from the governed
 run ledger. Skip already successful months; resume failed runs through their
 existing recovery path. No full-history restart, PROD action, or automated
 warehouse resize follows from this investigation.
+
+## Protected January 2025 DEV result (2026-09-28)
+
+One corrected, authorized Tier B recapture ran on PR #488 persistence SHA
+`0adbfe2266fbbae73f4101c2c6b09defa9519f28`: workflow
+`36371872821`, governed run `c2eb2146-005d-44d2-bac4-e2805ca42577`.
+The protected workflow verified `OH_LYME_DEV_PIPELINE_SVC` /
+`OH_LYME_DEV_RUNTIME` / `ONE_HEALTH_LYME_GAP_ATLAS_DEV` /
+`OH_LYME_DEV_INGEST_XS_WH`. Its job ran 02:58:47–03:25:06 UTC;
+the governed run lasted 1,538.119 seconds (25m38.119s). The prior incorrect
+definition dispatch `36369518545` failed before creating a run.
+
+| Metric | Original January | Post-#487 | PR #488 measured |
+| --- | ---: | ---: | ---: |
+| Governed run wall time | 5h58m56s | 3h47m22s | 25m38.119s |
+| Runtime Snowflake queries | 26,794 | 11,740 | 815 |
+| MERGE | about 7,924 | 7,914 | 233 |
+| SELECT | 4,752 | 2,014 | 153 |
+| COMMIT | 9,409 | 1,208 | 186 |
+| ALTER_SESSION | 4,701 | 604 | 93 |
+| INSERT / UPDATE | not attributed here | 0 / 0 | 0 / 0 |
+| PUT / REMOVE | 0 / 0 | 0 / 0 | 75 / 75 |
+
+The #488 result reduced wall time by 88.73%, queries by 93.06%, MERGEs by
+97.06%, and COMMITs by 84.60% versus #487. The read-only protected runtime
+history action `36374666734` measured query types as `PUT_FILES` and
+`REMOVE_FILES`; it counted the service user's queries whose start time falls
+within the governed run window. The run had fewer than Snowflake's 10,000-row
+query-history function limit. Query-text mentions span 1,038.603s for checkpoint
+tables (56 queries), 214.901s for STAGING (25), 213.967s for CONFORMED (25),
+320.965s for RAW (27), and 249.018s for revisions (50). These are overlapping
+query-text spans, not exclusive stage execution times. Source transport upload
+bytes and attributable compute credits were not available from this runtime
+history view; do not infer either from canonical partition or artifact bytes.
+
+Protected inspect `36373674078` confirmed 389,856 normalized rows, 1,560
+logical partitions with ordinals 0–1559, 672,364,924 canonical bytes, a
+1,560-partition completion, 389,856 immutable revision rows, source definition
+version 2 / SHA-256 `808ef6c9420bbf11ecc15b721e69f07b5a7c29f94760484789ef7a45d1dc6b8a`,
+and retained NOAA/TIGER source artifacts totaling 145,003,099 bytes with the
+same digests as prior runs. The fresh-process ordered read `36373726782` read
+all 1,560 partitions in 14.778s without writes; the reader verifies canonical
+bytes, SHA-256, partition ID, row count, and contiguous ordinals. The January
+report `36373782437` reproduced 3,109 represented counties, support signature
+`64dddeb03a3d9dd09d3cb1120fd29bd29d9a53362fb27843ec98b19982109369`,
+385,516 COMPLETE and 4,340 OUT_OF_SOURCE_COVERAGE county-day measures.
+
+Exactly one unchanged non-recapture dispatch `36373841926` returned
+`skip_succeeded` for the new run. Post-check `36373901528` found all three
+previous January runs still present, plus the one new run; artifact count
+6→8 and retained bytes 435,009,297→580,012,396, normalized partition rows
+4,680→6,240 and canonical bytes 2,017,094,772→2,689,459,696, revision rows
+779,712→1,169,568, completions 2→3. The unchanged dispatch added zero
+governed records. A read-only stage-owner LIST found zero transport objects
+and bytes under the new run prefix and across the transport stage. Active and
+time-travel table bytes were not visible to the runtime; Account Usage may
+report them later with latency and without exact run attribution.
+
+The observed design is far better than the partition-coupled baseline, but
+815 total queries and 233 MERGEs remain above the investigation's aspirational
+few-hundred-query and tens-of-MERGEs shape. The merge decision therefore
+requires human review of that residual shape; this evidence does not authorize
+historical execution, PROD changes, or automatic merge.
