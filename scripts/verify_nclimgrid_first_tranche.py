@@ -82,26 +82,32 @@ def selected_runs(store: SnowflakeCheckpointStore) -> list[RunState]:
     return [by_month[month] for month in MONTHS]
 
 
-def history_counts(started: datetime, completed: datetime) -> dict[str, int]:
+def history_counts(started: datetime, completed: datetime) -> tuple[dict[str, int], dict[str, int]]:
     if started.tzinfo is None or completed.tzinfo is None or completed <= started:
         raise RuntimeError("Invalid governed run time window")
     lower = (started - timedelta(minutes=5)).isoformat()
     upper = (completed + timedelta(minutes=5)).isoformat()
     rows = query(
-        "SELECT QUERY_TYPE, START_TIME FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER("
+        "SELECT QUERY_TYPE, QUERY_TEXT, START_TIME "
+        "FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER("
         f"END_TIME_RANGE_START=>TO_TIMESTAMP_LTZ('{lower}'), "
         f"END_TIME_RANGE_END=>TO_TIMESTAMP_LTZ('{upper}'), RESULT_LIMIT=>10000))"
     )
     if len(rows) == 10000:
         raise RuntimeError("Query-history result limit reached")
     selected = [
-        str(row[0]).upper()
-        for row in rows
-        if isinstance(row[1], datetime) and started <= row[1] <= completed
+        row for row in rows if isinstance(row[2], datetime) and started <= row[2] <= completed
     ]
     if not selected:
         raise RuntimeError("Governed run query history is unavailable")
-    return dict(Counter(selected))
+    types = Counter(str(row[0]).upper() for row in selected)
+    insert_targets: Counter[str] = Counter()
+    for query_type, query_text, _started in selected:
+        if str(query_type).upper() != "INSERT":
+            continue
+        target = re.search(r"\bINSERT\s+INTO\s+([A-Z0-9_.]+)", str(query_text).upper())
+        insert_targets[target.group(1) if target else "UNCLASSIFIED"] += 1
+    return dict(types), dict(insert_targets)
 
 
 def measure_run(store: SnowflakeCheckpointStore, state: RunState) -> dict[str, Any]:
@@ -188,6 +194,7 @@ def measure_run(store: SnowflakeCheckpointStore, state: RunState) -> dict[str, A
     with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
         cursor.execute(f"LIST @GOVERNANCE.INGESTION_BULK_STAGE/{run_id}/")
         run_stage_objects = list(cursor.fetchall())
+    query_types, insert_targets = history_counts(started, completed)
     return {
         "month": month,
         "run_id": run_id,
@@ -205,7 +212,8 @@ def measure_run(store: SnowflakeCheckpointStore, state: RunState) -> dict[str, A
             {"id": str(a[0]), "sha256": str(a[1]), "bytes": int(a[2])} for a in artifact_rows
         ],
         "coverage": monthly,
-        "query_types": history_counts(started, completed),
+        "query_types": query_types,
+        "insert_targets": insert_targets,
     }
 
 
