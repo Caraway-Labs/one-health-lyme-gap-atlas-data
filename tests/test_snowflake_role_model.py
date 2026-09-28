@@ -79,6 +79,10 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         "verify-surveillance-coverage-dev",
         # Story #172: manual DEV-only unordered triage fixture persistence check.
         "verify-surveillance-priority-dev",
+        # DATA #497: protected, temporary literature PRE_DEPLOY operation.
+        # It preserves the six-job PROD baseline and requires a human steward
+        # decision between discovery and approved-paper extraction.
+        "run-prod-literature-once",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (

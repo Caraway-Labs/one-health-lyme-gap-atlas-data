@@ -1,0 +1,119 @@
+name: Run bounded PROD literature operation once
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact immutable pipeline image active in DEV and PROD
+        required: true
+        type: string
+      operation:
+        description: One governed literature stage; preflight checks private Neo4j connectivity only
+        required: true
+        type: choice
+        options: [preflight, discover, extract, build-corpus]
+      family:
+        description: Discovery family (used only for discover)
+        required: true
+        type: choice
+        options: [surveillance_epidemiology, vector_host_pathogen, environment_exposure, diagnostics_interventions_outcomes]
+      max_records:
+        description: Discovery records, 1-25 (used only for discover)
+        required: true
+        default: "25"
+        type: string
+      batch_size:
+        description: NCBI EFetch page size, 1-max_records (used only for discover)
+        required: true
+        default: "25"
+        type: string
+      estimated_cost_usd:
+        description: Per-paper extraction budget reservation estimate, 0.01-20 USD
+        required: true
+        default: "0.10"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-literature-one-shot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      LITERATURE_OPERATION: ${{ inputs.operation }}
+      LITERATURE_FAMILY: ${{ inputs.family }}
+      MAX_RECORDS: ${{ inputs.max_records }}
+      BATCH_SIZE: ${{ inputs.batch_size }}
+      ESTIMATED_COST_USD: ${{ inputs.estimated_cost_usd }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Run the selected temporary literature job and restore baseline
+        shell: bash
+        env:
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+          NEO4J_RUNTIME_PASSWORD: ${{ secrets.NEO4J_RUNTIME_PASSWORD }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test -n "$PROD_APP_ID"
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$MAX_RECORDS" =~ ^[0-9]{1,2}$ ]]
+          [[ "$BATCH_SIZE" =~ ^[0-9]{1,2}$ ]]
+
+          baseline_spec="$(mktemp)"
+          operation_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          chmod 600 "$baseline_spec" "$operation_spec" "$dev_spec"
+          baseline_captured=false
+          restore_baseline() {
+            operation_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then
+                echo "::error::Literature job topology restoration failed. Restore the captured six-job spec before another production action."
+                operation_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$operation_spec" "$dev_spec"
+            trap - EXIT
+            exit "$operation_status"
+          }
+          trap restore_baseline EXIT
+
+          # Never print the specs: they contain encrypted provider values.
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          dev_deployment_id="$(doctl apps get "$DEV_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
+          prod_deployment_id="$(doctl apps get "$PROD_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
+          test "$(doctl apps get-deployment "$DEV_APP_ID" "$dev_deployment_id" --output json | jq -r '.[0].phase')" = ACTIVE
+          test "$(doctl apps get-deployment "$PROD_APP_ID" "$prod_deployment_id" --output json | jq -r '.[0].phase')" = ACTIVE
+          doctl apps spec get "$DEV_APP_ID" --deployment "$dev_deployment_id" --format json > "$dev_spec"
+          test "$(jq -r '[.jobs[].image.digest] | unique | .[0]' "$dev_spec")" = "$IMAGE_DIGEST"
+          test "$(jq -r '[.jobs[].image.digest] | unique | length' "$dev_spec")" = 1
+
+          python scripts/prod_literature_job_spec.py \
+            --baseline "$baseline_spec" --output "$operation_spec" \
+            --operation "$LITERATURE_OPERATION" --image-digest "$IMAGE_DIGEST" \
+            --family "$LITERATURE_FAMILY" --max-records "$MAX_RECORDS" \
+            --batch-size "$BATCH_SIZE" --estimated-cost-usd "$ESTIMATED_COST_USD"
+          baseline_captured=true
+          doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "One bounded $LITERATURE_OPERATION invocation completed; restoring the six-job topology."
