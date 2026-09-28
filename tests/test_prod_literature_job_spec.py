@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from runpy import run_path
 
 import pytest
 import yaml
 
-from scripts.prod_literature_job_spec import build_spec
+build_spec = run_path(
+    str(Path(__file__).resolve().parents[1] / "scripts" / "prod_literature_job_spec.py")
+)["build_spec"]
 
 DIGEST = "sha256:" + "a" * 64
 
