@@ -11,6 +11,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from lyme_gap_atlas_data.ingestion.bulk_stage import remove_transport, stage_json_rows
+from lyme_gap_atlas_data.ingestion.checkpoints import _bulk_partition_merge_sql
 from lyme_gap_atlas_data.ingestion.runtime import (
     _bulk_record_source,
     _check_bulk_revision_conflicts,
@@ -58,6 +59,16 @@ def _verify_destination_types(cursor: Any) -> None:
             "TRANSFORMATION_VERSION": "VARCHAR",
             "OBSERVED_AT": "TIMESTAMP_LTZ",
         },
+        "GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS": {
+            "INGESTION_RUN_ID": "VARCHAR",
+            "PARTITION_ORDINAL": "NUMBER",
+            "PARTITION_ID": "VARCHAR",
+            "VALUE_SHA256": "VARCHAR",
+            "ROW_COUNT": "NUMBER",
+            "BYTE_COUNT": "NUMBER",
+            "RECORDS": "VARIANT",
+            "CREATED_AT": "TIMESTAMP_LTZ",
+        },
     }
     for relation, expected in relations.items():
         cursor.execute(f"DESCRIBE TABLE {relation}")
@@ -69,7 +80,7 @@ def _verify_destination_types(cursor: Any) -> None:
         }
         if differences:
             raise AssertionError(f"Live destination type mismatch {relation}: {differences}")
-    print("Live projection and revision destination types match V069/V103")
+    print("Live checkpoint, projection, and revision destination types match V069/V103")
 
 
 def main() -> None:
@@ -166,6 +177,38 @@ def main() -> None:
             cursor.execute(f"LIST {prefix}")
             if cursor.fetchall():
                 raise AssertionError("Canary transport residue remains")
+        partition_prefix = f"@GOVERNANCE.INGESTION_BULK_STAGE/{run_id}/partitions"
+        cursor.execute(f"LIST {partition_prefix}")
+        if cursor.fetchall():
+            raise AssertionError("Canary checkpoint prefix already contains objects")
+        partition_source = stage_json_rows(
+            cursor,
+            run_id=run_id,
+            kind="partitions",
+            rows=[
+                {
+                    "run_id": run_id,
+                    "ordinal": 0,
+                    "partition_id": "canary-partition",
+                    "sha256": "0" * 64,
+                    "row_count": 0,
+                    "byte_count": 2,
+                    "records": {"format": "canonical-json-v1", "canonical_json": "[]"},
+                }
+            ],
+        )
+        try:
+            cursor.execute("EXPLAIN USING TEXT " + _bulk_partition_merge_sql(partition_source))
+            cursor.fetchall()
+            cursor.execute(f"LIST {partition_prefix}")
+            if len(cursor.fetchall()) != 1:
+                raise AssertionError("Canary checkpoint transport object missing")
+            print("Checkpoint MERGE planned against protected destination")
+        finally:
+            remove_transport(cursor, partition_source)
+            cursor.execute(f"LIST {partition_prefix}")
+            if cursor.fetchall():
+                raise AssertionError("Canary checkpoint transport residue remains")
     print("Protected DEV transport canary passed; no governed table writes")
 
 

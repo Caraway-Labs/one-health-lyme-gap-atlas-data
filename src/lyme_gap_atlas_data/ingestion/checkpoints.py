@@ -391,6 +391,27 @@ class FileCheckpointStore:
         return self._payload_path(run_id, "partitions-complete").exists()
 
 
+def _bulk_partition_merge_sql(source: str) -> str:
+    """Use one production SQL shape for checkpoint writes and protected planning."""
+    return f"""MERGE INTO GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS target
+                    USING (SELECT $1:run_id::VARCHAR AS ingestion_run_id,
+                                  $1:ordinal::NUMBER AS partition_ordinal,
+                                  $1:partition_id::VARCHAR AS partition_id,
+                                  $1:sha256::VARCHAR AS value_sha256,
+                                  $1:row_count::NUMBER AS row_count,
+                                  $1:byte_count::NUMBER AS byte_count,
+                                  $1:records AS records
+                           FROM {source}) source
+                    ON target.ingestion_run_id=source.ingestion_run_id
+                       AND target.partition_ordinal=source.partition_ordinal
+                    WHEN NOT MATCHED THEN INSERT
+                      (ingestion_run_id, partition_ordinal, partition_id,
+                       value_sha256, row_count, byte_count, records)
+                      VALUES (source.ingestion_run_id, source.partition_ordinal,
+                              source.partition_id, source.value_sha256,
+                              source.row_count, source.byte_count, source.records)"""
+
+
 class SnowflakeCheckpointStore:
     """V068/V070-backed checkpoint store used by DEV/PROD worker containers."""
 
@@ -720,25 +741,7 @@ class SnowflakeCheckpointStore:
                 if completion is not None and max(ordinals) >= int(completion[0]):
                     raise ValueError("Completed partition set cannot be extended")
                 source = stage_json_rows(cursor, run_id=run_id, kind="partitions", rows=documents)
-                cursor.execute(
-                    f"""MERGE INTO GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS target
-                    USING (SELECT $1:run_id::VARCHAR AS ingestion_run_id,
-                                  $1:ordinal::NUMBER AS partition_ordinal,
-                                  $1:partition_id::VARCHAR AS partition_id,
-                                  $1:sha256::VARCHAR AS value_sha256,
-                                  $1:row_count::NUMBER AS row_count,
-                                  $1:byte_count::NUMBER AS byte_count,
-                                  $1:records AS records
-                           FROM {source}) source
-                    ON target.ingestion_run_id=source.ingestion_run_id
-                       AND target.partition_ordinal=source.partition_ordinal
-                    WHEN NOT MATCHED THEN INSERT
-                      (ingestion_run_id, partition_ordinal, partition_id,
-                       value_sha256, row_count, byte_count, records)
-                      VALUES (source.ingestion_run_id, source.partition_ordinal,
-                              source.partition_id, source.value_sha256,
-                              source.row_count, source.byte_count, source.records)"""
-                )
+                cursor.execute(_bulk_partition_merge_sql(source))
                 placeholders = ", ".join("%s" for _ in ordinals)
                 cursor.execute(
                     "SELECT partition_ordinal, partition_id, value_sha256, row_count, "
