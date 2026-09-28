@@ -1,8 +1,9 @@
 # Data #499: API #53 runtime metadata handoff
 
-Status: owner-approved bounded null semantics; DEV V123 deployed, V124
-identity correction pending verification. This is a consumer-safe Data
-publication contract, not an approved public HTTP shape.
+Status: owner-approved bounded null semantics; DEV V123/V124 deployed and
+verified on 2026-09-28. PROD promotion remains protected and pending PR merge.
+This is a consumer-safe Data publication contract, not an approved public HTTP
+shape.
 
 ## Source and binding
 
@@ -82,11 +83,34 @@ the DEV ledger records checksum `d0d9cb658da7a7c993944c6509cf58411e22f7832f0596c
 `OH_LYME_DEV_READ` read six indicator rows and fourteen measure rows for
 `governed-2026-09-17-unknown-coverage` / schema `1.0.0`. Live inspection found
 all fourteen V123 measure parent links broken because the historical release
-builder bound measure and indicator IDs in reverse physical columns. This is
-the reason for forward-only V124; V123 alone is not the final consumer view.
-After V124, prove both SELECTs as
-`OH_LYME_DEV_READ`, inspect grants and denied base-table access, then use the
-protected PROD promotion path and repeat with the actual API role. Record
-release ID/version from both views and `CURRENT_RELEASE_V` before declaring
-API #53 unblocked in a live environment. No production data or pre-existing
-presentation view definition is changed by V123/V124.
+builder bound measure and indicator IDs in reverse physical columns. V124 was
+applied through DEV workflow run 36436776509 at commit `3429a5a`; its ledger
+checksum is `08e682e26cee143e8915e9548c44603826242495109f5355babd04d666b7038b`.
+After V124, the `READ` role queried fourteen distinct measure IDs with zero
+broken indicator links. The six indicator rows have measure counts 2, 4, 1,
+4, 1, and 2 in indicator-ID order. Representative reads returned
+`case_count_floor_2023 -> human_disease_burden` (`cases`, `COUNTY_FIPS_5`,
+`2023`) and `state_unallocated_records_2023 -> human_disease_burden`
+(`records`, `STATE`, `2023`). All intentionally unknown columns remained null.
+Both views resolve to the same release/schema pair as `CURRENT_RELEASE_V`.
+
+`INFORMATION_SCHEMA.VIEWS` confirmed both objects are in DEV `PRESENTATION`
+and owned by `OH_LYME_DEV_OWNER`. `SHOW GRANTS ON VIEW` showed one `SELECT`
+grant to `OH_LYME_DEV_READ` on each view. Queries using that role succeeded
+against both views; direct `SELECT` on `SEMANTIC_RELEASE_POINTER` and
+`SEMANTIC_MEASURES` returned Snowflake 002003 (not found or not authorized).
+The owner-only status view showed the current release `PUBLISHED` and a
+different `RETIRED` release; neither view returned historical rows. The
+existing county view still returned 3,144 distinct counties and the source
+metadata view returned five sources. No release pointer or historical release
+row was updated by either migration. Candidate rejection and rollback behavior
+are also covered by the query-level test using both physical identity layouts;
+no live pointer transition was made solely for this story.
+
+API #53 may consume these views as its governed runtime metadata source in an
+environment after the views and `READ` grants are deployed there. DEV meets
+that gate and API implementation can proceed using this contract. PROD still
+needs the normal merge-to-main image path, a DEV-tested digest, protected PROD
+promotion, and the equivalent `OH_LYME_PROD_READ` read/denial checks. PROD
+deployment and API runtime verification are not claimed here. Existing
+presentation view definitions remain unchanged by V123/V124.
