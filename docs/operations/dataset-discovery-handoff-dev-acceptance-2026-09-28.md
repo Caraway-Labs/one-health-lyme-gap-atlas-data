@@ -20,7 +20,7 @@ An exact retry returned the same handoff ID and logical result. Reuse of the sam
 
 This run proves first handoff, exact retry/lost-response recovery and conflicting event replay against a live recommendation. The initial simultaneous CLI attempt failed before one process connected; the independent-connector rerun below resolves that gap. No PROD role/grant or V106–V113 promotion is authorized by this DEV exercise.
 
-V106–V108 have DEV runtime/persistence proof from PR #502. V109 has attributable DEV review proof here. V110 and V113 have live handoff proof here. V111 and V112 live view reads are recorded below. The subsequent post-intake rollback exercise and remaining controlled fixture limits are recorded below. The set remains outside PROD readiness pending complete negative fixtures and protected production promotion review.
+V106–V108 have DEV runtime/persistence proof from PR #502. V109 has attributable DEV review proof here. V110 and V113 have live handoff proof here. V111 and V112 live view reads are recorded below. The subsequent post-intake rollback exercise and owner-reviewed contract substitutions are recorded below. Protected production promotion review remains separate.
 
 ## Protected V125 deployment and status read
 
@@ -48,7 +48,7 @@ Protected [DEV workflow run 36482497080](https://github.com/Caraway-Labs/one-hea
 
 The controlled fixture version `b0d664168a3ec74d143958e9456f15d58c3947b48d1cfc9931ee494e12133d57` was accepted by the authenticated human reviewer under event `5ca401592d3b6566d38e0427d9c3331fc735109c337050cf4242039c79954095` (sequence 92). The probe observed one uncommitted investigation row, one bounded receipt row, and one queue row, then raised `DATA450_AFTER_INTAKE_INSERT_BEFORE_COMMIT`. After rollback all three counts were zero. The real handoff procedure then accepted the same version/event and returned handoff `5371dd2ea06de1030b73d01e963067ff8ceb30b4798fb5d74fb57b4a424f603c`, `HANDED_OFF` / `PENDING`. Its exact replay returned the same ID; the bounded receipt view contained one logical row. The failed transaction left no durable failed receipt or duplicate idempotency state. No approval, ingestion, publication, or catalog state was touched.
 
-`RETRYABLE_FAILURE` and `TERMINAL_FAILURE` are client-side classifications, not persisted procedure rows. The Dataset Discovery handoff client owns this classification: an acknowledgement loss, transport interruption, or transient database availability error is retryable with the **same version and review-event IDs**; a validation, stale state, authorization, policy, or conflicting-replay error is terminal until its underlying governed state is corrected. The caller may read the bounded receipt and retry after an unknown outcome. V113 serializes on `WRITE_SERIALIZATION` and derives `handoff-v1:<version>`; an exact replay returns the committed result and changed logical content fails closed. The contract currently has no application-side transport classification implementation/proof in this data repository; this is a remaining cross-repository acceptance limit.
+`RETRYABLE_FAILURE` and `TERMINAL_FAILURE` are client-side classifications, not persisted procedure rows. The Dataset Discovery handoff client owns this classification: an acknowledgement loss, transport interruption, or transient database availability error is retryable with the **same version and review-event IDs**; a validation, stale state, authorization, policy, or conflicting-replay error is terminal until its underlying governed state is corrected. The caller may read the bounded receipt and retry after an unknown outcome. V113 serializes on `WRITE_SERIALIZATION` and derives `handoff-v1:<version>`; an exact replay returns the committed result and changed logical content fails closed. Application-side transport classification belongs to Dataset Discovery #3 and is outside Data #450 acceptance.
 
 ## Controlled source-state assessment
 
@@ -58,6 +58,16 @@ The controlled-access resource `candidate:d1ff6c4a9f6f1c9e91d50ab9fa507a11` was 
 
 Five resources in `V_CANDIDATE_GOVERNED_STATUS` are already governed, but none joins the current `V_CANDIDATE_SUMMARY` snapshot. There is no existing legitimate candidate from which to create an accepted already-governed handoff without new catalog/governance data. No such data was manufactured. Likewise, no accepted recommendation with absent evidence or stale evidence snapshot can be produced through the current bounded runtime/review interfaces without bypassing the protected persistence checks or altering authoritative observations. V113 contains `MISSING_EVIDENCE` and `EVIDENCE_CATALOG_MISMATCH` guards, with contract tests, but those branches remain without live DEV handoff proof. A random nonexistent ID would exercise `REJECTED_OR_STALE_HANDOFF`, not the intended evidence/snapshot branch.
 
+## Owner-reviewed acceptance substitutions
+
+The Data #450 owner accepts contract-test coverage for deliberately missing/invalid evidence and stale snapshot linkage because the reviewed runtime and human-review interfaces cannot legitimately create an accepted recommendation with those defects. Creating one would bypass governance or alter authoritative catalog observations. `tests/test_dataset_discovery_handoff_snapshot_contract.py::test_missing_or_foreign_evidence_fails_before_investigation_intake` asserts the `MISSING_EVIDENCE`, `AMBIGUOUS_EVIDENCE`, and `EVIDENCE_CATALOG_MISMATCH` guards precede intake and bind the canonical catalog identity. `test_stale_snapshot_fails_before_investigation_intake` asserts the pinned `ingestion_run_id` match, mismatch denial before intake, and rollback path. These are **CONTRACT TEST ACCEPTED**, not live DEV executions of corrupt state.
+
+The owner also accepts **CONTRACT TEST ACCEPTED** for `ALREADY_GOVERNED`, given the absence of a safe natural DEV candidate/governed-source overlap. `tests/test_dataset_discovery_handoff_contract.py::test_already_governed_reuses_authoritative_resource_identity_without_onboarding` asserts V106 derives governed status from the existing `DATA_SOURCE_VERSIONS` record by canonical resource key, V113 returns `ALREADY_GOVERNED` rather than a pending investigation, carries the original catalog identity, and contains no approval/ingestion-table write. `test_handoff_has_no_approval_or_ingestion_write_path` checks the bounded insert and forbidden DML. V113's serialized operation key and replay path prevent a duplicate logical receipt. No catalog or governance data was manufactured.
+
+`EXACT_DUPLICATE` is **LIVE PROVEN upstream** by V111's link and the typed client's abstention before recommendation persistence; forcing a handoff would violate that contract. `MIRROR` is **NOT APPLICABLE** because V111 does not assert it. `RETRYABLE_FAILURE` / `TERMINAL_FAILURE` transport and database-error classification is **DOWNSTREAM APPLICATION OWNERSHIP** under Dataset Discovery #3's handoff client; it is not a Data #450 durable Snowflake row or closure condition. Data #450 owns atomic intake, rollback, stable receipts, idempotency, security, and status persistence, all proven above.
+
+Under these owner decisions, the Data #450 definition of done is satisfied in DEV. No known Data-layer acceptance blocker remains. This does not approve or execute PROD promotion.
+
 ## Negative acceptance matrix
 
 | Case | Status | Evidence / limit |
@@ -66,10 +76,10 @@ Five resources in `V_CANDIDATE_GOVERNED_STATUS` are already governed, but none j
 | Rejected | LIVE PROVEN | Rejected review handoff denied |
 | Stale review | LIVE PROVEN | Prior event rejected |
 | Missing review | LIVE PROVEN | Missing event rejected |
-| Invalid/missing evidence | CONTRACT TEST ONLY | V113 evidence guards; no safe accepted bad-evidence fixture |
-| Stale snapshot | CONTRACT TEST ONLY | V113 snapshot join; no safe accepted stale snapshot fixture |
+| Invalid/missing evidence | CONTRACT TEST ONLY; OWNER ACCEPTED | V113 evidence guards; exact tests above |
+| Stale snapshot | CONTRACT TEST ONLY; OWNER ACCEPTED | V113 pinned snapshot join; exact test above |
 | Unknown version | LIVE PROVEN | Unknown version denied |
-| Already governed | CONTRACT TEST ONLY | V110/V113 disposition; no candidate/governed snapshot overlap |
+| Already governed | CONTRACT TEST ONLY; OWNER ACCEPTED | V106 authoritative status and V113 disposition; exact test above |
 | Exact duplicate | LIVE PROVEN | V111 link and typed client abstention; handoff not reachable |
 | Mirror | NOT APPLICABLE | V111 does not assert MIRROR; alternate distribution is distinct |
 | Alternate distribution | LIVE PROVEN | Hosted shadow recommendation and handoff preserve relationship |
@@ -87,15 +97,15 @@ V111 live acceptance confirms a canonical identity link with retained basis for 
 
 All eight DEV migration ledger checksums match the source-controlled migration plan. ADR 0041 approves the three-role design in PR #503; this does not constitute approval to promote any migration to PROD.
 
-| Migration | DEV deployed | DEV live proof | Contract tests | Governance approved | Security proof | PROD-ready | Remaining blocker |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| V106 | Yes | #449 schema/persistence round trip | Yes | Architecture accepted; PROD promotion pending | Bounded grants | No | Protected PROD schema/grant review |
-| V107 | Yes | #449 runtime create/outcome/finalize | Yes | Architecture accepted; PROD promotion pending | Service boundary | No | Protected PROD role/procedure review |
-| V108 | Yes | PR #502 typed commit, replay, concurrency, rollback | Yes | Architecture accepted; PROD promotion pending | Runtime-only write procedure | No | Protected PROD transaction review |
-| V109 | Yes | Attributable review, rejected/stale denials | Yes | ADR 0041 accepted; PROD promotion pending | Runtime review denied; reviewer scoped | No | Protected PROD reviewer assignment/caller proof |
-| V110 | Yes | First handoff, replay, concurrency; post-intake transaction-shape rollback/retry | Yes | ADR 0041 accepted; PROD promotion pending | No approval/ingestion/publication path | No | Already-governed live fixture and protected PROD review |
-| V111 | Yes | Canonical alternate and exact-duplicate links | Yes | Contract reviewed; PROD promotion pending | Runtime bounded view | No | Protected PROD identity snapshot/access review |
-| V112 | Yes | Artifact hash, absent prior assessment, controlled access context | Yes | Contract reviewed; PROD promotion pending | Runtime bounded view | No | Protected PROD artifact/assessment review |
-| V113 | Yes | Valid snapshot handoff and post-intake transaction-shape rollback/retry | Yes | ADR 0041 accepted; PROD promotion pending | Stale review/runtime denial | No | Live invalid-evidence and stale-snapshot branches; protected PROD review |
+| Migration | DEV deployed | DEV evidence complete | Governance accepted | Security evidence sufficient | Ready for PROD promotion review | Review focus |
+| --- | --- | --- | --- | --- | --- | --- |
+| V106 | Yes | Yes; #449 schema/persistence round trip | Yes; #449 scope | Yes; bounded grants | Yes | Target schema and grants |
+| V107 | Yes | Yes; #449 runtime create/outcome/finalize | Yes; #449 scope | Yes; service boundary | Yes | Target role/procedure grants |
+| V108 | Yes | Yes; PR #502 typed commit, replay, concurrency, rollback | Yes; #449 scope | Yes; runtime-only write procedure | Yes | Target transaction behavior |
+| V109 | Yes | Yes; attributable review and state denials | Yes; ADR 0041 | Yes; runtime review denied, reviewer scoped | Yes | Target reviewer assignment and caller proof |
+| V110 | Yes | Yes; handoff, replay, concurrency, post-intake rollback; owner-accepted already-governed contract test | Yes; ADR 0041 | Yes; no approval/ingestion/publication path | Yes | Target handoff and grants |
+| V111 | Yes | Yes; canonical alternate and exact-duplicate links | Yes; reviewed contract | Yes; bounded runtime view | Yes | Target identity snapshot and access |
+| V112 | Yes | Yes; artifact hash, absent assessment, controlled access context | Yes; reviewed contract | Yes; bounded runtime view | Yes | Target artifact/assessment access |
+| V113 | Yes | Yes; valid handoff, rollback/retry, owner-accepted evidence/snapshot contract tests | Yes; ADR 0041 | Yes; stale review/runtime denial | Yes | Target snapshot guards and rollback |
 
-The set is **not PROD-ready** and Data #450's full live negative-fixture acceptance is incomplete. The post-intake transaction boundary is proven in DEV, while invalid evidence, stale snapshot, and already-governed procedure outcomes need legitimate controlled fixtures or an owner-reviewed substitute. No catalog/governance records were forged for this purpose. PROD still needs protected approval and equivalent security checks. API PR #112 remains parked through V106–V113 approval, sequential V123/V124 promotion, PROD metadata view creation, and `OH_LYME_PROD_READ` verification.
+The owner-reviewed substitutions complete Data #450 DEV acceptance. All V106–V113 migrations are **ready for protected PROD promotion review**, but are neither approved for PROD deployment nor PROD deployed. The promotion review must inspect target-state roles, catalog/identity snapshots, migration plans and security controls before authorization. API PR #112 remains parked through V106–V113 approval and promotion, sequential V123/V124 promotion, PROD metadata view creation, and `OH_LYME_PROD_READ` verification.

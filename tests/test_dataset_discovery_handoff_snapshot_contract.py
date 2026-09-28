@@ -35,3 +35,24 @@ def test_handoff_requires_snapshot_and_nonempty_reviewed_rights_evidence() -> No
     assert "SP_APPROVE" not in sql.upper()
     statements = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
     assert "GRANT " not in statements.upper()
+
+
+def test_missing_or_foreign_evidence_fails_before_investigation_intake() -> None:
+    sql = SQL.read_text(encoding="utf-8")
+    intake = sql.index("INSERT INTO GOVERNANCE.DATASET_DISCOVERY_INVESTIGATION_REQUESTS")
+    assert sql.index("if (evidence_ids.length < 1 || evidence_ids.length > 100)") < intake
+    assert sql.index("throw new Error('MISSING_EVIDENCE')") < intake
+    assert sql.index("throw new Error('AMBIGUOUS_EVIDENCE')") < intake
+    assert sql.index("throw new Error('EVIDENCE_CATALOG_MISMATCH')") < intake
+    assert "o.catalog_dataset_id = ?" in sql
+    assert "o.catalog_resource_id = ?" in sql
+    assert "o.canonical_resource_key = ?" in sql
+
+
+def test_stale_snapshot_fails_before_investigation_intake() -> None:
+    sql = SQL.read_text(encoding="utf-8")
+    intake = sql.index("INSERT INTO GOVERNANCE.DATASET_DISCOVERY_INVESTIGATION_REQUESTS")
+    assert "o.ingestion_run_id = ?" in sql
+    assert "resource_key, snapshot_id]);" in sql
+    assert sql.index("throw new Error('EVIDENCE_CATALOG_MISMATCH')") < intake
+    assert sql.index("snowflake.execute({sqlText: 'ROLLBACK'});") > intake

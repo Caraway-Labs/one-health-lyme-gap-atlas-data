@@ -52,3 +52,30 @@ def test_unknown_rights_can_be_investigated_without_acquisition() -> None:
     assert "V_HANDOFF_RECEIPTS" in sql
     assert "V_DATASET_DISCOVERY_INVESTIGATION_QUEUE" in sql
     assert "RELATIONSHIP_TYPE" in sql
+
+
+def test_already_governed_reuses_authoritative_resource_identity_without_onboarding() -> None:
+    foundation = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "V106__dataset_discovery_persistence_foundation.sql"
+    ).read_text(encoding="utf-8")
+    sql = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "V113__dataset_discovery_handoff_snapshot_validation.sql"
+    ).read_text(encoding="utf-8")
+    assert (
+        "LEFT JOIN GOVERNANCE.DATA_SOURCE_VERSIONS v ON v.resource_key = r.resource_key"
+        in foundation
+    )
+    assert "v.retired_at IS NULL AND v.status IN ('APPROVED','CONDITIONAL')" in foundation
+    assert "SELECT already_governed FROM DATASET_DISCOVERY.V_CANDIDATE_GOVERNED_STATUS" in sql
+    assert "'WHERE resource_key = ?', [resource_key]" in sql
+    assert "governed ? 'ALREADY_GOVERNED' : 'HANDED_OFF'" in sql
+    assert "var investigation_status = disposition === 'HANDED_OFF' ? 'PENDING' :" in sql
+    assert "resource_key, catalog_dataset_id, " in sql
+    assert "catalog_resource_id, evidence_snapshot_id" in sql
+    assert "DATA_SOURCE_VERSIONS" not in sql
+    assert "MANUAL_REVIEW_DECISIONS" not in sql
+    assert "INGESTION_RUNS" not in sql
