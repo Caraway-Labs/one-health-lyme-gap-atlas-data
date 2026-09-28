@@ -91,6 +91,23 @@ def _row(payload: dict[str, Any], **extra: Any) -> dict[str, Any]:
     }
 
 
+def test_hierarchy_builder_binds_stable_measure_and_indicator_ids() -> None:
+    class CapturingCursor:
+        def __init__(self) -> None:
+            self.measures: tuple[str, list[tuple[Any, ...]]] | None = None
+
+        def executemany(self, sql: str, rows: list[tuple[Any, ...]]) -> None:
+            if "INSERT INTO PRESENTATION.SEMANTIC_MEASURES" in sql:
+                self.measures = (sql, rows)
+
+    cursor = CapturingCursor()
+    semantic_release._insert_hierarchy(cursor, _manifest())
+    assert cursor.measures is not None
+    sql, rows = cursor.measures
+    assert "(release_id, indicator_id, measure_id, label" in sql
+    assert rows[0][:3] == ("test-release", "county_reference", "county_fips")
+
+
 def test_template_is_not_executable_until_reviewed() -> None:
     with pytest.raises(SemanticReleaseBlocked, match="placeholder"):
         load_manifest(TEMPLATE)
