@@ -953,9 +953,12 @@ def source_nclimgrid_pilot_measure(
         "inspect": lambda: measurement.inspect_run(_required_run_id(run_id)),
         "ordered-read": lambda: measurement.ordered_read(_required_run_id(run_id)),
         "report": lambda: measurement.time_report(_required_run_id(run_id)),
+        "benchmark-history": lambda: measurement.benchmark_history(_required_run_id(run_id)),
     }
     if action not in actions:
-        raise typer.BadParameter("Use preflight, inspect, ordered-read, or report")
+        raise typer.BadParameter(
+            "Use preflight, inspect, ordered-read, report, or benchmark-history"
+        )
     if action == "preflight" and run_id is not None:
         raise typer.BadParameter("Preflight does not accept a run ID")
     typer.echo(json.dumps(actions[action](), default=str, sort_keys=True))

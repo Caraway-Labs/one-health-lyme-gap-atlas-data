@@ -15,13 +15,18 @@ from lyme_gap_atlas_data.ingestion.adapters import (
     AcquireResult,
     StreamingNormalizeResult,
 )
+from lyme_gap_atlas_data.ingestion.bulk_stage import stage_json_rows
 from lyme_gap_atlas_data.ingestion.checkpoints import (
     FileCheckpointStore,
     SnowflakeCheckpointStore,
 )
 from lyme_gap_atlas_data.ingestion.orchestrator import IngestionOrchestrator
 from lyme_gap_atlas_data.ingestion.partitioning import MAX_PARTITION_BYTES, partition_records
-from lyme_gap_atlas_data.ingestion.runtime import SnowflakeStageEffects, _insert_revisions
+from lyme_gap_atlas_data.ingestion.runtime import (
+    SnowflakeStageEffects,
+    _bulk_record_source,
+    _insert_revisions,
+)
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.ingestion.types import (
     AdapterKind,
@@ -32,6 +37,11 @@ from lyme_gap_atlas_data.ingestion.types import (
     StageStatus,
     Tier,
     ValidationResult,
+)
+from lyme_gap_atlas_data.migrations import (
+    load_migrations,
+    migration_execution_role,
+    render_migration,
 )
 from lyme_gap_atlas_data.semantic_release import SemanticSource, _read_source_rows
 
@@ -320,6 +330,87 @@ def test_snowflake_partition_batch_reduces_reads_and_commits() -> None:
         )
 
 
+def test_bulk_transport_is_content_addressed_and_does_not_overwrite() -> None:
+    class TransportCursor:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def execute(self, statement: str) -> None:
+            self.statements.append(statement)
+
+    cursor = TransportCursor()
+    staged = stage_json_rows(cursor, run_id="run-1", kind="partitions", rows=[{"id": 1}])
+    assert staged.startswith("@GOVERNANCE.INGESTION_BULK_STAGE/run-1/partitions/")
+    assert staged.endswith(".json.gz")
+    assert "OVERWRITE=FALSE" in cursor.statements[0]
+    assert stage_json_rows(cursor, run_id="run-1", kind="partitions", rows=[{"id": 1}]) == staged
+    with pytest.raises(ValueError, match="Unsafe"):
+        stage_json_rows(cursor, run_id="../run", kind="partitions", rows=[{"id": 1}])
+
+
+def test_staged_retrieval_timestamp_matches_existing_ltz_columns() -> None:
+    projection_schema = (
+        ROOT / "migrations/V069__generic_ingestion_records_and_publications.sql"
+    ).read_text(encoding="utf-8")
+    revision_schema = (
+        ROOT / "migrations/V103__bounded_ingestion_partitions_and_revisions.sql"
+    ).read_text(encoding="utf-8")
+    assert projection_schema.count("retrieved_at TIMESTAMP_LTZ NOT NULL") == 3
+    assert "retrieved_at TIMESTAMP_LTZ NOT NULL" in revision_schema
+    staged_sql = _bulk_record_source("@GOVERNANCE.INGESTION_BULK_STAGE/run/records/file")
+    assert "TO_TIMESTAMP_LTZ($1:retrieved_at::VARCHAR) AS retrieved_at" in staged_sql
+    assert "TO_TIMESTAMP_TZ(" not in staged_sql
+
+
+def test_bulk_stage_migration_is_additive_and_owner_executed() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V117")
+    assert migration_execution_role(migration, "ONE_HEALTH_LYME_GAP_ATLAS_DEV") == (
+        "OH_LYME_DEV_OWNER"
+    )
+    sql = render_migration(migration, "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    assert "CREATE STAGE IF NOT EXISTS" in sql
+    assert "OH_LYME_DEV_RUNTIME" in sql
+    assert all(word not in sql for word in ("DELETE", "TRUNCATE", "DROP", "REPLACE"))
+
+
+def test_bulk_checkpoint_one_merge_per_recovery_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parts = list(partition_records([{"record": {"id": i}} for i in range(64)], max_rows=1))
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.checkpoints.stage_json_rows",
+        lambda *args, **kwargs: (
+            "@GOVERNANCE.INGESTION_BULK_STAGE/run-1/partitions/partitions-" + "a" * 64 + ".json.gz"
+        ),
+    )
+
+    class BulkCursor(_Cursor):
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return [(p.ordinal, p.partition_id, p.sha256, 1, p.byte_count) for p in parts]
+
+    connection = _Connection(BulkCursor())
+    SnowflakeCheckpointStore(connection_factory=lambda: connection).save_bulk_partition_batch(
+        "run-1", parts
+    )
+    statements = [sql for sql, _ in connection._cursor.executed]
+    assert len(statements) == 4
+    assert sum("MERGE INTO" in sql for sql in statements) == 1
+    assert "WHEN MATCHED" not in statements[1]
+    assert statements[-1].startswith("REMOVE @GOVERNANCE.INGESTION_BULK_STAGE/")
+    assert connection.committed
+
+    class CorruptCursor(BulkCursor):
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return super().fetchall()[:-1]
+
+    corrupt = _Connection(CorruptCursor())
+    with pytest.raises(ValueError, match="checkpoint mismatch"):
+        SnowflakeCheckpointStore(connection_factory=lambda: corrupt).save_bulk_partition_batch(
+            "run-1", parts
+        )
+    assert not corrupt.committed
+
+
 def test_snowflake_stage_batches_reuse_transaction_without_changing_merges() -> None:
     definition = load_source_definition(DEFINITION)
     state = RunState(
@@ -353,6 +444,7 @@ def test_snowflake_stage_batches_reuse_transaction_without_changing_merges() -> 
                 status=StageStatus.COMPLETED,
                 artifact_id="artifact-1",
                 artifact_sha256="a" * 64,
+                completed_at="2025-01-01T00:00:00+00:00",
             ),
             StageCheckpoint(
                 stage=Stage.NORMALIZE,
@@ -383,6 +475,90 @@ def test_snowflake_stage_batches_reuse_transaction_without_changing_merges() -> 
             definition, state, records
         )
     assert not failed.committed
+
+
+def test_bulk_stage_effects_use_set_merges_and_group_conflict_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    definition = load_source_definition(DEFINITION)
+    state = RunState(
+        ingestion_run_id="run-1",
+        resource_key=definition.resource_key,
+        source_definition_version=definition.definition_version,
+        tier=Tier.B,
+        status=RunStatus.RUNNING,
+    )
+    state.stages.extend(
+        [
+            StageCheckpoint(
+                stage=Stage.ACQUIRE,
+                status=StageStatus.COMPLETED,
+                artifact_id="artifact-1",
+                artifact_sha256="a" * 64,
+                completed_at="2025-01-01T00:00:00+00:00",
+            ),
+            StageCheckpoint(
+                stage=Stage.NORMALIZE,
+                status=StageStatus.COMPLETED,
+                transformation_version="method-v1",
+            ),
+        ]
+    )
+    documents: list[list[dict[str, Any]]] = []
+
+    def stage(_cursor: Any, *, rows: list[dict[str, Any]], **_kwargs: Any) -> str:
+        documents.append(rows)
+        return "@GOVERNANCE.INGESTION_BULK_STAGE/run-1/records/records-" + "a" * 64 + ".json.gz"
+
+    monkeypatch.setattr("lyme_gap_atlas_data.ingestion.runtime.stage_json_rows", stage)
+    connections: list[_Connection] = []
+
+    def factory() -> _Connection:
+        connection = _Connection(_Cursor(fetches=[(64, 64, 0), (0,)]))
+        connections.append(connection)
+        return connection
+
+    effects = SnowflakeStageEffects(connection_factory=factory)
+    partitions = [[{"record": {"id": str(index)}}] for index in range(64)]
+    effects.materialize_bulk_batch(definition, state, partitions)
+    effects.load_bulk_batch(definition, state, partitions)
+    assert len(documents) == 2 and len(documents[0]) == 64
+    assert documents[0] == documents[1]
+    assert [len(connection._cursor.executed) for connection in connections] == [4, 5]
+    assert all(connection.committed for connection in connections)
+    assert (
+        sum(
+            "MERGE INTO" in sql
+            for connection in connections
+            for sql, _ in connection._cursor.executed
+        )
+        == 4
+    )
+    assert any("normalized_sha256<>SHA2" in sql for sql, _ in connections[1]._cursor.executed)
+    assert any(
+        "AS_VARCHAR($1:source_record_id)" in sql
+        for connection in connections
+        for sql, _ in connection._cursor.executed
+    )
+    assert all(
+        "WHEN MATCHED" not in sql
+        for connection in connections
+        for sql, _ in connection._cursor.executed
+    )
+
+    conflict = _Connection(_Cursor(fetches=[(64, 64, 0), (1,)]))
+    with pytest.raises(ValueError, match="Conflicting logical record"):
+        SnowflakeStageEffects(connection_factory=lambda: conflict).load_bulk_batch(
+            definition, state, partitions
+        )
+    assert not conflict.committed
+
+    truncated = _Connection(_Cursor(fetches=[(63, 63, 0)]))
+    with pytest.raises(ValueError, match="Bulk transport row count"):
+        SnowflakeStageEffects(connection_factory=lambda: truncated).materialize_bulk_batch(
+            definition, state, partitions
+        )
+    assert not truncated.committed
 
 
 def test_snowflake_partition_replay_and_completion_query_shape() -> None:

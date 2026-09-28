@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import tempfile
 import time
+from collections import Counter
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -388,3 +390,91 @@ def time_report(run_id: str) -> dict[str, object]:
             "partition_bytes": report["selected_normalized_partition_bytes"],
             "captured_month": months[0] if isinstance(months, list) and months else None,
         }
+
+
+def benchmark_history(run_id: str) -> dict[str, object]:
+    """Read the completed pilot's own query history and transport residue.
+
+    This runs only under the protected DEV runtime user. Query history is scoped
+    to that user and the governed run's timestamps; no SQL text is emitted.
+    """
+    state = _run(run_id)
+    identity = _identity()
+    if state.status is not RunStatus.SUCCEEDED or not all(
+        identity[key]
+        for key in ("user_matches", "role_matches", "database_matches", "warehouse_matches")
+    ):
+        raise MeasurementError("Benchmark history requires a succeeded protected DEV run")
+    window = _query_one(
+        "SELECT started_at, completed_at FROM GOVERNANCE.INGESTION_RUNS "
+        "WHERE ingestion_run_id=%s AND status='COMPLETED'",
+        (run_id,),
+    )
+    if window is None or not isinstance(window[0], datetime) or not isinstance(window[1], datetime):
+        raise MeasurementError("Completed governed run window is unavailable")
+    started, completed = window
+    if started.tzinfo is None or completed.tzinfo is None or completed <= started:
+        raise MeasurementError("Invalid governed run window")
+    lower = (started - timedelta(minutes=5)).isoformat()
+    upper = (completed + timedelta(minutes=5)).isoformat()
+    history_sql = (
+        "SELECT QUERY_ID, QUERY_TYPE, QUERY_TEXT, START_TIME, END_TIME "
+        "FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER("
+        f"END_TIME_RANGE_START=>TO_TIMESTAMP_LTZ('{lower}'), "
+        f"END_TIME_RANGE_END=>TO_TIMESTAMP_LTZ('{upper}'), RESULT_LIMIT=>10000))"
+    )
+    with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+        cursor.execute(history_sql)
+        rows = list(cursor.fetchall())
+        if len(rows) == 10000:
+            raise MeasurementError("Query history result hit Snowflake's 10000-row limit")
+        cursor.execute(f"LIST @GOVERNANCE.INGESTION_BULK_STAGE/{run_id}/")
+        objects = list(cursor.fetchall())
+    selected = [
+        row for row in rows if isinstance(row[3], datetime) and started <= row[3] <= completed
+    ]
+    if not selected:
+        raise MeasurementError("No protected runtime queries visible in governed run window")
+    counts = Counter(str(row[1]).upper() for row in selected)
+    paths: dict[str, list[tuple[Any, ...]]] = {
+        "checkpoint": [],
+        "staging": [],
+        "conformed": [],
+        "raw": [],
+        "revisions": [],
+    }
+    for row in selected:
+        sql = str(row[2]).upper()
+        if "INGESTION_RUN_NORMALIZED_PARTITIONS" in sql:
+            paths["checkpoint"].append(row)
+        if "STAGING." in sql:
+            paths["staging"].append(row)
+        if "CONFORMED." in sql:
+            paths["conformed"].append(row)
+        if "RAW." in sql:
+            paths["raw"].append(row)
+        if "GOVERNED_SOURCE_RECORD_REVISIONS" in sql:
+            paths["revisions"].append(row)
+
+    def span(path_rows: list[tuple[Any, ...]]) -> dict[str, object]:
+        starts = [row[3] for row in path_rows if isinstance(row[3], datetime)]
+        ends = [row[4] for row in path_rows if isinstance(row[4], datetime)]
+        return {
+            "query_count": len(path_rows),
+            "first_start": min(starts).isoformat() if starts else None,
+            "last_end": max(ends).isoformat() if ends else None,
+            "span_seconds": (max(ends) - min(starts)).total_seconds() if starts and ends else None,
+        }
+
+    return {
+        "run_id": run_id,
+        "run_started_at": started.isoformat(),
+        "run_completed_at": completed.isoformat(),
+        "run_seconds": (completed - started).total_seconds(),
+        "query_count": len(selected),
+        "query_type_counts": dict(sorted(counts.items())),
+        "path_spans": {name: span(path_rows) for name, path_rows in paths.items()},
+        "transport_object_count": len(objects),
+        "transport_object_bytes": sum(int(row[1]) for row in objects),
+        "history_scope": "current protected runtime user, governed run window",
+    }

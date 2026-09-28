@@ -163,6 +163,20 @@ This is a physical input to #190/#193 semantic
 revision and lineage validation, not a new scientific identity model. Existing
 V070 checkpoints and source adapters remain readable and executable.
 
+## Set-oriented Snowflake persistence extension
+
+ADR 0040 separates logical partition identity from physical Snowflake writes.
+The 250-row/900,000-byte logical partition, ordinal, canonical hash, ordered
+read, contiguous completion receipt, run identity, and immutable capture
+semantics above remain authoritative. Tier B/C Snowflake streaming execution
+may stage up to 64 logical partitions in one content-addressed transport group
+and apply insert-only sets to V103 and V069. Each committed checkpoint group
+is read back against its full expected metadata before later stage work.
+Transport files are not source artifacts and do not replace the retained
+ACQUIRE bytes or run-pinned member manifest. Existing V069/V103 rows remain
+readable without migration or backfill; migration V117 only adds the private
+internal transport stage. Tier A uses the existing local behavior.
+
 ## Story #432 named member replay extension
 
 [Run-pinned artifact member replay v1](multi-artifact-replay-v1.md) and ADR 0038
