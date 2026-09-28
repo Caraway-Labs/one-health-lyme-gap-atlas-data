@@ -20,7 +20,7 @@ An exact retry returned the same handoff ID and logical result. Reuse of the sam
 
 This run proves first handoff, exact retry/lost-response recovery and conflicting event replay against a live recommendation. The initial simultaneous CLI attempt failed before one process connected; the independent-connector rerun below resolves that gap. No PROD role/grant or V106–V113 promotion is authorized by this DEV exercise.
 
-V106–V108 have DEV runtime/persistence proof from PR #502. V109 has attributable DEV review proof here. V110 and V113 have live handoff proof here. V111 and V112 live view reads are recorded below. The set remains outside PROD readiness pending downstream failure/retry proof, complete controlled negative fixtures, and protected production promotion review.
+V106–V108 have DEV runtime/persistence proof from PR #502. V109 has attributable DEV review proof here. V110 and V113 have live handoff proof here. V111 and V112 live view reads are recorded below. The subsequent post-intake rollback exercise and remaining controlled fixture limits are recorded below. The set remains outside PROD readiness pending complete negative fixtures and protected production promotion review.
 
 ## Protected V125 deployment and status read
 
@@ -42,23 +42,60 @@ Account grant inspection found runtime held only four recommendation-write proce
 
 V111's runtime view returned `ALTERNATE_DISTRIBUTION` / `SAME_CATALOG_DATASET` for the hosted shadow candidate and its linked resource. V112's artifact view returned the same retained observation and artifact hash; the prior-assessment view returned zero rows for this candidate, preserving absence rather than manufacturing a score. Both views were readable with the bounded runtime role.
 
-## Residual acceptance limits
+## Post-intake rollback and retry
 
-No current, safe DEV fixture or hook faults the handoff procedure after downstream investigation intake begins and before commit. An earlier validation error or lock timeout would not prove that rollback boundary. `RETRYABLE_FAILURE` and `TERMINAL_FAILURE` are client classifications in the current contract, not durable failed receipts from a rolled-back transaction; their live distinction still requires a controlled downstream fault or application-side transport fixture. Missing/invalid evidence, stale snapshot linkage, already-governed, exact duplicate/mirror, and controlled-access outcomes have contract/unit coverage but no newly executed live DEV fixture in this pass. Source approval, ingestion, and publication remain outside role grants and the handoff procedure's DML path; representative approval, ingestion, and publication calls/DML were denied live. Data #450 and PR #503 therefore remain open/draft.
+Protected [DEV workflow run 36482497080](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/36482497080) executed `scripts/verify_dataset_discovery_handoff_fault_dev.py` with the DEV migration-deployer identity. The temporary branch-gated workflow call was removed after the run; no fault input or production-callable switch remains. The script uses the V113 serialization key and actual investigation-request table, within an explicit transaction. It is a transaction-shape probe, not a fault injected into the deployed V113 JavaScript procedure.
+
+The controlled fixture version `b0d664168a3ec74d143958e9456f15d58c3947b48d1cfc9931ee494e12133d57` was accepted by the authenticated human reviewer under event `5ca401592d3b6566d38e0427d9c3331fc735109c337050cf4242039c79954095` (sequence 92). The probe observed one uncommitted investigation row, one bounded receipt row, and one queue row, then raised `DATA450_AFTER_INTAKE_INSERT_BEFORE_COMMIT`. After rollback all three counts were zero. The real handoff procedure then accepted the same version/event and returned handoff `5371dd2ea06de1030b73d01e963067ff8ceb30b4798fb5d74fb57b4a424f603c`, `HANDED_OFF` / `PENDING`. Its exact replay returned the same ID; the bounded receipt view contained one logical row. The failed transaction left no durable failed receipt or duplicate idempotency state. No approval, ingestion, publication, or catalog state was touched.
+
+`RETRYABLE_FAILURE` and `TERMINAL_FAILURE` are client-side classifications, not persisted procedure rows. The Dataset Discovery handoff client owns this classification: an acknowledgement loss, transport interruption, or transient database availability error is retryable with the **same version and review-event IDs**; a validation, stale state, authorization, policy, or conflicting-replay error is terminal until its underlying governed state is corrected. The caller may read the bounded receipt and retry after an unknown outcome. V113 serializes on `WRITE_SERIALIZATION` and derives `handoff-v1:<version>`; an exact replay returns the committed result and changed logical content fails closed. The contract currently has no application-side transport classification implementation/proof in this data repository; this is a remaining cross-repository acceptance limit.
+
+## Controlled source-state assessment
+
+The retained DEV snapshot has 10 `EXACT_DUPLICATE` V111 identity links and 968 `ALTERNATE_DISTRIBUTION` links. V111 does not infer `MIRROR`; contract tests explicitly forbid inventing it. The exact duplicate candidate `candidate:55f7f2e13d5b598d390c0caed44b62e9` has `EXACT_RESOURCE_KEY` basis. The typed Dataset Discovery `RecommendationWrite` rejected it as an abstaining candidate before recommendation persistence: `Value error, abstaining candidate cannot be persisted as a recommendation`. The controlled run `data450-exact_duplicate-22dabdb180174692ad0397e9d9425a06` was finalized as `SUCCEEDED_NO_NEW_CANDIDATES` (zero processed, zero recommendations). Thus exact duplicate prevention is live proven upstream; an accepted duplicate handoff is not a valid reachable fixture through the current client.
+
+The controlled-access resource `candidate:d1ff6c4a9f6f1c9e91d50ab9fa507a11` was persisted via the typed runtime adapter as recommendation `60dc164aed0617fd3cc3b4404f6ce9692fe987b4cf61a636b6e7dd5dc4077f20`, version `c1b12f6681edda4f247037beedaa6e3f1b29a90c258630e4512ce1c6cfd35016`, run `data450-controlled_access-a6737ca76a2942a081e3987696ded1ad`. Human event `3414a72571c66c98a4f815dd5dc604bc7fa70969560eb1ac5b97dde6b847597c` accepted it for investigation with explicit rights/access conditions. The real handoff returned `03310fbbb4725bdff2ae6875c0d9735362bfdd3fff36d0a84a68aa740f72b4d1`, `HANDED_OFF` / `PENDING`, acquisition boundary `NO_AUTOMATED_ACQUISITION`. This is investigation intake, not a `blocked_by_rights` policy finding or access authorization. The retained observation `cfb30c9ca8b52c98658a6c28fdced0cea666d2dbc3ef57f6c5d7b59a0917d9e4` and catalog dataset/resource IDs remained linked; no source approval, acquisition, ingestion, or publication followed.
+
+Five resources in `V_CANDIDATE_GOVERNED_STATUS` are already governed, but none joins the current `V_CANDIDATE_SUMMARY` snapshot. There is no existing legitimate candidate from which to create an accepted already-governed handoff without new catalog/governance data. No such data was manufactured. Likewise, no accepted recommendation with absent evidence or stale evidence snapshot can be produced through the current bounded runtime/review interfaces without bypassing the protected persistence checks or altering authoritative observations. V113 contains `MISSING_EVIDENCE` and `EVIDENCE_CATALOG_MISMATCH` guards, with contract tests, but those branches remain without live DEV handoff proof. A random nonexistent ID would exercise `REJECTED_OR_STALE_HANDOFF`, not the intended evidence/snapshot branch.
+
+## Negative acceptance matrix
+
+| Case | Status | Evidence / limit |
+| --- | --- | --- |
+| Never accepted | LIVE PROVEN | Reviewer handoff denied |
+| Rejected | LIVE PROVEN | Rejected review handoff denied |
+| Stale review | LIVE PROVEN | Prior event rejected |
+| Missing review | LIVE PROVEN | Missing event rejected |
+| Invalid/missing evidence | CONTRACT TEST ONLY | V113 evidence guards; no safe accepted bad-evidence fixture |
+| Stale snapshot | CONTRACT TEST ONLY | V113 snapshot join; no safe accepted stale snapshot fixture |
+| Unknown version | LIVE PROVEN | Unknown version denied |
+| Already governed | CONTRACT TEST ONLY | V110/V113 disposition; no candidate/governed snapshot overlap |
+| Exact duplicate | LIVE PROVEN | V111 link and typed client abstention; handoff not reachable |
+| Mirror | NOT APPLICABLE | V111 does not assert MIRROR; alternate distribution is distinct |
+| Alternate distribution | LIVE PROVEN | Hosted shadow recommendation and handoff preserve relationship |
+| Controlled access | LIVE PROVEN | Intake with `NO_AUTOMATED_ACQUISITION` |
+| Runtime review attempt | LIVE PROVEN | Procedure privilege denied |
+| Runtime handoff attempt | LIVE PROVEN | Procedure privilege denied |
+| Direct governance write | LIVE PROVEN | Runtime and reviewer DML denied |
+| Source approval | LIVE PROVEN | Reviewer procedure attempt denied; no handoff DML |
+| Ingestion | LIVE PROVEN | Ingestion-run DML denied; no handoff DML |
+| Publication | LIVE PROVEN | Publication DML denied; no handoff DML |
+
+V111 live acceptance confirms a canonical identity link with retained basis for exact duplicate and alternate distribution, and no parallel identity namespace. Mirror is not a supported assertion today. V112 live acceptance confirms bounded artifact metadata and observation hash, absence of a prior assessment where none exists, and controlled-access context via the linked resource; no private artifact bytes were exposed to runtime. Both are sufficiently proven in DEV for a PROD promotion **review**, subject to the protected target snapshot/grant review, but neither is approved for PROD application yet.
 
 ## V106–V113 protected promotion reassessment
 
 All eight DEV migration ledger checksums match the source-controlled migration plan. ADR 0041 approves the three-role design in PR #503; this does not constitute approval to promote any migration to PROD.
 
-| Migration | DEV deployed | DEV acceptance proven | Governance approved | PROD-ready | Remaining blocker |
-| --- | --- | --- | --- | --- | --- |
-| V106 | Yes | Schema, bounded view, identity and persistence assertions in #449; live review/handoff linked here | Architecture accepted; promotion pending | No | Protected PROD review of schema and grants |
-| V107 | Yes | Runtime create/outcome/finalize and service-boundary proof in #449 | Architecture accepted; promotion pending | No | Protected PROD role and procedure review |
-| V108 | Yes | Typed recommendation commit, replay, concurrency, and rollback evidence in PR #502 | Architecture accepted; promotion pending | No | Protected PROD transaction review |
-| V109 | Yes | Attributable human review, persisted event, runtime denial, and stale/rejected state denials here | ADR 0041 accepted in PR; promotion pending | No | Protected PROD reviewer assignment and caller-attribution proof |
-| V110 | Yes | First intake, receipt, exact retry, conflicting replay, and independent-session concurrency here | ADR 0041 accepted in PR; promotion pending | No | Post-intake failure/retry and controlled negative fixtures |
-| V111 | Yes | Live alternate-distribution identity link for retained shadow observation; contract tests | Contract reviewed in branch; promotion pending | No | PROD catalog/identity snapshot and access review |
-| V112 | Yes | Live artifact metadata match; absent prior assessment remained absent; contract tests | Contract reviewed in branch; promotion pending | No | PROD artifact and assessment snapshot/access review |
-| V113 | Yes | Live snapshot-matched handoff and negative stale identity/state paths; contract tests | ADR 0041 accepted in PR; promotion pending | No | Explicit invalid-evidence/snapshot DEV fixture and post-intake failure proof |
+| Migration | DEV deployed | DEV live proof | Contract tests | Governance approved | Security proof | PROD-ready | Remaining blocker |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V106 | Yes | #449 schema/persistence round trip | Yes | Architecture accepted; PROD promotion pending | Bounded grants | No | Protected PROD schema/grant review |
+| V107 | Yes | #449 runtime create/outcome/finalize | Yes | Architecture accepted; PROD promotion pending | Service boundary | No | Protected PROD role/procedure review |
+| V108 | Yes | PR #502 typed commit, replay, concurrency, rollback | Yes | Architecture accepted; PROD promotion pending | Runtime-only write procedure | No | Protected PROD transaction review |
+| V109 | Yes | Attributable review, rejected/stale denials | Yes | ADR 0041 accepted; PROD promotion pending | Runtime review denied; reviewer scoped | No | Protected PROD reviewer assignment/caller proof |
+| V110 | Yes | First handoff, replay, concurrency; post-intake transaction-shape rollback/retry | Yes | ADR 0041 accepted; PROD promotion pending | No approval/ingestion/publication path | No | Already-governed live fixture and protected PROD review |
+| V111 | Yes | Canonical alternate and exact-duplicate links | Yes | Contract reviewed; PROD promotion pending | Runtime bounded view | No | Protected PROD identity snapshot/access review |
+| V112 | Yes | Artifact hash, absent prior assessment, controlled access context | Yes | Contract reviewed; PROD promotion pending | Runtime bounded view | No | Protected PROD artifact/assessment review |
+| V113 | Yes | Valid snapshot handoff and post-intake transaction-shape rollback/retry | Yes | ADR 0041 accepted; PROD promotion pending | Stale review/runtime denial | No | Live invalid-evidence and stale-snapshot branches; protected PROD review |
 
-The set is **not PROD-ready**. The remaining DEV proof is bounded to the post-intake fault/retry and missing identity/evidence/source-state fixtures; PROD still needs its own protected approval and equivalent security checks. API PR #112 remains parked through V106–V113 approval, sequential V123/V124 promotion, PROD metadata view creation, and `OH_LYME_PROD_READ` verification.
+The set is **not PROD-ready** and Data #450's full live negative-fixture acceptance is incomplete. The post-intake transaction boundary is proven in DEV, while invalid evidence, stale snapshot, and already-governed procedure outcomes need legitimate controlled fixtures or an owner-reviewed substitute. No catalog/governance records were forged for this purpose. PROD still needs protected approval and equivalent security checks. API PR #112 remains parked through V106–V113 approval, sequential V123/V124 promotion, PROD metadata view creation, and `OH_LYME_PROD_READ` verification.
