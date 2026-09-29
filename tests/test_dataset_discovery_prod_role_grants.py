@@ -52,6 +52,18 @@ def test_grant_migration_is_protected_prod_only() -> None:
     )
 
 
+def test_account_owned_catalog_grants_are_admin_bootstrap_only() -> None:
+    bootstrap = statements(BOOTSTRAP)
+    migration = statements(GRANTS)
+    for table in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"):
+        expected = (
+            "GRANT SELECT ON TABLE ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE."
+            f"{table} TO ROLE OH_LYME_PROD_DATASET_DISCOVERY_WRITE_OWNER"
+        )
+        assert expected in bootstrap
+        assert not any(f"GOVERNANCE.{table}" in statement for statement in migration)
+
+
 def test_runtime_reviewer_and_write_owner_are_bounded() -> None:
     sql = statements(GRANTS)
     assert not any("OH_LYME_DEV" in s for s in sql)

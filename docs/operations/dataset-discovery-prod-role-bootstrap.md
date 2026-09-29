@@ -43,6 +43,51 @@ It grants no base-table DML to either role. The six procedure ownerships go to
 forward-only; never run its SQL outside the protected migration ledger.
 V114–V117, V119–V122, and V125 remain DEV-only; V118 remains unused.
 
+## V126 partial-PROD recovery (Data #510)
+
+Protected run `36516853207` ledgered V106–V113 and V123/V124, then failed in
+V126 at query `01c76304-020b-bdce-0064-2d0701049282`. Query history proves
+that `OH_LYME_PROD_MIGRATION_DEPLOY_SVC`, using
+`OH_LYME_PROD_MIGRATION_DEPLOYER`, could not grant `SELECT` on
+`GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS` to `WRITE_OWNER`. PROD's
+`CATALOG_DISCOVERY_OBSERVATIONS` and `CATALOG_RESOURCES` are owned by
+`ACCOUNTADMIN`; in DEV they are owned by the DEV migration deployer. The first
+eleven V126 grants succeeded. V126 has no ledger receipt; later grants and all
+six procedure ownership transfers were not reached. No objects are created or
+replaced by V126. Repeating its earlier object grants is safe, while the
+ownership transfers have not yet occurred. Preserve all partial grants and
+ledger receipts. If a future run fails after any ownership transfer, stop and
+reinspect the six procedure owners before another retry; replaying an ownership
+transfer from a role that no longer owns the procedure is not assumed safe.
+
+The two account-owned catalog grants now belong to the reviewed administrative
+bootstrap, not the protected migration role. Before any protected retry, the
+account owner must approve and execute **only** these missing statements with
+the verified `BVB26657_PAT` `ACCOUNTADMIN` identity:
+
+```sql
+GRANT SELECT ON TABLE ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS
+  TO ROLE OH_LYME_PROD_DATASET_DISCOVERY_WRITE_OWNER;
+GRANT SELECT ON TABLE ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.CATALOG_RESOURCES
+  TO ROLE OH_LYME_PROD_DATASET_DISCOVERY_WRITE_OWNER;
+```
+
+Current state has neither grant. Required state adds only table-level `SELECT`
+to the non-login procedure owner; runtime/reviewer and the migration deployer
+gain no new catalog DML or grant option. Inspect `SHOW GRANTS ON TABLE` and
+`SHOW GRANTS TO ROLE` immediately afterward. If recovery is required before
+V126 runs, the account owner can revoke these exact two grants from
+`WRITE_OWNER`; after V126, revoke only through a reviewed procedure-dependency
+and service-impact assessment.
+
+This PR changes the **unledgered** V126 source and therefore its checksum.
+Peer review of the exact new checksum is required; never edit V106–V113 or
+V123/V124 receipts. The migration authority preflight now fails before any
+migration DDL when pending V126 lacks either catalog grant. Re-fetch current
+main and repeat exact-main Quality, DEV digest, PROD ledger, migration plan,
+checksum, bootstrap and grant checks before dispatching one protected retry.
+Do not launch DATA #495 operations as part of this recovery.
+
 Before V126, verify exact role grants, the deployer hierarchy, and the PROD
 ledger. After V126, verify effective privileges and both allow and deny cases
 with separately authenticated PROD identities. Runtime must fail human review,
