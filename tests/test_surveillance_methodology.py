@@ -105,6 +105,7 @@ def test_unreviewed_or_expired_applicability_remains_unknown() -> None:
         ]
         == "UNKNOWN"
     )
+
     evidence["effective_end_year"] = 2009
     evidence["reviewed"] = False
     assert (
@@ -113,6 +114,12 @@ def test_unreviewed_or_expired_applicability_remains_unknown() -> None:
         ]
         == "UNKNOWN"
     )
+
+
+def test_invalid_optional_evidence_cannot_crash_supported_2022_classification() -> None:
+    result = classify_methodology(record(2022), jurisdiction_evidence={})
+    assert result["jurisdiction_class"] == "HIGH"
+    assert all("None" not in reference for reference in result["references"])
 
 
 def test_revision_and_category_changes_are_cautions_and_values_untouched() -> None:

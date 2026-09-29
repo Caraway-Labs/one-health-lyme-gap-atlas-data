@@ -48,12 +48,7 @@ def _unknown(reason: str) -> dict[str, Any]:
     }
 
 
-def _jurisdiction_class(state: str, year: int, evidence: Mapping[str, Any] | None) -> str:
-    if year == 2022:
-        if state in HIGH_2022:
-            return "HIGH"
-        if state in LOW_2022:
-            return "LOW"
+def _reviewed_class(state: str, year: int, evidence: Mapping[str, Any] | None) -> str:
     if evidence is None:
         return "UNKNOWN"
     if (
@@ -68,6 +63,15 @@ def _jurisdiction_class(state: str, year: int, evidence: Mapping[str, Any] | Non
     ):
         return str(evidence["classification"])
     return "UNKNOWN"
+
+
+def _jurisdiction_class(state: str, year: int, evidence: Mapping[str, Any] | None) -> str:
+    if year == 2022:
+        if state in HIGH_2022:
+            return "HIGH"
+        if state in LOW_2022:
+            return "LOW"
+    return _reviewed_class(state, year, evidence)
 
 
 def classify_methodology(
@@ -99,7 +103,11 @@ def classify_methodology(
     references = [reference, CDC_DEFINITIONS]
     if year == 2022:
         references.append(CDC_MMWR)
-    if jurisdiction_evidence is not None and jurisdiction != "UNKNOWN":
+    if (
+        jurisdiction_evidence is not None
+        and _reviewed_class(fips[:2], year, jurisdiction_evidence) == jurisdiction
+        and jurisdiction != "UNKNOWN"
+    ):
         references.append(str(jurisdiction_evidence["reference_url"]))
     return {
         "contract_version": CONTRACT_VERSION,
