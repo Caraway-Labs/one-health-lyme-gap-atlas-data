@@ -236,7 +236,7 @@ def pending_schema_creation_versions(database: str, applied_versions: set[str]) 
 
 
 def migration_authority_preflight(settings: SnowflakeSettings, database: str) -> dict[str, object]:
-    """Read-only check of the deployer's direct CREATE SCHEMA grant before DDL."""
+    """Read-only check of pending schema and PROD V126 grant authority before DDL."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migration preflight requires an isolated DEV or PROD database")
     expected_role = f"OH_LYME_{database.rsplit('_', 1)[1]}_MIGRATION_DEPLOYER"
@@ -252,23 +252,60 @@ def migration_authority_preflight(settings: SnowflakeSettings, database: str) ->
         cursor.execute("SELECT version FROM GOVERNANCE.SCHEMA_MIGRATIONS")
         applied = {row[0] for row in cursor.fetchall()}
         required = pending_schema_creation_versions(database, applied)
-        if not required:
+        pending_v126 = database == PROD_DATABASE and "V126" not in applied
+        if not required and not pending_v126:
             return {"pending_schema_creation": [], "create_schema_grant": "not_required"}
         cursor.execute(f"SHOW GRANTS TO ROLE {expected_role}")
         columns = [column[0].lower() for column in cursor.description]
         grants = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
-        has_grant = any(
+        has_schema_grant = any(
             grant.get("privilege") == "CREATE SCHEMA"
             and grant.get("granted_on") == "DATABASE"
             and grant.get("name") == database
             for grant in grants
         )
-        if not has_grant:
+        if required and not has_schema_grant:
             raise ValueError(
                 f"{expected_role} lacks CREATE SCHEMA on {database}; "
                 f"pending schema migrations: {', '.join(required)}"
             )
-        return {"pending_schema_creation": required, "create_schema_grant": "present"}
+        if pending_v126:
+            _check_v126_grant_authority(grants, database, expected_role)
+        return {
+            "pending_schema_creation": required,
+            "create_schema_grant": "present" if required else "not_required",
+            "v126_grant_authority": "present" if pending_v126 else "not_required",
+        }
+
+
+def _check_v126_grant_authority(
+    grants: list[dict[str, object]], database: str, deployer_role: str
+) -> None:
+    """Fail before V126 when the deployer cannot delegate the two catalog reads.
+
+    V126 grants these account-owned tables before its runtime/reviewer grants.
+    Other V126 targets are owned by the migration deployer after V106-V113.
+    This intentionally checks the incident-specific cross-owner boundary rather
+    than attempting to interpret arbitrary migration SQL.
+    """
+    for table in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"):
+        object_name = f"{database}.GOVERNANCE.{table}"
+        if not any(
+            grant.get("granted_on") == "TABLE"
+            and grant.get("name") == object_name
+            and (
+                grant.get("privilege") == "OWNERSHIP"
+                or (
+                    grant.get("privilege") == "SELECT"
+                    and grant.get("grant_option") in (True, "true", "TRUE")
+                )
+            )
+            for grant in grants
+        ):
+            raise ValueError(
+                f"{deployer_role} lacks SELECT WITH GRANT OPTION on {object_name}; "
+                "pending V126 cannot grant SELECT to WRITE_OWNER"
+            )
 
 
 def migration_execution_role(migration: Migration, database: str) -> str | None:

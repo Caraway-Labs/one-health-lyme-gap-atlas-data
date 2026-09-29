@@ -481,7 +481,7 @@ def migration_plan_command(
 def migration_authority_preflight_command(
     database: str = typer.Option(..., "--database"),
 ) -> None:
-    """Check pending schema DDL authority without changing PROD objects."""
+    """Check pending schema and V126 grant authority without changing PROD objects."""
     typer.echo(json.dumps(migration_authority_preflight(_settings(), database)))
 
 
