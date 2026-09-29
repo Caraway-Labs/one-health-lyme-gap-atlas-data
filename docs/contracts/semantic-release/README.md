@@ -38,6 +38,8 @@ The bounded observation consumer also reads
 `PRESENTATION.CURRENT_COUNTY_OBSERVATIONS_V` (Data #513). Its precise column,
 measure, time, and geography contract is in
 [`current-county-observations-v1.md`](current-county-observations-v1.md).
+The API #55 source and methodology resource references are defined in
+[`current-source-methodology-v1.md`](current-source-methodology-v1.md).
 
 ## Release rules
 
