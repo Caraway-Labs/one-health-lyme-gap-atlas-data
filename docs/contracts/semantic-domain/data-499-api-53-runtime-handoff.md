@@ -1,0 +1,116 @@
+# Data #499: API #53 runtime metadata handoff
+
+Status: owner-approved bounded null semantics; DEV V123/V124 deployed and
+verified on 2026-09-28. PROD promotion remains protected and pending PR merge.
+This is a consumer-safe Data publication contract, not an approved public HTTP
+shape.
+
+## Source and binding
+
+Use `ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.CURRENT_INDICATOR_METADATA_V`
+and `ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.CURRENT_MEASURE_METADATA_V`.
+The corresponding DEV objects use `ONE_HEALTH_LYME_GAP_ATLAS_DEV`. V123 creates
+the views from the immutable V071 release hierarchy; V124 corrects the measure
+view for the historical release builder's reversed physical column binding.
+The builder is corrected for future releases. V124 reads the legacy rows
+without rewriting immutable history. Both views join the single
+`ATLAS` current pointer to a `PUBLISHED` release. Candidate or failed release
+rows cannot appear without a reviewed pointer transition. Rollback changes
+both views together by changing that pointer. No observation scan is involved.
+
+The production API configuration names `OH_LYME_PROD_READ`. V123 grants that
+role `SELECT` on these two views only; it requires existing database/schema
+`USAGE`. DEV uses `OH_LYME_DEV_READ`. This migration adds no table grants,
+write/ownership privileges, or access to arbitrary historical releases.
+`PRESENTATION.SEMANTIC_*` base tables and source/run/artifact lineage remain
+outside this new grant. Existing permissions should be audited separately;
+the migration does not revoke earlier grants.
+
+## Fields and meaning
+
+Indicator rows: `indicator_id`, `label`, `description`, `limitation`, `domain`,
+`category`, `semantic_contract_version`, `release_version`. Measure membership
+is the set of measure rows with matching `indicator_id` and `release_version`.
+
+Measure rows: `measure_id`, `indicator_id`, `label`, `description`,
+`measure_type`, `unit`, `denominator`, `geography_type`, `temporal_grain`,
+`supported_stratifications`, `source_references`, `standards_mappings`,
+`missingness_semantics`, `methodology`, `limitation`,
+`semantic_contract_version`, `release_version`.
+
+IDs are stable V071 semantic identity, not labels or warehouse row IDs.
+`semantic_contract_version` is the release schema version; `release_version`
+is the exact governed release ID. Neither is the #194 consumer serializer
+version. The view projections do not independently revise metadata.
+
+The owner has approved bounded null metadata for API #53. The current county
+release does not persist governed domain/category,
+measure definition, denominator, supported strata, source relationship, or
+standards mapping on these hierarchy rows. The corresponding columns are
+SQL `NULL`; API #53 may expose these nulls and must not fill them from labels,
+observation rows, or internal
+source artifacts. `geography_type` and `temporal_grain` carry the stored
+semantics verbatim, including values such as `COUNTY_FIPS_5`, `STATE`,
+`snapshot`, `2023`, or `as published`; they are not normalized capability
+lists. `measure_type` is the stored data type, not an invented reported/derived
+classification. No clinical integration is implied.
+
+## Filters, ordering, cache, and safety
+
+Exact `indicator_id` and `measure_id` filters are governed. A literal
+`geography_type` filter on the stored measure semantics is possible, but it
+does not establish observation availability. Domain and category filters are
+unsupported because their values are null in this release. Availability has
+no governed definition and must not be inferred from row existence. There is
+no source, standard, strata, or time-grain capability filter in this contract.
+
+SQL views do not promise row order. API queries should `ORDER BY indicator_id`
+or `ORDER BY measure_id`; for relationships, order by `indicator_id, measure_id`.
+Results change only when the current pointer moves, but consumers should
+include `release_version` in cache identity and revalidate against
+`CURRENT_RELEASE_V` after publication or rollback. API #53 owns HTTP TTLs.
+
+V123 explicitly selects safe columns. It excludes credentials, raw payloads,
+paths, source record IDs, run/artifact IDs, physical storage identities,
+private identifiers, and internal derived-result stores. It does not promote
+#158/#159 DEV-only results or assign observation value states.
+
+## Evidence and rollout
+
+Local migration-contract tests prove render/role routing and SQL allowlist
+intent only. DEV workflow run 36435934703 applied V123 at commit `77f68ef`;
+the DEV ledger records checksum `d0d9cb658da7a7c993944c6509cf58411e22f7832f0596ccf592d5dad02d7cac`.
+`OH_LYME_DEV_READ` read six indicator rows and fourteen measure rows for
+`governed-2026-09-17-unknown-coverage` / schema `1.0.0`. Live inspection found
+all fourteen V123 measure parent links broken because the historical release
+builder bound measure and indicator IDs in reverse physical columns. V124 was
+applied through DEV workflow run 36436776509 at commit `3429a5a`; its ledger
+checksum is `08e682e26cee143e8915e9548c44603826242495109f5355babd04d666b7038b`.
+After V124, the `READ` role queried fourteen distinct measure IDs with zero
+broken indicator links. The six indicator rows have measure counts 2, 4, 1,
+4, 1, and 2 in indicator-ID order. Representative reads returned
+`case_count_floor_2023 -> human_disease_burden` (`cases`, `COUNTY_FIPS_5`,
+`2023`) and `state_unallocated_records_2023 -> human_disease_burden`
+(`records`, `STATE`, `2023`). All intentionally unknown columns remained null.
+Both views resolve to the same release/schema pair as `CURRENT_RELEASE_V`.
+
+`INFORMATION_SCHEMA.VIEWS` confirmed both objects are in DEV `PRESENTATION`
+and owned by `OH_LYME_DEV_OWNER`. `SHOW GRANTS ON VIEW` showed one `SELECT`
+grant to `OH_LYME_DEV_READ` on each view. Queries using that role succeeded
+against both views; direct `SELECT` on `SEMANTIC_RELEASE_POINTER` and
+`SEMANTIC_MEASURES` returned Snowflake 002003 (not found or not authorized).
+The owner-only status view showed the current release `PUBLISHED` and a
+different `RETIRED` release; neither view returned historical rows. The
+existing county view still returned 3,144 distinct counties and the source
+metadata view returned five sources. No release pointer or historical release
+row was updated by either migration. Candidate rejection and rollback behavior
+are also covered by the query-level test using both physical identity layouts;
+no live pointer transition was made solely for this story.
+
+API #53 may consume these views as its governed runtime metadata source in an
+environment after the views and `READ` grants are deployed there. DEV meets
+that gate and API implementation can proceed using this contract. PROD still
+needs the normal merge-to-main image path, a DEV-tested digest, protected PROD
+promotion, and the equivalent `OH_LYME_PROD_READ` read/denial checks. PROD
+deployment and API runtime verification are not claimed here. Existing
+presentation view definitions remain unchanged by V123/V124.

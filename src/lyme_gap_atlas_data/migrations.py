@@ -60,6 +60,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V120",
     "V121",
     "V122",
+    "V125",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",
@@ -80,6 +81,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V097",
     "V098",
     "V099",
+    "V126",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -247,7 +249,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version in {"V072", "V117"}:
+    if migration.version in {"V072", "V117", "V123", "V124"}:
         if migration.version == "V117" and database != DEV_DATABASE:
             raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"
