@@ -224,6 +224,53 @@ def migration_plan(database: str) -> list[dict[str, str]]:
     ]
 
 
+def pending_schema_creation_versions(database: str, applied_versions: set[str]) -> list[str]:
+    """Find pending migrations that create an environment-local schema."""
+    planned = {item["version"] for item in migration_plan(database)}
+    return [
+        migration.version
+        for migration in load_migrations()
+        if migration.version in planned - applied_versions
+        and re.search(r"(?im)^\s*CREATE\s+SCHEMA\b", migration.source)
+    ]
+
+
+def migration_authority_preflight(settings: SnowflakeSettings, database: str) -> dict[str, object]:
+    """Read-only check of the deployer's direct CREATE SCHEMA grant before DDL."""
+    if not DATABASE_PATTERN.fullmatch(database):
+        raise ValueError("Migration preflight requires an isolated DEV or PROD database")
+    expected_role = f"OH_LYME_{database.rsplit('_', 1)[1]}_MIGRATION_DEPLOYER"
+    with connect(settings, include_database=False) as connection, connection.cursor() as cursor:
+        cursor.execute(f"USE DATABASE {database}")
+        cursor.execute("SELECT CURRENT_ROLE()")
+        role_row = cursor.fetchone()
+        if role_row is None:
+            raise ValueError("Migration preflight could not read the current role")
+        current_role = role_row[0]
+        if current_role != expected_role:
+            raise ValueError(f"Migration preflight requires {expected_role}; got {current_role}")
+        cursor.execute("SELECT version FROM GOVERNANCE.SCHEMA_MIGRATIONS")
+        applied = {row[0] for row in cursor.fetchall()}
+        required = pending_schema_creation_versions(database, applied)
+        if not required:
+            return {"pending_schema_creation": [], "create_schema_grant": "not_required"}
+        cursor.execute(f"SHOW GRANTS TO ROLE {expected_role}")
+        columns = [column[0].lower() for column in cursor.description]
+        grants = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+        has_grant = any(
+            grant.get("privilege") == "CREATE SCHEMA"
+            and grant.get("granted_on") == "DATABASE"
+            and grant.get("name") == database
+            for grant in grants
+        )
+        if not has_grant:
+            raise ValueError(
+                f"{expected_role} lacks CREATE SCHEMA on {database}; "
+                f"pending schema migrations: {', '.join(required)}"
+            )
+        return {"pending_schema_creation": required, "create_schema_grant": "present"}
+
+
 def migration_execution_role(migration: Migration, database: str) -> str | None:
     """Return a narrowly-scoped owner role for a migration that needs one."""
     match = DATABASE_PATTERN.fullmatch(database)

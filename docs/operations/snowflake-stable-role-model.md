@@ -87,3 +87,32 @@ returns only the requested account's rows and does not grant table SELECT.
 ## Privilege-contract tests
 
 See `tests/test_snowflake_role_model.py`.
+
+## Migration schema creation authority
+
+The migration deployer is the environment-local schema-DDL identity. A pending
+source-controlled migration may create a schema (V106 creates
+`DATASET_DISCOVERY`). DEV's deployer has `CREATE SCHEMA` on the DEV database;
+PROD requires the same privilege on the PROD database, granted directly to
+`OH_LYME_PROD_MIGRATION_DEPLOYER`. This does not confer database ownership,
+account administration, or authority in the other environment. The protected
+PROD workflow now checks the direct database grant when its pending migration
+plan contains schema creation, before running migration SQL.
+
+The bounded account-level correction for the 2026-09-29 V106 incident is:
+
+```sql
+GRANT CREATE SCHEMA ON DATABASE ONE_HEALTH_LYME_GAP_ATLAS_PROD
+  TO ROLE OH_LYME_PROD_MIGRATION_DEPLOYER;
+```
+
+An account/security administrator executes it only after verifying identity
+and the current grant state. To revoke this added authority if required:
+
+```sql
+REVOKE CREATE SCHEMA ON DATABASE ONE_HEALTH_LYME_GAP_ATLAS_PROD
+  FROM ROLE OH_LYME_PROD_MIGRATION_DEPLOYER;
+```
+
+Revocation does not remove any schema or migration receipt created while the
+grant was active. Reconcile those separately before any rollback or retry.

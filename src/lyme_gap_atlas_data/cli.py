@@ -43,6 +43,7 @@ from .ingestion import (
 )
 from .migrations import (
     apply_migrations,
+    migration_authority_preflight,
     migration_plan,
     reconcile_legacy_dev_migrations,
     reconcile_legacy_prod_migrations,
@@ -474,6 +475,14 @@ def migration_plan_command(
 ) -> None:
     """Show checksummed migration order for the DEV or PROD governed database."""
     typer.echo(json.dumps(migration_plan(database)))
+
+
+@pipeline_app.command("migration-authority-preflight")
+def migration_authority_preflight_command(
+    database: str = typer.Option(..., "--database"),
+) -> None:
+    """Check pending schema DDL authority without changing PROD objects."""
+    typer.echo(json.dumps(migration_authority_preflight(_settings(), database)))
 
 
 @pipeline_app.command("apply-migrations")
