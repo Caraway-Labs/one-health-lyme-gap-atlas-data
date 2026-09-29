@@ -4,6 +4,21 @@ Protected run `36516853207` failed at Snowflake query `01c76304-020b-bdce-0064-2
 
 After failure, ledger receipts exist for V106–V113 and V123/V124; V126 is absent. The eight Dataset Discovery tables, 22 views, and five Dataset Discovery procedures are owned by the migration deployer. The sixth handoff procedure in GOVERNANCE is also migration-deployer-owned. The two catalog tables in rows 12–13 are ACCOUNTADMIN-owned in PROD and migration-deployer-owned in DEV. PROD GOVERNANCE is a standard schema, not managed access. Runtime and reviewer had only bootstrap USAGE grants; WRITE_OWNER had READ SESSION and the first eleven V126 grants. The only WRITE_OWNER hierarchy edge was to the migration deployer.
 
+## Ledger receipts
+
+| Version | Filename | SHA256 |
+|---|---|---|
+| V106 | V106__dataset_discovery_persistence_foundation.sql | `69caa3d3b606b5d36ef508d425fb5ffb87c3df32e9b70eb695cf339bb451add7` |
+| V107 | V107__dataset_discovery_runtime_procedures.sql | `645ded8311987d96783b05e761d2e8d2c438f3740001a8ac7405fba949ad7eb1` |
+| V108 | V108__dataset_discovery_recommendation_commit.sql | `6da4a6c72ef6668ef396ed0f53f7ba1e344f6b3421290609bd29f046e68bf41a` |
+| V109 | V109__dataset_discovery_review_events.sql | `47eb21322264238a82ec4ac9e77fead31bc74c3f07a3fe4b65afa90a4bdd8775` |
+| V110 | V110__dataset_discovery_governed_handoff.sql | `79d3bbb6a4b1d8008230ef872ae511c56317e117f529865ef8419490cb0a189c` |
+| V111 | V111__dataset_discovery_identity_links.sql | `40601863b9dcd95c92e91aeb09b0a19a5719534e4b5757de9768e5350dfcb3b6` |
+| V112 | V112__dataset_discovery_candidate_context_views.sql | `bb7b493ff90c58e573ee41c6142d9735a4a2a52cc3076259da11de5f80954e14` |
+| V113 | V113__dataset_discovery_handoff_snapshot_validation.sql | `c0f49ff5daa5dad43809458e7cb5d78121881b62703844f109c7b52a18d178f7` |
+| V123 | V123__current_semantic_metadata_views.sql | `d0d9cb658da7a7c993944c6509cf58411e22f7832f0596ccf592d5dad02d7cac` |
+| V124 | V124__normalize_current_measure_identity_view.sql | `08e682e26cee143e8915e9548c44603826242495109f5355babd04d666b7038b` |
+
 V126 contains only GRANT statements after USE DATABASE: no CREATE, CREATE OR REPLACE, or data DML. Repeating rows 1–11 is safe. No ownership transfer occurred. If a future run fails after any ownership transfer, re-audit procedure owners before replay.
 
 | # | Original V126 statement | Status |

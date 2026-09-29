@@ -41,6 +41,7 @@ def test_account_bootstrap_is_prod_only_and_separates_roles() -> None:
 def test_grant_migration_is_protected_prod_only() -> None:
     migration = next(item for item in load_migrations() if item.version == "V126")
     assert migration.filename == GRANTS.name
+    assert migration.sha256 == "35d369399ccae3f936dee7e7b32c530f963c5a81d0b1ff7664d85f791f08568c"
     assert "V126" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")}
     assert "V126" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")

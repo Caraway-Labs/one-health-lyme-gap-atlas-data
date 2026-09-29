@@ -86,14 +86,20 @@ def test_preflight_accepts_exact_prod_database_grant() -> None:
     }
 
 
-def test_preflight_rejects_missing_account_owned_catalog_grant_before_ddl() -> None:
+@pytest.mark.parametrize("missing_table", ["CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"])
+def test_preflight_rejects_missing_account_owned_catalog_grant_before_ddl(
+    missing_table: str,
+) -> None:
+    present_table = (
+        {"CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"} - {missing_table}
+    ).pop()
     cursor = Cursor(
-        [("SELECT", "TABLE", f"{PROD}.GOVERNANCE.CATALOG_DATASETS")],
+        [("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{present_table}")],
         applied_through=124,
     )
     with (
         patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)),
-        pytest.raises(ValueError, match="V126 requires account-owner SELECT grants"),
+        pytest.raises(ValueError, match=f"V126 requires.*{missing_table}"),
     ):
         migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
     assert cursor.statements[-1] == (
@@ -116,3 +122,11 @@ def test_preflight_accepts_account_owned_catalog_grants_without_schema_creation(
         "create_schema_grant": "not_required",
         "v126_catalog_grants": "present",
     }
+
+
+def test_preflight_skips_catalog_grants_after_v126_receipt() -> None:
+    cursor = Cursor([], applied_through=126)
+    with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
+        result = migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
+    assert result["v126_catalog_grants"] == "not_required"
+    assert not any(statement.startswith("SHOW GRANTS") for statement in cursor.statements)

@@ -109,33 +109,6 @@ service/shared-principal rejection before review use. Do not assign reviewer
 to arbitrary users or to the Dataset Discovery service. A PROD service user,
 credential, or schedule likewise needs separate review.
 
-### DATA #510 partial V126 recovery
-
-Protected run 36516853207 applied V106–V113 and V123/V124, then failed before
-ledgering V126. The unchanged V126 source checksum is
-`97f2684ce6fff946d2c07c28cfae59d06482a985b8f38af827a151a09280da12`.
-The [incident matrix](data-510-v126-grant-recovery.md) records the partial
-grants and ownership. The first unauthorized grant targets the account-owned
-`GOVERNANCE.CATALOG_DISCOVERY_OBSERVATIONS`; `CATALOG_RESOURCES` has the same
-gap. Query-history text was not visible to the narrow migration role, so the
-failed statement is deterministically localized rather than confirmed by query
-history.
-
-The reviewed correction extends the account bootstrap with `SELECT WITH GRANT
-OPTION` on only those two PROD catalog tables to the migration deployer. This
-lets the unchanged V126 delegate only their `SELECT` privileges to
-`WRITE_OWNER`. It gives no `MANAGE GRANTS`, database/schema ownership, or
-account administration. Running these two new account-owner statements needs
-**separate explicit owner approval**; merging code does not authorize them.
-Record identity, script hash, query IDs, and post-grant role evidence.
-
-The protected `migration-authority-preflight` checks both grant options when
-V126 is pending and fails before migration execution when either is missing.
-Before a reviewed retry, recheck the partial grants and procedure owners. The
-ordinary grants already applied can be replayed; no V126 ownership transfers
-are currently effective. If any transfer appears, stop and reassess replay
-because `COPY CURRENT GRANTS` must not be assumed harmless after a transfer.
-
 For recovery, disable the affected service credential or revoke exact
 runtime/reviewer procedure USAGE and user-role assignments through a protected
 security action. Preserve audit and handoff rows. Reconcile partial bootstrap
