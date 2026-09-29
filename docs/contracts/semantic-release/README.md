@@ -34,6 +34,11 @@ The API reads only these governed views:
 - `PRESENTATION.CURRENT_SOURCE_METADATA_V`
 - `PRESENTATION.CURRENT_COUNTY_ATLAS_V`
 
+The bounded observation consumer also reads
+`PRESENTATION.CURRENT_COUNTY_OBSERVATIONS_V` (Data #513). Its precise column,
+measure, time, and geography contract is in
+[`current-county-observations-v1.md`](current-county-observations-v1.md).
+
 ## Release rules
 
 1. The manifest pins the release identity and every source version, run,
