@@ -93,33 +93,12 @@ def test_discovery_worker_persists_raw_response_before_review_queue_normalizatio
     assert ledger.statuses == ["COMPLETED"]
 
 
-def test_production_spec_schedules_each_pubmed_family_and_single_extractor() -> None:
+def test_production_spec_keeps_pubmed_execution_manual() -> None:
     spec = yaml.safe_load(Path(".do/app.prod.yaml").read_text(encoding="utf-8"))
     dev_spec = yaml.safe_load(Path(".do/app.yaml").read_text(encoding="utf-8"))
     expected_vpc_id = "a937d8dd-4ee9-4de2-a8df-b32e7ad4098e"
     assert spec["vpc"]["id"] == expected_vpc_id
     assert dev_spec["vpc"]["id"] == expected_vpc_id
     jobs = {job["name"]: job for job in spec["jobs"]}
-    commands = [
-        "surveillance_epidemiology",
-        "vector_host_pathogen",
-        "environment_exposure",
-        "diagnostics_interventions_outcomes",
-    ]
-    for family in commands:
-        assert any(f"--family {family}" in job["run_command"] for job in jobs.values())
-    extraction = jobs["approved-paper-extraction"]
-    assert extraction["run_command"].endswith("pmc-extract --estimated-cost-usd 0.10 --confirm")
-    envs = {entry["key"]: entry for entry in extraction["envs"]}
-    assert set(envs).issuperset(
-        {
-            "NEO4J_URI",
-            "NEO4J_RUNTIME_USER",
-            "GROQ_API_KEY",
-            "OPENAI_API_KEY",
-            "SPACES_ACCESS_KEY_ID",
-        }
-    )
-    assert envs["NEO4J_URI"]["value"] == "bolt://10.116.0.3:7687"
-    assert envs["NEO4J_RUNTIME_USER"]["value"] == "graph_runtime"
-    assert envs["NEO4J_RUNTIME_PASSWORD"]["type"] == "SECRET"
+    assert len(jobs) == 6
+    assert not any("pubmed" in name or "extraction" in name for name in jobs)

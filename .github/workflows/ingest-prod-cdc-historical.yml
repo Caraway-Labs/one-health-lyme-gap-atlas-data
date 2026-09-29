@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod-cdc-historical-ingestion
+  group: prod-app-topology
   cancel-in-progress: false
 
 jobs:

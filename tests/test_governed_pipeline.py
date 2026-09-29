@@ -539,7 +539,7 @@ def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology(
 def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology() -> None:
     workflow = Path(".github/workflows/capture-prod-cdc-historical.yml").read_text(encoding="utf-8")
     assert "environment: production" in workflow
-    assert "group: prod-cdc-historical-evidence-capture" in workflow
+    assert "group: prod-app-topology" in workflow
     assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
     assert 'select(.name == "catalog-ingestion")' in workflow
     assert 'select(.name == "catalog-discovery")' in workflow
@@ -558,7 +558,7 @@ def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology(
 def test_protected_prod_historical_ingestion_is_exact_and_restores_topology() -> None:
     workflow = Path(".github/workflows/ingest-prod-cdc-historical.yml").read_text(encoding="utf-8")
     assert "environment: production" in workflow
-    assert "group: prod-cdc-historical-ingestion" in workflow
+    assert "group: prod-app-topology" in workflow
     assert 'select(.name == "approved-source-ingestion")' in workflow
     assert '"cdc-historical-ingest-once"' in workflow
     assert "ingest-approved-cdc-historical --source-version-id" in workflow
@@ -587,7 +587,7 @@ def test_protected_prod_historical_rollback_is_retained_revision_guarded() -> No
         encoding="utf-8"
     )
     assert "environment: production" in workflow
-    assert "group: prod-cdc-historical-ingestion" in workflow
+    assert "group: prod-app-topology" in workflow
     assert '"cdc-historical-rollback-once"' in workflow
     assert "rollback-cdc-historical --source-version-id" in workflow
     assert "--ingestion-run-id" in workflow and "--expected-revision" in workflow

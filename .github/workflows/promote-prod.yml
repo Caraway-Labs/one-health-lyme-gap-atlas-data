@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: prod-app-topology
+  cancel-in-progress: false
+
 jobs:
   promote:
     name: Approve and promote immutable image
