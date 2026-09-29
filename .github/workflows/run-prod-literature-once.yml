@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod-literature-one-shot
+  group: prod-app-topology
   cancel-in-progress: false
 
 jobs:

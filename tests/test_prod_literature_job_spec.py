@@ -169,3 +169,21 @@ def test_repo_prod_spec_has_no_scheduled_literature_jobs() -> None:
     assert 'test "$GITHUB_REF" = refs/heads/main' in workflow
     assert "trap restore_baseline EXIT" in workflow
     assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow
+
+
+def test_all_prod_app_spec_mutators_share_one_non_canceling_lock() -> None:
+    workflows = Path(".github/workflows")
+    mutators = []
+    for path in workflows.glob("*.yml"):
+        source = path.read_text(encoding="utf-8")
+        if 'doctl apps update "$PROD_APP_ID"' not in source:
+            continue
+        mutators.append(path.name)
+        definition = yaml.safe_load(source)
+        assert definition["concurrency"] == {
+            "group": "prod-app-topology",
+            "cancel-in-progress": False,
+        }, path.name
+    assert "promote-prod.yml" in mutators
+    assert "run-prod-literature-once.yml" in mutators
+    assert len(mutators) == 7

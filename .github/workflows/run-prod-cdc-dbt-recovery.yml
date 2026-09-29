@@ -31,7 +31,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: prod-cdc-dbt-recovery
+  group: prod-app-topology
   cancel-in-progress: false
 
 jobs:

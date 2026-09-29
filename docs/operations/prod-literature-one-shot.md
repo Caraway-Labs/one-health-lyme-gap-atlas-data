@@ -33,8 +33,9 @@ operation is in flight before approving it.
    `NCBI_API_KEY` is optional. Existing DigitalOcean encrypted Snowflake and
    Spaces credentials are reused from the live job templates. The new provider
    secrets are attached only to the temporary job, never to a persistent job.
-   The repository has no evidence that those four provider secrets are
-   provisioned today; absence fails before an operation deploys.
+   The production environment secret-name inventory on 2026-09-28 found all
+   four absent. Recheck the names before execution; absence fails before an
+   operation deploys.
    The owner can set each value interactively, without putting it on a command
    line or in a file:
 
@@ -47,9 +48,12 @@ operation is in flight before approving it.
    ```
 3. The production reviewer approves each workflow invocation. Review the
    selected family, record bound, expected eligible queue, and provider budget
-   before approval. Only one invocation runs at a time through workflow
-   concurrency. Run no other production app topology workflow concurrently;
-   this workflow rejects any unexpected job already in the app spec.
+   before approval. All seven workflows that update the production App spec,
+   including promotion, use the shared `prod-app-topology` concurrency group
+   with running jobs protected from cancellation. This prevents overlapping
+   spec updates after the reconciled workflows are merged. Reviewers must
+   still check for externally initiated App updates or older workflow runs;
+   this workflow rejects unexpected jobs already in the app spec.
 
 The protected workflow is
 `.github/workflows/run-prod-literature-once.yml`. Each invocation must specify
@@ -101,7 +105,8 @@ and state events. A pipeline runtime cannot call it.
 
 ```powershell
 snow sql -c ATLAS_PROD_OWNER -q "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()" --format JSON
-snow sql -c ATLAS_PROD_OWNER -q "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(ARRAY_CONSTRUCT('REVIEWED_PMID'), 'approved', 'Reviewed full-text candidate for the bounded DATA 495 batch', 'MATTHEWCARAWAY', 'data-497-v1', 'DATA-495-BATCH-01')" --format JSON
+$steward = 'AUTHENTICATED_USER_FROM_IDENTITY_QUERY'
+snow sql -c ATLAS_PROD_OWNER -q "CALL GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH(ARRAY_CONSTRUCT('REVIEWED_PMID'), 'approved', 'Reviewed full-text candidate for the bounded DATA 495 batch', '$steward', 'data-497-v1', 'DATA-495-BATCH-01')" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,DECISION,BATCH_ID,DECIDED_AT FROM KNOWLEDGE_GRAPH.PAPER_REVIEW_DECISIONS ORDER BY DECIDED_AT DESC LIMIT 50" --format JSON
 ```
 
