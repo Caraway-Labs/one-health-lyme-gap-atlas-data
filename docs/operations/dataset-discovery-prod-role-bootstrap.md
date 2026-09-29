@@ -59,6 +59,8 @@ ownership transfers have not yet occurred. Preserve all partial grants and
 ledger receipts. If a future run fails after any ownership transfer, stop and
 reinspect the six procedure owners before another retry; replaying an ownership
 transfer from a role that no longer owns the procedure is not assumed safe.
+The [statement-by-statement evidence matrix](prod-v126-partial-run-evidence.md)
+records all 52 V126 GRANT statements in execution order.
 
 The two account-owned catalog grants now belong to the reviewed administrative
 bootstrap, not the protected migration role. Before any protected retry, the
