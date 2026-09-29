@@ -1,13 +1,11 @@
-"""PROD migration authority must fail before any migration DDL or GRANT."""
+"""PROD migration authority must fail before schema DDL when its grant is missing."""
 
 from contextlib import contextmanager
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from lyme_gap_atlas_data.migrations import (
-    load_migrations,
     migration_authority_preflight,
     pending_schema_creation_versions,
 )
@@ -17,15 +15,11 @@ ROLE = "OH_LYME_PROD_MIGRATION_DEPLOYER"
 
 
 class Cursor:
-    description = [("privilege",), ("granted_on",), ("name",), ("grant_option",)]
+    description = [("privilege",), ("granted_on",), ("name",)]
 
-    def __init__(
-        self,
-        grants: list[tuple[str, str, str, bool]],
-        applied_versions: set[str] | None = None,
-    ) -> None:
+    def __init__(self, grants: list[tuple[str, str, str]], *, applied_through: int = 105) -> None:
         self.grants = grants
-        self.applied_versions = applied_versions or {f"V{number:03d}" for number in range(1, 106)}
+        self.applied_through = applied_through
         self.statements: list[str] = []
 
     def __enter__(self) -> "Cursor":
@@ -42,7 +36,7 @@ class Cursor:
 
     def fetchall(self) -> list[tuple[str, ...]]:
         if self.statements[-1].startswith("SELECT version"):
-            return [(version,) for version in sorted(self.applied_versions)]
+            return [(f"V{number:03d}",) for number in range(1, self.applied_through + 1)]
         return self.grants
 
 
@@ -61,7 +55,7 @@ def test_pending_prod_schema_migration_is_v106() -> None:
 
 
 def test_preflight_rejects_missing_create_schema_without_ddl() -> None:
-    cursor = Cursor([("USAGE", "DATABASE", PROD, False)])
+    cursor = Cursor([("USAGE", "DATABASE", PROD)])
     with (
         patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)),
         pytest.raises(ValueError, match="lacks CREATE SCHEMA.*V106"),
@@ -77,9 +71,10 @@ def test_preflight_rejects_missing_create_schema_without_ddl() -> None:
 
 def test_preflight_accepts_exact_prod_database_grant() -> None:
     cursor = Cursor(
-        [
-            ("CREATE SCHEMA", "DATABASE", PROD, False),
-            *catalog_delegation_grants(),
+        [("CREATE SCHEMA", "DATABASE", PROD)]
+        + [
+            ("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{name}")
+            for name in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES")
         ]
     )
     with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
@@ -87,59 +82,51 @@ def test_preflight_accepts_exact_prod_database_grant() -> None:
     assert result == {
         "pending_schema_creation": ["V106"],
         "create_schema_grant": "present",
-        "v126_grant_authority": "present",
+        "v126_catalog_grants": "present",
     }
 
 
-def catalog_delegation_grants() -> list[tuple[str, str, str, bool]]:
-    return [
-        ("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{table}", True)
-        for table in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES")
-    ]
-
-
-def test_partial_v124_state_fails_on_first_unauthorized_v126_grant() -> None:
-    applied = {f"V{number:03d}" for number in range(1, 114)} | {"V123", "V124"}
-    cursor = Cursor([], applied)
+@pytest.mark.parametrize("missing_table", ["CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"])
+def test_preflight_rejects_missing_account_owned_catalog_grant_before_ddl(
+    missing_table: str,
+) -> None:
+    present_table = (
+        {"CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"} - {missing_table}
+    ).pop()
+    cursor = Cursor(
+        [("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{present_table}")],
+        applied_through=124,
+    )
     with (
         patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)),
-        pytest.raises(ValueError, match="CATALOG_DISCOVERY_OBSERVATIONS"),
+        pytest.raises(ValueError, match=f"V126 requires.*{missing_table}"),
     ):
         migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
-    assert cursor.statements[-1] == f"SHOW GRANTS TO ROLE {ROLE}"
+    assert cursor.statements[-1] == (
+        "SHOW GRANTS TO ROLE OH_LYME_PROD_DATASET_DISCOVERY_WRITE_OWNER"
+    )
 
 
-def test_partial_v124_state_requires_both_exact_grant_options() -> None:
-    applied = {f"V{number:03d}" for number in range(1, 114)} | {"V123", "V124"}
-    cursor = Cursor([catalog_delegation_grants()[0]], applied)
-    with (
-        patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)),
-        pytest.raises(ValueError, match="CATALOG_RESOURCES"),
-    ):
-        migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
-
-
-def test_partial_v124_state_accepts_only_both_grant_options() -> None:
-    applied = {f"V{number:03d}" for number in range(1, 114)} | {"V123", "V124"}
-    cursor = Cursor(catalog_delegation_grants(), applied)
+def test_preflight_accepts_account_owned_catalog_grants_without_schema_creation() -> None:
+    cursor = Cursor(
+        [
+            ("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{name}")
+            for name in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES")
+        ],
+        applied_through=124,
+    )
     with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
         result = migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
-    assert result["v126_grant_authority"] == "present"
-    assert result["create_schema_grant"] == "not_required"
+    assert result == {
+        "pending_schema_creation": [],
+        "create_schema_grant": "not_required",
+        "v126_catalog_grants": "present",
+    }
 
 
-def test_v126_checksum_and_narrow_admin_bootstrap_are_preserved() -> None:
-    v126 = next(item for item in load_migrations() if item.version == "V126")
-    assert v126.sha256 == "97f2684ce6fff946d2c07c28cfae59d06482a985b8f38af827a151a09280da12"
-    bootstrap = Path("scripts/bootstrap_dataset_discovery_roles_prod.sql").read_text()
-    for table in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"):
-        assert (
-            f"GRANT SELECT ON TABLE {PROD}.GOVERNANCE.{table}\n"
-            "  TO ROLE OH_LYME_PROD_MIGRATION_DEPLOYER WITH GRANT OPTION;"
-        ) in bootstrap
-    assert bootstrap.count("WITH GRANT OPTION") == 2
-    assert "MANAGE GRANTS" not in bootstrap
-    assert (
-        "GRANT ROLE OH_LYME_PROD_DATASET_DISCOVERY_WRITE_OWNER\n"
-        "  TO ROLE OH_LYME_PROD_MIGRATION_DEPLOYER;"
-    ) in bootstrap
+def test_preflight_skips_catalog_grants_after_v126_receipt() -> None:
+    cursor = Cursor([], applied_through=126)
+    with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
+        result = migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
+    assert result["v126_catalog_grants"] == "not_required"
+    assert not any(statement.startswith("SHOW GRANTS") for statement in cursor.statements)

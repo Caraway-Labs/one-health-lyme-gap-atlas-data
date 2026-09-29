@@ -41,6 +41,7 @@ def test_account_bootstrap_is_prod_only_and_separates_roles() -> None:
 def test_grant_migration_is_protected_prod_only() -> None:
     migration = next(item for item in load_migrations() if item.version == "V126")
     assert migration.filename == GRANTS.name
+    assert migration.sha256 == "35d369399ccae3f936dee7e7b32c530f963c5a81d0b1ff7664d85f791f08568c"
     assert "V126" in {item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")}
     assert "V126" not in {
         item["version"] for item in migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")
@@ -50,6 +51,18 @@ def test_grant_migration_is_protected_prod_only() -> None:
     assert "USE DATABASE ONE_HEALTH_LYME_GAP_ATLAS_PROD" in render_migration(
         migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
     )
+
+
+def test_account_owned_catalog_grants_are_admin_bootstrap_only() -> None:
+    bootstrap = statements(BOOTSTRAP)
+    migration = statements(GRANTS)
+    for table in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"):
+        expected = (
+            "GRANT SELECT ON TABLE ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE."
+            f"{table} TO ROLE OH_LYME_PROD_DATASET_DISCOVERY_WRITE_OWNER"
+        )
+        assert expected in bootstrap
+        assert not any(f"GOVERNANCE.{table}" in statement for statement in migration)
 
 
 def test_runtime_reviewer_and_write_owner_are_bounded() -> None:
