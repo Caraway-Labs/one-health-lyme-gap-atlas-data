@@ -195,7 +195,12 @@ class ExtractionCoordinator:
         """Expose the deterministic input estimate used by the budget reservation."""
         return self._tokens(full_request)
 
-    def build_contribution(self, request_id: str, full_request: str) -> AdmittedContribution:
+    def build_contribution(
+        self,
+        request_id: str,
+        full_request: str,
+        expected_query_match_ids: tuple[str, ...] | None = None,
+    ) -> AdmittedContribution:
         """Reserve budget and return a partially admitted, embedded contribution."""
         tokens = self.estimate_input_tokens(full_request)
         route = self.route_for_request(full_request)
@@ -207,6 +212,12 @@ class ExtractionCoordinator:
             # provider adapter must request strict structured output and returns no
             # retained raw response beyond this in-memory object.
             schema = GraphContribution.model_json_schema()
+            if expected_query_match_ids is not None:
+                # These are catalog provenance identifiers, not model-inferred
+                # facts. Constrain the complete array and still validate the
+                # returned paper identity before graph publication.
+                paper_schema = schema["$defs"]["PaperNode"]["properties"]
+                paper_schema["query_match_ids"]["enum"] = [list(expected_query_match_ids)]
             raw = self._providers[route].extract(full_request, schema)
             admitted = admit_graph_contribution(raw)
             contribution = admitted.contribution

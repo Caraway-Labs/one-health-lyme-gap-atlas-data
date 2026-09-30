@@ -79,6 +79,41 @@ def test_extract_failure_finalizes_budget_as_failed() -> None:
     assert budget.finalizations == [("request-1", "failed", None)]
 
 
+def test_claimed_query_ids_are_bound_in_provider_schema() -> None:
+    class CaptureExtractor:
+        schema: dict[str, object] | None = None
+
+        def extract(self, full_request: str, schema: dict[str, object]) -> dict[str, object]:
+            self.schema = schema
+            raise RuntimeError("stop before provider")
+
+    provider = CaptureExtractor()
+    coordinator = ExtractionCoordinator(
+        groq=provider,
+        openai=provider,
+        budget=FakeBudget(),
+        publisher=FakePublisher(),
+        embedder=FakeEmbedder(),
+        token_estimator=lambda _: 1,
+        cost_estimator=lambda _route, _tokens: 0.20,
+    )
+    with pytest.raises(RuntimeError, match="stop before provider"):
+        coordinator.build_contribution("request-ids", "complete request", ("match-1", "match-2"))
+    assert provider.schema is not None
+    paper_schema = provider.schema["$defs"]["PaperNode"]["properties"]
+    assert paper_schema["query_match_ids"]["enum"] == [["match-1", "match-2"]]
+    strict_schema = extraction._strict_response_schema(provider.schema)
+    assert strict_schema["$defs"]["PaperNode"]["properties"]["query_match_ids"]["enum"] == [
+        ["match-1", "match-2"]
+    ]
+    assert (
+        "enum"
+        not in GraphContribution.model_json_schema()["$defs"]["PaperNode"]["properties"][
+            "query_match_ids"
+        ]
+    )
+
+
 def test_successful_contribution_finalizes_budget_as_used() -> None:
     now = datetime(2026, 9, 2, tzinfo=UTC)
     valid = GraphContribution(
