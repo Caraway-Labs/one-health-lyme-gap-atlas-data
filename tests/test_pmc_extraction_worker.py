@@ -156,6 +156,25 @@ def test_identity_mismatch_records_redacted_field_names() -> None:
     assert "mismatched_fields=" in raised.value.diagnostics[0].reason
 
 
+def test_extraction_request_marks_query_match_ids_as_exact_provenance() -> None:
+    from lyme_gap_atlas_data.artifacts import Artifact
+    from lyme_gap_atlas_data.pmc_extraction_worker import build_extraction_request
+    from lyme_gap_atlas_data.pmc_graph import AdmittedFullText
+
+    admitted = AdmittedFullText(
+        "PMC123",
+        "https://creativecommons.org/licenses/by/4.0/",
+        "Approved evidence.",
+        "c" * 64,
+        "d" * 64,
+    )
+    artifact = Artifact(sha256="e" * 64, byte_count=1, object_key="dev/key.bin")
+    request = build_extraction_request(approved_paper(), admitted, artifact)
+    assert '"query_match_ids": ["match-1"]' in request
+    assert "Copy query_match_ids from Identity" in request
+    assert "provenance IDs, not facts to infer from the article" in request
+
+
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
     return ApprovedPaper(
         pmid="123",
