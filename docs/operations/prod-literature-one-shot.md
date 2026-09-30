@@ -70,12 +70,13 @@ It performs no PubMed query, extraction, Snowflake write, or Neo4j write. After 
 finishes, verify that `doctl apps spec get $prodAppId --format json` lists only
 the original six jobs and no `literature-*-once` job. Stop if restoration fails.
 
-## 1. Discover at most 10–25 citations in one family
+## 1. Discover up to 400 citation records in one family
 
 Choose a family from `surveillance_epidemiology`, `vector_host_pathogen`,
 `environment_exposure`, or `diagnostics_interventions_outcomes`. One invocation
-per family fetches at most 25 PubMed records. The worker permits at most 400
-records in general, but this workflow narrows the limit to 25. It makes one
+fetches at most 400 PubMed records, matching the existing worker bound. The
+default remains 25; use a reviewed larger window only when the existing
+candidate queue is too small. Keep EFetch pages at 25 records. It makes one
 E-utilities ESearch plus at most `ceil(max_records/batch_size)` EFetch pages,
 with at most three attempts per request and serial execution. The discovery
 result contains `discovery_run_id` and artifact IDs; it creates review
@@ -92,6 +93,14 @@ snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,TITLE,STATE,ACCESS_ST
 Do not rerun a successful family merely to grow the queue without checking
 existing PMIDs and review decisions. Discovery is keyed by PMID and retains
 query-match and raw-artifact lineage.
+
+For DATA #495, the prior surveillance run captured only the first 10 results
+from a 3,096-result query. A reviewed 400-record run of the same family can
+extend that metadata-only window without changing the query, publication
+types, date range, or OA policy. Compare distinct PMIDs and PMCIDs across
+families before requesting further windows. Discovery does not approve or
+extract any candidate; prepare the PMID, title, publication types, PMCID,
+abstract, and query-match evidence for steward review below.
 
 ## 2. Steward review
 

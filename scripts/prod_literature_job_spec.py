@@ -107,8 +107,12 @@ def build_spec(
         raise ValueError("production image digest differs from the reviewed active digest")
     if operation not in {"preflight", "discover", "extract", "build-corpus"}:
         raise ValueError("unsupported literature operation")
-    if family not in FAMILIES or not 1 <= max_records <= 25 or not 1 <= batch_size <= max_records:
-        raise ValueError("discovery must name an approved family and request 1-25 records")
+    if (
+        family not in FAMILIES
+        or not 1 <= max_records <= 400
+        or not 1 <= batch_size <= min(max_records, 200)
+    ):
+        raise ValueError("discovery must name an approved family and request 1-400 records")
     try:
         estimate = Decimal(estimated_cost_usd)
     except InvalidOperation as error:
