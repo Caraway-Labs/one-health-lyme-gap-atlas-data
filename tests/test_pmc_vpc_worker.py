@@ -9,7 +9,7 @@ def test_vpc_worker_provisioning_preserves_private_graph_boundary() -> None:
     assert "ports:22" in provisioner
     assert "7687" not in provisioner.split("firewall create", 1)[1].split("| Out-Null", 1)[0]
     assert "@${IMAGE_DIGEST}" in installer
-    assert "pmc-extract --estimated-cost-usd 0.10 --confirm" in installer
+    assert "pmc-extract --estimated-cost-usd 0.20 --confirm" in installer
     assert "Configure-PmcExtractionWorker.ps1" in provisioner
     assert '"NEO4J_URI=bolt://$Neo4jPrivateIp:7687"' in configurator
     assert "doctl registry docker-config oh-lyme-data --expiry-seconds 3600" in configurator

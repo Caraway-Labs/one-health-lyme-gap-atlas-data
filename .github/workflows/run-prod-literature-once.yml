@@ -28,9 +28,9 @@ on:
         default: "25"
         type: string
       estimated_cost_usd:
-        description: Per-paper extraction budget reservation estimate, 0.01-20 USD
+        description: Per-paper extraction budget reservation bound, 0.20-20 USD
         required: true
-        default: "0.10"
+        default: "0.20"
         type: string
 
 permissions:
