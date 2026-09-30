@@ -62,7 +62,7 @@ the current immutable image digest:
 ```powershell
 $prodAppId = '5d8966ed-d152-4a78-bdd6-14553dbc1483'
 $digest = ((doctl apps spec get $prodAppId --format json | ConvertFrom-Json).jobs[0].image.digest)
-gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=preflight -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.10
+gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=preflight -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
 ```
 
 `preflight` checks private Neo4j Bolt connectivity inside the temporary VPC job.
@@ -82,7 +82,7 @@ result contains `discovery_run_id` and artifact IDs; it creates review
 candidates only.
 
 ```powershell
-gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=discover -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.10
+gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=discover -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
 gh run list --repo Caraway-Labs/one-health-lyme-gap-atlas-data --workflow run-prod-literature-once.yml --limit 5
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT DISCOVERY_RUN_ID,FAMILY,STATUS,RESULT_COUNT,NEXT_RETSTART,RAW_ARTIFACT_ID,STARTED_AT FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS ORDER BY STARTED_AT DESC LIMIT 10" --format JSON
@@ -147,10 +147,43 @@ limited to 200,000 UTF-8 bytes including the schema and 32,768 output tokens.
 At published gpt-5.6-luna long-context and cache-write prices, the conservative
 maximum is $0.100 input + $0.059 output; one embeddings request at the API's
 300,000-token maximum adds $0.006, for under $0.165 per invocation. There is
-one Responses request and one embeddings request, with no SDK retry loop.
+one Responses request pinned to the standard (`default`) service tier and one
+embeddings request, with no SDK retry loop.
 Each attempt reserves $0.20 even on failure; reconcile reservations across
-days and stop before 150 new attempts to keep the user's additional OpenAI
-exposure below $30. This is a conservative bound, not billed usage.
+days to keep the user's additional OpenAI exposure below $30. This is a
+conservative bound, not billed usage. The already completed one-paper proof
+has request ID `dd0ccc75-84c8-4766-853a-9fe348e115ed` and is outside the
+new batch. Before **every** subsequent extraction, use the existing
+`BVB26657_PAT` administrative read connection to reconcile the append-only
+ledger; routine PROD owner and audit connections cannot read this table. Require exactly
+one baseline row, all new reservations at least $0.20, and `bound_usd + 0.20
+<= 30`. Count failed attempts too. The shared `prod-app-topology` workflow
+concurrency group serializes these one-shot runs; check no other extraction
+worker is active before dispatch. Never infer spend headroom from the two
+historical zeroed estimates.
+
+```sql
+USE WAREHOUSE OH_LYME_PROD_INGEST_XS_WH;
+WITH baseline AS (
+  SELECT RECORDED_AT FROM ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.LLM_BUDGET_USAGE
+  WHERE WORKLOAD = 'pmc_extraction'
+    AND REQUEST_ID = 'dd0ccc75-84c8-4766-853a-9fe348e115ed'
+), batch AS (
+  SELECT ESTIMATED_COST_USD
+  FROM ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.LLM_BUDGET_USAGE
+  WHERE WORKLOAD = 'pmc_extraction'
+    AND RECORDED_AT > (SELECT RECORDED_AT FROM baseline)
+)
+SELECT (SELECT COUNT(*) FROM baseline) AS BASELINE_ROWS,
+       COUNT(*) AS BATCH_ATTEMPTS,
+       COALESCE(COUNT_IF(ESTIMATED_COST_USD < 0.20), 0) AS UNDER_RESERVED_ATTEMPTS,
+       COALESCE(SUM(GREATEST(ESTIMATED_COST_USD, 0.20)), 0) AS BOUND_USD
+FROM batch;
+```
+
+Stop if the baseline is missing, a reservation is under $0.20, the ledger is
+unavailable, or the next reservation would exceed $30. Verify each new row
+stores at least `0.200000` before continuing beyond the first post-repair run.
 
 ### PROD classification-ledger prerequisite (DATA #517)
 
@@ -177,7 +210,7 @@ separate direct Neo4j write command.
 
 ```powershell
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,STATE,FINAL_REVIEW_DECISION_ID FROM KNOWLEDGE_GRAPH.PAPERS WHERE STATE IN ('approved','retry_pending') AND PMCID IS NOT NULL ORDER BY CASE WHEN STATE='retry_pending' THEN 0 ELSE 1 END,PMID LIMIT 25" --format JSON
-gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=extract -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.10
+gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=extract -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,STATE,ACCESS_STATUS,FULL_TEXT_OBJECT_KEY,CONTENT_SHA256 FROM KNOWLEDGE_GRAPH.PAPERS WHERE STATE IN ('processed','retry_pending','retry_exhausted','access_rejected') ORDER BY UPDATED_AT DESC LIMIT 25" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,ARTIFACT_ID,LICENSE_URL,JATS_SHA256,TEXT_SHA256 FROM KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS ORDER BY ADMITTED_AT DESC LIMIT 25" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,ATTEMPT_NUMBER,PROVIDER_ROUTE,STATUS,ERROR_CLASS,STARTED_AT,FINISHED_AT FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS ORDER BY STARTED_AT DESC LIMIT 25" --format JSON
@@ -210,7 +243,7 @@ immutable JATS/text hashes, and a graph contribution receipt. It records a
 versioned build ID and content hash.
 
 ```powershell
-gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=build-corpus -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.10
+gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=build-corpus -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT BUILD_ID,CORPUS_RULES_VERSION,STATUS,PAPERS_ADMITTED,CHUNKS_WRITTEN,CORPUS_CONTENT_SHA256,STARTED_AT FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS ORDER BY STARTED_AT DESC LIMIT 5" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,COUNT(*) AS UNITS FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS WHERE CORPUS_RULES_VERSION='retrieval-corpus-v1' GROUP BY PMID,PMCID ORDER BY PMID" --format JSON
 ```

@@ -224,6 +224,7 @@ def test_openai_responses_uses_the_closed_strict_schema(
     payload = captured["json"]
     assert isinstance(payload, dict)
     strict_schema = payload["text"]["format"]["schema"]
+    assert payload["service_tier"] == "default"
     assert payload["max_output_tokens"] == 32_768
     assert strict_schema["required"] == ["optional_field"]
     assert "default" not in strict_schema["properties"]["optional_field"]

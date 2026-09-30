@@ -85,7 +85,7 @@ def build_spec(
     family: str = "surveillance_epidemiology",
     max_records: int = 25,
     batch_size: int = 25,
-    estimated_cost_usd: str = "0.10",
+    estimated_cost_usd: str = "0.20",
     secrets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a new spec; reject drift and every unbounded invocation."""
@@ -113,8 +113,8 @@ def build_spec(
         estimate = Decimal(estimated_cost_usd)
     except InvalidOperation as error:
         raise ValueError("estimated cost must be a decimal number") from error
-    if not estimate.is_finite() or not Decimal("0.01") <= estimate <= Decimal("20"):
-        raise ValueError("estimated cost must be between 0.01 and 20 USD")
+    if not estimate.is_finite() or not Decimal("0.20") <= estimate <= Decimal("20"):
+        raise ValueError("estimated cost must be between 0.20 and 20 USD")
 
     template_name = (
         "cdc-operations-watchdog"
@@ -188,7 +188,7 @@ def main() -> None:
     parser.add_argument("--family", default="surveillance_epidemiology")
     parser.add_argument("--max-records", type=int, default=25)
     parser.add_argument("--batch-size", type=int, default=25)
-    parser.add_argument("--estimated-cost-usd", default="0.10")
+    parser.add_argument("--estimated-cost-usd", default="0.20")
     args = parser.parse_args()
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     result = build_spec(

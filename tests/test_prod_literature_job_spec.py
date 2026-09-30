@@ -102,7 +102,7 @@ def test_one_shot_job_is_separate_and_restores_clean_baseline(operation: str) ->
         assert "--family vector_host_pathogen" in temporary["run_command"]
         assert "PAPERS_REQUIRE_HUMAN_REVIEW" in {env["key"] for env in temporary["envs"]}
     if operation == "extract":
-        assert temporary["run_command"].endswith("pmc-extract --estimated-cost-usd 0.10 --confirm")
+        assert temporary["run_command"].endswith("pmc-extract --estimated-cost-usd 0.20 --confirm")
         assert "NEO4J_RUNTIME_PASSWORD" in {env["key"] for env in temporary["envs"]}
     if operation in {"preflight", "extract"}:
         assert result["vpc"]["id"] == "a937d8dd-4ee9-4de2-a8df-b32e7ad4098e"
@@ -148,6 +148,14 @@ def test_missing_provider_credentials_and_unbounded_discovery_fail_closed() -> N
             build_spec(_baseline(), operation="discover", image_digest=DIGEST, **kwargs)
     with pytest.raises(ValueError):
         build_spec(_baseline(), operation="extract", image_digest=DIGEST, secrets={})
+    with pytest.raises(ValueError, match="0.20"):
+        build_spec(
+            _baseline(),
+            operation="extract",
+            image_digest=DIGEST,
+            estimated_cost_usd="0.10",
+            secrets={"NEO4J_RUNTIME_PASSWORD": "x", "GROQ_API_KEY": "x", "OPENAI_API_KEY": "x"},
+        )
     with pytest.raises(ValueError):
         build_spec(
             _baseline(),

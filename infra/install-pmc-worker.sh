@@ -12,7 +12,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 EnvironmentFile=/opt/oh-lyme/pmc-runtime.env
-ExecStart=/usr/bin/docker run --rm --env-file /opt/oh-lyme/pmc-runtime.env registry.digitalocean.com/oh-lyme-data/pipeline@${IMAGE_DIGEST} /app/.venv/bin/atlas-data pipeline pmc-extract --estimated-cost-usd 0.10 --confirm
+ExecStart=/usr/bin/docker run --rm --env-file /opt/oh-lyme/pmc-runtime.env registry.digitalocean.com/oh-lyme-data/pipeline@${IMAGE_DIGEST} /app/.venv/bin/atlas-data pipeline pmc-extract --estimated-cost-usd 0.20 --confirm
 EOF
 cat >/etc/systemd/system/oh-lyme-pmc-extraction.timer <<'EOF'
 [Unit]

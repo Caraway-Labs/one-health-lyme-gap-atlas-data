@@ -104,6 +104,7 @@ class OpenAIResponsesExtractor:
     def extract(self, full_request: str, schema: dict[str, object]) -> dict[str, object]:
         payload = {
             "model": "gpt-5.6-luna",
+            "service_tier": "default",
             "store": False,
             "reasoning": {"effort": "low"},
             "max_output_tokens": 32_768,
