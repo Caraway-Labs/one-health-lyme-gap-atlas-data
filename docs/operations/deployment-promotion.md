@@ -134,6 +134,23 @@ procedure-ownership privileges. After V090 is ledgered, use the production
 owner connection to exercise the procedure and confirm that the pipeline
 runtime still lacks procedure usage.
 
+### PROD V130/V131 PMC budget finalization
+
+V130 creates only the append-only finalization ledger; V131 creates the
+four-argument owner-rights finalizer. These PROD-only migrations do not replay
+the historical DEV V061 repair or replace the current V067 reservation
+procedure. Before protected application, confirm the PROD migration ledger and
+the absence of both objects. An explicitly authorized account owner must create
+`OH_LYME_PROD_KG_LLM_BUDGET_OWNER`, grant it `USAGE` on the PROD database and
+`GOVERNANCE` schema, `SELECT` on `GOVERNANCE.LLM_BUDGET_USAGE`,
+`CREATE PROCEDURE` on `GOVERNANCE`, and `SELECT, INSERT` on
+`GOVERNANCE.SCHEMA_MIGRATIONS`. Grant the role to the PROD migration service
+identity. V130 grants that role `SELECT, INSERT` on the new finalization ledger;
+V131 runs under it and grants only procedure `USAGE` to `OH_LYME_PROD_RUNTIME`.
+Do not grant the runtime direct access to either budget ledger. Verify the
+procedure signature, owner, and runtime usage before any bounded one-paper
+retry. PROD application, role grants, and retry each require protected approval.
+
 ### DEV V056 PMC budget-procedure owner bootstrap
 
 V056 restores the fail-closed PMC extraction budget procedure under the dedicated

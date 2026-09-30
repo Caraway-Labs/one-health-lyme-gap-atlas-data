@@ -83,6 +83,8 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V099",
     "V126",
     "V129",
+    "V130",
+    "V131",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -313,6 +315,10 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != DEV_DATABASE:
             raise ValueError("DEV PMC budget-owner migration is DEV-only")
         return "OH_LYME_DEV_KG_LLM_BUDGET_OWNER"
+    if migration.version == "V131":
+        if database != PROD_DATABASE:
+            raise ValueError("PROD PMC budget-owner migration is PROD-only")
+        return "OH_LYME_PROD_KG_LLM_BUDGET_OWNER"
     if migration.version == "V049":
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
