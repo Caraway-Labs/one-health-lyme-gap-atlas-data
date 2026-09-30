@@ -378,4 +378,3 @@ the GitHub `production` environment. It verifies that a requested digest is the
 one currently deployed in DEV. It deliberately stops until distinct PROD
 Snowflake/Spaces credentials and the PROD job exist; it never creates them as a
 side effect of a promotion request.
-
