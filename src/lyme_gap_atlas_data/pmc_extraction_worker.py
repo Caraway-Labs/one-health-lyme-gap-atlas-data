@@ -180,6 +180,8 @@ def build_extraction_request(
         "exactly match this identity, every substantive edge must cite one supplied evidence "
         "passage, and unsupported assertions must be omitted. Do not include any facts not "
         "supported by the full text.\n"
+        "Copy query_match_ids from Identity into contribution.paper.query_match_ids "
+        "exactly as supplied. They are provenance IDs, not facts to infer from the article.\n"
         + endpoint_matrix_prompt()
         + "\nIdentity:\n"
         + json.dumps(identity, sort_keys=True)
