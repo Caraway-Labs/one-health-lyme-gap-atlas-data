@@ -116,6 +116,20 @@ qualification; the extraction worker checks PMC identity, license, and JATS.
 
 ## 3. Extract one approved paper and publish its graph contribution
 
+### PROD classification-ledger prerequisite (DATA #517)
+
+The deployed worker's `claim_one` query reads
+`KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS` before claiming a paper.
+V060 and V064 created and extended this append-only ledger only in DEV. Before
+retrying a failed PROD extraction, the protected PROD migration ledger must show
+V129 applied. Confirm the PROD table has the seven DEV-equivalent columns, both
+`provider_rejected_pre_inference` and `contract_remediation_reopen` classification
+values, and only `SELECT, INSERT` on this table for `OH_LYME_PROD_RUNTIME`.
+Run the worker's claim `SELECT` as that runtime identity after protected apply;
+verify it returns the expected approved PMID without changing its paper state.
+Do not retry extraction from migration syntax or grants alone. The initial
+DATA #495 failure was before paper claim and left PMID `42381666` approved.
+
 The existing `pmc-extract` command claims at most **one** approved or retryable
 paper with a PMCID per workflow run. It prioritizes retry-pending work, then
 orders by PMID; there is no arbitrary PMID override. Review the eligible queue
