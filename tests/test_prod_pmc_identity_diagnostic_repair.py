@@ -55,6 +55,8 @@ def test_stranded_attempt_cleanup_is_exact_and_counts_failure() -> None:
     assert "error_class = 'ContributionIdentityError'" in sql
     assert "state = 'retry_pending'" in sql
     assert "PAPER_STATE_EVENTS" in sql
+    assert "SELECT UUID_STRING(), '39307534'" in sql
+    assert "VALUES (UUID_STRING()" not in sql
     assert "rows_changed <> 1" in sql
     assert "ROLLBACK;" in sql
     assert "LLM_BUDGET_USAGE" not in sql

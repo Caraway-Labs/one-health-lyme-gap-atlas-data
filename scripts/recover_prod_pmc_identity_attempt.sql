@@ -64,9 +64,9 @@ BEGIN
   IF (rows_changed <> 1) THEN RAISE changed_state; END IF;
   INSERT INTO KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS
     (paper_state_event_id, pmid, from_state, to_state, reason, correlation_id, actor)
-    VALUES (UUID_STRING(), '39307534', 'extracting', 'retry_pending',
+    SELECT UUID_STRING(), '39307534', 'extracting', 'retry_pending',
       'ContributionIdentityError; query_match_ids mismatch; diagnostic constraint rejected failure record',
-      'DATA-495-RUN-36719469767', CURRENT_USER());
+      'DATA-495-RUN-36719469767', CURRENT_USER();
   SELECT COUNT(*) INTO :match_count
     FROM KNOWLEDGE_GRAPH.PAPERS p
     JOIN KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a ON a.pmid = p.pmid
