@@ -765,9 +765,9 @@ class _UnusedCoordinatorPublisher:
 
 def run_pmc_extraction(*, estimated_cost_usd: float, settings: Any) -> dict[str, object]:
     """Construct the guarded runtime only after a CLI operator gives an explicit cost bound."""
-    if not 0 < estimated_cost_usd <= 20:
+    if not 0.20 <= estimated_cost_usd <= 20:
         raise ValueError(
-            "estimated_cost_usd must be greater than zero and no more than the daily budget"
+            "estimated_cost_usd must be at least the $0.20 per-call bound and no more than the daily budget"
         )
     required = {
         "GROQ_API_KEY": settings.groq_api_key,

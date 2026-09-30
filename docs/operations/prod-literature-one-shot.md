@@ -116,6 +116,42 @@ qualification; the extraction worker checks PMC identity, license, and JATS.
 
 ## 3. Extract one approved paper and publish its graph contribution
 
+### Fractional budget bootstrap for DATA #495
+
+Before applying V132/V133, the production owner must review the live reserve
+procedure owner and grants. V132 requires the existing reserve procedure to be
+owned by `OH_LYME_PROD_KG_LLM_BUDGET_OWNER`, and that role needs `INSERT` on
+`GOVERNANCE.LLM_BUDGET_USAGE` in addition to its existing `SELECT`. These are
+the only new persistent authority changes. The owner executes, from an
+authorized administrative connection, after confirming the current grants:
+
+```sql
+GRANT INSERT ON TABLE ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.LLM_BUDGET_USAGE
+  TO ROLE OH_LYME_PROD_KG_LLM_BUDGET_OWNER;
+GRANT OWNERSHIP ON PROCEDURE ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET(
+  VARCHAR, VARCHAR, VARCHAR, VARCHAR, NUMBER, NUMBER, NUMBER)
+  TO ROLE OH_LYME_PROD_KG_LLM_BUDGET_OWNER COPY CURRENT GRANTS;
+```
+
+Verify ownership and that the existing `OH_LYME_PROD_RUNTIME`,
+`OH_LYME_PROD_READ`, and `OH_LYME_API_READER` USAGE grants remain. Then apply
+V132/V133 through the normal protected promotion. Never edit V067 or V131.
+V132 preserves fractional reservation inputs and totals; V133 preserves a
+fractional finalization value if one is available. The extraction worker does
+not measure provider charges, so it records `NULL` actual cost rather than
+putting its reservation estimate in that field.
+
+For the approved next batch, pass `estimated_cost_usd=0.20` for each one-paper
+extraction. The worker refuses a smaller reservation. Its OpenAI request is
+limited to 200,000 UTF-8 bytes including the schema and 32,768 output tokens.
+At published gpt-5.6-luna long-context and cache-write prices, the conservative
+maximum is $0.100 input + $0.059 output; one embeddings request at the API's
+300,000-token maximum adds $0.006, for under $0.165 per invocation. There is
+one Responses request and one embeddings request, with no SDK retry loop.
+Each attempt reserves $0.20 even on failure; reconcile reservations across
+days and stop before 150 new attempts to keep the user's additional OpenAI
+exposure below $30. This is a conservative bound, not billed usage.
+
 ### PROD classification-ledger prerequisite (DATA #517)
 
 The deployed worker's `claim_one` query reads

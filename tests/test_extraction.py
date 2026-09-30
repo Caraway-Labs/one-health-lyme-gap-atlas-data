@@ -122,7 +122,7 @@ def test_successful_contribution_finalizes_budget_as_used() -> None:
     )
     contribution = coordinator.build_contribution("request-2", "complete request")
     assert contribution.contribution.paper.pmid == "1"
-    assert budget.finalizations == [("request-2", "used", 0.25)]
+    assert budget.finalizations == [("request-2", "used", None)]
 
 
 def test_reservation_refusal_does_not_finalize_budget() -> None:
@@ -224,5 +224,19 @@ def test_openai_responses_uses_the_closed_strict_schema(
     payload = captured["json"]
     assert isinstance(payload, dict)
     strict_schema = payload["text"]["format"]["schema"]
+    assert payload["max_output_tokens"] == 32_768
     assert strict_schema["required"] == ["optional_field"]
     assert "default" not in strict_schema["properties"]["optional_field"]
+
+
+def test_openai_request_over_input_bound_never_calls_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_post(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("provider must not be called")
+
+    monkeypatch.setattr(extraction.httpx, "post", forbidden_post)
+    with pytest.raises(ValueError, match="budgeted input bound"):
+        extraction.OpenAIResponsesExtractor("test-key").extract(
+            "x" * 200_000, {"type": "object", "properties": {}}
+        )

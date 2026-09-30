@@ -266,4 +266,4 @@ def test_coordinator_partial_accept_finalizes_budget_as_used() -> None:
     admitted = coordinator.build_contribution("request-partial", "complete request")
     assert len(admitted.contribution.edges) == 1
     assert admitted.dropped_edge_count == 1
-    assert budget.finalizations == [("request-partial", "used", 0.25)]
+    assert budget.finalizations == [("request-partial", "used", None)]

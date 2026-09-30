@@ -102,23 +102,29 @@ class OpenAIResponsesExtractor:
         self._headers = {"Authorization": f"Bearer {api_key}"}
 
     def extract(self, full_request: str, schema: dict[str, object]) -> dict[str, object]:
+        payload = {
+            "model": "gpt-5.6-luna",
+            "store": False,
+            "reasoning": {"effort": "low"},
+            "max_output_tokens": 32_768,
+            "input": full_request,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "graph_contribution",
+                    "strict": True,
+                    "schema": _strict_response_schema(schema),
+                }
+            },
+        }
+        # UTF-8 bytes conservatively bound input tokens, including the schema.
+        # Reject before the provider call if a paper exceeds the $0.20 bound.
+        if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 200_000:
+            raise ValueError("OpenAI extraction request exceeds the budgeted input bound")
         response = httpx.post(
             "https://api.openai.com/v1/responses",
             headers=self._headers,
-            json={
-                "model": "gpt-5.6-luna",
-                "store": False,
-                "reasoning": {"effort": "low"},
-                "input": full_request,
-                "text": {
-                    "format": {
-                        "type": "json_schema",
-                        "name": "graph_contribution",
-                        "strict": True,
-                        "schema": _strict_response_schema(schema),
-                    }
-                },
-            },
+            json=payload,
             timeout=180,
         )
         response.raise_for_status()
@@ -229,7 +235,9 @@ class ExtractionCoordinator:
         except Exception:
             self._budget.finalize(request_id, "failed")
             raise
-        self._budget.finalize(request_id, "used", estimated_cost)
+        # Provider charges are not measured by this adapter. The reservation
+        # remains the conservative spend bound; never call it an actual cost.
+        self._budget.finalize(request_id, "used")
         return admitted
 
     def publish_contribution(self, contribution: GraphContribution) -> dict[str, object]:
