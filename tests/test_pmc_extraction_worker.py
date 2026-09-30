@@ -330,8 +330,14 @@ class Coordinator:
         self.graph = graph
         self.called = False
 
-    def build_contribution(self, request_id: str, full_request: str) -> AdmittedContribution:
+    def build_contribution(
+        self,
+        request_id: str,
+        full_request: str,
+        expected_query_match_ids: tuple[str, ...] | None = None,
+    ) -> AdmittedContribution:
         self.called = True
+        assert expected_query_match_ids == ("match-1",)
         if isinstance(self.graph, Exception):
             raise self.graph
         graph = self.graph.model_copy(deep=True)

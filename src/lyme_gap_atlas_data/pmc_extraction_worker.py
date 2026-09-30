@@ -115,7 +115,12 @@ class ContributionBuilder(Protocol):
 
     def estimate_input_tokens(self, full_request: str) -> int: ...
 
-    def build_contribution(self, request_id: str, full_request: str) -> AdmittedContribution: ...
+    def build_contribution(
+        self,
+        request_id: str,
+        full_request: str,
+        expected_query_match_ids: tuple[str, ...] | None = None,
+    ) -> AdmittedContribution: ...
 
 
 class JatsFetcher(Protocol):
@@ -327,7 +332,9 @@ class PMCExtractionWorker:
                     self._lease_seconds,
                 )
                 span.set_attribute("atlas.pmc.extraction_attempt_id", attempt_id)
-                built = self._coordinator.build_contribution(attempt_id, request)
+                built = self._coordinator.build_contribution(
+                    attempt_id, request, paper.query_match_ids
+                )
                 contribution = built.contribution
                 validate_contribution_identity(contribution, paper, admitted, artifact)
                 receipt = self._publisher.publish(contribution)
