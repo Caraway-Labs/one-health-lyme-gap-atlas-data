@@ -98,7 +98,7 @@ VIEW_OWNER_MIGRATION_VERSIONS = {"V041", "V047", "V052", "V072"}
 SEMANTIC_RELEASE_ROLE_COMPATIBILITY_VERSIONS = {"V071", "V072", "V073"}
 
 # These are the exact legacy checksums observed in the DEV ledger on 2026-08-30.
-# They are an explicit, DEV-only recovery boundary-not a general checksum bypass.
+# They are an explicit, DEV-only recovery boundary—not a general checksum bypass.
 LEGACY_DEV_MIGRATION_CHECKSUMS = {
     "V028": "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85",
     "V029": "86ab0b8f9553ba7dbcc4d0ada34cecf7172a84f8bf1ab23168472ba853a227f5",
@@ -628,4 +628,3 @@ def apply_migrations(
             connection.commit()
         executed.append(migration.version)
     return executed
-
