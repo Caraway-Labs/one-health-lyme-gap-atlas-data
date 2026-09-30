@@ -54,4 +54,3 @@ def test_prod_budget_finalization_contract() -> None:
         Path(__file__).parents[1] / "src/lyme_gap_atlas_data/pmc_extraction_worker.py"
     ).read_text()
     assert "CALL GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET(%s,%s,%s,%s)" in worker
-
