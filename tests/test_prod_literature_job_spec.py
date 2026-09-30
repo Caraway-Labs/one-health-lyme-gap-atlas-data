@@ -143,7 +143,12 @@ def test_drift_fails_closed(change, operation: str) -> None:
 
 
 def test_missing_provider_credentials_and_unbounded_discovery_fail_closed() -> None:
-    for kwargs in ({"max_records": 26}, {"batch_size": 26}, {"secrets": {}}):
+    for kwargs in (
+        {"max_records": 401},
+        {"max_records": 400, "batch_size": 201},
+        {"max_records": 10, "batch_size": 11},
+        {"secrets": {}},
+    ):
         with pytest.raises(ValueError):
             build_spec(_baseline(), operation="discover", image_digest=DIGEST, **kwargs)
     with pytest.raises(ValueError):
@@ -166,6 +171,18 @@ def test_missing_provider_credentials_and_unbounded_discovery_fail_closed() -> N
         )
 
 
+def test_governed_discovery_accepts_existing_worker_limit() -> None:
+    spec = build_spec(
+        _baseline(),
+        operation="discover",
+        image_digest=DIGEST,
+        max_records=400,
+        batch_size=25,
+        secrets={"NCBI_EMAIL": "steward@example.test"},
+    )
+    assert "--max-records 400 --batch-size 25" in spec["jobs"][-1]["run_command"]
+
+
 def test_repo_prod_spec_has_no_scheduled_literature_jobs() -> None:
     spec = yaml.safe_load(Path(".do/app.prod.yaml").read_text(encoding="utf-8"))
     jobs = spec["jobs"]
@@ -174,6 +191,7 @@ def test_repo_prod_spec_has_no_scheduled_literature_jobs() -> None:
     assert all("pubmed" not in job["name"] and "extraction" not in job["name"] for job in jobs)
     workflow = Path(".github/workflows/run-prod-literature-once.yml").read_text(encoding="utf-8")
     assert "environment: production" in workflow
+    assert '[[ "$MAX_RECORDS" =~ ^[0-9]{1,3}$ ]]' in workflow
     assert 'test "$GITHUB_REF" = refs/heads/main' in workflow
     assert "trap restore_baseline EXIT" in workflow
     assert 'doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait' in workflow

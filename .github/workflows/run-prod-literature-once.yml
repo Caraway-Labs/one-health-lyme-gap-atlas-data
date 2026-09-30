@@ -18,12 +18,12 @@ on:
         type: choice
         options: [surveillance_epidemiology, vector_host_pathogen, environment_exposure, diagnostics_interventions_outcomes]
       max_records:
-        description: Discovery records, 1-25 (used only for discover)
+        description: Discovery records, 1-400 (used only for discover)
         required: true
         default: "25"
         type: string
       batch_size:
-        description: NCBI EFetch page size, 1-max_records (used only for discover)
+        description: NCBI EFetch page size, 1-min(max_records,200) (used only for discover)
         required: true
         default: "25"
         type: string
@@ -73,8 +73,8 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test -n "$PROD_APP_ID"
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          [[ "$MAX_RECORDS" =~ ^[0-9]{1,2}$ ]]
-          [[ "$BATCH_SIZE" =~ ^[0-9]{1,2}$ ]]
+          [[ "$MAX_RECORDS" =~ ^[0-9]{1,3}$ ]]
+          [[ "$BATCH_SIZE" =~ ^[0-9]{1,3}$ ]]
 
           baseline_spec="$(mktemp)"
           operation_spec="$(mktemp)"
