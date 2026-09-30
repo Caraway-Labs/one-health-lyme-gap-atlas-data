@@ -265,6 +265,36 @@ def test_openai_responses_uses_the_closed_strict_schema(
     assert "default" not in strict_schema["properties"]["optional_field"]
 
 
+def test_openai_transports_claimed_query_ids_as_supported_array_constraints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"output": [{"content": [{"type": "output_text", "text": "{}"}]}]}
+
+    def post(*_args: object, **kwargs: object) -> Response:
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr(extraction.httpx, "post", post)
+    schema = GraphContribution.model_json_schema()
+    expected = ["match-1", "match-2"]
+    query_ids = schema["$defs"]["PaperNode"]["properties"]["query_match_ids"]
+    query_ids["enum"] = [expected]
+    extraction.OpenAIResponsesExtractor("test-key").extract("request", schema)
+    transported = captured["json"]["text"]["format"]["schema"]
+    actual = transported["$defs"]["PaperNode"]["properties"]["query_match_ids"]
+    assert actual["items"]["enum"] == expected
+    assert actual["minItems"] == actual["maxItems"] == len(expected)
+    assert "enum" not in actual
+    assert query_ids["enum"] == [expected]  # provider adaptation does not mutate the guard input
+
+
 def test_openai_request_over_input_bound_never_calls_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
