@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
@@ -50,6 +51,24 @@ _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.pmc-extraction")
 def _provider_rejected_before_inference(error: Exception) -> bool:
     """Identify a provider's client-side request rejection without retaining its body."""
     return isinstance(error, httpx.HTTPStatusError) and 400 <= error.response.status_code < 500
+
+
+def _provider_rejection_rationale(error: httpx.HTTPStatusError) -> str:
+    """Retain only bounded machine-readable HTTP diagnostics, never response text."""
+    parts = [f"provider_http_{error.response.status_code}"]
+    try:
+        provider_error = error.response.json().get("error", {})
+    except (ValueError, TypeError, AttributeError):
+        provider_error = {}
+    if isinstance(provider_error, dict):
+        for field in ("type", "code", "param"):
+            value = provider_error.get(field)
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", value):
+                parts.append(f"{field}_{value}")
+    request_id = error.response.headers.get("x-request-id")
+    if request_id and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request_id):
+        parts.append(f"request_id_{request_id}")
+    return ":".join(parts)
 
 
 @dataclass(frozen=True)
@@ -683,7 +702,7 @@ class SnowflakePMCExtractionLedger:
                        WHERE extraction_attempt_id = %s""",
                     (type(error).__name__, attempt_id),
                 )
-            if provider_rejected:
+            if provider_rejected and isinstance(error, httpx.HTTPStatusError):
                 cursor.execute(
                     """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS
                        (classification_id, extraction_attempt_id, pmid, classification, rationale, correlation_id)
@@ -692,7 +711,7 @@ class SnowflakePMCExtractionLedger:
                         str(uuid.uuid4()),
                         attempt_id,
                         paper.pmid,
-                        "provider_http_4xx",
+                        _provider_rejection_rationale(error),
                         str(uuid.uuid4()),
                     ),
                 )
