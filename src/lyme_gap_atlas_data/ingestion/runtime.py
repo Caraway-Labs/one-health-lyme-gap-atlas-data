@@ -226,10 +226,10 @@ class SnowflakeStageEffects:
                         len(artifacts),
                     )
                     if capture_identity is not None:
-                        artifact_id = (
-                            f"{definition.resource_key}:{state.ingestion_run_id}:"
-                            f"capture:{capture_identity}"
+                        captured_key = (
+                            f"{definition.resource_key}:{state.ingestion_run_id}:{capture_identity}"
                         )
+                        artifact_id = f"intelligence-capture:{_stable_id(captured_key)}"
                     cursor.execute(
                         """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
                     USING (SELECT %s AS ingestion_request_id, %s AS ingestion_run_id,
