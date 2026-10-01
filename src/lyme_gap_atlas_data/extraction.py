@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Callable
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from lyme_gap_atlas_kg import GraphContribution
@@ -102,6 +102,21 @@ class OpenAIResponsesExtractor:
         self._headers = {"Authorization": f"Bearer {api_key}"}
 
     def extract(self, full_request: str, schema: dict[str, object]) -> dict[str, object]:
+        provider_schema: dict[str, Any] = copy.deepcopy(schema)
+        query_ids = (
+            provider_schema.get("$defs", {})
+            .get("PaperNode", {})
+            .get("properties", {})
+            .get("query_match_ids")
+        )
+        exact_arrays = query_ids.pop("enum", None) if isinstance(query_ids, dict) else None
+        if exact_arrays is not None:
+            # OpenAI's strict subset supports scalar item enums and array size
+            # limits. The canonical worker still checks the complete ordered IDs.
+            expected = exact_arrays[0]
+            query_ids["items"]["enum"] = expected
+            query_ids["minItems"] = len(expected)
+            query_ids["maxItems"] = len(expected)
         payload = {
             "model": "gpt-5.6-luna",
             "service_tier": "default",
@@ -114,7 +129,7 @@ class OpenAIResponsesExtractor:
                     "type": "json_schema",
                     "name": "graph_contribution",
                     "strict": True,
-                    "schema": _strict_response_schema(schema),
+                    "schema": _strict_response_schema(provider_schema),
                 }
             },
         }
