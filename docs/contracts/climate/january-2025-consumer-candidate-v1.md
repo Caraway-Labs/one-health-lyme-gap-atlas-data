@@ -82,7 +82,8 @@ and removed on success or failure. Full partition/row/revision counts reject
 missing, duplicate or extra records. No retained data is rewritten.
 
 The subsequent live diagnostic found JSON precision loss for a stored DOUBLE
-value at revision 13,677. Candidate retrieval now uses Snowflake `AS_DOUBLE`
+value at revision 13,677. Candidate retrieval explicitly gates Snowflake
+`AS_DOUBLE` with `IFF(TYPEOF(field)='DOUBLE', AS_DOUBLE(field), NULL)`
 for native floating-point values only (not a NUMBER-to-DOUBLE cast), alongside
 `TYPEOF`, same-row run/record IDs and each field's `TO_JSON` rendering. Recovery
 requires a finite native float, a matching decoded same-row rendering and exact

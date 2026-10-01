@@ -399,7 +399,8 @@ def reconcile_capture(capture: Mapping[str, Any], original: Mapping[str, Any]) -
 def native_double_query(query: str) -> str:
     """Read native values only for actual DOUBLE storage, from the same revision row."""
     columns = ", ".join(
-        f"AS_DOUBLE(payload:record:{field}) AS native_{field}, "
+        f"IFF(TYPEOF(payload:record:{field})='DOUBLE', "
+        f"AS_DOUBLE(payload:record:{field}), NULL) AS native_{field}, "
         f"TO_JSON(payload:record:{field}) AS rendered_{field}, "
         f"TYPEOF(payload:record:{field}) AS stored_type_{field}"
         for field in (*AREAS, *FRACTIONS, "value")

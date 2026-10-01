@@ -719,6 +719,7 @@ def test_native_double_restores_observed_json_precision_loss_with_mixed_storage_
         publication.CAPTURE_QUERY
     )
     assert "::DOUBLE" not in publication.native_double_query(publication.CAPTURE_QUERY)
+    assert publication.native_double_query(publication.CAPTURE_QUERY).count("='DOUBLE'") == 7
 
 
 @pytest.mark.parametrize(
