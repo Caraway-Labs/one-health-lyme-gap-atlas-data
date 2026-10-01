@@ -9,6 +9,10 @@ Private retained payloads now require `source_context` version
 `intelligence-acquisition-v1`: source ID, immutable registry version/checksum,
 requested/effective HTTPS URLs, fetch status/time, capture mode and raw-byte SHA.
 `resource_key` must equal registry `source_id`; no implicit source mapping exists.
+Each actual acquisition has an opaque attempt ID in that retained context. DATA
+#135 binds request/artifact IDs to its checksum so failed-stage reacquisition is
+a distinct capture even for identical bytes/time, while replay reuses the saved
+attempt identity. Content-addressed raw bytes keep their original SHA.
 Replay and conditional cache validation reject missing context or registry,
 rights, endpoint and identity drift even when the XML bytes are unchanged.
 Fixture captures are explicitly marked `fixture` and cannot authorize live
