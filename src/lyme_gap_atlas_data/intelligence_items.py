@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
 IDENTITY_VERSION = "intelligence-identity-v1"
 TOKEN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$")
@@ -72,12 +72,12 @@ def _validator(kind: str) -> Draft202012Validator:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     formats = FormatChecker()
 
-    @formats.checks("date-time", raises=ValueError)
     def utc_datetime(value: object) -> bool:
         if isinstance(value, str):
             canonical_timestamp(value)
         return True
 
+    formats.checks("date-time", raises=ValueError)(utc_datetime)
     return Draft202012Validator(schema, format_checker=formats)
 
 
