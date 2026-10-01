@@ -3,6 +3,19 @@
 -- read them but cannot create, approve, modify or delete them.
 USE DATABASE {{ DATABASE }};
 
+-- Every writer updates this migrator-created singleton before checking keys.
+-- The UPDATE resource lock lasts through COMMIT/ROLLBACK; INSERT alone would
+-- not serialize competing writers on ordinary Snowflake tables.
+CREATE TABLE IF NOT EXISTS GOVERNANCE.INTELLIGENCE_WRITE_GUARD (
+    guard_id NUMBER NOT NULL,
+    write_sequence NUMBER NOT NULL,
+    PRIMARY KEY (guard_id)
+);
+INSERT INTO GOVERNANCE.INTELLIGENCE_WRITE_GUARD (guard_id, write_sequence)
+SELECT 1, 0 WHERE NOT EXISTS (
+    SELECT 1 FROM GOVERNANCE.INTELLIGENCE_WRITE_GUARD WHERE guard_id = 1
+);
+
 CREATE TABLE IF NOT EXISTS GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS (
     source_id VARCHAR(200) NOT NULL,
     registry_version NUMBER NOT NULL,
@@ -46,6 +59,8 @@ CREATE TABLE IF NOT EXISTS GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES (
 -- the bounded writer verifies both inside its transaction.
 GRANT SELECT ON TABLE GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS
     TO ROLE OH_LYME_{{ ENV }}_RUNTIME;
+GRANT SELECT, UPDATE ON TABLE GOVERNANCE.INTELLIGENCE_WRITE_GUARD
+    TO ROLE OH_LYME_{{ ENV }}_RUNTIME;
 GRANT SELECT, INSERT ON TABLE CONFORMED.INTELLIGENCE_ITEM_REVISIONS
     TO ROLE OH_LYME_{{ ENV }}_RUNTIME;
 GRANT SELECT, INSERT ON TABLE GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
@@ -55,13 +70,19 @@ GRANT SELECT, INSERT ON TABLE GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
 -- conflicting publisher revision is authoritative from arrival time.
 CREATE VIEW IF NOT EXISTS PRESENTATION.INTELLIGENCE_FEED_V AS
 SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
-       c.item_document:canonical_url::VARCHAR AS canonical_url,
-       c.item_document:title::VARCHAR AS title,
-       c.item_document:published_at::TIMESTAMP_LTZ AS published_at,
-       c.item_document:updated_at::TIMESTAMP_LTZ AS updated_at,
-       c.item_document:event_at::TIMESTAMP_LTZ AS event_at,
-       c.retrieved_at AS fetched_at,
-       c.item_document:excerpt::VARCHAR AS permitted_excerpt,
+       IFF(IS_NULL_VALUE(c.item_document:canonical_url), NULL,
+           c.item_document:canonical_url::VARCHAR) AS canonical_url,
+       IFF(IS_NULL_VALUE(c.item_document:title), NULL,
+           c.item_document:title::VARCHAR) AS title,
+       IFF(IS_NULL_VALUE(c.item_document:published_at), NULL,
+           c.item_document:published_at::VARCHAR) AS published_at,
+       IFF(IS_NULL_VALUE(c.item_document:updated_at), NULL,
+           c.item_document:updated_at::VARCHAR) AS updated_at,
+       IFF(IS_NULL_VALUE(c.item_document:event_at), NULL,
+           c.item_document:event_at::VARCHAR) AS event_at,
+       c.item_document:fetched_at::VARCHAR AS fetched_at,
+       IFF(IS_NULL_VALUE(c.item_document:excerpt), NULL,
+           c.item_document:excerpt::VARCHAR) AS permitted_excerpt,
        c.item_document:field_states AS field_states,
        c.item_document:geographies AS geographies,
        c.item_document:topics AS topics,
@@ -77,6 +98,11 @@ JOIN GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS s
   ON s.source_id = c.source_id AND s.registry_version = c.registry_version
 WHERE s.registry_document:approval:status::VARCHAR = 'approved'
   AND s.registry_document:trust_review:status::VARCHAR = 'approved'
+  AND s.registry_document:state::VARCHAR IN ('active', 'manual')
+  AND NOT EXISTS (
+      SELECT 1 FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS newer
+      WHERE newer.source_id = s.source_id AND newer.registry_version > s.registry_version
+  )
 QUALIFY ROW_NUMBER() OVER (
     PARTITION BY c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport
     ORDER BY c.retrieved_at DESC, c.capture_id
