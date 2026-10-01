@@ -25,6 +25,27 @@ host_readiness = _MODULE["host_readiness"]
 DIGEST = "sha256:" + "a" * 64
 
 
+def test_preflight_checks_secret_collisions_on_selected_ingestion_template() -> None:
+    baseline = _baseline()
+    selected = next(job for job in baseline["jobs"] if job["name"] == "approved-source-ingestion")
+    selected["envs"].append(
+        {"key": "NCBI_EMAIL", "type": "SECRET", "value": "protected-email-sentinel"}
+    )
+    before = deepcopy(baseline)
+    secrets = dict.fromkeys(
+        ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"),
+        "supplied-secret-sentinel",
+    )
+    report = host_readiness(baseline, operation="preflight", image_digest=DIGEST, secrets=secrets)
+    assert report["status"] == "BLOCKED"
+    assert [item["capability"] for item in report["blockers"]] == ["no_preexisting_NCBI_EMAIL"]
+    with pytest.raises(ValueError, match="no_preexisting_NCBI_EMAIL") as error:
+        build_spec(baseline, operation="preflight", image_digest=DIGEST, secrets=secrets)
+    assert baseline == before
+    for sentinel in ("protected-email-sentinel", "supplied-secret-sentinel"):
+        assert sentinel not in json.dumps(report) + str(error.value)
+
+
 def test_host_report_aggregates_drift_and_secrets_without_echoing_values() -> None:
     baseline = _baseline()
     baseline["name"] = baseline["region"] = "private-sentinel"
@@ -495,8 +516,10 @@ def test_cli_blocked_report_does_not_write_a_deployable_spec(
     assert "OPTIONAL_SECRET_SENTINEL" not in str(error.value)
 
 
+@pytest.mark.parametrize("collision", [False, True])
 def test_real_workflow_aggregate_drift_and_secrets_never_updates_or_restores_topology(
     tmp_path: Path,
+    collision: bool,
 ) -> None:
     bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
     if not bash or not Path(bash).exists():
@@ -505,10 +528,16 @@ def test_real_workflow_aggregate_drift_and_secrets_never_updates_or_restores_top
     body = workflow["jobs"]["run"]["steps"][-1]["run"]
     fixture, updates = tmp_path / "baseline.json", tmp_path / "updates"
     baseline = _baseline()
-    baseline["region"] = "private-drift-sentinel"
-    next(entry for entry in baseline["jobs"][0]["envs"] if entry["key"] == "SNOWFLAKE_ROLE")[
-        "value"
-    ] = "private-drift-sentinel"
+    if collision:
+        selected = next(
+            job for job in baseline["jobs"] if job["name"] == "approved-source-ingestion"
+        )
+        selected["envs"].append({"key": "NCBI_EMAIL", "value": "private-drift-sentinel"})
+    else:
+        baseline["region"] = "private-drift-sentinel"
+        next(entry for entry in baseline["jobs"][0]["envs"] if entry["key"] == "SNOWFLAKE_ROLE")[
+            "value"
+        ] = "private-drift-sentinel"
     fixture.write_text(json.dumps(baseline), encoding="utf-8")
     # The actual deployed-image/topology reads use fixture-only doctl/jq functions.
     # Every App update (including restoration) is a failing, recorded sentinel.
@@ -560,15 +589,22 @@ python() { "$PYTHON_EXECUTABLE" "$@"; }
         "OPENAI_API_KEY",
     ):
         env.pop(key, None)
+    if collision:
+        for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+            env[key] = "supplied-secret-sentinel"
     result = subprocess.run(
         [bash, "-c", harness], env=env, capture_output=True, text=True, timeout=30
     )
     assert result.returncode != 0
     assert '"status": "BLOCKED"' in result.stdout
-    for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
-        assert key in result.stdout
-    assert "reviewed_production_region" in result.stdout
-    assert "SNOWFLAKE_ROLE" in result.stdout
+    if collision:
+        assert "no_preexisting_NCBI_EMAIL" in result.stdout
+        assert "supplied-secret-sentinel" not in result.stdout + result.stderr
+    else:
+        for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+            assert key in result.stdout
+        assert "reviewed_production_region" in result.stdout
+        assert "SNOWFLAKE_ROLE" in result.stdout
     assert "host_baseline_configuration" in result.stdout
     assert not updates.exists()
     assert "encrypted" not in result.stdout + result.stderr

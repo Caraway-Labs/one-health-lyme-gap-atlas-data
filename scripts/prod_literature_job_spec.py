@@ -198,9 +198,16 @@ def host_readiness(
         )
         for key, value in required.items():
             check(env.get(key, {}).get("value") == value, key, stage)
+        collision_env = env
+        if operation == "preflight":
+            # Preflight injects every stage's secret into the ingestion template.
+            selected = next(
+                (job for job in jobs if job.get("name") == "approved-source-ingestion"), {}
+            )
+            collision_env = _env(selected)
         for key in LITERATURE_SECRETS[stage]:
-            check(key not in env, "no_preexisting_" + key, stage)
-        if stage == "discover" and secrets.get("NCBI_API_KEY"):
+            check(key not in collision_env, "no_preexisting_" + key, stage)
+        if operation == "discover" and secrets.get("NCBI_API_KEY"):
             check("NCBI_API_KEY" not in env, "no_preexisting_NCBI_API_KEY", stage)
     report["status"] = "BLOCKED" if blockers else "READY"
     return report
