@@ -4,9 +4,12 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
+from functools import wraps
 from pathlib import Path
 from time import monotonic
+from typing import ParamSpec, TypeVar
 
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
@@ -68,7 +71,7 @@ from .pathogen_surveillance import (
     ingest_restricted_pathogen,
     ingest_restricted_pathogen_dev,
 )
-from .pmc_extraction_worker import run_pmc_extraction
+from .pmc_extraction_worker import _failure_outcome, run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .retrieval_corpus import build_retrieval_corpus
@@ -82,6 +85,51 @@ from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 from .tick_surveillance import collect_tick_surveillance_evidence, ingest_restricted_tick
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _safe_literature_command(
+    callback: Callable[_P, _R],
+) -> Callable[_P, _R]:
+    """End failures at the operator boundary before Rich can render payload causes."""
+
+    @wraps(callback)
+    def safe(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return callback(*args, **kwargs)
+        except (typer.BadParameter, typer.Exit):
+            raise
+        except Exception as error:
+            stage = {
+                "pmc_extract": "extract",
+                "pubmed_discover": "acquire",
+                "build_retrieval_corpus_command": "corpus_admit",
+            }.get(callback.__name__, "persist")
+            category, retryable, action = _failure_outcome(stage, error)
+            if stage == "corpus_admit":
+                category, retryable, action = (
+                    "corpus_admission_rebuild",
+                    True,
+                    "inspect_corpus_build_and_retry",
+                )
+            typer.echo(
+                json.dumps(
+                    {
+                        "command": callback.__name__,
+                        "stage": stage,
+                        "outcome": "failed",
+                        "failure_category": category,
+                        "retryable": retryable,
+                        "next_action": action,
+                    },
+                    sort_keys=True,
+                ),
+                err=True,
+            )
+            raise typer.Exit(code=1) from None
+
+    return safe
 
 
 def _command_path(arguments: list[str]) -> str:
@@ -408,6 +456,7 @@ def discover(
 
 
 @pipeline_app.command("pubmed-discover")
+@_safe_literature_command
 def pubmed_discover(
     family: str = typer.Option(..., "--family"),
     max_records: int = typer.Option(
@@ -426,6 +475,7 @@ def pubmed_discover(
 
 
 @pipeline_app.command("literature-preflight")
+@_safe_literature_command
 def literature_preflight_command(
     operation: str = typer.Option(..., "--operation"),
 ) -> None:
@@ -437,6 +487,7 @@ def literature_preflight_command(
 
 
 @pipeline_app.command("literature-status")
+@_safe_literature_command
 def literature_status_command(
     discovery_run_id: str = typer.Option(..., "--discovery-run-id"),
 ) -> None:
@@ -445,6 +496,7 @@ def literature_status_command(
 
 
 @pipeline_app.command("pmc-extract")
+@_safe_literature_command
 def pmc_extract(
     estimated_cost_usd: float = typer.Option(..., "--estimated-cost-usd", min=0.01, max=20.0),
     confirm: bool = typer.Option(False, "--confirm"),
@@ -460,6 +512,7 @@ def pmc_extract(
 
 
 @pipeline_app.command("build-retrieval-corpus")
+@_safe_literature_command
 def build_retrieval_corpus_command(
     confirm: bool = typer.Option(False, "--confirm"),
     pmid: str | None = typer.Option(None, "--pmid"),

@@ -3,6 +3,9 @@
 -- promotion has applied it in the target environment.
 USE DATABASE {{ DATABASE }};
 
+ALTER TABLE KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS
+  ADD COLUMN IF NOT EXISTS discovery_run_id VARCHAR;
+
 EXECUTE IMMEDIATE $$
 BEGIN
   BEGIN

@@ -120,9 +120,13 @@ def test_effective_grants_include_inherited_role() -> None:
     ]
 
 
+@pytest.mark.parametrize("operation", ["discover", "extract", "build-corpus"])
 def test_preflight_detects_missing_column_and_write_privilege(
     monkeypatch: pytest.MonkeyPatch,
+    operation: str,
 ) -> None:
+    statements: list[str] = []
+
     class Cursor:
         sql = ""
 
@@ -134,7 +138,8 @@ def test_preflight_detects_missing_column_and_write_privilege(
 
         def execute(self, sql: str, _args: object = None) -> None:
             self.sql = sql
-            if "SELECT PMID, PMCID, STATE" in sql:
+            statements.append(sql)
+            if "FROM KNOWLEDGE_GRAPH.PAPERS LIMIT 0" in sql:
                 raise RuntimeError("unknown column")
 
         def fetchone(self) -> tuple[str, str]:
@@ -163,7 +168,12 @@ def test_preflight_detects_missing_column_and_write_privilege(
         snowflake_role="RUNTIME",
         snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV",
     )
-    missing = _snowflake_contract(settings, "discover")["missing_capabilities"]
+    missing = _snowflake_contract(settings, operation)["missing_capabilities"]
     assert "KNOWLEDGE_GRAPH.PAPERS" in missing
-    assert "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS:UPDATE" in missing
-    assert "GOVERNANCE.RAW_ARTIFACTS:COLUMNS" in missing
+    assert any("FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS LIMIT 0" in sql for sql in statements)
+    if operation == "discover":
+        assert "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS:UPDATE" in missing
+    if operation == "extract":
+        assert "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS:COLUMNS" in missing
+    if operation != "build-corpus":
+        assert "GOVERNANCE.RAW_ARTIFACTS:COLUMNS" in missing

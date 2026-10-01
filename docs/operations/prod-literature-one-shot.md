@@ -27,6 +27,10 @@ Apply the reviewed V134 diagnostic-type migration through the protected
 promotion path before running the DATA #528 worker image. Extraction preflight
 blocks if the attempt-context and stage-failure contract is absent. Do not
 deploy the image first or bypass a blocked preflight.
+V134 also adds the discovery-run link to the existing corpus build ledger.
+Status reports linked failed builds by build ID (also their correlation ID),
+with retryability and next action. Its corpus failure count measures builds,
+not papers; historical builds without a discovery link remain unattributed.
 
 1. Merge the reviewed DATA #497 PR through normal governance. Confirm the
    immutable pipeline image digest is active in both DEV and PROD; the workflow

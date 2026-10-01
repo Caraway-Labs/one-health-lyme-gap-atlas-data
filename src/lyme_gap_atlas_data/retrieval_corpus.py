@@ -364,11 +364,12 @@ def build_retrieval_corpus(
         cursor.execute(
             """
             INSERT INTO KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS
-              (build_id, corpus_rules_version, rules_sha256, status)
-            VALUES (%s, %s, %s, 'running')
+              (build_id, corpus_rules_version, rules_sha256, discovery_run_id, status)
+            VALUES (%s, %s, %s, %s, 'running')
             """,
-            (build_id, rules.rules_version, rules_hash),
+            (build_id, rules.rules_version, rules_hash, discovery_run_id),
         )
+        connection.commit()
         try:
             with _TRACER.start_as_current_span(
                 "literature.corpus_admission",

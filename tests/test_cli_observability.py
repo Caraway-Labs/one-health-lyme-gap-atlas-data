@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -177,3 +179,26 @@ def test_bad_exporter_configuration_cannot_abort_command(
     assert cli.ObservedTyper()() == "completed"
     assert "SECRET_OTLP_HEADER_SENTINEL" not in caplog.text
     assert "tracing_unavailable" in caplog.text
+
+
+def test_real_literature_cli_stderr_suppresses_nested_validation_payload() -> None:
+    script = """
+from pydantic import BaseModel, ValidationError
+from lyme_gap_atlas_data import cli
+from lyme_gap_atlas_data.contribution_admission import ContributionAdmissionError
+class Payload(BaseModel):
+    value: int
+def fail(**kwargs):
+    try:
+        Payload(value="SECRET_PROMPT_ARTICLE_SENTINEL")
+    except ValidationError as error:
+        raise ContributionAdmissionError("SECRET_RESPONSE_SENTINEL") from error
+cli.run_pmc_extraction = fail
+cli.app(args=["pipeline", "pmc-extract", "--estimated-cost-usd", "0.20", "--confirm"])
+"""
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "response_contract_validation" in result.stderr
+    assert "SECRET_PROMPT_ARTICLE_SENTINEL" not in result.stderr + result.stdout
+    assert "SECRET_RESPONSE_SENTINEL" not in result.stderr + result.stdout
+    assert "Traceback" not in result.stderr

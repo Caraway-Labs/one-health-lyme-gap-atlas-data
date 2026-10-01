@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -27,6 +28,8 @@ class Cursor:
         return ("COMPLETED", 25)
 
     def fetchall(self) -> list[tuple[Any, ...]]:
+        if self.calls and "RETRIEVAL_CORPUS_BUILDS WHERE" in self.calls[-1][0]:
+            return []
         return [
             (
                 "1",
@@ -120,6 +123,8 @@ def test_reconcile_counts_and_failed_attempts(monkeypatch: pytest.MonkeyPatch) -
     run_id = str(uuid.uuid4())
     result = module.literature_status(run_id)
     assert result["discovered"] == 2
+    assert result["provider_result_count"] == 25
+    assert result["stage_totals"]["discovery"] == {"entered": 2, "succeeded": 2, "failed": 0}
     assert result["stage_counts"] == {"corpus_admit": 1, "extract": 1}
     assert result["failure_category_counts"] == {
         "provider_rejected_pre_inference": 1,
@@ -129,7 +134,8 @@ def test_reconcile_counts_and_failed_attempts(monkeypatch: pytest.MonkeyPatch) -
     assert result["stage_totals"]["corpus_admission"] == {
         "entered": 1,
         "succeeded": 1,
-        "failed": None,
+        "failed": 0,
+        "failure_unit": "linked_build",
     }
     assert result["papers"][1]["extraction_attempt_id"] == "attempt-2"
     assert result["papers"][1]["next_action"] == "review_provider_contract"
@@ -208,3 +214,54 @@ def test_pre_attempt_failure_from_state_event_is_reported() -> None:
     assert paper["failure_stage"] == "acquire"
     assert paper["retryable"] is False
     assert paper["next_action"] == "review_open_access_and_identity"
+
+
+def test_newer_pre_attempt_failure_overrides_current_status_but_preserves_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old = Cursor().fetchall()[2]
+    now = datetime(2026, 10, 1)
+    row = old + (
+        "stage_failure:acquire:artifact_license_identity:false:review_open_access_and_identity",
+        "new-worker-run",
+        now,
+        now - timedelta(minutes=5),
+    )
+
+    class RetryCursor(Cursor):
+        def fetchone(self) -> tuple[str, int]:
+            return ("COMPLETED", 10000)
+
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            if "RETRIEVAL_CORPUS_BUILDS WHERE" in self.calls[-1][0]:
+                return [("failed-build-run", "failed", "RuntimeError")]
+            return [row]
+
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection(RetryCursor()))
+    result = module.literature_status(str(uuid.uuid4()))
+    paper = result["papers"][0]
+    assert paper["failure_category"] == "artifact_license_identity"
+    assert paper["failure_stage"] == "acquire"
+    assert paper["correlation_id"] == "new-worker-run"
+    assert paper["retryable"] is False
+    assert paper["next_action"] == "review_open_access_and_identity"
+    assert paper["provider_rationale"] is None
+    assert paper["graph_published"] is False
+    assert result["attempt_history"][0]["correlation_id"] == "run-2"
+    assert result["attempt_history"][0]["failure_category"] == "provider_rejected_pre_inference"
+    assert result["failure_category_counts"] == {
+        "provider_rejected_pre_inference": 1,
+        "artifact_license_identity": 1,
+    }
+    assert result["provider_result_count"] == 10000
+    assert result["corpus_builds"][0]["correlation_id"] == "failed-build-run"
+    assert result["corpus_builds"][0]["failure_category"] == "corpus_admission_rebuild"
+    assert result["stage_totals"]["corpus_admission"]["failed"] == 1
+    assert result["stage_totals"]["discovery"] == {"entered": 1, "succeeded": 1, "failed": 0}
+    assert (
+        module._paper_status(row, include_latest_event=True)["correlation_id"] == "new-worker-run"
+    )
+    older_event = row[:23] + (now - timedelta(minutes=10), row[24])
+    assert module._paper_status(older_event, include_latest_event=True)["correlation_id"] == "run-2"
+    published = row[:2] + ("processed",) + row[3:]
+    assert module._paper_status(published, include_latest_event=True)["correlation_id"] == "run-2"

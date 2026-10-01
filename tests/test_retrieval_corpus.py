@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 
 import pytest
 
+from lyme_gap_atlas_data import retrieval_corpus as module
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
     load_migrations,
@@ -22,6 +24,7 @@ from lyme_gap_atlas_data.retrieval_corpus import (
     corpus_content_sha256,
     extract_section_texts,
 )
+from lyme_gap_atlas_data.settings import PipelineSettings
 
 
 def test_batch_scoped_eligibility_uses_discovery_run_id() -> None:
@@ -40,6 +43,50 @@ def test_batch_scoped_eligibility_uses_discovery_run_id() -> None:
     assert _load_eligible_papers(cursor, None, "run-1") == ([], 0)
     assert "ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)" in cursor.sql
     assert cursor.args == (None, None, "run-1", "run-1")
+
+
+def test_failed_corpus_build_retains_committed_discovery_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    persisted: dict[str, tuple[str, str]] = {}
+    actions: list[str] = []
+
+    class Cursor:
+        def execute(self, sql: str, args: tuple[object, ...]) -> None:
+            if "INSERT INTO KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS" in sql:
+                persisted[str(args[0])] = (str(args[3]), "running")
+            elif "SET status = 'failed'" in sql:
+                build_id = str(args[1])
+                persisted[build_id] = (persisted[build_id][0], "failed")
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            actions.append("commit")
+
+        def rollback(self) -> None:
+            actions.append("rollback")
+
+    def fail(*_args: object) -> None:
+        raise RuntimeError("SECRET_ARTICLE_SENTINEL")
+
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection())
+    monkeypatch.setattr(module, "_load_eligible_papers", fail)
+    run_id = str(uuid.uuid4())
+    with pytest.raises(RuntimeError, match="SECRET_ARTICLE_SENTINEL"):
+        module.build_retrieval_corpus(
+            discovery_run_id=run_id, settings=PipelineSettings(), artifact_store=object()
+        )
+    assert list(persisted.values()) == [(run_id, "failed")]
+    assert actions == ["commit", "rollback", "commit"]
 
 
 def _jats(body: str) -> bytes:

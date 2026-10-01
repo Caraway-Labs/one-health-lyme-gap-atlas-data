@@ -75,6 +75,63 @@ _WRITE_PRIVILEGES = {
         ("KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS", "DELETE"),
     ),
 }
+_WRITE_COLUMNS = {
+    "KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS": (
+        "PMID, PMCID, ARTIFACT_ID, OBJECT_KEY, LICENSE_URL, JATS_SHA256, TEXT_SHA256"
+    ),
+    "KNOWLEDGE_GRAPH.PAPERS": (
+        "PMID, PMCID, TITLE, JOURNAL, PUBLICATION_DATE, PUBLICATION_TYPES, LANGUAGE, "
+        "ABSTRACT, STATE, FINAL_REVIEW_DECISION_ID, ACCESS_STATUS, "
+        "CONFIGURATION_VERSION, UPDATED_AT"
+    ),
+    "KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES": (
+        "QUERY_MATCH_ID, PMID, FAMILY, QUERY_SHA256, DISCOVERY_RUN_ID"
+    ),
+    "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS": (
+        "DISCOVERY_RUN_ID, FAMILY, QUERY_TEXT, QUERY_SHA256, WEBENV, QUERY_KEY, RESULT_COUNT, "
+        "NEXT_RETSTART, BATCH_SIZE, STATUS, REQUEST_EVIDENCE, STARTED_AT, FINISHED_AT"
+    ),
+    "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS": (
+        "BUILD_ID, DISCOVERY_RUN_ID, CORPUS_RULES_VERSION, RULES_SHA256, STATUS, "
+        "PAPERS_CONSIDERED, PAPERS_ADMITTED, PAPERS_EXCLUDED_UNAPPROVED, CHUNKS_WRITTEN, "
+        "EMPTY_CHUNK_REJECTIONS, DUPLICATE_CHUNK_REJECTIONS, MISSING_PROVENANCE_REJECTIONS, "
+        "CORPUS_CONTENT_SHA256, REDACTED_ERROR, STARTED_AT, FINISHED_AT"
+    ),
+    "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS": (
+        "UNIT_ID, CORPUS_RULES_VERSION, BUILD_ID, PMID, PMCID, ARTIFACT_ID, OBJECT_KEY, "
+        "JATS_SHA256, TEXT_SHA256, CONTRIBUTION_SHA256, CHUNK_INDEX, CHAR_START, CHAR_END, "
+        "SECTION_LABEL, UNIT_TEXT, UNIT_TEXT_SHA256"
+    ),
+    "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS": (
+        "GRAPH_RECEIPT_ID, PMID, CONTRIBUTION_SHA256, NEO4J_TRANSACTION_ID, NODE_COUNT, "
+        "PASSAGE_COUNT, EDGE_COUNT, EXTRACTION_ATTEMPT_ID, ARTIFACT_ID, PUBLISHED_AT"
+    ),
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS": (
+        "EXTRACTION_ATTEMPT_ID, PMID, ATTEMPT_NUMBER, PROVIDER_ROUTE, MODEL_IDENTIFIER, "
+        "ESTIMATED_INPUT_TOKENS, REQUEST_SHA256, STATUS, LEASE_EXPIRES_AT, METHOD_VERSION, "
+        "ERROR_CLASS, STARTED_AT, FINISHED_AT"
+    ),
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS": (
+        "DIAGNOSTIC_ID, EXTRACTION_ATTEMPT_ID, PMID, DIAGNOSTIC_TYPE, DETAILS"
+    ),
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS": (
+        "CLASSIFICATION_ID, EXTRACTION_ATTEMPT_ID, PMID, CLASSIFICATION, RATIONALE, CORRELATION_ID"
+    ),
+    "KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS": (
+        "PAPER_STATE_EVENT_ID, PMID, FROM_STATE, TO_STATE, REASON, CORRELATION_ID, ACTOR"
+    ),
+    "GOVERNANCE.RAW_ARTIFACTS": (
+        "ARTIFACT_ID, INGESTION_RUN_ID, INGESTION_REQUEST_ID, ARTIFACT_URI, ARTIFACT_TYPE, "
+        "MEDIA_TYPE, BYTE_COUNT, SHA256, CREATED_AT"
+    ),
+    "GOVERNANCE.INGESTION_REQUESTS": (
+        "INGESTION_REQUEST_ID, INGESTION_RUN_ID, REQUEST_SEQUENCE, REQUEST_PURPOSE, "
+        "ENDPOINT, REDACTED_REQUEST, STATUS_CODE, CREATED_AT"
+    ),
+}
+_COLUMNS.update(
+    {table: columns for table, columns in _WRITE_COLUMNS.items() if table in _READABLE_TABLES}
+)
 
 
 def _effective_grants(cursor: Any, role: str) -> list[tuple[str, str, str]]:
@@ -131,6 +188,7 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
             tables = _READABLE_TABLES[:3]
         elif operation == "build-corpus":
             tables = (
+                _READABLE_TABLES[0],
                 _READABLE_TABLES[1],
                 _READABLE_TABLES[2],
                 _READABLE_TABLES[6],
@@ -139,7 +197,7 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 _READABLE_TABLES[9],
             )
         else:
-            tables = _READABLE_TABLES[1:8]
+            tables = _READABLE_TABLES[:8]
         for table in tables:
             try:
                 cursor.execute(f"SELECT {_COLUMNS[table]} FROM {table} LIMIT 0")
@@ -147,13 +205,7 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 missing.append(table)
         # Some audit tables are intentionally write only for the runtime role.
         # Inspect their schema without requesting a broader SELECT grant.
-        for table in (
-            "KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS",
-            "GOVERNANCE.RAW_ARTIFACTS",
-            "GOVERNANCE.INGESTION_REQUESTS",
-        ):
-            if table not in {name for name, _ in _WRITE_PRIVILEGES[operation]}:
-                continue
+        for table in sorted({name for name, _ in _WRITE_PRIVILEGES[operation]}):
             schema, name = table.split(".")
             cursor.execute(
                 "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
@@ -161,7 +213,8 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 (schema, name),
             )
             columns = {str(row[0]).upper() for row in cursor.fetchall()}
-            if not set(_COLUMNS[table].split(", ")).issubset(columns):
+            required = _WRITE_COLUMNS.get(table, _COLUMNS[table])
+            if not set(required.split(", ")).issubset(columns):
                 missing.append(f"{table}:COLUMNS")
         grants = _effective_grants(cursor, settings.snowflake_role)
         for table, privilege in _WRITE_PRIVILEGES[operation]:

@@ -23,7 +23,8 @@ WITH batch AS (
    AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)
 ), latest_attempt AS (
   SELECT a.pmid, a.extraction_attempt_id, a.status, a.error_class,
-         a.attempt_number, c.details:run_id::STRING AS correlation_id,
+         a.attempt_number, COALESCE(a.finished_at, a.started_at) AS evidence_at,
+         c.details:run_id::STRING AS correlation_id,
          c.details:workflow_run_id::STRING AS workflow_run_id,
          c.details:environment::STRING AS environment,
          c.details:code_sha::STRING AS code_sha,
@@ -43,7 +44,7 @@ WITH batch AS (
   QUALIFY ROW_NUMBER() OVER (PARTITION BY d.extraction_attempt_id
     ORDER BY d.diagnostic_id DESC) = 1
 ), latest_paper_failure AS (
-  SELECT e.pmid, e.reason, e.correlation_id
+  SELECT e.pmid, e.reason, e.correlation_id, e.occurred_at
   FROM KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS e
   JOIN batch b ON b.pmid = e.pmid
   WHERE e.reason LIKE 'stage_failure:%'
@@ -67,7 +68,8 @@ SELECT p.pmid, p.pmcid, p.state, p.final_review_decision_id,
        d.details:provider_rationale::STRING,
        COALESCE(a.correlation_id,e.correlation_id), a.workflow_run_id,
        a.environment, a.code_sha, a.image_sha,
-       f.pmid IS NOT NULL, r.pmid IS NOT NULL, u.pmid IS NOT NULL
+       f.pmid IS NOT NULL, r.pmid IS NOT NULL, u.pmid IS NOT NULL,
+       e.reason, e.correlation_id, e.occurred_at, a.evidence_at
 FROM batch b
 JOIN KNOWLEDGE_GRAPH.PAPERS p ON p.pmid = b.pmid
 LEFT JOIN latest_attempt a ON a.pmid = p.pmid
@@ -83,7 +85,7 @@ ORDER BY p.pmid, a.attempt_number DESC NULLS LAST, a.extraction_attempt_id DESC
 """
 
 
-def _paper_status(row: tuple[Any, ...]) -> dict[str, object]:
+def _paper_status(row: tuple[Any, ...], *, include_latest_event: bool = False) -> dict[str, object]:
     (
         pmid,
         pmcid,
@@ -106,7 +108,22 @@ def _paper_status(row: tuple[Any, ...]) -> dict[str, object]:
         acquired,
         published,
         admitted,
-    ) = row
+    ) = row[:21]
+    if include_latest_event and len(row) == 25:
+        event_reason, event_run_id, event_at, attempt_at = row[21:]
+        if (
+            state in {"retry_pending", "retry_exhausted"}
+            and event_reason
+            and event_at is not None
+            and (attempt_at is None or event_at > attempt_at)
+            and (not attempt_id or event_run_id != correlation_id)
+        ):
+            _, failure_stage, category, retry_text, action = str(event_reason).split(":", 4)
+            retryable = retry_text == "true"
+            correlation_id = event_run_id
+            # The latest failed run did not create this historical attempt.
+            provider_rationale = error_class = workflow_run_id = None
+            environment = code_sha = image_sha = None
     if attempt_status == "failed" and not category:
         category, retryable, action = "legacy_unclassified", False, "inspect_attempt_ledger"
     if not action:
@@ -182,8 +199,30 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
                 lookup.set_attribute("atlas.discovery_run_id", run_id)
                 cursor.execute(_BATCH_SQL, (run_id, run_id, run_id))
                 rows = cursor.fetchall()
+                cursor.execute(
+                    "SELECT build_id, status, redacted_error FROM "
+                    "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS WHERE discovery_run_id = %s "
+                    "ORDER BY started_at, build_id LIMIT 400",
+                    (run_id,),
+                )
+                corpus_builds = [
+                    {
+                        "build_id": str(row[0]),
+                        "correlation_id": str(row[0]),
+                        "status": str(row[1]),
+                        "failure_category": "corpus_admission_rebuild"
+                        if row[1] == "failed"
+                        else None,
+                        "retryable": True if row[1] == "failed" else None,
+                        "next_action": "inspect_corpus_build_and_retry"
+                        if row[1] == "failed"
+                        else None,
+                    }
+                    for row in cursor.fetchall()
+                ]
     history_rows = [_paper_status(tuple(row)) for row in rows]
-    papers = list({str(paper["pmid"]): paper for paper in reversed(history_rows)}.values())
+    current_rows = [_paper_status(tuple(row), include_latest_event=True) for row in rows]
+    papers = list({str(paper["pmid"]): paper for paper in reversed(current_rows)}.values())
     papers.sort(key=lambda paper: str(paper["pmid"]))
     attempt_history = [
         {
@@ -208,9 +247,15 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
     failure_counts = Counter(
         str(paper["failure_category"]) for paper in history_rows if paper["failure_category"]
     )
+    historical_runs = {paper["correlation_id"] for paper in history_rows}
+    failure_counts.update(
+        str(paper["failure_category"])
+        for paper in papers
+        if paper["failure_category"] and paper["correlation_id"] not in historical_runs
+    )
     stage_totals = {
         "discovery": {
-            "entered": int(discovery[1]),
+            "entered": len(papers),
             "succeeded": len(papers),
             "failed": 0 if str(discovery[0]) == "COMPLETED" else 1,
         },
@@ -240,7 +285,8 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
         "corpus_admission": {
             "entered": sum(bool(paper["graph_published"]) for paper in papers),
             "succeeded": sum(bool(paper["corpus_admitted"]) for paper in papers),
-            "failed": None,
+            "failed": sum(build["status"] == "failed" for build in corpus_builds),
+            "failure_unit": "linked_build",
         },
     }
     return {
@@ -252,5 +298,7 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
         "stage_totals": stage_totals,
         "failure_category_counts": dict(failure_counts),
         "attempt_history": attempt_history,
+        "corpus_builds": corpus_builds,
+        "historical_unlinked_corpus_builds": "not_attributed",
         "papers": papers,
     }
