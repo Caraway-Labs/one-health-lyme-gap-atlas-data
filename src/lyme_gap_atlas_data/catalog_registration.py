@@ -1021,8 +1021,6 @@ def register_completed_discovery(
             "catalog_registration.run",
             {
                 "atlas.registration.run_id": progress.registration_run_id,
-                "atlas.registration.maximum_artifacts": maximum_artifacts,
-                "atlas.registration.maximum_datasets": maximum_datasets,
             },
         ) as span:
             result = _register_completed_discovery(

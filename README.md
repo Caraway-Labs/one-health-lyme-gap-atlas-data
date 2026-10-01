@@ -103,6 +103,12 @@ and publishes `GOVERNANCE.V_DISCOVERY_CANDIDATES` for triage. It does not follow
 publisher URLs, retrieve samples, create access profiles or assessments, queue
 an approval decision, or ingest any source payload.
 
+Registration spans retain the run ID, terminal status, and observed processed
+dataset/resource counts. They omit the configured artifact/dataset limit
+option values. Those limits still control execution and remain in the existing
+durable registration ledger and operator diagnostics. This applies to newly
+exported spans; previously stored traces are retained unchanged as history.
+
 ### Temporary registration backfill
 
 When a completed discovery chain has a large metadata-registration backlog,
