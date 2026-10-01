@@ -9,6 +9,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
   "boto3>=1.35,<2",
   "httpx>=0.28,<1",
+  "jsonschema>=4,<5",
   "neo4j>=6,<7",
   "one-health-lyme-gap-atlas-knowledge-graph @ git+https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-knowledge-graph.git@kg-v1.0.0",
   "one-health-lyme-gap-atlas-shared @ git+https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-shared-python.git@v0.1.6",
@@ -32,7 +33,6 @@ atlas-data = "lyme_gap_atlas_data.cli:app"
 
 [project.optional-dependencies]
 dev = [
-    "jsonschema>=4,<5",
     "mypy>=1.14,<2",
     "pytest>=8.3,<9",
     "ruff>=0.9,<1",
@@ -42,6 +42,9 @@ pipeline = ["dbt-snowflake>=1.9,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lyme_gap_atlas_data"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"docs/contracts/intelligence/v1" = "lyme_gap_atlas_data/intelligence_schemas/v1"
 
 [tool.hatch.metadata]
 allow-direct-references = true

@@ -1136,6 +1136,7 @@ dependencies = [
     { name = "h5netcdf" },
     { name = "h5py" },
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "neo4j" },
     { name = "numpy" },
     { name = "one-health-lyme-gap-atlas-knowledge-graph" },
@@ -1156,7 +1157,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "jsonschema" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -1173,7 +1173,7 @@ requires-dist = [
     { name = "h5netcdf", specifier = ">=1.4,<2" },
     { name = "h5py", specifier = ">=3.12,<4" },
     { name = "httpx", specifier = ">=0.28,<1" },
-    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4,<5" },
+    { name = "jsonschema", specifier = ">=4,<5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14,<2" },
     { name = "neo4j", specifier = ">=6,<7" },
     { name = "numpy", specifier = "<2.5" },
