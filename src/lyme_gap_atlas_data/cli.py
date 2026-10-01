@@ -51,8 +51,11 @@ from .migrations import (
     apply_migrations,
     migration_authority_preflight,
     migration_plan,
+    parse_reviewed_pending_set,
+    pending_migration_plan,
     reconcile_legacy_dev_migrations,
     reconcile_legacy_prod_migrations,
+    require_reviewed_pending_set,
 )
 from .operation_capabilities import (
     assess_operation,
@@ -604,6 +607,36 @@ def apply_migrations_command(
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
     typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+
+
+@pipeline_app.command("pending-migration-plan")
+def pending_migration_plan_command(
+    database: str = typer.Option(..., "--database"),
+) -> None:
+    """Read pending versions, filenames, and checksums without migration mutation."""
+    typer.echo(json.dumps(pending_migration_plan(_settings(), database)))
+
+
+@pipeline_app.command("apply-reviewed-dev-migrations")
+def apply_reviewed_dev_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    expected_pending_json: str = typer.Option(..., "--expected-pending-json"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Check reviewed DEV scope before legacy reconciliation or migration application."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to apply reviewed DEV migrations")
+    if database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
+        raise typer.BadParameter("Reviewed DEV migrations require the isolated DEV database")
+    reviewed = parse_reviewed_pending_set(expected_pending_json)
+    settings = _settings()
+    actual = pending_migration_plan(settings, database)
+    typer.echo(json.dumps({"pending_migrations": actual}))
+    require_reviewed_pending_set(actual, reviewed)
+    reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
+    applied = apply_migrations(settings, database, commit, expected_pending=reviewed)
+    typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 
 
 @pipeline_app.command("reconcile-legacy-dev-migrations")
