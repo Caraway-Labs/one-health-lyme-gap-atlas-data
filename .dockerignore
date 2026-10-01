@@ -5,6 +5,11 @@
 .mypy_cache
 .ruff_cache
 seed
-docs
+docs/*
+!docs/contracts
+docs/contracts/*
+!docs/contracts/intelligence
+docs/contracts/intelligence/*
+!docs/contracts/intelligence/v1
 dbt/target
 dbt/logs

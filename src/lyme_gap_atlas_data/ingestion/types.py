@@ -15,6 +15,7 @@ class Tier(StrEnum):
 
 
 class AdapterKind(StrEnum):
+    RSS_ATOM = "rss_atom"
     SOCRATA = "socrata"
     HTTP_XLSX = "http_xlsx"
     HTTP_JSON = "http_json"
