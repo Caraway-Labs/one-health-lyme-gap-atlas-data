@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.carawaylabs.com/intelligence/v1/health.schema.json",
+  "title": "health",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "source_id",
+    "registry_version",
+    "observed_at",
+    "last_fetch_success_at",
+    "last_item_observed_at",
+    "coverage_start_at",
+    "coverage_end_at",
+    "parser_version",
+    "fetch_version",
+    "state",
+    "failure_category",
+    "consecutive_failures",
+    "accepted_items",
+    "rejected_items",
+    "policy_ref",
+    "next_safe_action",
+    "diagnostic_code"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0.0"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "registry_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(Z|[+]00:00)$"
+    },
+    "last_fetch_success_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_item_observed_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_start_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_end_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parser_version": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "fetch_version": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "state": {
+      "enum": [
+        "never_fetched",
+        "healthy",
+        "quiet",
+        "stale",
+        "parser_drift",
+        "access_expired",
+        "rate_limited",
+        "upstream_outage",
+        "malformed",
+        "partial",
+        "paused"
+      ]
+    },
+    "failure_category": {
+      "anyOf": [
+        {
+          "enum": [
+            "fetch",
+            "parser",
+            "policy",
+            "storage",
+            "telemetry"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "consecutive_failures": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "accepted_items": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rejected_items": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "policy_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next_safe_action": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "diagnostic_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "quiet",
+              "healthy"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "last_fetch_success_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "(Z|[+]00:00)$"
+          },
+          "failure_category": {
+            "type": "null"
+          },
+          "consecutive_failures": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "quiet"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "accepted_items": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "healthy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "accepted_items": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "never_fetched"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "last_fetch_success_at": {
+            "type": "null"
+          },
+          "last_item_observed_at": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

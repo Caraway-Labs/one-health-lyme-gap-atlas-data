@@ -1,0 +1,54 @@
+{
+  "contract_version": "1.0.0",
+  "source_id": "synthetic-publication",
+  "registry_version": 1,
+  "organization": "Synthetic fixture publisher",
+  "family": "cdc_mmwr",
+  "source_type": "publication",
+  "geographies": [],
+  "topics": [
+    "tick-borne"
+  ],
+  "trust_review": {
+    "status": "pending",
+    "decision_ref": null,
+    "reviewed_at": null,
+    "owner": "intelligence-steward"
+  },
+  "trust_classification": "unreviewed",
+  "transport": "rss",
+  "canonical_location": null,
+  "fetch_location": null,
+  "approved_hosts": [],
+  "state": "candidate",
+  "cadence": {
+    "poll_seconds": null,
+    "expected_item_seconds": null,
+    "basis": "unknown"
+  },
+  "access_use": {
+    "terms_location": null,
+    "conditions": [
+      "Synthetic only; not approved for acquisition"
+    ],
+    "availability_verified_at": null,
+    "excerpt_max_chars": 0,
+    "content_retention_policy_ref": null,
+    "public_excerpt_permitted": false
+  },
+  "approval": {
+    "status": "pending",
+    "decision_ref": null,
+    "reviewed_at": null,
+    "owner": "intelligence-steward"
+  },
+  "change_review_policy": "new_version_requires_review",
+  "fallback_reason": null,
+  "limits": {
+    "maximum_bytes": 1000000,
+    "timeout_seconds": 20,
+    "maximum_items": 100,
+    "maximum_redirects": 0,
+    "maximum_attempts": 1
+  }
+}

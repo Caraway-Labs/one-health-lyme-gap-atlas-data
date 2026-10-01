@@ -12,6 +12,9 @@ The repository contains two deliberately separate capabilities:
   reference and is never an automatic fallback.
 
 The governed pipeline contract is in `docs/contracts/catalog-to-snowflake/`.
+The proposed transport-independent intelligence registry/item/health contract
+is in [`docs/contracts/intelligence/`](docs/contracts/intelligence/README.md);
+its synthetic examples do not activate sources or schedules.
 NOAA nClimGrid-Daily scaled monthly county-day context is specified in
 [`docs/contracts/climate/nclimgrid-daily-v1.md`](docs/contracts/climate/nclimgrid-daily-v1.md).
 The proposed longitudinal window, monthly batch commands, and coverage report
