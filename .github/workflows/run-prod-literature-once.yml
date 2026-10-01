@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       operation:
-        description: One governed literature stage; preflight checks private Neo4j connectivity only
+        description: One governed stage; preflight checks secrets and runtime prerequisites without ingestion
         required: true
         type: choice
         options: [preflight, discover, extract, build-corpus]
@@ -88,7 +88,8 @@ jobs:
           baseline_spec="$(mktemp)"
           operation_spec="$(mktemp)"
           dev_spec="$(mktemp)"
-          chmod 600 "$baseline_spec" "$operation_spec" "$dev_spec"
+          readiness_report="$(mktemp)"
+          chmod 600 "$baseline_spec" "$operation_spec" "$dev_spec" "$readiness_report"
           baseline_captured=false
           restore_baseline() {
             operation_status=$?
@@ -101,7 +102,7 @@ jobs:
                 operation_status=1
               fi
             fi
-            rm -f "$baseline_spec" "$operation_spec" "$dev_spec"
+            rm -f "$baseline_spec" "$operation_spec" "$dev_spec" "$readiness_report"
             trap - EXIT
             exit "$operation_status"
           }
@@ -117,13 +118,18 @@ jobs:
           test "$(jq -r '[.jobs[].image.digest] | unique | .[0]' "$dev_spec")" = "$IMAGE_DIGEST"
           test "$(jq -r '[.jobs[].image.digest] | unique | length' "$dev_spec")" = 1
 
-          python scripts/prod_literature_job_spec.py \
+          if python scripts/prod_literature_job_spec.py \
             --baseline "$baseline_spec" --output "$operation_spec" \
             --operation "$LITERATURE_OPERATION" --image-digest "$IMAGE_DIGEST" \
             --family "$LITERATURE_FAMILY" --max-records "$MAX_RECORDS" \
             --batch-size "$BATCH_SIZE" --estimated-cost-usd "$ESTIMATED_COST_USD" \
             --discovery-run-id "$DISCOVERY_RUN_ID" --source-commit "$GITHUB_SHA" \
-            --workflow-run-id "$GITHUB_RUN_ID"
+            --workflow-run-id "$GITHUB_RUN_ID" --readiness-report "$readiness_report"; then
+            cat "$readiness_report"
+          else
+            cat "$readiness_report"
+            exit 1
+          fi
           baseline_captured=true
           doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
             --format ID,ActiveDeployment.ID --no-header
