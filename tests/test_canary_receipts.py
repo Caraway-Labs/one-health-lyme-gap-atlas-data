@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,10 +10,18 @@ import pytest
 
 from lyme_gap_atlas_data.canary_receipts import (
     _ATTEMPT_COLUMNS,
+    _CORPUS_COLUMNS,
     _GRAPH_COLUMNS,
+    inspect_group_canary_corpus_receipts,
     inspect_group_canary_receipts,
 )
 from lyme_gap_atlas_data.extraction_group import ExtractionGroup
+from lyme_gap_atlas_data.retrieval_corpus import (
+    CorpusRules,
+    EligiblePaper,
+    chunk_paper_sections,
+    corpus_content_sha256,
+)
 
 GROUP = ExtractionGroup(
     "22345678-1234-4234-8234-123456789abc",
@@ -24,6 +33,7 @@ GROUP = ExtractionGroup(
 ATTEMPT_ID = "32345678-1234-4234-8234-123456789abc"
 RECEIPT_ID = "42345678-1234-4234-8234-123456789abc"
 ARTIFACT_ID = "52345678-1234-4234-8234-123456789abc"
+BUILD_ID = "62345678-1234-4234-8234-123456789abc"
 
 
 def attempt() -> dict[str, Any]:
@@ -74,10 +84,55 @@ def graph() -> dict[str, Any]:
     }
 
 
+def corpus() -> list[dict[str, Any]]:
+    source = graph()
+    paper = EligiblePaper(
+        **{
+            key: source[key]
+            for key in (
+                "pmid",
+                "pmcid",
+                "artifact_id",
+                "object_key",
+                "jats_sha256",
+                "text_sha256",
+                "contribution_sha256",
+            )
+        }
+    )
+    text = "private-unit-sentinel " + " ".join(
+        f"Sentence {index} describes a distinct observed finding in the study."
+        for index in range(60)
+    )
+    rules = CorpusRules()
+    units, _metrics = chunk_paper_sections([("Results", text)], paper=paper, rules=rules)
+    assert len(units) > 2
+    return [
+        {
+            **asdict(unit),
+            "unit_rules_version": rules.rules_version,
+            "unit_build_id": BUILD_ID,
+            "built_at": "2026-10-01T10:06:00+00:00",
+            "build_id": BUILD_ID,
+            "build_rules_version": rules.rules_version,
+            "rules_sha256": rules.sha256(),
+            "discovery_run_id": GROUP.discovery_run_id,
+            "status": "completed",
+            "started_at": "2026-10-01T10:05:00+00:00",
+            "finished_at": "2026-10-01T10:08:00+00:00",
+            "papers_admitted": 1,
+            "chunks_written": len(units),
+            "corpus_content_sha256": corpus_content_sha256(units),
+        }
+        for unit in units
+    ]
+
+
 class Cursor:
     def __init__(self) -> None:
         self.attempts = [attempt()]
         self.graphs = [graph()]
+        self.units = corpus()
         self.executed: list[tuple[str, tuple[object, ...]]] = []
         self.fail_on_query: int | None = None
 
@@ -87,11 +142,11 @@ class Cursor:
             raise RuntimeError("private-error-sentinel")
 
     def fetchall(self) -> list[tuple[Any, ...]]:
-        rows, columns = (
-            (self.attempts, _ATTEMPT_COLUMNS)
-            if len(self.executed) == 1
-            else (self.graphs, _GRAPH_COLUMNS)
-        )
+        rows, columns = {
+            1: (self.attempts, _ATTEMPT_COLUMNS),
+            2: (self.graphs, _GRAPH_COLUMNS),
+            3: (self.units, _CORPUS_COLUMNS),
+        }[len(self.executed)]
         return [tuple(row[key] for key in columns) for row in rows]
 
 
@@ -277,3 +332,170 @@ def test_authoritative_read_failure_is_typed_and_sanitized(query: int) -> None:
     assert result["receipt_readiness"] == "BLOCKED"
     assert result["blockers"][0]["capability"] == "authoritative_canary_receipt_read_failed"
     assert all(blocker["retryable"] is False for blocker in result["blockers"])
+
+
+def inspect_corpus(cursor: Cursor) -> dict[str, Any]:
+    result = inspect_group_canary_corpus_receipts(GROUP, cursor)
+    assert result["status"] == "BLOCKED"
+    assert result["serving_visibility"] == "NOT_CHECKED"
+    assert result["full_pre_topology_readiness"] == "NOT_CHECKED"
+    assert all(sql.lstrip().startswith("SELECT") for sql, _params in cursor.executed)
+    serialized = json.dumps(result)
+    for sentinel in (
+        "private-object-sentinel",
+        "private-license-sentinel",
+        "private-unit-sentinel",
+        "private-error-sentinel",
+    ):
+        assert sentinel not in serialized
+    return result
+
+
+def change_build(cursor: Cursor, key: str, value: Any) -> None:
+    for unit in cursor.units:
+        unit[key] = value
+
+
+def test_fresh_completed_corpus_joins_real_producer_units_but_gate_stays_closed() -> None:
+    cursor = Cursor()
+    result = inspect_corpus(cursor)
+    assert result["receipt_readiness"] == "READY"
+    assert result["corpus_admission"] == "READY"
+    assert result["corpus_identity"] == {
+        "build_id": BUILD_ID,
+        "pmid": "1000",
+        "unit_count": len(cursor.units),
+        "rules_version": CorpusRules().rules_version,
+    }
+    assert cursor.executed[2][1] == ("1000", CorpusRules().rules_version)
+    assert "b.build_id = u.build_id" in cursor.executed[2][0]
+    assert "actual_serving_query_visibility_not_verified" in json.dumps(result)
+    assert "group_continuation_not_implemented" in json.dumps(result)
+    assert "fresh_completed_corpus_admission_not_verified" not in json.dumps(result)
+
+
+def test_older_immutable_artifact_can_have_fresh_completed_canary_corpus() -> None:
+    cursor = Cursor()
+    cursor.graphs[0]["admitted_at"] = "2026-09-01T10:00:00+00:00"
+    assert inspect_corpus(cursor)["corpus_admission"] == "READY"
+
+
+def test_multi_paper_build_proves_canary_subset_without_global_reconciliation() -> None:
+    cursor = Cursor()
+    change_build(cursor, "papers_admitted", 5)
+    change_build(cursor, "chunks_written", len(cursor.units) + 100)
+    result = inspect_corpus(cursor)
+    assert result["corpus_admission"] == "READY"
+    assert result["corpus_identity"]["unit_count"] == len(cursor.units)
+
+
+def test_failed_lineage_does_not_read_or_accept_corpus() -> None:
+    cursor = Cursor()
+    cursor.attempts[0]["status"] = "failed"
+    result = inspect_corpus(cursor)
+    assert result["receipt_readiness"] == "BLOCKED"
+    assert result["corpus_admission"] == "NOT_CHECKED"
+    assert len(cursor.executed) == 1
+
+
+@pytest.mark.parametrize(
+    "failure", ["empty", "duplicate", "gap", "missing_tail", "mixed_builds", "orphan_build"]
+)
+def test_missing_partial_ambiguous_or_orphan_corpus_is_closed(failure: str) -> None:
+    cursor = Cursor()
+    if failure == "empty":
+        cursor.units = []
+    elif failure == "duplicate":
+        cursor.units.append(copy.deepcopy(cursor.units[0]))
+    elif failure == "gap":
+        cursor.units.pop(1)
+    elif failure == "missing_tail":
+        cursor.units.pop()
+    elif failure == "mixed_builds":
+        cursor.units[-1]["build_id"] = ARTIFACT_ID
+    else:
+        change_build(cursor, "build_id", None)
+    result = inspect_corpus(cursor)
+    assert result["receipt_readiness"] == "READY"
+    assert result["corpus_admission"] == "BLOCKED"
+    assert "corpus_identity" not in result
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("status", "failed"),
+        ("status", "running"),
+        ("status", None),
+        ("build_rules_version", "other"),
+        ("rules_sha256", "f" * 64),
+        ("discovery_run_id", RECEIPT_ID),
+        ("discovery_run_id", None),
+        ("papers_admitted", 0),
+        ("papers_admitted", True),
+        ("chunks_written", 0),
+        ("chunks_written", 9999),
+        ("corpus_content_sha256", None),
+        ("started_at", "2026-10-01T10:01:00+00:00"),
+        ("finished_at", "2026-10-01T10:04:00+00:00"),
+        ("finished_at", None),
+        ("started_at", "2026-10-01T10:05:00"),
+    ],
+)
+def test_build_status_identity_counts_and_freshness_are_authoritative(key: str, value: Any) -> None:
+    cursor = Cursor()
+    change_build(cursor, key, value)
+    assert inspect_corpus(cursor)["corpus_admission"] == "BLOCKED"
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("pmid", "1001"),
+        ("pmcid", "PMC999"),
+        ("artifact_id", RECEIPT_ID),
+        ("object_key", "other"),
+        ("jats_sha256", "f" * 64),
+        ("text_sha256", "f" * 64),
+        ("contribution_sha256", "f" * 64),
+        ("unit_build_id", RECEIPT_ID),
+        ("unit_rules_version", "other"),
+        ("unit_id", "f" * 64),
+        ("unit_text_sha256", "f" * 64),
+        ("unit_text", "tampered-unit-sentinel"),
+        ("char_start", -1),
+        ("char_start", True),
+        ("char_end", 1),
+        ("section_label", ""),
+        ("chunk_index", True),
+        ("built_at", "2026-10-01T10:03:00+00:00"),
+        ("built_at", "2026-10-01T10:09:00+00:00"),
+        ("built_at", None),
+    ],
+)
+def test_unit_source_contribution_content_identity_and_chronology_must_match(
+    key: str, value: Any
+) -> None:
+    cursor = Cursor()
+    cursor.units[0][key] = value
+    result = inspect_corpus(cursor)
+    assert result["corpus_admission"] == "BLOCKED"
+    assert "tampered-unit-sentinel" not in json.dumps(result)
+
+
+def test_changed_expected_rules_do_not_accept_existing_projection() -> None:
+    cursor = Cursor()
+    result = inspect_group_canary_corpus_receipts(
+        GROUP, cursor, rules=CorpusRules(target_chars=1300)
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["corpus_admission"] == "BLOCKED"
+
+
+def test_corpus_read_failure_is_typed_sanitized_and_does_not_open_gate() -> None:
+    cursor = Cursor()
+    cursor.fail_on_query = 3
+    result = inspect_corpus(cursor)
+    assert result["receipt_readiness"] == "READY"
+    assert result["corpus_admission"] == "BLOCKED"
+    assert result["blockers"][0]["capability"] == "authoritative_canary_corpus_read_failed"
