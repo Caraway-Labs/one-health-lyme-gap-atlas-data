@@ -26,6 +26,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlsplit
+from uuid import uuid4
 from xml.parsers import expat
 
 from ..intelligence_items import (
@@ -223,6 +224,7 @@ def acquisition_context(
 ) -> dict[str, Any]:
     context = {
         "context_version": ACQUISITION_VERSION,
+        "attempt_id": uuid4().hex,
         "source_id": source["source_id"],
         "registry_version": source["registry_version"],
         "registry_sha256": identity_hash(source),
