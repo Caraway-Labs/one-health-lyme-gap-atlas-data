@@ -13,6 +13,14 @@ from lyme_gap_atlas_data.literature_preflight import (
 )
 from lyme_gap_atlas_data.settings import PipelineSettings
 
+# Exact CHECK_CLAUSE serialization read under OH_LYME_PROD_RUNTIME on 2026-10-01.
+_LIVE_CLASSIFICATION_CLAUSE = (
+    "classification IN (\n"
+    "      'provider_rejected_pre_inference',\n"
+    "      'contract_remediation_reopen'\n"
+    "    )"
+)
+
 
 def test_preflight_collects_all_blockers_without_secret_values(
     monkeypatch: pytest.MonkeyPatch,
@@ -182,8 +190,7 @@ def test_preflight_detects_missing_column_and_write_privilege(
                 ):
                     return []
                 clause = (
-                    "CLASSIFICATION IN ('provider_rejected_pre_inference', "
-                    "'contract_remediation_reopen')"
+                    _LIVE_CLASSIFICATION_CLAUSE
                     if valid_contract
                     else "CLASSIFICATION IN ('provider_rejected_pre_inference')"
                 )
@@ -249,6 +256,7 @@ def test_preflight_detects_missing_column_and_write_privilege(
 @pytest.mark.parametrize(
     ("clause", "supported"),
     [
+        (_LIVE_CLASSIFICATION_CLAUSE, True),
         (
             "CLASSIFICATION IN ('provider_rejected_pre_inference', 'contract_remediation_reopen')",
             True,

@@ -2,8 +2,9 @@
 
 Audit boundary: 2026-10-01, DATA main `f5c8048131c23214c21a399296392ec9f704daf3`.
 Implementation owner: DATA. Release and production execution remain with the
-coordinating owner. This is a repository/evidence audit, not a new live production
-inspection. No extraction, provider call, grant, topology update, graph identity
+coordinating owner. This is a repository/evidence audit with a bounded read-only
+classification metadata check for PR541 rereview. No extraction, provider call,
+grant, topology update, graph identity
 rewrite, or receipt rewrite was performed by this audit.
 
 ## Completed work to reuse
@@ -65,6 +66,24 @@ It does not evaluate arbitrary SQL or prove every possible classification contra
 It reuses `missing_capabilities` and the existing typed
 `runtime_contract` blocker path. The checks use metadata reads only and execute
 before claim; no budget reservation is invoked.
+
+On 2026-10-01, the existing `ATLAS_PROD_RUNTIME_AUDIT` connection first verified
+role `OH_LYME_PROD_RUNTIME`, database `ONE_HEALTH_LYME_GAP_ATLAS_PROD` and warehouse
+`OH_LYME_PROD_INGEST_XS_WH`. A bounded SELECT on `INFORMATION_SCHEMA.CHECK_CONSTRAINTS`
+returned schema `KNOWLEDGE_GRAPH`, name `CK_PMC_ATTEMPT_CLASSIFICATION`, table
+`EXTRACTION_ATTEMPT_CLASSIFICATIONS`, and this exact structural `CHECK_CLAUSE`:
+
+```sql
+classification IN (
+      'provider_rejected_pre_inference',
+      'contract_remediation_reopen'
+    )
+```
+
+That live serialization is retained as a fixture in both the full capability
+check and clause-recognition regressions. Only structural metadata was read;
+no secret or paper content was retrieved. The PR branch was then reconciled onto
+main `5271fe9834ffbec3e311156da256c9b56b53f3ac` for final rereview; V135 was unchanged.
 
 Independent review, required quality gates and reconciliation against fresh main
 precede owner-coordinated release. A blocked production check requires investigation
