@@ -187,9 +187,9 @@ def inspect_group_canary_receipts(group: ExtractionGroup, cursor: ReceiptCursor)
             "exact_canary_attempt_graph_artifact_lineage",
         )
         _require(
-            ready <= _time(graph["admitted_at"]) <= started
+            _time(graph["admitted_at"]) <= started
             and started <= _time(graph["published_at"]) <= finished,
-            "fresh_canary_artifact_and_graph_chronology",
+            "valid_artifact_and_fresh_canary_publication_chronology",
         )
         report = _report(_EXTERNAL_BLOCKERS, receipts_ready=True)
         report["receipt_identity"] = {

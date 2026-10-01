@@ -84,8 +84,10 @@ extraction/group readiness. There is no age-based reuse allowance.
 The second projection requires exactly one receipt for that extraction attempt
 and an exact artifact-ID/PMID join to `PMC_FULL_TEXT_ARTIFACTS`. Paper/PMC identity,
 nonempty artifact provenance, valid source/contribution hashes and positive
-graph counts must match. Artifact admission must follow group readiness and
-precede the attempt; graph publication must fall within that completed attempt.
+graph counts must match. Artifact admission must precede the attempt; an older
+valid immutable artifact is reused on retries without repeating acquisition.
+Freshness applies to the same-group canary attempt and successful graph
+publication, which must fall within that completed attempt after readiness.
 Missing or ambiguous joins, stale chronology, identity changes and read failures
 return typed sanitized blockers. Reports omit object keys, license URLs, content
 and exception bodies. This is ledger lineage verification, not a fresh download

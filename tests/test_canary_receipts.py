@@ -141,6 +141,30 @@ def test_snowflake_datetime_and_serialized_variant_are_supported() -> None:
     assert inspect(cursor)["receipt_readiness"] == "READY"
 
 
+def test_retry_reuses_older_exact_immutable_artifact_with_fresh_group_canary() -> None:
+    cursor = Cursor()
+    cursor.graphs[0]["admitted_at"] = "2026-09-01T10:00:00+00:00"
+    result = inspect(cursor)
+    assert result["receipt_readiness"] == "READY"
+    assert result["receipt_identity"]["artifact_id"] == ARTIFACT_ID
+
+
+@pytest.mark.parametrize("failure", ["source", "receipt", "stale_attempt", "stale_publication"])
+def test_older_artifact_does_not_relax_attempt_or_publication_identity(failure: str) -> None:
+    cursor = Cursor()
+    cursor.graphs[0]["admitted_at"] = "2026-09-01T10:00:00+00:00"
+    if failure == "source":
+        cursor.graphs[0]["artifact_pmid"] = "1001"
+    elif failure == "receipt":
+        cursor.graphs[0]["attempt_id"] = RECEIPT_ID
+    elif failure == "stale_attempt":
+        cursor.attempts[0]["started_at"] = "2026-09-01T10:01:00+00:00"
+        cursor.attempts[0]["finished_at"] = "2026-09-01T10:04:00+00:00"
+    else:
+        cursor.graphs[0]["published_at"] = "2026-09-01T10:03:00+00:00"
+    assert inspect(cursor)["receipt_readiness"] == "BLOCKED"
+
+
 @pytest.mark.parametrize("table", ["attempts", "graphs"])
 @pytest.mark.parametrize("count", [0, 2])
 def test_missing_or_ambiguous_lineage_is_closed(table: str, count: int) -> None:
@@ -231,7 +255,6 @@ def test_root_attempt_identity_must_also_match(key: str) -> None:
         ("text_sha256", ""),
         ("node_count", 0),
         ("passage_count", 0),
-        ("admitted_at", "2026-10-01T09:59:00+00:00"),
         ("admitted_at", "2026-10-01T10:03:00+00:00"),
         ("published_at", "2026-10-01T10:01:00+00:00"),
         ("published_at", "2026-10-01T10:05:00+00:00"),
