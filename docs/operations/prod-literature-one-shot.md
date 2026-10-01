@@ -312,9 +312,24 @@ with a bounded category; exception bodies are not recorded.
 The SDK queue and export batch are capped at 256 spans; each span has at most
 64 attributes with strings capped at 1,024 characters, and no events or links.
 Full existing sanitized diagnostics remain in the durable ledgers. Flush and
-shutdown each wait at most five seconds; telemetry cannot abort ingestion.
+shutdown each wait at most five seconds for their delegate calls, up to ten
+seconds combined. Lock acquisition and child draining precede those waits;
+the installed production batch processor queues spans without blocking. These
+limits do not provide a universal bound for arbitrary custom delegates.
 The current OTLP endpoint and opaque headers are reused without collector,
 sampling, credential, grant, or persistent-job changes.
+Parsed headers are validated before exporter construction; malformed headers
+disable optional tracing with a fixed safe diagnostic and ingestion continues.
+The SDK's two diagnostics that include raw transport/HTTP reasons retain safe
+HTTP status, retry delay, and finite reason categories; raw reasons and exception
+details are removed before logging handlers receive them. Other SDK diagnostics
+remain enabled, and connection retries retain their SDK behavior.
+
+This processor supports one literature CLI invocation per worker process.
+Concurrent or reentrant CLI invocations in one Python process are unsupported:
+the root state and provider shutdown belong to that invocation. Concurrent
+child spans within the single invocation are supported; each separate worker
+process has its own processor and provider.
 
 A span limit, five-minute deferral expiry, early explicit flush, or shutdown
 switches to normal streaming and emits a safe `atlas-data.trace_buffer` warning.

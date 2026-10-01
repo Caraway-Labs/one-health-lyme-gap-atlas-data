@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import requests
 import typer
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -265,3 +268,44 @@ def test_literature_config_failure_remains_fail_open(
     assert cli.ObservedTyper()(args=["pipeline", "literature-preflight"]) == "completed"
     assert "tracing_unavailable" in caplog.text
     assert "SECRET_HEADER_SENTINEL" not in caplog.text
+
+
+def test_real_sdk_invalid_header_is_rejected_before_exporter_and_cli_completes(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sentinel = "UNMISTAKABLY_FAKE_OTLP_AUTH_SENTINEL"
+    malformed = f"{sentinel}\ninvalid"
+    monkeypatch.setattr(logging.getLogger(OTLPSpanExporter.__module__), "filters", [])
+    monkeypatch.setattr(
+        requests.Session,
+        "send",
+        lambda *_args, **_kwargs: pytest.fail("network I/O is forbidden"),
+    )
+    # Exercise the locked, real SDK with one real span: requests preparation
+    # rejects this header before send, but the SDK logs its credential-bearing reason.
+    exporter = OTLPSpanExporter(
+        endpoint="https://collector.invalid/v1/traces",
+        headers={"authorization": malformed},
+        timeout=0.1,
+    )
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    with provider.get_tracer("fixture").start_as_current_span("fixture.real_sdk_span"):
+        pass
+    provider.shutdown()
+    assert sentinel in caplog.text
+    caplog.clear()
+    capsys.readouterr()
+
+    # Use the real parsed-header/configuration path and the existing CLI catch.
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.invalid/v1/traces")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", f"authorization={malformed}")
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(typer.Typer, "__call__", lambda *_args, **_kwargs: "completed")
+    assert cli.ObservedTyper()(args=["pipeline", "literature-preflight"]) == "completed"
+    captured = capsys.readouterr()
+    assert "tracing_unavailable" in caplog.text
+    assert sentinel not in caplog.text + captured.out + captured.err
+    assert all(record.exc_info is None for record in caplog.records)

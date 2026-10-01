@@ -11,6 +11,7 @@ from time import monotonic
 from typing import Any
 
 import pytest
+import requests
 from opentelemetry import trace
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor, TracerProvider
@@ -243,6 +244,70 @@ def test_disabled_tracing_has_no_parallel_identity(monkeypatch: pytest.MonkeyPat
     module.configure_literature_tracing("fixture")
     with trace.use_span(trace.INVALID_SPAN):
         assert module.trace_fields() == {}
+
+
+@pytest.mark.parametrize("exception_type", [requests.RequestException, requests.ConnectionError])
+def test_real_exporter_transport_reason_is_redacted_and_connection_retry_preserved(
+    exception_type: type[requests.RequestException],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sentinel = "UNMISTAKABLY_FAKE_OTLP_TRANSPORT_SENTINEL"
+    calls: list[int] = []
+    providers: list[TracerProvider] = []
+
+    def post(*_args: Any, **_kwargs: Any) -> None:
+        calls.append(1)
+        raise exception_type(sentinel)
+
+    monkeypatch.setattr(requests.Session, "post", post)
+    monkeypatch.setattr(
+        requests.Session, "send", lambda *_args, **_kwargs: pytest.fail("network I/O forbidden")
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.invalid/v1/traces")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=fixture-valid")
+    monkeypatch.setattr(module.trace, "set_tracer_provider", providers.append)
+    module.configure_literature_tracing("fixture")
+    provider = providers[0]
+    with provider.get_tracer("fixture").start_as_current_span("atlas-data.cli"):
+        pass
+    assert provider.force_flush()
+    provider.shutdown()
+    captured = capsys.readouterr()
+    assert sentinel not in caplog.text + captured.out + captured.err
+    if exception_type is requests.ConnectionError:
+        assert len(calls) >= 2
+        assert "Transient error connection_error" in caplog.text
+        assert "timeout, max retries or shutdown" in caplog.text
+    else:
+        assert len(calls) == 1
+        assert "code: None, reason: request_exception" in caplog.text
+
+
+def test_real_exporter_http_status_survives_reason_redaction(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    sentinel = "UNMISTAKABLY_FAKE_OTLP_RESPONSE_SENTINEL"
+    providers: list[TracerProvider] = []
+    response = requests.Response()
+    response.status_code = 400
+    response.reason = sentinel
+    monkeypatch.setattr(requests.Session, "post", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(
+        requests.Session, "send", lambda *_args, **_kwargs: pytest.fail("network I/O forbidden")
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.invalid/v1/traces")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=fixture-valid")
+    monkeypatch.setattr(module.trace, "set_tracer_provider", providers.append)
+    module.configure_literature_tracing("fixture")
+    provider = providers[0]
+    with provider.get_tracer("fixture").start_as_current_span("atlas-data.cli"):
+        pass
+    assert provider.force_flush()
+    provider.shutdown()
+    assert sentinel not in caplog.text
+    assert "code: 400, reason: http_response" in caplog.text
 
 
 def test_context_failure_does_not_block_durable_diagnostics(

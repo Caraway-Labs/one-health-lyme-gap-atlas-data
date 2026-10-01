@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from threading import Event, RLock, Thread, Timer
 
+import requests
 from lyme_gap_atlas_shared.observability import parse_otlp_headers
 from opentelemetry import trace
 from opentelemetry.context import Context
@@ -16,6 +17,8 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanLimits, SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from requests.exceptions import InvalidHeader
+from requests.utils import check_header_validity
 
 LITERATURE_COMMANDS = frozenset(
     {
@@ -27,6 +30,48 @@ LITERATURE_COMMANDS = frozenset(
     }
 )
 _LOGGER = logging.getLogger(__name__)
+
+
+class _ExportReasonFilter(logging.Filter):
+    """Redact only SDK messages whose reason can include credentials or payloads."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not isinstance(record.args, tuple):
+            return True
+        rejected = "Failed to export span batch code: %s, reason: %s"
+        retry = "Transient error %s encountered while exporting span batch, retrying in %.2fs."
+        if record.msg not in {rejected, retry} or len(record.args) != 2:
+            return True
+        reason = record.args[1] if record.msg == rejected else record.args[0]
+        if isinstance(reason, requests.exceptions.ConnectionError):
+            category = "connection_error"
+        elif isinstance(reason, requests.exceptions.Timeout):
+            category = "timeout"
+        elif isinstance(reason, requests.exceptions.RequestException):
+            category = "request_exception"
+        else:
+            category = "http_response"
+        if record.msg == rejected:
+            status = record.args[0]
+            safe_status = status if type(status) is int and 100 <= status <= 599 else None
+            record.args = (safe_status, category)
+        else:
+            delay = record.args[1]
+            safe_delay = (
+                delay
+                if isinstance(delay, (int, float))
+                and type(delay) in {int, float}
+                and 0 <= delay <= 300
+                else 0.0
+            )
+            record.args = (category, safe_delay)
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        return True
+
+
+_EXPORT_REASON_FILTER = _ExportReasonFilter()
 
 
 def trace_fields() -> dict[str, str]:
@@ -200,6 +245,12 @@ def configure_literature_tracing(service_name: str) -> None:
     if not endpoint:
         return
     headers = parse_otlp_headers(os.getenv("OTEL_EXPORTER_OTLP_HEADERS"))
+    try:
+        for header in headers.items():
+            check_header_validity(header)
+    except InvalidHeader:
+        raise ValueError("invalid_otlp_headers") from None
+    logging.getLogger(OTLPSpanExporter.__module__).addFilter(_EXPORT_REASON_FILTER)
     provider = TracerProvider(
         resource=Resource.create({"service.name": service_name}),
         span_limits=SpanLimits(
