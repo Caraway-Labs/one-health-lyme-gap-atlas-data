@@ -189,3 +189,90 @@ def test_v067_kg_chat_budget_and_persist_fixes_are_env_neutral() -> None:
     assert "GET(value:passage_ids, 0)" in prod
     assert "OH_LYME_API_READER" in prod
     assert "OH_LYME_PROD_API_RUNTIME" in prod
+
+
+@pytest.mark.parametrize("fail_batch", [False, True])
+def test_corpus_batches_are_atomic_and_keep_durable_failure_history(
+    monkeypatch: pytest.MonkeyPatch, fail_batch: bool
+) -> None:
+    from io import BytesIO
+
+    actions: list[str] = []
+    batches: list[list[tuple[object, ...]]] = []
+    jats = _jats("<p>" + "Grounded Lyme evidence. " * 80 + "</p>")
+    admitted = admit_pmc_open_access(jats)
+    paper = _paper(jats_sha256=admitted.jats_sha256, text_sha256=admitted.text_sha256)
+    units, _ = chunk_paper_sections(extract_section_texts(jats), paper=paper, rules=CorpusRules())
+    assert len(units) > 1
+    committed = [("old", 0, "old-unit", "old-hash")]
+    pending: list[tuple[object, ...]] | None = None
+
+    class Cursor:
+        def execute(self, sql: str, args: object = None) -> None:
+            nonlocal pending
+            if sql == "BEGIN TRANSACTION":
+                actions.append("begin")
+                pending = list(committed)
+            elif "DELETE FROM" in sql:
+                assert pending is not None
+                pending.clear()
+                actions.append("delete")
+            elif "INSERT INTO KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS" in sql:
+                pytest.fail("per-unit inserts must not return")
+            elif "SET status = 'failed'" in sql:
+                assert args is not None and args[0] == "RuntimeError"
+                actions.append("failed")
+
+        def executemany(self, sql: str, rows: list[tuple[object, ...]]) -> None:
+            assert "INSERT INTO KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS" in sql
+            assert pending is not None
+            batches.append(rows)
+            if fail_batch and len(batches) == 2:
+                raise RuntimeError("PRIVATE_SENTINEL")
+            pending.extend((r[3], r[10], r[0], r[15]) for r in rows)
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            assert pending is not None
+            return list(pending)
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            nonlocal pending
+            actions.append("commit")
+            if pending is not None:
+                committed[:] = pending
+                pending = None
+
+        def rollback(self) -> None:
+            nonlocal pending
+            actions.append("rollback")
+            pending = None
+
+    class Store:
+        def get_object(self, **_kwargs: object) -> dict[str, object]:
+            return {"Body": BytesIO(jats)}
+
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection())
+    monkeypatch.setattr(module, "_load_eligible_papers", lambda *_args: ([paper], 0))
+    monkeypatch.setattr(module, "CORPUS_INSERT_BATCH_SIZE", 1)
+    if fail_batch:
+        with pytest.raises(RuntimeError, match="PRIVATE_SENTINEL"):
+            module.build_retrieval_corpus(settings=PipelineSettings(), artifact_store=Store())
+        assert committed == [("old", 0, "old-unit", "old-hash")]
+        assert actions == ["commit", "begin", "delete", "rollback", "failed", "commit"]
+    else:
+        result = module.build_retrieval_corpus(settings=PipelineSettings(), artifact_store=Store())
+        assert result["chunks_written"] == len(units)
+        assert result["corpus_content_sha256"] == corpus_content_sha256(units)
+        assert actions == ["commit", "begin", "delete", "commit"]
+        assert [r[0] for batch in batches for r in batch] == [u.unit_id for u in units]
+        assert all(len(batch) == 1 for batch in batches)

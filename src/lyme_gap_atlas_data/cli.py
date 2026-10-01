@@ -46,6 +46,7 @@ from .ingestion import (
 )
 from .literature_preflight import literature_preflight
 from .literature_status import literature_status
+from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
 from .migrations import (
     apply_migrations,
     migration_authority_preflight,
@@ -157,9 +158,19 @@ class ObservedTyper(typer.Typer):
 
     def __call__(self, *args: object, **kwargs: object) -> object:
         configure_logging()
+        supplied = kwargs.get("args")
+        arguments = (
+            supplied
+            if isinstance(supplied, list) and all(isinstance(value, str) for value in supplied)
+            else sys.argv[1:]
+        )
+        command = _command_path(arguments)
         tracing_ready = True
         try:
-            configure_tracing(SERVICE_NAME)
+            if command in LITERATURE_COMMANDS:
+                configure_literature_tracing(SERVICE_NAME)
+            else:
+                configure_tracing(SERVICE_NAME)
         except Exception:
             # Export configuration is optional. Never block ingestion because a
             # collector endpoint or header was malformed; omit the exception
@@ -171,7 +182,6 @@ class ObservedTyper(typer.Typer):
             if tracing_ready
             else trace.NoOpTracerProvider().get_tracer(SERVICE_NAME)
         )
-        command = _command_path(sys.argv[1:])
         started = monotonic()
         try:
             # The current context lets safe, bounded child spans correlate to the
@@ -181,6 +191,8 @@ class ObservedTyper(typer.Typer):
             ) as span:
                 span.set_attribute("atlas.command", command)
                 span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+                for key, value in trace_fields().items():
+                    span.set_attribute(f"atlas.{key}", value)
                 try:
                     result = super().__call__(*args, **kwargs)
                 except BaseException as error:

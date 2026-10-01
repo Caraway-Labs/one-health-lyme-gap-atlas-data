@@ -18,9 +18,13 @@ from lyme_gap_atlas_kg import (
     RelationshipType,
     SemanticEdge,
 )
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from lyme_gap_atlas_data import pmc_extraction_worker
 from lyme_gap_atlas_data.contribution_admission import AdmittedContribution
+from lyme_gap_atlas_data.literature_tracing import trace_fields
 from lyme_gap_atlas_data.pmc_extraction_worker import (
     ApprovedPaper,
     PMCExtractionWorker,
@@ -585,11 +589,14 @@ def test_attempt_context_is_persisted_with_discovery_and_worker_run_ids(
 
     monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
     token = pmc_extraction_worker._RUN_ID.set("worker-run-1")
+    provider = TracerProvider(shutdown_on_exit=False)
     try:
-        ledger = pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private")
-        attempt_id = ledger.record_attempt(approved_paper(), "b" * 64, "openai:test", 10, 900)
+        with provider.get_tracer("fixture").start_as_current_span("fixture.root") as root:
+            ledger = pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private")
+            attempt_id = ledger.record_attempt(approved_paper(), "b" * 64, "openai:test", 10, 900)
     finally:
         pmc_extraction_worker._RUN_ID.reset(token)
+        provider.shutdown()
     assert len(executed) == 2
     assert "attempt_context" in executed[1][0]
     args = executed[1][1]
@@ -599,6 +606,7 @@ def test_attempt_context_is_persisted_with_discovery_and_worker_run_ids(
     assert details["run_id"] == "worker-run-1"
     assert details["discovery_run_id"] == discovery_id
     assert details["code_sha"] == "a" * 40
+    assert details["trace_id"] == format(root.get_span_context().trace_id, "032x")
 
 
 def test_attempt_context_failure_rolls_back_reserved_attempt(
@@ -688,20 +696,49 @@ def test_failed_attempt_persists_redacted_stage_diagnostic(
     error = httpx.HTTPStatusError("SECRET_BODY", request=request, response=response)
     stage_token = pmc_extraction_worker._FAILURE_STAGE.set("extract")
     run_token = pmc_extraction_worker._RUN_ID.set("worker-run-2")
+    provider = TracerProvider(shutdown_on_exit=False)
     try:
-        pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private").fail(
-            approved_paper(), "attempt-2", error
-        )
+        with provider.get_tracer("fixture").start_as_current_span("fixture.root") as root:
+            pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private").fail(
+                approved_paper(), "attempt-2", error
+            )
     finally:
         pmc_extraction_worker._FAILURE_STAGE.reset(stage_token)
         pmc_extraction_worker._RUN_ID.reset(run_token)
+        provider.shutdown()
     diagnostic = next(args for sql, args in executed if "'stage_failure'" in sql)
     assert isinstance(diagnostic, tuple)
     details = json.loads(diagnostic[3])
     assert details["run_id"] == "worker-run-2"
     assert details["failure_category"] == "provider_rejected_pre_inference"
     assert details["provider_rationale"].endswith("request_id_req_safe")
+    assert details["trace_id"] == format(root.get_span_context().trace_id, "032x")
     assert "SECRET_BODY" not in str(executed)
+
+
+def test_failed_stage_has_safe_error_status_and_actual_trace_identity(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer("fixture")
+    monkeypatch.setattr(pmc_extraction_worker, "_TRACER", tracer)
+    with (
+        tracer.start_as_current_span("fixture.root") as root,
+        pytest.raises(ValueError, match="SECRET_RESPONSE_SENTINEL"),
+        pmc_extraction_worker._stage("validate", {"run_id": "fixture", **trace_fields()}),
+    ):
+        raise ValueError("SECRET_RESPONSE_SENTINEL")
+    stage = exporter.get_finished_spans()[0]
+    assert stage.status.status_code.name == "ERROR"
+    assert stage.status.description == "provenance_validation"
+    assert stage.attributes is not None
+    assert stage.attributes["atlas.trace_id"] == format(root.get_span_context().trace_id, "032x")
+    assert stage.events == ()
+    assert "SECRET_RESPONSE_SENTINEL" not in caplog.text
+    assert "SECRET_RESPONSE_SENTINEL" not in repr(stage.status)
+    provider.shutdown()
 
 
 def test_pre_attempt_license_failure_has_typed_state_event_without_attempt(
