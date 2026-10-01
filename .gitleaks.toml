@@ -140,7 +140,6 @@ regexes = [
 [[allowlists]]
 description = "Reviewed deterministic intelligence deduplication hash, not a credential"
 condition = "AND"
-commits = ["da1bfe80c47d61c8f5fcaa49c55121080b029688"]
 paths = [
   '''^tests/fixtures/intelligence/v1/(atom|email|rss|web)-item\.json$''',
 ]
