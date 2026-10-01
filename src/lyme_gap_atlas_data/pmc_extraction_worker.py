@@ -297,6 +297,9 @@ def build_extraction_request(
         "supported by the full text.\n"
         "Copy query_match_ids from Identity into contribution.paper.query_match_ids "
         "exactly as supplied. They are provenance IDs, not facts to infer from the article.\n"
+        "Copy content_hash and full_text_object_key from Identity into the corresponding "
+        "contribution.paper fields byte-for-byte. Do not calculate a new hash, hash the "
+        "article, shorten the supplied hash, or generate a different object key.\n"
         + endpoint_matrix_prompt()
         + "\nIdentity:\n"
         + json.dumps(identity, sort_keys=True)
