@@ -137,3 +137,12 @@ policy may reclassify freshness, but that is not a successful-fetch recovery.
 Actual recovery requires accepted new successful attempt evidence. Missing policy
 produces no new incident authorization; the telemetry/notification owner must keep
 policy availability separate from source health.
+
+Retrieval and persistence have separate clocks. An acquisition/parser failure
+remains unresolved until a verified accepted capture was fetched after that
+failure; finishing LOAD for an older retained capture preserves its committed
+items and timestamps without clearing the later access failure. A successful
+QUALITY/PUBLISH resume uses its own terminal checkpoint identity and completion
+time, rather than replaying the older LOAD event. It can resolve a persistence
+failure without claiming a new retrieval. Both paths preserve complete attempt
+history and reject unseen older terminal events.

@@ -355,6 +355,32 @@ def test_real_orchestrator_effects_store_receipt_health_and_resume_are_consisten
     assert repeated.history.seen_revisions == first.history.seen_revisions
     assert repeated.incident_key
 
+    from lyme_gap_atlas_data.ingestion.types import RunStatus
+
+    resumed.status = RunStatus.FAILED
+    checkpoints.save(resumed)
+
+    class ResumeClock(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            return datetime(2026, 10, 1, 3, tzinfo=UTC)
+
+    monkeypatch.setattr("lyme_gap_atlas_data.ingestion.orchestrator.datetime", ResumeClock)
+    completed = orchestrator.resume(resumed.ingestion_run_id, definition=definition(source))
+    recovered = health_from_run(
+        source,
+        completed,
+        observed_at="2026-10-01T03:00:00Z",
+        items=rows,
+        source_context=context,
+        previous=repeated.history,
+    )
+    assert completed.status is RunStatus.SUCCEEDED
+    assert recovered.recovered
+    assert recovered.history.last_event_at == "2026-10-01T03:00:00Z"
+    assert recovered.history.document["last_fetch_success_at"] == NOW
+    assert len(calls) == 1
+
 
 def test_actual_failed_checkpoint_redacts_and_replay_does_not_count_a_new_attempt() -> None:
     from lyme_gap_atlas_data.ingestion.types import (
@@ -656,3 +682,67 @@ def test_unseen_older_event_is_rejected_without_overwriting_newer_failure() -> N
         observe_run(source, run_evidence(source, "old", NOW), "2026-10-01T03:00:00Z", current)
     assert current.history.document["consecutive_failures"] == 1
     assert current.history.document["state"] == "rate_limited"
+
+
+def test_late_storage_of_old_capture_preserves_later_access_failure() -> None:
+    from lyme_gap_atlas_data.ingestion.types import FailureCategory, RunStatus, StageStatus
+
+    source = approved()
+    retained = run_evidence(source, "retained-a", NOW)
+    load = retained[0].stages[-1]
+    load.status = StageStatus.FAILED
+    load.started_at = "2026-10-01T00:01:00Z"
+    load.completed_at = None
+    load.failure_category = FailureCategory.SCHEMA
+    retained[0].status = RunStatus.FAILED
+    first = observe_run(source, retained, "2026-10-01T00:01:00Z")
+    failed = run_evidence(source, "access-b", "2026-10-01T01:00:00Z", failed=True)
+    failed[0].stages[-1].redacted_diagnostic_code = "FEED_ACCESS_FAILED"
+    second = observe_run(source, failed, "2026-10-01T01:00:00Z", first)
+    load.status = StageStatus.COMPLETED
+    load.attempt_count = 2
+    load.started_at = load.completed_at = "2026-10-01T02:00:00Z"
+    load.failure_category = None
+    retained[0].status = RunStatus.SUCCEEDED
+    resumed = observe_run(source, retained, "2026-10-01T02:00:00Z", second)
+    assert resumed.history.document["state"] == "access_expired"
+    assert resumed.history.document["last_fetch_success_at"] == NOW
+    assert resumed.history.document["accepted_items"] == 1
+    assert not resumed.recovered
+
+
+def test_quality_resume_has_new_terminal_identity_without_new_acquisition() -> None:
+    from lyme_gap_atlas_data.ingestion.types import (
+        FailureCategory,
+        RunStatus,
+        Stage,
+        StageCheckpoint,
+        StageStatus,
+    )
+
+    source = approved()
+    evidence = run_evidence(source, "quality-resume", NOW)
+    evidence[0].stages[-1].completed_at = "2026-10-01T00:01:00Z"
+    quality = StageCheckpoint(
+        stage=Stage.QUALITY,
+        status=StageStatus.FAILED,
+        attempt_count=1,
+        started_at="2026-10-01T00:02:00Z",
+        failure_category=FailureCategory.QUALITY,
+    )
+    evidence[0].stages.append(quality)
+    evidence[0].status = RunStatus.FAILED
+    failed = observe_run(source, evidence, "2026-10-01T00:02:00Z")
+    quality.status = StageStatus.COMPLETED
+    quality.attempt_count = 2
+    quality.started_at = quality.completed_at = "2026-10-01T00:05:00Z"
+    quality.failure_category = None
+    evidence[0].status = RunStatus.SUCCEEDED
+    resumed = observe_run(source, evidence, "2026-10-01T00:05:00Z", failed)
+    assert resumed.recovered
+    assert resumed.history.document["consecutive_failures"] == 0
+    assert resumed.history.document["last_fetch_success_at"] == NOW
+    assert resumed.history.last_event_at == "2026-10-01T00:05:00Z"
+    replay = observe_run(source, evidence, "2026-10-01T00:06:00Z", resumed)
+    assert replay.history.processed_attempts == resumed.history.processed_attempts
+    assert not replay.recovered

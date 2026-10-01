@@ -14,7 +14,14 @@ from fractions import Fraction
 from typing import Any, Literal
 
 from .ingestion.intelligence_feed import FETCH_VERSION, PARSER_VERSION
-from .ingestion.types import FailureCategory, RunState, Stage, StageStatus
+from .ingestion.types import (
+    FailureCategory,
+    RunState,
+    RunStatus,
+    Stage,
+    StageCheckpoint,
+    StageStatus,
+)
 from .intelligence_items import (
     TOKEN,
     canonical_timestamp,
@@ -77,6 +84,19 @@ class HealthPolicy:
 
 
 @dataclass(frozen=True)
+class AcquisitionFailure:
+    """Unresolved retrieval/parser/policy failure, distinct from persistence."""
+
+    at: str
+    state: str
+    category: str
+    count: int
+    action: str
+    diagnostic: str | None
+    episode_at: str | None
+
+
+@dataclass(frozen=True)
 class HealthHistory:
     document: dict[str, Any]
     # Source-local accepted revisions, not the global revision-insert count.
@@ -85,6 +105,7 @@ class HealthHistory:
     processed_attempts: tuple[tuple[str, str], ...] = ()
     last_event_at: str | None = None
     incident_episode_at: str | None = None
+    acquisition_failure: AcquisitionFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -332,6 +353,7 @@ def reduce_health(
             processed_attempts=previous.processed_attempts if previous else (),
             last_event_at=previous.last_event_at if previous else None,
             incident_episode_at=episode_at,
+            acquisition_failure=previous.acquisition_failure if previous else None,
         ),
         source["state"],
         dict(source["cadence"]),
@@ -369,7 +391,21 @@ def health_from_run(
         (checkpoint for checkpoint in state.stages if checkpoint.status is StageStatus.FAILED), None
     )
     load = state.checkpoint(Stage.LOAD)
-    terminal = failed or load
+    terminal: StageCheckpoint | None
+    if failed:
+        terminal = failed
+    elif state.status is RunStatus.SUCCEEDED:
+        terminal = max(
+            (
+                checkpoint
+                for checkpoint in state.stages
+                if checkpoint.status is StageStatus.COMPLETED
+            ),
+            key=lambda checkpoint: _time(checkpoint.completed_at or checkpoint.started_at or ""),
+            default=None,
+        )
+    else:
+        terminal = load
     if terminal is None or terminal.status not in {StageStatus.FAILED, StageStatus.COMPLETED}:
         raise ValueError("INTELLIGENCE_HEALTH_TERMINAL_EVIDENCE_REQUIRED")
     now = _time(observed_at)
@@ -406,6 +442,7 @@ def health_from_run(
             else None,
             "started_at": terminal.started_at,
             "completed_at": terminal.completed_at,
+            "terminal_detail": terminal.detail,
         }
     )
     processed = dict(previous.processed_attempts) if previous else {}
@@ -515,12 +552,81 @@ def health_from_run(
             ),
         )
     processed[key] = evidence_hash
+    barrier = previous.acquisition_failure if previous else None
+    if (
+        not replay
+        and failed
+        and failed.stage
+        in {
+            Stage.DISCOVER,
+            Stage.ACQUIRE,
+            Stage.VALIDATE,
+            Stage.NORMALIZE,
+        }
+        and result.history.document["failure_category"] is not None
+    ):
+        document = result.history.document
+        barrier = AcquisitionFailure(
+            event_at,
+            document["state"],
+            document["failure_category"],
+            document["consecutive_failures"],
+            document["next_safe_action"],
+            document["diagnostic_code"],
+            result.history.incident_episode_at,
+        )
+    elif (
+        not replay
+        and barrier
+        and source_context
+        and load
+        and (
+            load.status is StageStatus.COMPLETED
+            and _time(source_context["fetched_at"]) > _time(barrier.at)
+        )
+    ):
+        # Only a genuinely later verified retrieval resolves a retrieval failure.
+        # Completing persistence for an older retained capture does not do so.
+        barrier = None
+    if barrier and result.history.document["state"] != "paused":
+        document = dict(result.history.document)
+        count = max(document["consecutive_failures"], barrier.count)
+        document.update(
+            state=barrier.state,
+            failure_category=barrier.category,
+            consecutive_failures=count,
+            next_safe_action=barrier.action,
+            diagnostic_code=barrier.diagnostic,
+        )
+        validate_record("health", document)
+        incident = None
+        if policy and count >= policy.failure_threshold:
+            incident = identity_hash(
+                {
+                    "source_id": source["source_id"],
+                    "registry_version": source["registry_version"],
+                    "policy_ref": policy.policy_ref,
+                    "state": barrier.state,
+                    "episode_at": barrier.episode_at,
+                }
+            )
+        barrier = replace(barrier, count=count)
+        result = replace(
+            result,
+            history=replace(
+                result.history, document=document, incident_episode_at=barrier.episode_at
+            ),
+            incident_key=incident,
+            escalation_owner=policy.escalation_owner if incident and policy else None,
+            recovered=False,
+        )
     return replace(
         result,
         history=replace(
             result.history,
             processed_attempts=tuple(sorted(processed.items())),
             last_event_at=previous.last_event_at if replay and previous else event_at,
+            acquisition_failure=barrier,
         ),
     )
 
