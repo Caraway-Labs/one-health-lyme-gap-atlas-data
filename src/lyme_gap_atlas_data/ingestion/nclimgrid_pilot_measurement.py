@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import time
@@ -325,6 +326,20 @@ def inspect_run(run_id: str) -> dict[str, object]:
             for a in artifacts
         ],
     }
+
+
+def candidate_report(run_id: str) -> dict[str, object]:
+    """Read only the approved capture twice using existing protected DEV access."""
+    from ..climate_publication import RUN_ID, candidate_evidence
+
+    if run_id != RUN_ID:
+        raise MeasurementError("Candidate requires the approved January capture")
+    with tempfile.TemporaryDirectory(
+        prefix="nclimgrid-candidate-", dir=os.getenv("RUNNER_TEMP")
+    ) as directory:
+        evidence = candidate_evidence(Path(directory))
+    evidence["code_sha"] = os.getenv("GITHUB_SHA")
+    return evidence
 
 
 def ordered_read(run_id: str) -> dict[str, object]:

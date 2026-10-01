@@ -374,3 +374,37 @@ def create_candidate(output: Path) -> dict[str, Any]:
         raise
     except Exception:
         raise ClimatePublicationBlocked("CAPTURE_READ_BLOCKED") from None
+
+
+def candidate_evidence(directory: Path) -> dict[str, Any]:
+    """Read the frozen capture twice and emit counts and one safe example per state."""
+    first = create_candidate(directory / "first.ndjson")
+    second = create_candidate(directory / "second.ndjson")
+    _require(first == second, "NONREPEATABLE_CANDIDATE")
+    counts: dict[str, int] = {}
+    examples: dict[str, dict[str, Any]] = {}
+    with (directory / "first.ndjson").open(encoding="utf-8") as handle:
+        for line in handle:
+            row = json.loads(line)
+            key = f"{row['coverage_status']}:{row['value_state']}"
+            counts[key] = counts.get(key, 0) + 1
+            if key not in examples:
+                examples[key] = {
+                    field: row[field]
+                    for field in (
+                        "county_fips",
+                        "period_start",
+                        "measure_id",
+                        "value",
+                        "value_state",
+                        "coverage_status",
+                        "unit",
+                    )
+                }
+    _require(sum(counts.values()) == first["rows"] and len(examples) <= 8, "EVIDENCE_SCOPE")
+    return first | {
+        "repeat_projection_sha256": second["projection_sha256"],
+        "coverage_value_state_counts": counts,
+        "examples": examples,
+        "writes_performed": False,
+    }

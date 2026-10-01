@@ -412,3 +412,88 @@ def test_reader_without_complete_capture_cannot_emit_a_success(tmp_path: Path) -
     with pytest.raises(publication.ClimatePublicationBlocked, match="INCOMPLETE_CAPTURE"):
         publication.prepare_candidate(cursor, tmp_path / "candidate")
     assert len(cursor.calls) == 7 and list(tmp_path.iterdir()) == []
+
+
+def test_candidate_evidence_repeats_frozen_reader_and_emits_only_bounded_safe_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(publication, "COUNTIES", frozenset({"01001"}))
+    reads: list[Path] = []
+
+    def read(output: Path) -> dict[str, Any]:
+        reads.append(output)
+        captures = (
+            fixture_capture(
+                fixture_record(
+                    observation_date=f"2025-01-{day:02}",
+                    measure=measure,
+                    source_variable=measure.lower(),
+                    unit=unit,
+                    source_unit="millimeter" if measure == "PRCP" else unit,
+                    value=0 if measure == "PRCP" else -2,
+                )
+            )
+            for day in range(1, 32)
+            for measure, unit in sorted(publication.MEASURES.items())
+        )
+        return publication.write_candidate_projection(captures, output)
+
+    monkeypatch.setattr(publication, "create_candidate", read)
+    evidence = publication.candidate_evidence(tmp_path)
+    assert len(reads) == 2
+    assert evidence["capture_run_id"] == publication.RUN_ID
+    assert evidence["projection_sha256"] == evidence["repeat_projection_sha256"]
+    assert evidence["coverage_value_state_counts"] == {"COMPLETE:ZERO": 31, "COMPLETE:OBSERVED": 93}
+    assert len(evidence["examples"]) == 2 and evidence["writes_performed"] is False
+    assert all(len(example) == 7 for example in evidence["examples"].values())
+    assert "payload" not in json.dumps(evidence) and "artifact_uri" not in json.dumps(evidence)
+
+
+def test_candidate_evidence_rejects_changed_second_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports = iter([{"projection_sha256": "a"}, {"projection_sha256": "b"}])
+    monkeypatch.setattr(publication, "create_candidate", lambda output: next(reports))
+    with pytest.raises(publication.ClimatePublicationBlocked, match="NONREPEATABLE_CANDIDATE"):
+        publication.candidate_evidence(tmp_path)
+
+
+def test_candidate_workflow_reuses_protected_read_only_envelope() -> None:
+    workflow = (ROOT / ".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
+    assert 'test "$MEASUREMENT_RUN_ID" = "c2eb2146-005d-44d2-bac4-e2805ca42577"' in workflow
+    assert 'test "${{ inputs.recapture }}" = "false"' in workflow
+    assert 'test "${{ inputs.publish }}" = "false"' in workflow
+    block = workflow.rsplit(
+        'if [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then', 1
+    )[1]
+    block = block.split('elif [ "${{ inputs.operation }}" = "run" ]; then', 1)[0]
+    assert "atlas-data source nclimgrid-pilot-measure" in block
+    assert "source run" not in block and "resume" not in block
+
+
+def test_candidate_dispatch_rejects_other_run_before_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lyme_gap_atlas_data.ingestion import nclimgrid_pilot_measurement as measurement
+
+    monkeypatch.setattr(
+        publication, "candidate_evidence", lambda output: pytest.fail("private read")
+    )
+    with pytest.raises(measurement.MeasurementError, match="approved January capture"):
+        measurement.candidate_report("another-run")
+
+
+def test_candidate_dispatch_uses_runner_temp_and_removes_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lyme_gap_atlas_data.ingestion import nclimgrid_pilot_measurement as measurement
+
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("GITHUB_SHA", "reviewed-code-sha")
+
+    def evidence(directory: Path) -> dict[str, Any]:
+        assert directory.parent == tmp_path
+        (directory / "fixture.ndjson").write_text("offline fixture", encoding="utf-8")
+        return {"projection_sha256": "fixture-digest"}
+
+    monkeypatch.setattr(publication, "candidate_evidence", evidence)
+    assert measurement.candidate_report(publication.RUN_ID)["code_sha"] == "reviewed-code-sha"
+    assert list(tmp_path.iterdir()) == []

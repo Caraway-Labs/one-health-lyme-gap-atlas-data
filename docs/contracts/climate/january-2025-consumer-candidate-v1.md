@@ -68,6 +68,25 @@ atomic candidate. This does not substitute for the existing partition reader's
 digest/replay proof; retain that run-pinned evidence in the independent review
 packet alongside the candidate report.
 
+After independent review, the existing protected `run-ingestion.yml` supports
+`operation=nclimgrid-pilot-measurement`, `measurement_action=candidate`, DEV,
+Tier B, the exact January definition, the selected run ID, `recapture=false`
+and `publish=false`. It routes through the same CLI dispatcher and existing
+runtime identity without Spaces access. The action exports twice into runner
+temporary storage, requires identical reports/digests, logs only safe counts,
+one explicit example per observed coverage/value state and code SHA, and removes
+both outputs. It never uploads the full candidate or changes Snowflake data.
+
+```text
+gh workflow run run-ingestion.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref <reviewed-branch-or-main> -f source_definition=config/sources/noaa_nclimgrid_daily_202501.yml -f environment_name=dev -f operation=nclimgrid-pilot-measurement -f tier=B -f run_id=c2eb2146-005d-44d2-bac4-e2805ca42577 -f measurement_action=candidate -f recapture=false -f publish=false
+```
+
+Fresh retained inspect/ordered-read/report actions on main `2ad132be` passed
+on 2026-10-01 (runs `36921754749`, `36921820654`, `36921847060`). They confirmed
+389,856 revisions/rows, 1,560 verified partitions, exact source digests and prior
+coverage signature. This retained proof is separate from the candidate action's
+live projection/digest proof, which remains pending review and dispatch.
+
 ## Exact current access blocker and release handshake
 
 On 2026-10-01 19:52 UTC, the existing `ATLAS_DEV_READ` connection's direct SELECT
