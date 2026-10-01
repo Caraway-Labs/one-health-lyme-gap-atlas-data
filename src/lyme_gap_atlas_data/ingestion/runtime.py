@@ -25,7 +25,7 @@ from .adapters import AcquireResult, AcquisitionArtifact
 from .artifact_replay import ArtifactMember, validate_names
 from .bulk_stage import remove_transport, stage_json_rows
 from .identity import deterministic_record_id, publisher_record_id, source_row_hash
-from .types import RunState, SourceDefinition, Stage
+from .types import AdapterKind, RunState, SourceDefinition, Stage
 
 
 class StageEffects(Protocol):
@@ -522,6 +522,8 @@ class SnowflakeStageEffects:
         self, definition: SourceDefinition, state: RunState, record_count: int
     ) -> dict[str, Any]:
         publication_id = _stable_id(f"publication:{state.ingestion_run_id}")
+        if definition.adapter_kind is AdapterKind.RSS_ATOM:
+            raise PermissionError("INTELLIGENCE_STORAGE_EFFECTS_REQUIRED")
         lineage = {
             "source_id": definition.source_id,
             "dataset_id": definition.dataset_id,
@@ -814,6 +816,8 @@ def _planned_artifact_id(
 def _lineage_rows(
     definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
 ) -> list[tuple[Any, ...]]:
+    if definition.adapter_kind is AdapterKind.RSS_ATOM:
+        raise PermissionError("INTELLIGENCE_STORAGE_EFFECTS_REQUIRED")
     rows: list[tuple[Any, ...]] = []
     acquisition = state.checkpoint(Stage.ACQUIRE)
     retrieved_at = (
