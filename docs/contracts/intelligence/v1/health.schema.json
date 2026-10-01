@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.carawaylabs.com/intelligence/v1/health.schema.json",
+  "title": "health",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "source_id",
+    "registry_version",
+    "observed_at",
+    "last_fetch_success_at",
+    "last_item_observed_at",
+    "coverage_start_at",
+    "coverage_end_at",
+    "parser_version",
+    "fetch_version",
+    "state",
+    "failure_category",
+    "consecutive_failures",
+    "accepted_items",
+    "rejected_items",
+    "policy_ref",
+    "next_safe_action",
+    "diagnostic_code"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0.0"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "registry_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+    },
+    "last_fetch_success_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_item_observed_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_start_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_end_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parser_version": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "fetch_version": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "state": {
+      "enum": [
+        "never_fetched",
+        "healthy",
+        "quiet",
+        "stale",
+        "parser_drift",
+        "access_expired",
+        "rate_limited",
+        "upstream_outage",
+        "malformed",
+        "partial",
+        "paused"
+      ]
+    },
+    "failure_category": {
+      "anyOf": [
+        {
+          "enum": [
+            "fetch",
+            "parser",
+            "policy",
+            "storage",
+            "telemetry"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "consecutive_failures": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "accepted_items": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rejected_items": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "policy_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next_safe_action": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "diagnostic_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "quiet",
+              "healthy"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "last_fetch_success_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+          },
+          "failure_category": {
+            "type": "null"
+          },
+          "consecutive_failures": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "quiet"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "accepted_items": {
+            "const": 0
+          },
+          "rejected_items": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "healthy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "accepted_items": {
+            "minimum": 1
+          },
+          "rejected_items": {
+            "const": 0
+          },
+          "last_item_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "never_fetched"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "last_fetch_success_at": {
+            "type": "null"
+          },
+          "last_item_observed_at": {
+            "type": "null"
+          },
+          "accepted_items": {
+            "const": 0
+          },
+          "rejected_items": {
+            "const": 0
+          },
+          "failure_category": {
+            "type": "null"
+          },
+          "consecutive_failures": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "stale"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "policy_ref": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "parser_drift",
+              "malformed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "const": "parser"
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "rate_limited",
+              "upstream_outage"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "const": "fetch"
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "access_expired"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "enum": [
+              "fetch",
+              "policy"
+            ]
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "enum": [
+              "parser",
+              "policy",
+              "storage"
+            ]
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        },
+        "anyOf": [
+          {
+            "properties": {
+              "rejected_items": {
+                "minimum": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "failure_category": {
+                "const": "storage"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

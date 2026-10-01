@@ -1,0 +1,594 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.carawaylabs.com/intelligence/v1/source.schema.json",
+  "title": "source",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "source_id",
+    "registry_version",
+    "organization",
+    "family",
+    "source_type",
+    "geographies",
+    "topics",
+    "trust_review",
+    "trust_classification",
+    "transport",
+    "canonical_location",
+    "fetch_location",
+    "approved_hosts",
+    "state",
+    "cadence",
+    "access_use",
+    "approval",
+    "change_review_policy",
+    "fallback_reason",
+    "limits"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0.0"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+    },
+    "registry_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "organization": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "family": {
+      "enum": [
+        "cdc_mmwr",
+        "cdc_eid",
+        "cdc_other",
+        "nih_niaid",
+        "pubmed",
+        "state_local",
+        "other"
+      ]
+    },
+    "source_type": {
+      "enum": [
+        "publication",
+        "research_search",
+        "official_alert",
+        "news"
+      ]
+    },
+    "geographies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+      },
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+      },
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "trust_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "decision_ref",
+        "reviewed_at",
+        "owner"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "decision_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "decision_ref": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+              },
+              "reviewed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "trust_classification": {
+      "enum": [
+        "unreviewed",
+        "official_public_health",
+        "research_index",
+        "reviewed_other"
+      ]
+    },
+    "transport": {
+      "enum": [
+        "rss",
+        "atom",
+        "email",
+        "web"
+      ]
+    },
+    "canonical_location": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[A-Za-z0-9.-]+(?::443)?(?:/[^\\s#]*)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fetch_location": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[A-Za-z0-9.-]+(?::443)?(?:/[^\\s#]*)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "approved_hosts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9.-]+$"
+      },
+      "maxItems": 10,
+      "uniqueItems": true
+    },
+    "state": {
+      "enum": [
+        "candidate",
+        "active",
+        "manual",
+        "paused",
+        "retired"
+      ]
+    },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "poll_seconds",
+        "expected_item_seconds",
+        "basis"
+      ],
+      "properties": {
+        "poll_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 3600
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_item_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "basis": {
+          "enum": [
+            "unknown",
+            "publisher_declared",
+            "reviewed_observation"
+          ]
+        }
+      }
+    },
+    "access_use": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "terms_location",
+        "conditions",
+        "availability_verified_at",
+        "excerpt_max_chars",
+        "content_retention_policy_ref",
+        "public_excerpt_permitted"
+      ],
+      "properties": {
+        "terms_location": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://[A-Za-z0-9.-]+(?::443)?(?:/[^\\s#]*)?$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "maxItems": 100,
+          "uniqueItems": true
+        },
+        "availability_verified_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "excerpt_max_chars": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        },
+        "content_retention_policy_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "public_excerpt_permitted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "decision_ref",
+        "reviewed_at",
+        "owner"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "decision_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "decision_ref": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+              },
+              "reviewed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "change_review_policy": {
+      "const": "new_version_requires_review"
+    },
+    "fallback_reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_bytes",
+        "timeout_seconds",
+        "maximum_items",
+        "maximum_redirects",
+        "maximum_attempts"
+      ],
+      "properties": {
+        "maximum_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000000
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "maximum_items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "maximum_redirects": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "maximum_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "active",
+              "manual"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "canonical_location": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://[A-Za-z0-9.-]+(?::443)?(?:/[^\\s#]*)?$"
+          },
+          "approval": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            }
+          },
+          "trust_review": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            }
+          },
+          "trust_classification": {
+            "not": {
+              "const": "unreviewed"
+            }
+          },
+          "approved_hosts": {
+            "minItems": 1
+          },
+          "access_use": {
+            "properties": {
+              "terms_location": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://[A-Za-z0-9.-]+(?::443)?(?:/[^\\s#]*)?$"
+              },
+              "availability_verified_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
+              },
+              "content_retention_policy_ref": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "active"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "cadence": {
+            "properties": {
+              "poll_seconds": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "transport": {
+            "enum": [
+              "rss",
+              "atom",
+              "web"
+            ]
+          },
+          "state": {
+            "enum": [
+              "active",
+              "manual"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fetch_location": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://[A-Za-z0-9.-]+(?::443)?(?:/[^\\s#]*)?$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "transport": {
+            "const": "web"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "manual"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fallback_reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "transport": {
+            "const": "email"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fetch_location": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

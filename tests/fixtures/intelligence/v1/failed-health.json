@@ -1,0 +1,20 @@
+{
+  "contract_version": "1.0.0",
+  "source_id": "synthetic-publication",
+  "registry_version": 1,
+  "observed_at": "2026-09-30T08:00:00Z",
+  "last_fetch_success_at": "2026-09-29T08:00:00Z",
+  "last_item_observed_at": null,
+  "coverage_start_at": null,
+  "coverage_end_at": null,
+  "parser_version": "fixture-parser-v1",
+  "fetch_version": "fixture-fetch-v1",
+  "state": "parser_drift",
+  "failure_category": "parser",
+  "consecutive_failures": 2,
+  "accepted_items": 0,
+  "rejected_items": 0,
+  "policy_ref": null,
+  "next_safe_action": "pause-and-review-parser",
+  "diagnostic_code": "UNEXPECTED_ROOT"
+}
