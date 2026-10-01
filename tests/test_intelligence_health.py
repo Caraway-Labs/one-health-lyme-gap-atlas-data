@@ -287,6 +287,7 @@ def test_real_orchestrator_effects_store_receipt_health_and_resume_are_consisten
             return datetime(2026, 10, 1, tzinfo=UTC)
 
     monkeypatch.setattr("lyme_gap_atlas_data.ingestion.intelligence_feed.datetime", Clock)
+    monkeypatch.setattr("lyme_gap_atlas_data.ingestion.orchestrator.datetime", Clock)
     checkpoints = FailingCheckpoints(tmp_path, database, "")
     effects = IntelligenceStageEffects(
         connection_factory=database.connect,
@@ -373,6 +374,7 @@ def test_actual_failed_checkpoint_redacts_and_replay_does_not_count_a_new_attemp
         attempt_count=1,
         failure_category=FailureCategory.SCHEMA,
         redacted_diagnostic_code="UNSUPPORTED_FEED_ENVELOPE",
+        started_at=NOW,
     )
     state = RunState("synthetic-run", source["source_id"], 1, Tier.A, RunStatus.FAILED, [failed])
     first = health_from_run(source, state, observed_at=NOW)
@@ -437,9 +439,220 @@ def test_same_checkpoint_changed_failure_evidence_is_a_conflict() -> None:
         attempt_count=1,
         failure_category=FailureCategory.ACQUISITION,
         redacted_diagnostic_code="FEED_RATE_LIMITED",
+        started_at=NOW,
     )
     state = RunState("synthetic-run", source["source_id"], 1, Tier.A, RunStatus.FAILED, [failed])
     first = health_from_run(source, state, observed_at=NOW)
     failed.redacted_diagnostic_code = "FEED_ACCESS_FAILED"
     with pytest.raises(ValueError, match="ATTEMPT_CONFLICT"):
         health_from_run(source, state, observed_at=NOW, previous=first.history)
+
+
+def run_evidence(
+    source: dict[str, Any], run_id: str, at: str, *, failed: bool = False
+) -> tuple[Any, tuple[dict[str, Any], ...], Any]:
+    from test_intelligence_feed import definition
+
+    from lyme_gap_atlas_data.ingestion.intelligence_feed import acquisition_context
+    from lyme_gap_atlas_data.ingestion.types import (
+        FailureCategory,
+        RunState,
+        RunStatus,
+        Stage,
+        StageCheckpoint,
+        StageStatus,
+        Tier,
+    )
+
+    artifact_id = f"artifact-{run_id}"
+    acquire = StageCheckpoint(
+        stage=Stage.ACQUIRE,
+        status=StageStatus.FAILED if failed else StageStatus.COMPLETED,
+        attempt_count=1,
+        started_at=at,
+        completed_at=None if failed else at,
+        artifact_id=artifact_id,
+        artifact_sha256="a" * 64,
+        failure_category=FailureCategory.ACQUISITION if failed else None,
+        redacted_diagnostic_code="FEED_RATE_LIMITED" if failed else None,
+    )
+    if failed:
+        return (
+            RunState(run_id, source["source_id"], 1, Tier.A, RunStatus.FAILED, [acquire]),
+            (),
+            None,
+        )
+    context = acquisition_context(
+        definition(source),
+        source,
+        effective_url=source["fetch_location"],
+        fetched_at=at,
+        artifact_sha256="a" * 64,
+        capture_mode="https",
+    )
+    record = item(
+        source,
+        fetched_at=at,
+        provenance=dict(
+            run_id=run_id,
+            artifact_id=artifact_id,
+            artifact_sha256="a" * 64,
+            parser_version="rss-atom-v1",
+            fetch_version="pinned-https-v1",
+        ),
+    )
+    load = StageCheckpoint(
+        stage=Stage.LOAD,
+        status=StageStatus.COMPLETED,
+        attempt_count=1,
+        started_at=at,
+        completed_at=at,
+        detail=dict(
+            mode="atomic_intelligence",
+            record_count=1,
+            revisions_inserted=0,
+            captures_inserted=1,
+            captures_replayed=0,
+        ),
+    )
+    return (
+        RunState(run_id, source["source_id"], 1, Tier.A, RunStatus.SUCCEEDED, [acquire, load]),
+        (record,),
+        context,
+    )
+
+
+def observe_run(source: dict[str, Any], evidence: Any, at: str, previous: Any = None) -> Any:
+    state, records, context = evidence
+    return health_from_run(
+        source,
+        state,
+        observed_at=at,
+        items=records,
+        source_context=context,
+        previous=previous.history if previous else None,
+    )
+
+
+def test_old_success_replay_after_failure_never_recovers_or_changes_latest_chronology() -> None:
+    source = approved()
+    success_a = run_evidence(source, "success-a", NOW)
+    failure_b = run_evidence(source, "failure-b", "2026-10-01T01:00:00Z", failed=True)
+    first = observe_run(source, success_a, NOW)
+    failed = observe_run(source, failure_b, "2026-10-01T01:00:00Z", first)
+    replay = observe_run(source, success_a, "2026-10-01T02:00:00Z", failed)
+    assert replay.history.document["state"] == "rate_limited"
+    assert replay.history.document["consecutive_failures"] == 1 and not replay.recovered
+    assert replay.history.document["last_fetch_success_at"] == NOW
+    assert replay.history.last_event_at == failed.history.last_event_at
+    assert replay.history.processed_attempts == failed.history.processed_attempts
+    recovered = observe_run(
+        source,
+        run_evidence(source, "success-d", "2026-10-01T03:00:00Z"),
+        "2026-10-01T03:00:00Z",
+        replay,
+    )
+    assert recovered.recovered and recovered.history.document["consecutive_failures"] == 0
+
+
+def test_old_failure_replay_after_another_failure_is_not_a_third_failure() -> None:
+    source = approved()
+    evidence_b = run_evidence(source, "failure-b", NOW, failed=True)
+    first = observe_run(source, evidence_b, NOW)
+    second = observe_run(
+        source,
+        run_evidence(source, "failure-c", "2026-10-01T01:00:00Z", failed=True),
+        "2026-10-01T01:00:00Z",
+        first,
+    )
+    replay = observe_run(source, evidence_b, "2026-10-01T02:00:00Z", second)
+    assert replay.history.document["consecutive_failures"] == 2
+    assert replay.history.processed_attempts == second.history.processed_attempts
+    assert replay.history.last_event_at == "2026-10-01T01:00:00Z"
+
+
+def test_intervening_freshness_preserves_all_processed_attempt_identity() -> None:
+    source = approved()
+    evidence = run_evidence(source, "failure-b", NOW, failed=True)
+    first = observe_run(source, evidence, NOW)
+    freshness = reduce_health(source, observed_at="2026-10-01T01:00:00Z", previous=first.history)
+    replay = observe_run(source, evidence, "2026-10-01T02:00:00Z", freshness)
+    assert replay.history.document["consecutive_failures"] == 1
+    assert replay.history.processed_attempts == first.history.processed_attempts
+    assert not replay.recovered
+
+
+def test_missing_policy_preserves_reviewed_staleness_and_changed_policy_is_not_fetch_recovery() -> (
+    None
+):
+    source = approved()
+    source["state"] = "active"
+    source["cadence"]["poll_seconds"] = 3600
+    first = success(source)
+    reviewed = policy(source)
+    stale = reduce_health(
+        source,
+        observed_at="2026-10-01T02:00:00Z",
+        previous=first.history,
+        policy=reviewed,
+        policy_allowed=lambda value: True,
+    )
+    missing = reduce_health(source, observed_at="2026-10-01T03:00:00Z", previous=stale.history)
+    assert missing.history.document["state"] == "stale" and not missing.recovered
+    assert missing.history.document["policy_ref"] == reviewed.policy_ref
+    changed = policy(
+        source, policy_ref="synthetic-reviewed-health-v2", fetch_grace_seconds=24 * 3600
+    )
+    reclassified = reduce_health(
+        source,
+        observed_at="2026-10-01T03:00:00Z",
+        previous=missing.history,
+        policy=changed,
+        policy_allowed=lambda value: True,
+    )
+    assert reclassified.history.document["state"] == "quiet" and not reclassified.recovered
+    assert reclassified.history.document["last_fetch_success_at"] == NOW
+    with pytest.raises(PermissionError):
+        reduce_health(
+            source,
+            observed_at="2026-10-01T03:00:00Z",
+            previous=missing.history,
+            policy=changed,
+            policy_allowed=lambda value: False,
+        )
+    assert missing.history.document["state"] == "stale"
+
+
+@pytest.mark.parametrize(
+    "failed,field,value",
+    [
+        (True, "started_at", "2026-10-02T00:00:00Z"),
+        (True, "completed_at", "2026-10-02T00:00:00Z"),
+        (False, "completed_at", "2026-10-02T00:00:00Z"),
+        (False, "started_at", "2026-10-02T00:00:00Z"),
+        (True, "started_at", "not-a-date"),
+        (True, "completed_at", "2026-09-30T23:00:00Z"),
+    ],
+)
+def test_future_invalid_or_reversed_checkpoint_times_are_rejected(
+    failed: bool, field: str, value: str
+) -> None:
+    source = approved()
+    evidence = run_evidence(source, "event", NOW, failed=failed)
+    setattr(evidence[0].stages[-1], field, value)
+    with pytest.raises(ValueError) as caught:
+        observe_run(source, evidence, NOW)
+    assert value not in str(caught.value)
+
+
+def test_unseen_older_event_is_rejected_without_overwriting_newer_failure() -> None:
+    source = approved()
+    current = observe_run(
+        source,
+        run_evidence(source, "new", "2026-10-01T02:00:00Z", failed=True),
+        "2026-10-01T02:00:00Z",
+    )
+    with pytest.raises(ValueError, match="OUT_OF_ORDER_EVENT"):
+        observe_run(source, run_evidence(source, "old", NOW), "2026-10-01T03:00:00Z", current)
+    assert current.history.document["consecutive_failures"] == 1
+    assert current.history.document["state"] == "rate_limited"

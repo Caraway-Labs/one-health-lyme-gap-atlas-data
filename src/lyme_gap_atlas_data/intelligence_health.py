@@ -82,8 +82,8 @@ class HealthHistory:
     # Source-local accepted revisions, not the global revision-insert count.
     seen_revisions: frozenset[str]
     source_sha256: str
-    attempt_key: str | None = None
-    attempt_input_sha256: str | None = None
+    processed_attempts: tuple[tuple[str, str], ...] = ()
+    last_event_at: str | None = None
     incident_episode_at: str | None = None
 
 
@@ -165,7 +165,9 @@ def reduce_health(
     }
     if old:
         document.update(old)
-        document.update(observed_at=observed_at, policy_ref=policy.policy_ref if policy else None)
+        document.update(observed_at=observed_at)
+        if policy is not None:
+            document["policy_ref"] = policy.policy_ref
     seen = previous.seen_revisions if previous else frozenset()
     if source["state"] not in {"active", "manual"}:
         document.update(
@@ -286,7 +288,7 @@ def reduce_health(
                 next_safe_action="review-source-freshness",
                 diagnostic_code="REVIEWED_CADENCE_OVERDUE",
             )
-        elif document["state"] == "stale":
+        elif policy is not None and document["state"] == "stale":
             document.update(
                 state="quiet",
                 accepted_items=0,
@@ -323,7 +325,14 @@ def reduce_health(
             }
         )
     return HealthResult(
-        HealthHistory(document, seen, identity_hash(source), incident_episode_at=episode_at),
+        HealthHistory(
+            document,
+            seen,
+            identity_hash(source),
+            processed_attempts=previous.processed_attempts if previous else (),
+            last_event_at=previous.last_event_at if previous else None,
+            incident_episode_at=episode_at,
+        ),
         source["state"],
         dict(source["cadence"]),
         incident,
@@ -332,6 +341,7 @@ def reduce_health(
             old
             and old["state"] not in {"healthy", "quiet", "never_fetched", "paused"}
             and document["state"] in {"healthy", "quiet"}
+            and outcome in {"success", "partial"}
         ),
     )
 
@@ -362,6 +372,21 @@ def health_from_run(
     terminal = failed or load
     if terminal is None or terminal.status not in {StageStatus.FAILED, StageStatus.COMPLETED}:
         raise ValueError("INTELLIGENCE_HEALTH_TERMINAL_EVIDENCE_REQUIRED")
+    now = _time(observed_at)
+    for checkpoint in state.stages:
+        start = _time(checkpoint.started_at) if checkpoint.started_at else None
+        end = _time(checkpoint.completed_at) if checkpoint.completed_at else None
+        if (start is not None and start > now) or (end is not None and end > now):
+            raise ValueError("INTELLIGENCE_HEALTH_FUTURE_CHECKPOINT")
+        if start is not None and end is not None and end < start:
+            raise ValueError("INTELLIGENCE_HEALTH_INVALID_CHECKPOINT_CHRONOLOGY")
+    if terminal.started_at is None or (
+        terminal.status is StageStatus.COMPLETED and terminal.completed_at is None
+    ):
+        raise ValueError("INTELLIGENCE_HEALTH_CHECKPOINT_TIME_REQUIRED")
+    # FAILED checkpoints currently retain only their start, a lower-bound event
+    # time. Never fabricate a failure-end timestamp from health observation time.
+    event_at = canonical_timestamp(terminal.completed_at or terminal.started_at)
     key = identity_hash(
         {
             "run": state.ingestion_run_id,
@@ -379,18 +404,35 @@ def health_from_run(
             "category": failed.failure_category.value
             if failed and failed.failure_category
             else None,
+            "started_at": terminal.started_at,
+            "completed_at": terminal.completed_at,
         }
     )
-    if previous and previous.attempt_key == key and previous.attempt_input_sha256 != evidence_hash:
+    processed = dict(previous.processed_attempts) if previous else {}
+    if key in processed and processed[key] != evidence_hash:
         raise ValueError("INTELLIGENCE_HEALTH_ATTEMPT_CONFLICT")
+    replay = key in processed
+    if (
+        not replay
+        and previous
+        and previous.last_event_at
+        and (_time(event_at) < _time(previous.last_event_at))
+    ):
+        raise ValueError("INTELLIGENCE_HEALTH_OUT_OF_ORDER_EVENT")
+    if not replay and len(processed) >= 100_000:
+        raise ValueError("INTELLIGENCE_HEALTH_ATTEMPT_HISTORY_LIMIT")
     options: dict[str, Any] = {}
-    if not previous or previous.attempt_key != key:
+    if not replay:
         if load and load.status is StageStatus.COMPLETED:
             if load.detail.get("mode") != "atomic_intelligence" or source_context is None:
                 raise ValueError("INTELLIGENCE_HEALTH_STORAGE_RECEIPT_REQUIRED")
             validate_acquisition_context(
                 source, state.resource_key, source["fetch_location"], source_context
             )
+            if load.completed_at is None or _time(source_context["fetched_at"]) > _time(
+                load.completed_at
+            ):
+                raise ValueError("INTELLIGENCE_HEALTH_FETCH_AFTER_STORAGE")
             acquire = state.checkpoint(Stage.ACQUIRE)
             if acquire is None or acquire.artifact_sha256 != source_context["artifact_sha256"]:
                 raise ValueError("INTELLIGENCE_HEALTH_CAPTURE_MISMATCH")
@@ -444,12 +486,7 @@ def health_from_run(
         policy_allowed=policy_allowed,
         **options,
     )
-    if (
-        failed
-        and load
-        and load.status is StageStatus.COMPLETED
-        and (not previous or previous.attempt_key != key)
-    ):
+    if failed and load and load.status is StageStatus.COMPLETED and not replay:
         accepted = result
         result = reduce_health(
             source,
@@ -477,12 +514,13 @@ def health_from_run(
                 seen_revisions=accepted.history.seen_revisions,
             ),
         )
+    processed[key] = evidence_hash
     return replace(
         result,
         history=replace(
             result.history,
-            attempt_key=key,
-            attempt_input_sha256=evidence_hash,
+            processed_attempts=tuple(sorted(processed.items())),
+            last_event_at=previous.last_event_at if replay and previous else event_at,
         ),
     )
 

@@ -108,3 +108,32 @@ production delivery or public-health impact. Branch is stacked on exact reviewed
 #536 `cbdb17b` (and #535 `91347864`), rooted in refreshed main `fbe8c55`.
 #535→#536 order remains; #536 migration/security/live gates and shared PubMed
 #495/#528 stable-production deployment hold remain under parent control.
+
+## Review corrections and chronology limits
+
+Processed-attempt identities/checksums are retained as a bounded, complete private
+history (up to 100,000 attempts), not just the last attempt. Freshness-only
+reduction preserves this history and the latest accepted event time. A replay of
+any processed success/failure leaves later health, failure count, accepted-item
+chronology and recovery status intact; changed evidence for that identity fails
+closed. An unseen event older than the latest accepted event is rejected rather
+than applied to current health. Equal event times remain possible with coarse
+clocks; distinct authoritative attempt identities distinguish genuinely new work.
+The supplied history must be loaded/persisted atomically by the eventual approved
+composition. A truncated, nonauthoritative or reset history is not replay proof;
+no production store or permissions are added here.
+
+Every supplied checkpoint start/completion must be valid, nonfuture and correctly
+ordered. A completed LOAD needs an actual start and completion; retained fetch
+must not occur after its storage completion. Failed orchestrator checkpoints
+currently retain start but no completion. Their start is explicitly a lower-bound
+event time, never an invented failure-end timestamp. A concurrent/out-of-order
+failure whose exact finish cannot be established may need operator reconciliation;
+this reducer fails closed rather than claiming chronology it cannot prove.
+
+Omitting policy preserves the previously reviewed stale classification/reference;
+it cannot produce quiet or recovery from the same old fetch. A newly reviewed
+policy may reclassify freshness, but that is not a successful-fetch recovery.
+Actual recovery requires accepted new successful attempt evidence. Missing policy
+produces no new incident authorization; the telemetry/notification owner must keep
+policy availability separate from source health.
