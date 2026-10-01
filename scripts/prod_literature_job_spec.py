@@ -164,7 +164,7 @@ def build_spec(
     supplied = secrets or {}
     if operation == "preflight":
         result["vpc"] = {"id": VPC_ID}
-        for key in ("NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+        for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
             if supplied.get(key):
                 _add_secret(job, key, supplied[key])
         job["envs"] += [
@@ -172,7 +172,7 @@ def build_spec(
             {"key": "NEO4J_RUNTIME_USER", "scope": "RUN_TIME", "value": "graph_runtime"},
         ]
         job["run_command"] = (
-            "/app/.venv/bin/atlas-data pipeline literature-preflight --operation extract"
+            "/app/.venv/bin/atlas-data pipeline literature-preflight --operation all"
         )
     elif operation == "discover":
         _add_secret(job, "NCBI_EMAIL", supplied.get("NCBI_EMAIL", ""))

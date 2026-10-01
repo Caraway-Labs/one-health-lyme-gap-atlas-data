@@ -156,12 +156,48 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
     failure_counts = Counter(
         str(paper["failure_category"]) for paper in papers if paper["failure_category"]
     )
+    stage_totals = {
+        "discovery": {
+            "entered": int(discovery[1]),
+            "succeeded": len(papers),
+            "failed": 0 if str(discovery[0]) == "COMPLETED" else 1,
+        },
+        "review": {
+            "entered": len(papers),
+            "succeeded": sum(bool(paper["reviewed"]) for paper in papers),
+            "failed": 0,
+        },
+        "acquisition": {
+            "entered": sum(bool(paper["reviewed"]) for paper in papers),
+            "succeeded": sum(bool(paper["acquired"]) for paper in papers),
+            "failed": sum(paper["failure_stage"] == "acquire" for paper in papers),
+        },
+        "extraction": {
+            "entered": sum(bool(paper["extraction_attempt_id"]) for paper in papers),
+            "succeeded": sum(paper["attempt_status"] == "completed" for paper in papers),
+            "failed": sum(paper["attempt_status"] == "failed" for paper in papers),
+        },
+        "graph_publication": {
+            "entered": sum(
+                paper["attempt_status"] == "completed" or paper["failure_stage"] == "graph_publish"
+                for paper in papers
+            ),
+            "succeeded": sum(bool(paper["graph_published"]) for paper in papers),
+            "failed": sum(paper["failure_stage"] == "graph_publish" for paper in papers),
+        },
+        "corpus_admission": {
+            "entered": sum(bool(paper["graph_published"]) for paper in papers),
+            "succeeded": sum(bool(paper["corpus_admitted"]) for paper in papers),
+            "failed": None,
+        },
+    }
     return {
         "discovery_run_id": run_id,
         "discovery_status": str(discovery[0]),
         "provider_result_count": int(discovery[1]),
         "discovered": len(papers),
         "stage_counts": dict(stage_counts),
+        "stage_totals": stage_totals,
         "failure_category_counts": dict(failure_counts),
         "papers": papers,
     }

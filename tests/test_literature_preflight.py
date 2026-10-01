@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lyme_gap_atlas_data.literature_preflight import literature_preflight
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 
-def test_preflight_collects_all_blockers_without_secret_values() -> None:
+def test_preflight_collects_all_blockers_without_secret_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SOURCE_COMMIT", "private-deployment-token")
+    monkeypatch.setenv("IMAGE_DIGEST", "private-image-token")
     settings = PipelineSettings(
         _env_file=None,  # type: ignore[call-arg]
         topx_env="dev",
@@ -44,6 +50,8 @@ def test_preflight_collects_all_blockers_without_secret_values() -> None:
     assert "private-password" not in str(result)
     assert "private-groq" not in str(result)
     assert "secret response" not in str(result)
+    assert result["code_sha"] == "unknown"
+    assert result["image_sha"] == "unknown"
 
 
 def test_ready_preflight_does_not_mutate() -> None:
@@ -70,3 +78,22 @@ def test_ready_preflight_does_not_mutate() -> None:
     )
     assert result["status"] == "READY"
     assert calls == ["discover", "spaces"]
+
+
+def test_all_operation_reports_stage_owned_blockers_once() -> None:
+    settings = PipelineSettings(
+        _env_file=None,  # type: ignore[call-arg]
+        topx_env="dev",
+        snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    )
+    calls: list[str] = []
+
+    def contract(_settings: PipelineSettings, operation: str) -> dict[str, object]:
+        calls.append(operation)
+        return {"missing_capabilities": []}
+
+    result = literature_preflight(settings, operation="all", snowflake_probe=contract)
+    assert result["status"] == "BLOCKED"
+    assert calls == ["discover", "extract", "build-corpus"]
+    assert {item["stage"] for item in result["blockers"]} >= {"discover", "extract"}
+    assert len(result["run_id"]) == 36

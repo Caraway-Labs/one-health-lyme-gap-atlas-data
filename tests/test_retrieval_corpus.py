@@ -17,10 +17,29 @@ from lyme_gap_atlas_data.retrieval_corpus import (
     CORPUS_RULES_VERSION,
     CorpusRules,
     EligiblePaper,
+    _load_eligible_papers,
     chunk_paper_sections,
     corpus_content_sha256,
     extract_section_texts,
 )
+
+
+def test_batch_scoped_eligibility_uses_discovery_run_id() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.sql = ""
+            self.args: object = None
+
+        def execute(self, sql: str, args: object) -> None:
+            self.sql, self.args = sql, args
+
+        def fetchall(self) -> list[object]:
+            return []
+
+    cursor = Cursor()
+    assert _load_eligible_papers(cursor, None, "run-1") == ([], 0)
+    assert "m.discovery_run_id = %s" in cursor.sql
+    assert cursor.args == (None, None, "run-1", "run-1")
 
 
 def _jats(body: str) -> bytes:

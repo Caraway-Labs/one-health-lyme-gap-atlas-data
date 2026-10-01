@@ -58,13 +58,21 @@ def _correlation_id() -> str:
     return _RUN_ID.get() or str(uuid.uuid4())
 
 
-def _bounded_identity(value: str | None) -> str:
+def _bounded_identity(value: str | None, kind: str) -> str:
     """Accept only deployment identifiers, never arbitrary environment content."""
-    return value if value and re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", value) else "unknown"
+    patterns = {
+        "environment": r"dev|prod",
+        "code_sha": r"[0-9a-f]{40}",
+        "image_sha": r"sha256:[0-9a-f]{64}",
+        "workflow_run_id": r"[0-9]{1,20}",
+    }
+    return value if value and re.fullmatch(patterns[kind], value) else "unknown"
 
 
 def _failure_outcome(stage: str, error: Exception) -> tuple[str, bool, str]:
     """Classify a failure without serializing exception text or provider bodies."""
+    if stage == "governance":
+        return "terminal_governance", False, "return_to_steward_review"
     if stage == "claim" or stage == "persist":
         return "runtime_contract", False, "repair_runtime_schema_or_grant"
     if stage == "acquire":
@@ -388,10 +396,12 @@ class PMCExtractionWorker:
         token = _RUN_ID.set(run_id)
         fields = {
             "run_id": run_id,
-            "environment": _bounded_identity(self._environment),
-            "code_sha": _bounded_identity(os.getenv("GITHUB_SHA") or os.getenv("SOURCE_COMMIT")),
-            "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST")),
-            "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID")),
+            "environment": _bounded_identity(self._environment, "environment"),
+            "code_sha": _bounded_identity(
+                os.getenv("GITHUB_SHA") or os.getenv("SOURCE_COMMIT"), "code_sha"
+            ),
+            "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
+            "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
         }
         discovery_run_id = os.getenv("ATLAS_DISCOVERY_RUN_ID")
         if discovery_run_id:
@@ -408,6 +418,21 @@ class PMCExtractionWorker:
             or not paper.pmcid
             or not paper.query_match_ids
         ):
+            _LOGGER.error(
+                "pmc.stage %s",
+                json.dumps(
+                    {
+                        **fields,
+                        "pmid": paper.pmid,
+                        "stage": "governance",
+                        "outcome": "failed",
+                        "failure_category": "terminal_governance",
+                        "retryable": False,
+                        "next_action": "return_to_steward_review",
+                    },
+                    sort_keys=True,
+                ),
+            )
             raise ValueError("only an approved, provenance-complete paper may be extracted")
         attempt_id: str | None = None
         built: AdmittedContribution | None = None
@@ -734,12 +759,12 @@ class SnowflakePMCExtractionLedger:
             context = {
                 "run_id": _correlation_id(),
                 "discovery_run_id": self._discovery_run_id,
-                "environment": _bounded_identity(os.getenv("TOPX_ENV")),
+                "environment": _bounded_identity(os.getenv("TOPX_ENV"), "environment"),
                 "code_sha": _bounded_identity(
-                    os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA")
+                    os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"
                 ),
-                "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST")),
-                "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID")),
+                "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
+                "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
             }
             cursor.execute(
                 """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS

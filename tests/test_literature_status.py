@@ -99,6 +99,12 @@ def test_reconcile_counts_and_failed_attempts(monkeypatch: pytest.MonkeyPatch) -
     assert result["discovered"] == 2
     assert result["stage_counts"] == {"corpus_admit": 1, "extract": 1}
     assert result["failure_category_counts"] == {"provider_rejected_pre_inference": 1}
+    assert result["stage_totals"]["extraction"] == {"entered": 2, "succeeded": 1, "failed": 1}
+    assert result["stage_totals"]["corpus_admission"] == {
+        "entered": 1,
+        "succeeded": 1,
+        "failed": None,
+    }
     assert result["papers"][1]["extraction_attempt_id"] == "attempt-2"
     assert result["papers"][1]["next_action"] == "review_provider_contract"
     assert result["papers"][1]["provider_rationale"] == "provider_http_400:request_id_req_2"

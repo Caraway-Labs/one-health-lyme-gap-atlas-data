@@ -18,10 +18,12 @@ from .settings import PipelineSettings
 
 _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.literature-preflight")
 _READABLE_TABLES = (
+    "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS",
     "KNOWLEDGE_GRAPH.PAPERS",
     "KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES",
     "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS",
     "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS",
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS",
     "KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS",
     "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS",
     "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS",
@@ -29,8 +31,13 @@ _READABLE_TABLES = (
 )
 
 
-def _identity(value: str | None) -> str:
-    return value if value and re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", value) else "unknown"
+def _identity(value: str | None, kind: str) -> str:
+    patterns = {
+        "code_sha": r"[0-9a-f]{40}",
+        "image_sha": r"sha256:[0-9a-f]{64}",
+        "workflow_run_id": r"[0-9]{1,20}",
+    }
+    return value if value and re.fullmatch(patterns[kind], value) else "unknown"
 
 
 def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str, object]:
@@ -47,13 +54,20 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
             or row[1] != settings.snowflake_database
         ):
             raise RuntimeError("runtime_identity_mismatch")
-        tables = (
-            _READABLE_TABLES[:2]
-            if operation == "discover"
-            else _READABLE_TABLES[6:]
-            if operation == "build-corpus"
-            else _READABLE_TABLES[:6]
-        )
+        tables: tuple[str, ...]
+        if operation == "discover":
+            tables = _READABLE_TABLES[:3]
+        elif operation == "build-corpus":
+            tables = (
+                _READABLE_TABLES[1],
+                _READABLE_TABLES[2],
+                _READABLE_TABLES[6],
+                _READABLE_TABLES[7],
+                _READABLE_TABLES[8],
+                _READABLE_TABLES[9],
+            )
+        else:
+            tables = _READABLE_TABLES[1:8]
         for table in tables:
             try:
                 cursor.execute(f"SELECT 1 FROM {table} LIMIT 0")
@@ -76,13 +90,14 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 missing.append("DATA528_ATTEMPT_DIAGNOSTIC_CONTRACT")
             cursor.execute("SHOW GRANTS TO ROLE " + settings.snowflake_role)
             grants = cursor.fetchall()
-            if not any(
-                str(row[1]).upper() == "USAGE"
-                and str(row[2]).upper() == "PROCEDURE"
-                and "SP_RESERVE_KG_LLM_BUDGET" in str(row[3]).upper()
-                for row in grants
-            ):
-                missing.append("GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET:USAGE")
+            for procedure in ("SP_RESERVE_KG_LLM_BUDGET", "SP_FINALIZE_KG_LLM_BUDGET"):
+                if not any(
+                    str(row[1]).upper() == "USAGE"
+                    and str(row[2]).upper() == "PROCEDURE"
+                    and procedure in str(row[3]).upper()
+                    for row in grants
+                ):
+                    missing.append(f"GOVERNANCE.{procedure}:USAGE")
     return {"role": settings.snowflake_role, "missing_capabilities": missing}
 
 
@@ -115,17 +130,41 @@ def literature_preflight(
     snowflake_probe: Callable[[PipelineSettings, str], dict[str, object]] = _snowflake_contract,
     spaces_probe: Callable[[PipelineSettings], None] = _spaces_access,
     neo4j_probe: Callable[[PipelineSettings], None] = _neo4j_access,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Collect every known blocker before mutation, exposing names only for secrets."""
+    run_id = run_id or str(uuid.uuid4())
+    if operation == "all":
+        checks = [
+            literature_preflight(
+                settings,
+                operation=stage,
+                snowflake_probe=snowflake_probe,
+                spaces_probe=spaces_probe,
+                neo4j_probe=neo4j_probe,
+                run_id=run_id,
+            )
+            for stage in ("discover", "extract", "build-corpus")
+        ]
+        combined_blockers = [blocker for check in checks for blocker in check["blockers"]]
+        return {
+            "run_id": run_id,
+            "operation": "all",
+            "environment": settings.topx_env,
+            "code_sha": checks[0]["code_sha"],
+            "image_sha": checks[0]["image_sha"],
+            "workflow_run_id": checks[0]["workflow_run_id"],
+            "status": "BLOCKED" if combined_blockers else "READY",
+            "blockers": combined_blockers,
+        }
     if operation not in {"discover", "extract", "build-corpus"}:
         raise ValueError("unsupported literature operation")
-    run_id = str(uuid.uuid4())
     identity = {
         "run_id": run_id,
         "environment": settings.topx_env,
-        "code_sha": _identity(os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA")),
-        "image_sha": _identity(os.getenv("IMAGE_DIGEST")),
-        "workflow_run_id": _identity(os.getenv("GITHUB_RUN_ID")),
+        "code_sha": _identity(os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"),
+        "image_sha": _identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
+        "workflow_run_id": _identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
     }
     blockers: list[dict[str, object]] = []
 
@@ -145,6 +184,15 @@ def literature_preflight(
     ) as span:
         for key, value in identity.items():
             span.set_attribute(f"atlas.{key}", value)
+        if settings.topx_env == "prod":
+            for key in ("code_sha", "image_sha", "workflow_run_id"):
+                if identity[key] == "unknown":
+                    blocked(
+                        operation,
+                        "preflight_configuration",
+                        "verify_deployed_image_and_workflow",
+                        key,
+                    )
         requirements = {
             "discover": (("NCBI_EMAIL", bool(settings.ncbi_email)),),
             "extract": (
