@@ -407,11 +407,16 @@ def test_ledger_gates_stop_before_projection(tmp_path: Path, corrupt: int) -> No
     assert len(cursor.calls) == corrupt and list(tmp_path.iterdir()) == []
 
 
-def test_reader_without_complete_capture_cannot_emit_a_success(tmp_path: Path) -> None:
+def test_reader_without_complete_capture_cannot_emit_a_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lyme_gap_atlas_data.ingestion.checkpoints import SnowflakeCheckpointStore
+
+    monkeypatch.setattr(SnowflakeCheckpointStore, "iter_partitions", lambda self, run: iter(()))
     cursor = ReadCursor()
     with pytest.raises(publication.ClimatePublicationBlocked, match="INCOMPLETE_CAPTURE"):
         publication.prepare_candidate(cursor, tmp_path / "candidate")
-    assert len(cursor.calls) == 7 and list(tmp_path.iterdir()) == []
+    assert len(cursor.calls) == 6 and list(tmp_path.iterdir()) == []
 
 
 def test_candidate_evidence_repeats_frozen_reader_and_emits_only_bounded_safe_fields(
@@ -527,3 +532,90 @@ def test_diagnostic_dispatch_rejects_other_run_before_read(monkeypatch: pytest.M
     monkeypatch.setattr(measurement, "_identity", lambda: pytest.fail("private read"))
     with pytest.raises(measurement.MeasurementError, match="approved January capture"):
         measurement.candidate_diagnostic("another-run")
+
+
+def test_reconciliation_restores_only_verified_canonical_representation() -> None:
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+    returned = json.loads(capture["payload"])
+    returned["record"]["value"] = 0
+    returned["record"]["valid_fraction_of_supported_area"] = 1
+    capture["payload"] = returned
+    reconciled = publication.reconcile_capture(capture, original)
+    assert reconciled["payload"] == publication.canonical_source_row(original)
+    assert publication.project_capture_record(reconciled)["value_state"] == "ZERO"
+
+
+@pytest.mark.parametrize(
+    "left,right,equal",
+    [
+        (0.0, 0, True),
+        (1.0, 1, True),
+        (-2.0, -2, True),
+        (True, 1, False),
+        (False, 0.0, False),
+        (1.0000000000000002, 1, False),
+        (float(2**53), 2**53 + 1, False),
+        (float("nan"), float("nan"), False),
+        (float("inf"), float("inf"), False),
+        ({"a": None}, {}, False),
+        ([1], [1, 2], False),
+        ("1", 1, False),
+        ({"a": True}, {"a": 1}, False),
+    ],
+)
+def test_content_equivalence_is_exact_and_preserves_structure(
+    left: Any, right: Any, equal: bool
+) -> None:
+    assert publication.content_equivalent(left, right) is equal
+
+
+@pytest.mark.parametrize(
+    "field", ["source_row_hash", "normalized_sha256", "record_revision", "record_id"]
+)
+def test_reconciliation_keeps_every_original_hash_and_identity_gate(field: str) -> None:
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+    capture[field] = "b" * 64
+    with pytest.raises(publication.ClimatePublicationBlocked):
+        publication.reconcile_capture(capture, original)
+
+
+def test_reconciliation_rejects_real_content_change() -> None:
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+    returned = json.loads(capture["payload"])
+    returned["record"]["value"] = 1
+    capture["payload"] = returned
+    with pytest.raises(publication.ClimatePublicationBlocked, match="REVISION_CONTENT"):
+        publication.reconcile_capture(capture, original)
+
+
+@pytest.mark.parametrize("mode", ["missing", "duplicate", "unmatched"])
+def test_batch_reconciliation_fails_closed_without_emitting_output(
+    tmp_path: Path, mode: str
+) -> None:
+    from types import SimpleNamespace
+
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+
+    class Cursor:
+        description = [(field,) for field in capture]
+
+        def execute(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            assert sql.startswith("SELECT")
+            assert parameters == (publication.RUN_ID, capture["record_id"])
+
+        def fetchall(self) -> list[Any]:
+            if mode == "missing":
+                return []
+            if mode == "duplicate":
+                return [tuple(capture.values())] * 2
+            changed = dict(capture) | {"record_id": "other"}
+            return [tuple(changed.values())]
+
+    partition = SimpleNamespace(ordinal=0, records=[original])
+    with pytest.raises(publication.ClimatePublicationBlocked):
+        publication.project_verified_partitions(Cursor(), [partition], tmp_path / "candidate")
+    assert list(tmp_path.iterdir()) == []

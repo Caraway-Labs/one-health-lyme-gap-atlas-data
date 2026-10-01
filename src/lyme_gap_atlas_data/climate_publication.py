@@ -10,9 +10,12 @@ import hashlib
 import json
 import math
 import os
+import sqlite3
 import tempfile
 from collections.abc import Iterable, Mapping
+from contextlib import closing
 from datetime import UTC, date, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -354,15 +357,123 @@ def prepare_candidate(cursor: Any, output: Path) -> dict[str, Any]:
     _require(
         cursor.fetchall() == [(1560, len(COUNTIES) * 31 * 4, 0, 1559, 1560)], "PARTITION_SCOPE"
     )
-    cursor.execute(CAPTURE_QUERY, (RUN_ID,))
-    columns = [str(column[0]).lower() for column in cursor.description]
+    from .ingestion.checkpoints import SnowflakeCheckpointStore
 
-    def records() -> Iterable[dict[str, Any]]:
-        while batch := cursor.fetchmany(1000):
-            for row in batch:
-                yield dict(zip(columns, row, strict=True))
+    return project_verified_partitions(
+        cursor, SnowflakeCheckpointStore().iter_partitions(RUN_ID), output
+    )
 
-    return write_candidate_projection(records(), output)
+
+def content_equivalent(original: Any, returned: Any) -> bool:
+    """Exact content equality allowing only finite, mathematically equal JSON numbers."""
+    if type(original) in (int, float) and type(returned) in (int, float):
+        return _finite(original) and _finite(returned) and Fraction(original) == Fraction(returned)
+    if type(original) is not type(returned):
+        return False
+    if isinstance(original, dict):
+        return original.keys() == returned.keys() and all(
+            content_equivalent(value, returned[key]) for key, value in original.items()
+        )
+    if isinstance(original, list):
+        return len(original) == len(returned) and all(
+            content_equivalent(left, right) for left, right in zip(original, returned, strict=True)
+        )
+    return (
+        bool(original == returned) if original is None or type(original) in (str, bool) else False
+    )
+
+
+def reconcile_capture(capture: Mapping[str, Any], original: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind immutable revision content/hashes to the exact verified producer serialization."""
+    returned = capture["payload"]
+    if isinstance(returned, str):
+        returned = json.loads(returned)
+    _require(content_equivalent(original, returned), "REVISION_CONTENT")
+    reconciled = dict(capture) | {"payload": canonical_source_row(original)}
+    # Validates original source/normalized hashes, revision identity and scientific contract.
+    project_capture_record(reconciled)
+    return reconciled
+
+
+def project_verified_partitions(
+    cursor: Any, partitions: Iterable[Any], output: Path
+) -> dict[str, Any]:
+    """Reconcile partition-sized reads, disk-sort safely, and atomically emit the complete scope."""
+    expected = len(COUNTIES) * 31 * 4
+    with (
+        tempfile.TemporaryDirectory(
+            prefix="climate-reconciliation-", dir=os.getenv("RUNNER_TEMP")
+        ) as directory,
+        closing(sqlite3.connect(Path(directory) / "ordering.sqlite")) as ordering,
+    ):
+        ordering.execute(
+            "CREATE TABLE captures (record_id TEXT PRIMARY KEY, county TEXT, "
+            "day TEXT, measure TEXT, capture TEXT)"
+        )
+        count = 0
+        partition_count = 0
+        for partition in partitions:
+            _require(
+                partition.ordinal == partition_count and len(partition.records) <= 250,
+                "PARTITION_ORDER",
+            )
+            partition_count += 1
+            originals = {
+                deterministic_record_id(RESOURCE_KEY, 2, row["record"]): row
+                for row in partition.records
+            }
+            _require(
+                len(originals) == len(partition.records) and bool(originals),
+                "PARTITION_DUPLICATE",
+            )
+            query = (
+                CAPTURE_QUERY.split("ORDER BY", 1)[0]
+                + " AND record_id IN ("
+                + ",".join(["%s"] * len(originals))
+                + ")"
+            )
+            cursor.execute(query, (RUN_ID, *originals))
+            columns = [str(column[0]).lower() for column in cursor.description]
+            captures = cursor.fetchall()
+            _require(len(captures) == len(originals), "REVISION_COUNT")
+            matched: set[str] = set()
+            for values in captures:
+                capture = dict(zip(columns, values, strict=True))
+                record_id = capture["record_id"]
+                _require(record_id in originals and record_id not in matched, "REVISION_IDENTITY")
+                matched.add(record_id)
+                reconciled = reconcile_capture(capture, originals[record_id])
+                reconciled["retrieved_at"] = _timestamp(reconciled["retrieved_at"])
+                record = originals[record_id]["record"]
+                try:
+                    ordering.execute(
+                        "INSERT INTO captures VALUES (?,?,?,?,?)",
+                        (
+                            record_id,
+                            record["county_fips"],
+                            record["observation_date"],
+                            record["measure"],
+                            json.dumps(reconciled, sort_keys=True, allow_nan=False),
+                        ),
+                    )
+                except sqlite3.IntegrityError:
+                    raise ClimatePublicationBlocked("PARTITION_DUPLICATE") from None
+                count += 1
+                _require(count <= expected, "EXCESS_CAPTURE")
+        _require(count == expected and partition_count == 1560, "INCOMPLETE_CAPTURE")
+        cursor.execute(
+            "SELECT COUNT(*) FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS "
+            "WHERE ingestion_run_id=%s",
+            (RUN_ID,),
+        )
+        _require(cursor.fetchall() == [(expected,)], "REVISION_COUNT")
+        records = (
+            json.loads(row[0])
+            for row in ordering.execute(
+                "SELECT capture FROM captures ORDER BY county, day, measure"
+            )
+        )
+        return write_candidate_projection(records, output)
 
 
 def create_candidate(output: Path) -> dict[str, Any]:

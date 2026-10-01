@@ -68,6 +68,19 @@ atomic candidate. This does not substitute for the existing partition reader's
 digest/replay proof; retain that run-pinned evidence in the independent review
 packet alongside the candidate report.
 
+The live diagnostic proved the revision VARIANT representation changed two
+integral float fields to JSON integers while stored hashes matched original
+canonical partition bytes. Candidate verification therefore independently reads
+the canonical partitions, binds each partition-sized batch to exact immutable
+revision IDs, requires identical JSON structure and content, and validates hashes
+against the original producer bytes. Only finite mathematically equal int/float
+representations are equivalent; booleans, changed values, missing/extra fields,
+nonfinite numbers and precision changes fail. All original hash, identity and
+scientific checks remain. A temporary disk-backed index enforces uniqueness and
+stable output order without keeping the entire capture in memory; it is closed
+and removed on success or failure. Full partition/row/revision counts reject
+missing, duplicate or extra records. No retained data is rewritten.
+
 After independent review, the existing protected `run-ingestion.yml` supports
 `operation=nclimgrid-pilot-measurement`, `measurement_action=candidate`, DEV,
 Tier B, the exact January definition, the selected run ID, `recapture=false`
