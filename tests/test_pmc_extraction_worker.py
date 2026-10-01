@@ -25,6 +25,7 @@ from lyme_gap_atlas_data.pmc_extraction_worker import (
     PMCExtractionWorker,
     PMCOpenAccessClient,
     _provider_rejected_before_inference,
+    _provider_rejection_rationale,
 )
 
 JATS = b"""<article xml:lang="en" xmlns:xlink="http://www.w3.org/1999/xlink"><front><article-meta>
@@ -120,6 +121,44 @@ def test_provider_client_rejection_is_not_an_llm_execution_failure() -> None:
     )
     assert _provider_rejected_before_inference(error)
     assert not _provider_rejected_before_inference(RuntimeError("model execution failed"))
+
+
+def test_provider_rejection_rationale_retains_only_bounded_codes() -> None:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "req_abc123"},
+        json={
+            "error": {
+                "type": "invalid_request_error",
+                "code": "invalid_json_schema",
+                "param": "text.format.schema",
+                "message": "sensitive request content must not enter the ledger",
+            }
+        },
+    )
+    error = httpx.HTTPStatusError("rejected", request=request, response=response)
+    assert _provider_rejection_rationale(error) == (
+        "provider_http_400:type_invalid_request_error:code_invalid_json_schema:"
+        "param_text.format.schema:request_id_req_abc123"
+    )
+    unsafe = httpx.Response(
+        422, request=request, json={"error": {"code": "private content\n", "param": "x" * 65}}
+    )
+    assert (
+        _provider_rejection_rationale(
+            httpx.HTTPStatusError("rejected", request=request, response=unsafe)
+        )
+        == "provider_http_422"
+    )
+    invalid = httpx.Response(429, request=request, text="not json")
+    assert (
+        _provider_rejection_rationale(
+            httpx.HTTPStatusError("rejected", request=request, response=invalid)
+        )
+        == "provider_http_429"
+    )
 
 
 def test_claim_query_prioritizes_recovery_and_excludes_pre_inference_rejections() -> None:
