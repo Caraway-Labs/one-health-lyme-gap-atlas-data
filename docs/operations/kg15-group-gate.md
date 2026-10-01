@@ -97,8 +97,47 @@ Successful lineage reports `receipt_readiness: READY` only for scope
 `same_group_attempt_graph_artifact_receipts`. Overall `status` always remains
 `BLOCKED`, with corpus admission, actual serving visibility and full pre-topology
 readiness explicitly `NOT_CHECKED`, and continuation still unimplemented. The
-runtime's existing `phase: continue` denial is unchanged. The remaining corpus
-join must bind a fresh completed build and its exact canary units to this receipt
-lineage; the serving seam must prove provider-free visibility through the actual
+runtime's existing `phase: continue` denial is unchanged. The corpus seam below
+checks a fresh completed build and its exact canary units against this receipt
+lineage; the serving seam must still prove provider-free visibility through the actual
 query. Private-network proof still needs an approved existing execution surface.
 Offline fixture success is not production evidence or authorization to run.
+
+## Read-only corpus-build and unit receipt seam
+
+`inspect_group_canary_corpus_receipts(group, cursor, rules=...)` rereads the
+authoritative attempt/graph/artifact lineage. It accepts no prior READY report
+or caller success flag. After that subset passes, one additional SELECT reads
+the canary PMID's current projection for the expected corpus rules version,
+preserving missing build joins. It constructs no connection and writes nothing.
+The original two-query lineage inspector retains its existing behavior.
+
+At least one current unit must exist. All canary units must belong to one
+completed build with matching discovery scope and exact rules version/hash.
+Build start must follow the completed fresh canary attempt; build finish must
+follow start. Every unit must be written within that build interval and match
+the exact PMC/paper, artifact ID/object key, source hashes and graph contribution
+hash already verified through authoritative lineage. Old immutable artifacts
+remain reusable; the attempt, publication and successful corpus build are fresh.
+
+Unit IDs and text hashes must match the producer's deterministic identities;
+current text is hashed without being logged. Chunk indexes must be unique and
+contiguous, offsets must match text length, and unit/build IDs must agree. Empty,
+duplicate, mixed-build, orphan, mismatched, corrupt or stale projections block.
+Single-paper builds require exact agreement between current canary units and the
+build's `chunks_written`; multipaper builds require that the canary subset fits
+the recorded total. A multipaper subset does not prove every original canary
+chunk survived an out-of-contract manual deletion, or reconcile the whole build.
+The global `corpus_content_sha256` covers all current units for the rules version,
+not just this build/canary, so it is not recomputed from a partial projection.
+Whole-inventory/global fingerprint reconciliation remains a separate acceptance
+criterion. Artifact bytes and license policy are not freshly revalidated here.
+
+Success reports `receipt_readiness: READY` and `corpus_admission: READY` only for
+scope `same_group_attempt_graph_artifact_corpus_receipts`, with a bounded build ID,
+PMID, rules version and unit count. Unit content, object keys, license URLs and
+exception bodies are omitted. Overall status always remains `BLOCKED` with actual
+serving visibility and full pre-topology readiness explicitly `NOT_CHECKED` and
+group continuation unimplemented. Failed lineage does not query or attest corpus;
+failed corpus reads preserve the verified lineage subset and block corpus.
+No CLI/workflow activation, production operation or new grant is introduced.
