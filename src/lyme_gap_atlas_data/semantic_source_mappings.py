@@ -679,6 +679,7 @@ def map_record(
     mappings: Mapping[str, Mapping[str, Any]],
     *,
     fixture_mode: bool = False,
+    approved_climate_metadata_revisions: set[str] | None = None,
 ) -> dict[str, Any]:
     """Create a deterministic semantic assertion and complete trace.
 
@@ -766,7 +767,9 @@ def map_record(
     else:
         for edge in edges:
             _bind_source(edge, mapping, authority)
-    validate_metadata(metadata)
+    validate_metadata(
+        metadata, approved_climate_metadata_revisions=approved_climate_metadata_revisions
+    )
     if metadata["steward_review"]["state"] != "REVIEWED" and not (
         fixture_mode and record.get("fixture") is True
     ):
@@ -850,7 +853,14 @@ def map_record(
         raise SemanticMappingError("transformation identity required")
     lineage = {
         "contract_version": LINEAGE_VERSION,
-        "visibility": "INTERNAL",
+        "visibility": "CONSUMER_SAFE"
+        if (
+            measure["methodology_version"] == "atlas-nclimgrid-county-day/2"
+            and metadata["visibility"] == "CONSUMER_SAFE"
+            and approved_climate_metadata_revisions is not None
+            and metadata["revision_id"] in approved_climate_metadata_revisions
+        )
+        else "INTERNAL",
         "semantic_observation_id": observation["observation_key"],
         "semantic_revision_id": observation["revision_id"],
         "metadata_revision_id": metadata["revision_id"],
@@ -863,7 +873,9 @@ def map_record(
         "release": record.get("release"),
     }
     lineage["lineage_id"] = lineage_id(lineage)
-    validate_lineage(lineage, authority)
+    validate_lineage(
+        lineage, authority, approved_climate_metadata_revisions=approved_climate_metadata_revisions
+    )
     return {
         "mapping_contract_version": CONTRACT_VERSION,
         "mapping_id": mapping_id,
@@ -887,6 +899,7 @@ def map_records(
     mappings: Mapping[str, Mapping[str, Any]],
     *,
     fixture_mode: bool = False,
+    approved_climate_metadata_revisions: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Reject duplicate semantic assertions or conflicting immutable revisions."""
     output: list[dict[str, Any]] = []
@@ -897,7 +910,14 @@ def map_records(
         metadata = metadata_by_mapping.get(identity)
         if metadata is None:
             raise SemanticMappingError("missing mandatory metadata reference")
-        mapped = map_record(record, metadata, authority, mappings, fixture_mode=fixture_mode)
+        mapped = map_record(
+            record,
+            metadata,
+            authority,
+            mappings,
+            fixture_mode=fixture_mode,
+            approved_climate_metadata_revisions=approved_climate_metadata_revisions,
+        )
         observation = mapped["observation"]
         key, revision = observation["observation_key"], observation["revision_id"]
         if key in seen or revision in revisions:

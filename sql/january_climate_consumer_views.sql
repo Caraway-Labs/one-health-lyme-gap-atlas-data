@@ -12,15 +12,17 @@ WITH current_climate AS (
 ), records AS (
     SELECT c.release_id, c.extension, v.payload:record AS record, v.retrieved_at,
            m.value AS metadata
-    FROM current_climate c
-    JOIN GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS v
-      ON v.ingestion_run_id=c.extension:ingestion_run_id::VARCHAR
-     AND v.resource_key='noaa_nclimgrid_daily_202501'
-     AND v.source_definition_version=2
-     AND v.artifact_id=c.extension:sources:noaa:artifact_id::VARCHAR
-     AND v.artifact_sha256=c.extension:sources:noaa:sha256::VARCHAR,
+    FROM current_climate c,
+    LATERAL FLATTEN(INPUT => c.extension:capture_ids) member,
+    GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS v,
     LATERAL FLATTEN(INPUT => c.extension:metadata) m
-    WHERE m.value:measure:measure_id::VARCHAR =
+    WHERE v.capture_record_id=member.value::VARCHAR
+      AND v.ingestion_run_id=c.extension:ingestion_run_id::VARCHAR
+      AND v.resource_key='noaa_nclimgrid_daily_202501'
+      AND v.source_definition_version=2
+      AND v.artifact_id=c.extension:sources:noaa:artifact_id::VARCHAR
+      AND v.artifact_sha256=c.extension:sources:noaa:sha256::VARCHAR
+      AND m.value:measure:measure_id::VARCHAR =
           'nclimgrid_' || LOWER(v.payload:record:measure::VARCHAR) || '_county_day'
 )
 SELECT release_id,
@@ -33,21 +35,35 @@ SELECT release_id,
        'DAY' AS temporal_resolution,
        'Labeled 24-hour period ending in the early morning; not a midnight calendar day'
            AS day_convention,
-       -- AS_DOUBLE reads native DOUBLE, avoiding lossy TO_JSON reconstruction.
-       AS_DOUBLE(record:value) AS value,
+       -- Preserve storage type; normalize JSON null to SQL NULL.
+       IFF(IS_NULL_VALUE(record:value), NULL, record:value) AS value,
        CASE WHEN record:coverage_status::VARCHAR='OUT_OF_SOURCE_COVERAGE' THEN 'UNAVAILABLE'
             WHEN record:coverage_status::VARCHAR<>'COMPLETE' THEN 'MISSING'
-            WHEN AS_DOUBLE(record:value)=0 THEN 'ZERO' ELSE 'OBSERVED' END AS value_state,
+            WHEN record:value=0 THEN 'ZERO' ELSE 'OBSERVED' END AS value_state,
        record:unit::VARCHAR AS unit, NULL::VARCHAR AS denominator,
        record:coverage_status::VARCHAR AS coverage_status,
        record:source_time_present::BOOLEAN AS source_time_present,
        -- Retain VARIANT numeric storage for support quantities, including DECIMAL.
-       record:expected_area_m2 AS expected_area_m2,
-       record:intersected_area_m2 AS intersected_area_m2,
-       record:source_supported_area_m2 AS source_supported_area_m2,
-       record:valid_area_m2 AS valid_area_m2,
-       record:source_coverage_fraction AS source_coverage_fraction,
-       record:valid_fraction_of_supported_area AS valid_fraction_of_supported_area,
+       IFF(IS_NULL_VALUE(record:expected_area_m2), NULL, record:expected_area_m2) AS expected_area_m2,
+       IFF(IS_NULL_VALUE(record:intersected_area_m2), NULL, record:intersected_area_m2) AS intersected_area_m2,
+       IFF(IS_NULL_VALUE(record:source_supported_area_m2), NULL, record:source_supported_area_m2) AS source_supported_area_m2,
+       IFF(IS_NULL_VALUE(record:valid_area_m2), NULL, record:valid_area_m2) AS valid_area_m2,
+       IFF(IS_NULL_VALUE(record:source_coverage_fraction), NULL, record:source_coverage_fraction) AS source_coverage_fraction,
+       IFF(IS_NULL_VALUE(record:valid_fraction_of_supported_area), NULL, record:valid_fraction_of_supported_area) AS valid_fraction_of_supported_area,
+       TYPEOF(record:value) AS value_stored_type,
+       IFF(TYPEOF(record:value)='DOUBLE', AS_DOUBLE(record:value), NULL) AS value_native_double,
+       TYPEOF(record:expected_area_m2) AS expected_area_m2_stored_type,
+       IFF(TYPEOF(record:expected_area_m2)='DOUBLE', AS_DOUBLE(record:expected_area_m2), NULL) AS expected_area_m2_native_double,
+       TYPEOF(record:intersected_area_m2) AS intersected_area_m2_stored_type,
+       IFF(TYPEOF(record:intersected_area_m2)='DOUBLE', AS_DOUBLE(record:intersected_area_m2), NULL) AS intersected_area_m2_native_double,
+       TYPEOF(record:source_supported_area_m2) AS source_supported_area_m2_stored_type,
+       IFF(TYPEOF(record:source_supported_area_m2)='DOUBLE', AS_DOUBLE(record:source_supported_area_m2), NULL) AS source_supported_area_m2_native_double,
+       TYPEOF(record:valid_area_m2) AS valid_area_m2_stored_type,
+       IFF(TYPEOF(record:valid_area_m2)='DOUBLE', AS_DOUBLE(record:valid_area_m2), NULL) AS valid_area_m2_native_double,
+       TYPEOF(record:source_coverage_fraction) AS source_coverage_fraction_stored_type,
+       IFF(TYPEOF(record:source_coverage_fraction)='DOUBLE', AS_DOUBLE(record:source_coverage_fraction), NULL) AS source_coverage_fraction_native_double,
+       TYPEOF(record:valid_fraction_of_supported_area) AS valid_fraction_of_supported_area_stored_type,
+       IFF(TYPEOF(record:valid_fraction_of_supported_area)='DOUBLE', AS_DOUBLE(record:valid_fraction_of_supported_area), NULL) AS valid_fraction_of_supported_area_native_double,
        retrieved_at AS atlas_acquired_at,
        NULL::TIMESTAMP_TZ AS source_published_at,
        record:upstream_date_modified::VARCHAR AS upstream_date_modified,

@@ -247,9 +247,12 @@ def project_consumer(
     authority: Mapping[str, Any],
     *,
     fixture_mode: bool = False,
+    approved_climate_metadata_revisions: set[str] | None = None,
 ) -> dict[str, Any]:
     """Validate internal authority and emit only explicitly permitted fields."""
-    validate_lineage(lineage, authority)
+    validate_lineage(
+        lineage, authority, approved_climate_metadata_revisions=approved_climate_metadata_revisions
+    )
     metadata = lineage["metadata"]
     observation = lineage["observation"]
     measure = metadata["measure"]

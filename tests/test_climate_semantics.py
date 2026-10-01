@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from test_climate_publication import DEFINITION, fixture_capture
 from test_semantic_metadata import absent, fixture, known, seal
 
 from lyme_gap_atlas_data.climate_semantics import METHOD, PERIOD, january_measure_definitions
@@ -32,7 +33,7 @@ def climate_metadata(index: int = 0) -> dict:
     )
     metadata["provenance"].update(
         publisher=known("NOAA"),
-        source_id=known("source_noaa_nclimgrid_daily"),
+        source_id=known("noaa_nclimgrid_daily"),
         dataset_id=known("nclimgrid-daily-v1.0.0-scaled"),
         source_vintage=known("v1.0.0-scaled-202501"),
         method_version=known(METHOD),
@@ -96,6 +97,22 @@ def test_narrow_exposure_does_not_unlock_unrelated_derived_results(index: int) -
     metadata = fixture(index)
     metadata["visibility"] = "CONSUMER_SAFE"
     metadata["steward_review"] = {"state": "REVIEWED", "reviewed_at": known("2026-10-01")}
+    seal(metadata)
+    with pytest.raises(SemanticMetadataError, match="separate exposure approval"):
+        validate_metadata(metadata, approved_climate_metadata_revisions={metadata["revision_id"]})
+
+
+def test_existing_source_identity_matches_real_writer_capture_shape() -> None:
+    capture = fixture_capture()
+    assert capture["source_id"] == DEFINITION.source_id == "noaa_nclimgrid_daily"
+    metadata = climate_metadata()
+    assert metadata["provenance"]["source_id"]["value"] == capture["source_id"]
+    metadata["visibility"] = "CONSUMER_SAFE"
+    metadata["steward_review"] = {"state": "REVIEWED", "reviewed_at": known("2026-10-01")}
+    metadata["quality_evidence"]["evidence_basis"] = known("CURRENT_CODE_SOURCE_BACKED_REPLAY")
+    seal(metadata)
+    validate_metadata(metadata, approved_climate_metadata_revisions={metadata["revision_id"]})
+    metadata["provenance"]["source_id"] = known("source_noaa_nclimgrid_daily")
     seal(metadata)
     with pytest.raises(SemanticMetadataError, match="separate exposure approval"):
         validate_metadata(metadata, approved_climate_metadata_revisions={metadata["revision_id"]})

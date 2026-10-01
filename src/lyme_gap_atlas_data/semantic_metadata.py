@@ -403,7 +403,7 @@ def validate_metadata(
             and quality["evidence_basis"]
             == {"state": "KNOWN", "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"}
             and freshness["observation_period"] == {"state": "KNOWN", "value": CLIMATE_PERIOD}
-            and provenance["source_id"]["value"] == "source_noaa_nclimgrid_daily"
+            and provenance["source_id"]["value"] == "noaa_nclimgrid_daily"
             and provenance["dataset_id"]["value"] == "nclimgrid-daily-v1.0.0-scaled"
             and provenance["source_vintage"]["value"] == "v1.0.0-scaled-202501"
         )

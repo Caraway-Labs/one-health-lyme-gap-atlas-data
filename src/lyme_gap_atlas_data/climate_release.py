@@ -9,11 +9,22 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import Any
 
-from .climate_publication import NOAA_ARTIFACT_ID, NOAA_SHA, RESOURCE_KEY, RUN_ID, TIGER_SHA
+from .climate_publication import (
+    NOAA_ARTIFACT_ID,
+    NOAA_SHA,
+    RESOURCE_KEY,
+    RUN_ID,
+    TIGER_SHA,
+    project_verified_partitions,
+)
 from .climate_semantics import PERIOD, january_measure_definitions
+from .ingestion.checkpoints import _partition_from_document
+from .ingestion.partitioning import NormalizedPartition
 from .semantic_metadata import validate_metadata
 
 CONTRACT = "atlas-january-climate-release-extension-v1"
@@ -30,6 +41,7 @@ _FIELDS = {
     "metadata",
     "sources",
     "review_evidence",
+    "capture_ids",
 }
 
 
@@ -57,6 +69,14 @@ def validate_extension(extension: Any) -> None:
         and _SHA.fullmatch(extension["capture_membership_sha256"]) is not None,
         "CLIMATE_MEMBERSHIP_DIGEST",
     )
+    capture_ids = extension["capture_ids"]
+    _require(
+        isinstance(capture_ids, list)
+        and len(capture_ids) == ROW_COUNT
+        and all(isinstance(item, str) and _SHA.fullmatch(item) is not None for item in capture_ids)
+        and capture_ids == sorted(set(capture_ids)),
+        "CLIMATE_CAPTURE_IDS",
+    )
     review = extension["review_evidence"]
     _require(
         isinstance(review, Mapping) and set(review) == {"commit", "url", "reviewer"},
@@ -82,7 +102,9 @@ def validate_extension(extension: Any) -> None:
         source = sources[key]
         _require(
             isinstance(source, Mapping)
-            and set(source) == {"source_version_id", "artifact_id", "sha256"}
+            and set(source) == {"source_version_id", "artifact_id", "sha256", "resource_key"}
+            and isinstance(source["resource_key"], str)
+            and bool(source["resource_key"])
             and isinstance(source["source_version_id"], str)
             and bool(source["source_version_id"])
             and not source["source_version_id"].startswith("REPLACE_WITH_")
@@ -92,6 +114,7 @@ def validate_extension(extension: Any) -> None:
             "CLIMATE_SOURCE_PIN",
         )
     _require(sources["noaa"]["artifact_id"] == NOAA_ARTIFACT_ID, "CLIMATE_NOAA_ARTIFACT")
+    _require(sources["noaa"]["resource_key"] == RESOURCE_KEY, "CLIMATE_NOAA_RESOURCE")
     _require(
         sources["noaa"]["source_version_id"] != sources["tiger"]["source_version_id"],
         "CLIMATE_SOURCE_IDENTITIES",
@@ -119,7 +142,7 @@ def validate_extension(extension: Any) -> None:
         )
         provenance = item["provenance"]
         _require(
-            provenance["source_id"]["value"] == "source_noaa_nclimgrid_daily"
+            provenance["source_id"]["value"] == "noaa_nclimgrid_daily"
             and provenance["dataset_id"]["value"] == "nclimgrid-daily-v1.0.0-scaled"
             and provenance["source_version_id"]["value"] == sources["noaa"]["source_version_id"]
             and provenance["source_vintage"]["value"] == "v1.0.0-scaled-202501"
@@ -138,8 +161,14 @@ def verify_extension(cursor: Any, extension: Any) -> None:
             JOIN GOVERNANCE.RAW_ARTIFACTS a ON a.artifact_id=v.artifact_id
               AND a.ingestion_run_id=v.ingestion_run_id
             WHERE v.data_source_version_id=%s AND v.ingestion_run_id=%s
-              AND v.artifact_id=%s AND a.sha256=%s""",
-            (source["source_version_id"], RUN_ID, source["artifact_id"], source["sha256"]),
+              AND v.artifact_id=%s AND a.sha256=%s AND v.resource_key=%s""",
+            (
+                source["source_version_id"],
+                RUN_ID,
+                source["artifact_id"],
+                source["sha256"],
+                source["resource_key"],
+            ),
         )
         rows = cursor.fetchall()
         _require(
@@ -183,6 +212,10 @@ def verify_extension(cursor: Any, extension: Any) -> None:
                 "CLIMATE_MEMBERSHIP_HASH",
             )
             previous = row[0]
+            _require(
+                count < len(extension["capture_ids"]) and extension["capture_ids"][count] == row[0],
+                "CLIMATE_CAPTURE_IDS",
+            )
             digest.update((json.dumps(list(row), separators=(",", ":")) + "\n").encode())
             count += 1
     _require(
@@ -197,7 +230,7 @@ def verify_extension(cursor: Any, extension: Any) -> None:
     _require(cursor.fetchone() == (ROW_COUNT,), "CLIMATE_UNSELECTED_REVISIONS")
     cursor.execute(
         """SELECT COUNT(DISTINCT record_id), COUNT_IF(
-          COALESCE(source_id,'')<>'source_noaa_nclimgrid_daily'
+          COALESCE(source_id,'')<>'noaa_nclimgrid_daily'
           OR COALESCE(dataset_id,'')<>'nclimgrid-daily-v1.0.0-scaled'
           OR COALESCE(payload:record:transformation_version::VARCHAR,'')<>
               'atlas-nclimgrid-county-day/2'
@@ -210,6 +243,58 @@ def verify_extension(cursor: Any, extension: Any) -> None:
         (NOAA_SHA, TIGER_SHA, RUN_ID),
     )
     _require(cursor.fetchone() == (ROW_COUNT, 0), "CLIMATE_NATIVE_SCOPE")
+    verify_payload_candidate(cursor, extension["candidate_sha256"])
+
+
+def canonical_partitions(cursor: Any) -> Iterator[NormalizedPartition]:
+    """Bounded reads using the same publication session; no hidden role/connection switch."""
+    for ordinal in range(1560):
+        cursor.execute(
+            """SELECT partition_id, value_sha256, row_count, byte_count, records
+            FROM GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS
+            WHERE ingestion_run_id=%s AND partition_ordinal=%s""",
+            (RUN_ID, ordinal),
+        )
+        rows = cursor.fetchall()
+        _require(len(rows) == 1, "CLIMATE_CANONICAL_PARTITION")
+        partition_id, digest, row_count, byte_count, records = rows[0]
+        records = json.loads(records) if isinstance(records, str) else records
+        _require(
+            isinstance(records, Mapping)
+            and records.get("format") == "canonical-json-v1"
+            and isinstance(records.get("canonical_json"), str),
+            "CLIMATE_CANONICAL_BYTES",
+        )
+        partition = _partition_from_document(
+            {
+                "ordinal": ordinal,
+                "sha256": digest,
+                "byte_count": byte_count,
+                "records": json.loads(records["canonical_json"]),
+            }
+        )
+        _require(
+            partition_id == partition.partition_id and row_count == len(partition.records),
+            "CLIMATE_CANONICAL_PARTITION",
+        )
+        yield partition
+
+
+def verify_payload_candidate(cursor: Any, expected_digest: str) -> None:
+    """Rebuild the complete target candidate through PR549's strict reconciliation.
+
+    All seven numeric fields retain native DOUBLE recovery, exact canonical
+    payload/hash checks and scientific projection validation. Temporary outputs
+    are removed. Missing canonical-partition SELECT fails closed; no grant is made.
+    """
+    with tempfile.TemporaryDirectory(prefix="climate-activation-") as directory:
+        report = project_verified_partitions(
+            cursor, canonical_partitions(cursor), Path(directory) / "candidate.ndjson"
+        )
+        _require(
+            report["rows"] == ROW_COUNT and report["projection_sha256"] == expected_digest,
+            "CLIMATE_TARGET_CANDIDATE_DIGEST",
+        )
 
 
 def verify_persisted_extension(cursor: Any, release_id: str) -> None:
@@ -224,3 +309,9 @@ def verify_persisted_extension(cursor: Any, release_id: str) -> None:
     _require(isinstance(manifest, Mapping), "CLIMATE_RELEASE_MANIFEST")
     if "climate_extension" in manifest:
         verify_extension(cursor, manifest["climate_extension"])
+
+
+def verified_climate_metadata_revisions(cursor: Any, extension: Any) -> set[str]:
+    """Return bounded revision authority only after full target/source verification."""
+    verify_extension(cursor, extension)
+    return {item["revision_id"] for item in extension["metadata"]}

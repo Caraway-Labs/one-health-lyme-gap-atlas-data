@@ -30,17 +30,22 @@ def extension() -> dict:
         "candidate_sha256": climate.CANDIDATE_SHA,
         "capture_membership_sha256": "b" * 64,
         "row_count": climate.ROW_COUNT,
+        "capture_ids": ["e" * 64]
+        if climate.ROW_COUNT == 1
+        else [f"{index:064x}" for index in range(climate.ROW_COUNT)],
         "metadata": metadata,
         "sources": {
             "noaa": {
                 "source_version_id": "fixture-version-1",
                 "artifact_id": climate.NOAA_ARTIFACT_ID,
                 "sha256": climate.NOAA_SHA,
+                "resource_key": climate.RESOURCE_KEY,
             },
             "tiger": {
                 "source_version_id": "fixture-tiger-version",
                 "artifact_id": "fixture-tiger-artifact",
                 "sha256": climate.TIGER_SHA,
+                "resource_key": "fixture-tiger-resource-2025",
             },
         },
         "review_evidence": {
@@ -97,9 +102,10 @@ def test_release_contract_rejects_unapproved_or_changed_meaning(mutation: str) -
 
 
 def test_membership_is_recomputed_from_retained_revision_tuples(monkeypatch) -> None:
+    monkeypatch.setattr(climate, "verify_payload_candidate", lambda cursor, digest: None)
     monkeypatch.setattr(climate, "ROW_COUNT", 1)
     document = extension()
-    record = ("capture-fixture", "revision-fixture", "record-fixture", "c" * 64, "d" * 64)
+    record = ("e" * 64, "revision-fixture", "record-fixture", "c" * 64, "d" * 64)
     document["capture_membership_sha256"] = hashlib.sha256(
         (json.dumps(list(record), separators=(",", ":")) + "\n").encode()
     ).hexdigest()
@@ -118,6 +124,10 @@ def test_membership_is_recomputed_from_retained_revision_tuples(monkeypatch) -> 
 
         def execute(self, query, parameters):
             assert query.lstrip().startswith("SELECT")
+            assert "source_noaa_nclimgrid_daily" not in query
+            if "v.status" in query:
+                assert "v.resource_key=%s" in query
+                assert parameters[-1] in {climate.RESOURCE_KEY, "fixture-tiger-resource-2025"}
 
         def fetchall(self):
             return next(self.results)
@@ -132,6 +142,22 @@ def test_membership_is_recomputed_from_retained_revision_tuples(monkeypatch) -> 
     document["capture_membership_sha256"] = "0" * 64
     with pytest.raises(climate.ClimateReleaseBlocked, match="MEMBERSHIP_DIGEST"):
         climate.verify_extension(Cursor(), document)
+
+
+def test_revision_authority_is_never_returned_before_target_verification(monkeypatch):
+    document = extension()
+    calls = []
+    monkeypatch.setattr(climate, "verify_extension", lambda cursor, value: calls.append(value))
+    approved = climate.verified_climate_metadata_revisions(None, document)
+    assert calls == [document]
+    assert approved == {item["revision_id"] for item in document["metadata"]}
+
+    def blocked(cursor, value):
+        raise climate.ClimateReleaseBlocked("CLIMATE_TARGET_CANDIDATE_DIGEST")
+
+    monkeypatch.setattr(climate, "verify_extension", blocked)
+    with pytest.raises(climate.ClimateReleaseBlocked):
+        climate.verified_climate_metadata_revisions(None, document)
 
 
 @pytest.mark.parametrize("operation", ["publish", "rollback"])
@@ -216,3 +242,45 @@ def test_sql_is_separate_daily_native_numeric_allowlist_without_grants() -> None
         "day_convention",
     ):
         assert f"AS {column}" in sql
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("value", 17.0),
+        ("unit", "inches"),
+        ("county_fips", "99999"),
+        ("coverage_status", "SOURCE_MISSING"),
+        ("valid_area_m2", 17.0),
+        ("valid_fraction_of_supported_area", 0.1),
+    ],
+)
+def test_target_payload_corruption_with_unchanged_headers_is_rejected(monkeypatch, field, value):
+    from test_climate_publication import fixture_capture
+
+    from lyme_gap_atlas_data.climate_publication import ClimatePublicationBlocked
+
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+    changed = copy.deepcopy(original)
+    changed["record"][field] = value
+    capture["payload"] = changed
+    if f"rendered_{field}" in capture:
+        capture[f"rendered_{field}"] = json.dumps(value)
+        if capture[f"stored_type_{field}"] == "DOUBLE":
+            capture[f"native_{field}"] = value
+    # Every persisted revision/header hash is deliberately unchanged.
+    partition = SimpleNamespace(ordinal=0, records=[original])
+    monkeypatch.setattr(climate, "canonical_partitions", lambda cursor: iter([partition]))
+
+    class Cursor:
+        description = [(key,) for key in capture]
+
+        def execute(self, query, parameters):
+            assert "GOVERNED_SOURCE_RECORD_REVISIONS" in query
+
+        def fetchall(self):
+            return [tuple(capture.values())]
+
+    with pytest.raises(ClimatePublicationBlocked, match="REVISION_CONTENT"):
+        climate.verify_payload_candidate(Cursor(), climate.CANDIDATE_SHA)
