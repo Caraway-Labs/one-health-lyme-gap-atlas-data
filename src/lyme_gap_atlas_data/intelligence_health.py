@@ -450,13 +450,32 @@ def health_from_run(
         and load.status is StageStatus.COMPLETED
         and (not previous or previous.attempt_key != key)
     ):
+        accepted = result
         result = reduce_health(
             source,
             observed_at=observed_at,
-            previous=result.history,
+            previous=previous,
             outcome="storage_failed",
             policy=policy,
             policy_allowed=policy_allowed,
+        )
+        document = dict(result.history.document)
+        for field in (
+            "last_fetch_success_at",
+            "last_item_observed_at",
+            "coverage_start_at",
+            "coverage_end_at",
+            "accepted_items",
+        ):
+            document[field] = accepted.history.document[field]
+        validate_record("health", document)
+        result = replace(
+            result,
+            history=replace(
+                result.history,
+                document=document,
+                seen_revisions=accepted.history.seen_revisions,
+            ),
         )
     return replace(
         result,

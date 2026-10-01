@@ -318,6 +318,41 @@ def test_real_orchestrator_effects_store_receipt_health_and_resume_are_consisten
     assert replay.history.document["last_fetch_success_at"] == NOW
     assert replay.history.document["last_item_observed_at"] == NOW
     assert replay.history.document["consecutive_failures"] == 0
+    from lyme_gap_atlas_data.ingestion.types import FailureCategory, Stage, StageStatus
+
+    quality = resumed.checkpoint(Stage.QUALITY)
+    assert quality is not None
+    quality.status = StageStatus.FAILED
+    quality.attempt_count = 1
+    quality.failure_category = FailureCategory.QUALITY
+    quality.redacted_diagnostic_code = "QUALITY_FAILED"
+    reviewed = policy(source)
+    partial = health_from_run(
+        source,
+        resumed,
+        observed_at="2026-10-01T01:00:00Z",
+        items=rows,
+        source_context=context,
+        previous=replay.history,
+        policy=reviewed,
+        policy_allowed=lambda value: True,
+    )
+    quality.attempt_count = 2
+    repeated = health_from_run(
+        source,
+        resumed,
+        observed_at="2026-10-01T02:00:00Z",
+        items=rows,
+        source_context=context,
+        previous=partial.history,
+        policy=reviewed,
+        policy_allowed=lambda value: True,
+    )
+    assert repeated.history.document["state"] == "partial"
+    assert repeated.history.document["consecutive_failures"] == 2
+    assert repeated.history.document["last_fetch_success_at"] == NOW
+    assert repeated.history.seen_revisions == first.history.seen_revisions
+    assert repeated.incident_key
 
 
 def test_actual_failed_checkpoint_redacts_and_replay_does_not_count_a_new_attempt() -> None:
