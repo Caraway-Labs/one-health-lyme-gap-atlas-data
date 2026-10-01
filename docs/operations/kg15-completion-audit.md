@@ -57,8 +57,12 @@ preflight repair. KG13 QA should report this limitation explicitly.
 ## Narrow change and release boundary
 
 This patch rejects a runtime grant on a different database/schema or a similarly
-named budget procedure, and rejects a missing/incomplete PMC classification
-constraint. It reuses `missing_capabilities` and the existing typed
+named budget procedure. Its PMC classification check is scoped to the target
+table and recognizes only a supported positive `CLASSIFICATION IN (...)`
+expression containing both exact lowercase worker values. Missing constraints,
+`NOT IN`, uppercase-only literals and unknown expression forms block readiness.
+It does not evaluate arbitrary SQL or prove every possible classification contract.
+It reuses `missing_capabilities` and the existing typed
 `runtime_contract` blocker path. The checks use metadata reads only and execute
 before claim; no budget reservation is invoked.
 

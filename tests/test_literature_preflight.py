@@ -6,6 +6,7 @@ import pytest
 
 from lyme_gap_atlas_data.literature_preflight import (
     _WRITE_COLUMNS,
+    _classification_contract_supported,
     _effective_grants,
     _snowflake_contract,
     literature_preflight,
@@ -123,10 +124,16 @@ def test_effective_grants_include_inherited_role() -> None:
 
 @pytest.mark.parametrize("operation", ["discover", "extract", "build-corpus"])
 @pytest.mark.parametrize("valid_contract", [False, True])
+@pytest.mark.parametrize(
+    "classification_table", ["EXTRACTION_ATTEMPT_CLASSIFICATIONS", "OLD_TABLE"]
+)
+@pytest.mark.parametrize("classification_form", ["positive", "negative", "uppercase"])
 def test_preflight_detects_missing_column_and_write_privilege(
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
     valid_contract: bool,
+    classification_table: str,
+    classification_form: str,
 ) -> None:
     statements: list[str] = []
 
@@ -169,14 +176,22 @@ def test_preflight_detects_missing_column_and_write_privilege(
                     ("", "USAGE", "PROCEDURE", prefix + "SP_FINALIZE_KG_LLM_BUDGET_COPY(VARCHAR)"),
                 ]
             if "CK_PMC_ATTEMPT_CLASSIFICATION" in self.sql:
-                return [
-                    (
-                        "CLASSIFICATION IN ('provider_rejected_pre_inference', "
-                        "'contract_remediation_reopen')"
-                        if valid_contract
-                        else "CLASSIFICATION IN ('provider_rejected_pre_inference')",
-                    )
-                ]
+                if (
+                    "CONSTRAINT_TABLE = 'EXTRACTION_ATTEMPT_CLASSIFICATIONS'" in self.sql
+                    and classification_table != "EXTRACTION_ATTEMPT_CLASSIFICATIONS"
+                ):
+                    return []
+                clause = (
+                    "CLASSIFICATION IN ('provider_rejected_pre_inference', "
+                    "'contract_remediation_reopen')"
+                    if valid_contract
+                    else "CLASSIFICATION IN ('provider_rejected_pre_inference')"
+                )
+                if classification_form == "negative":
+                    clause = clause.replace(" IN ", " NOT IN ")
+                elif classification_form == "uppercase":
+                    clause = clause.upper()
+                return [(clause,)]
             if (
                 "INFORMATION_SCHEMA.COLUMNS" in self.sql
                 and self.metadata_table == "PUBMED_DISCOVERY_RUNS"
@@ -217,11 +232,65 @@ def test_preflight_detects_missing_column_and_write_privilege(
         assert "RAW_ARTIFACT_ID" in _WRITE_COLUMNS["KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS"]
     if operation == "extract":
         assert "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS:COLUMNS" in missing
+        assert ("PMC_ATTEMPT_CLASSIFICATION_CONTRACT" in missing) is not (
+            valid_contract
+            and classification_table == "EXTRACTION_ATTEMPT_CLASSIFICATIONS"
+            and classification_form == "positive"
+        )
         for capability in (
-            "PMC_ATTEMPT_CLASSIFICATION_CONTRACT",
             "GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET:USAGE",
             "GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET:USAGE",
         ):
             assert (capability in missing) is not valid_contract
     if operation != "build-corpus":
         assert "GOVERNANCE.RAW_ARTIFACTS:COLUMNS" in missing
+
+
+@pytest.mark.parametrize(
+    ("clause", "supported"),
+    [
+        (
+            "CLASSIFICATION IN ('provider_rejected_pre_inference', 'contract_remediation_reopen')",
+            True,
+        ),
+        (
+            "(\"CLASSIFICATION\" IN ('contract_remediation_reopen', "
+            "'provider_rejected_pre_inference'))",
+            True,
+        ),
+        (
+            "((classification in ('provider_rejected_pre_inference', "
+            "'contract_remediation_reopen')))",
+            True,
+        ),
+        (
+            "CLASSIFICATION NOT IN ('provider_rejected_pre_inference', "
+            "'contract_remediation_reopen')",
+            False,
+        ),
+        (
+            "CLASSIFICATION IN ('PROVIDER_REJECTED_PRE_INFERENCE', 'CONTRACT_REMEDIATION_REOPEN')",
+            False,
+        ),
+        (
+            "OTHER_COLUMN IN ('provider_rejected_pre_inference', 'contract_remediation_reopen')",
+            False,
+        ),
+        (
+            "CLASSIFICATION IN ('provider_rejected_pre_inference', 'contract_remediation_reopen') "
+            "AND FALSE",
+            False,
+        ),
+        (
+            "CLASSIFICATION = 'provider_rejected_pre_inference' "
+            "OR CLASSIFICATION = 'contract_remediation_reopen'",
+            False,
+        ),
+        ("CLASSIFICATION IN ('provider_rejected_pre_inference')", False),
+        ("", False),
+    ],
+)
+def test_classification_constraint_requires_supported_positive_membership(
+    clause: str, supported: bool
+) -> None:
+    assert _classification_contract_supported(clause) is supported
