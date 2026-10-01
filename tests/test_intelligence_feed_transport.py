@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -13,6 +15,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_feed import (
     FeedResponse,
     _PinnedHTTPS,
     _request,
+    acquisition_context,
 )
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 
@@ -95,6 +98,17 @@ def test_cache_requires_retained_evidence_and_headers_cannot_inject_requests() -
     cache = FeedCache(
         identity_hash(record), raw, "retained-artifact", "value\r\nAuthorization: secret"
     )
+    cache = replace(
+        cache,
+        source_context=acquisition_context(
+            definition(record),
+            record,
+            effective_url=record["fetch_location"],
+            fetched_at="2026-09-30T15:00:00Z",
+            artifact_sha256=hashlib.sha256(raw).hexdigest(),
+            capture_mode="https",
+        ),
+    )
     adapter, calls = fetch_adapter(record, [], cache=cache)
     with pytest.raises(AcquisitionError, match="RETAINED_CACHE_REQUIRED"):
         adapter.acquire(definition(record))
@@ -128,6 +142,8 @@ def test_generic_scientific_writer_rejects_publication_items_before_connection()
     effects = SnowflakeStageEffects(connection_factory=lambda: pytest.fail("must not connect"))
     with pytest.raises(PermissionError, match="INTELLIGENCE_STORAGE_EFFECTS_REQUIRED"):
         effects.materialize_normalized(definition(approved()), None, [])
+    with pytest.raises(PermissionError, match="INTELLIGENCE_STORAGE_EFFECTS_REQUIRED"):
+        effects.register_artifact(definition(approved()), None, None)
 
 
 def test_injected_response_cannot_ignore_total_fetch_deadline(monkeypatch: Any) -> None:
