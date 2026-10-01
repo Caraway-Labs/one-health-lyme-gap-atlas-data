@@ -13,6 +13,8 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
+from .climate_semantics import PERIOD as CLIMATE_PERIOD
+from .climate_semantics import january_measure_definitions
 from .semantic_domain import meaning_signature, validate_measures
 from .surveillance_safe import has_sensitive_path
 
@@ -65,6 +67,10 @@ _SAFE_CONTRACTS = {
     "surveillance-priority-result-v2",
 }
 _DERIVED_METHODS = {
+    "atlas-nclimgrid-county-day/2": (
+        "atlas-nclimgrid-county-day/2",
+        {"SYNTHETIC_FIXTURE", "CURRENT_CODE_SOURCE_BACKED_REPLAY"},
+    ),
     "infected-tick-metrics-v1": (
         "infected-tick-calculation-v1",
         {"SYNTHETIC_FIXTURE", "CURRENT_CODE_CI_TESTED_SOURCE_REPLAY_LIMITED"},
@@ -193,6 +199,7 @@ def validate_metadata(
     metadata: Mapping[str, Any],
     *,
     approved_source_versions: set[tuple[str, str, str]] | None = None,
+    approved_climate_metadata_revisions: set[str] | None = None,
 ) -> None:
     """Validate one metadata revision against its embedded #190 measure."""
     if metadata.get("contract_version") != CONTRACT_VERSION:
@@ -386,7 +393,22 @@ def validate_metadata(
     if visibility not in _VISIBILITIES:
         raise SemanticMetadataError("invalid visibility")
     if measure["origin"] == "DERIVED" and visibility != "INTERNAL":
-        raise SemanticMetadataError("derived result requires separate exposure approval")
+        climate_approved = (
+            visibility == "CONSUMER_SAFE"
+            and approved_climate_metadata_revisions is not None
+            and metadata.get("revision_id") in approved_climate_metadata_revisions
+            and measure in january_measure_definitions()
+            and review["state"] == "REVIEWED"
+            and review["reviewed_at"]["state"] == "KNOWN"
+            and quality["evidence_basis"]
+            == {"state": "KNOWN", "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"}
+            and freshness["observation_period"] == {"state": "KNOWN", "value": CLIMATE_PERIOD}
+            and provenance["source_id"]["value"] == "source_noaa_nclimgrid_daily"
+            and provenance["dataset_id"]["value"] == "nclimgrid-daily-v1.0.0-scaled"
+            and provenance["source_vintage"]["value"] == "v1.0.0-scaled-202501"
+        )
+        if not climate_approved:
+            raise SemanticMetadataError("derived result requires separate exposure approval")
     if visibility == "PUBLIC" and review["state"] != "REVIEWED":
         raise SemanticMetadataError("public metadata requires steward review")
     if metadata.get("revision_id") != metadata_revision_id(metadata):

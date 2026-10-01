@@ -30,6 +30,10 @@ _UNSAFE_KEY = re.compile(
     re.IGNORECASE,
 )
 _BASIS = {
+    "atlas-nclimgrid-county-day/2": {
+        "SYNTHETIC_FIXTURE",
+        "CURRENT_CODE_SOURCE_BACKED_REPLAY",
+    },
     "infected-tick-metrics-v1": {
         "SYNTHETIC_FIXTURE",
         "CURRENT_CODE_CI_TESTED_SOURCE_REPLAY_LIMITED",

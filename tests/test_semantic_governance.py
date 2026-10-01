@@ -498,6 +498,7 @@ def test_valid_candidate_publication_then_repeat_is_blocked(
                 BASELINE["county_count"] * BASELINE["observations_per_county"],
             ),
             ("ONE_HEALTH_LYME_GAP_ATLAS_DEV",),
+            ({"manifest_schema": semantic_release.SEMANTIC_SCHEMA},),
             ("previous-release",),
         ]
     )
