@@ -20,6 +20,8 @@ from typing import Any
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
+from .climate_release import validate_extension, verify_extension, verify_persisted_extension
+
 SEMANTIC_SCHEMA = "atlas-governed-semantic-release/v1"
 SEMANTIC_SCHEMA_VERSION = "1.0.0"
 SEMANTIC_TRANSFORMATION = "semantic_county_assembly_v1"
@@ -122,6 +124,8 @@ def load_manifest(path: Path | str) -> SemanticManifest:
         raise SemanticReleaseBlocked("Semantic release manifest must be a JSON object")
     if document.get("manifest_schema") != SEMANTIC_SCHEMA:
         raise SemanticReleaseBlocked("Unsupported semantic release manifest schema")
+    if "climate_extension" in document:
+        validate_extension(document["climate_extension"])
 
     release_id = _required_text(document, "release_id")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,80}", release_id):
@@ -176,6 +180,8 @@ def build_semantic_release(
         try:
             with connection.cursor() as cursor:
                 _assert_release_absent(cursor, manifest.release_id)
+                if "climate_extension" in manifest.raw:
+                    verify_extension(cursor, manifest.raw["climate_extension"])
                 use_dev_tick_evidence_exception = (
                     settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
                 )
@@ -296,6 +302,7 @@ def publish_semantic_release(
                 database_row = cursor.fetchone()
                 if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
                     _verify_restricted_final_copy_attestations(cursor, release_id)
+                verify_persisted_extension(cursor, release_id)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"
@@ -364,6 +371,7 @@ def rollback_semantic_release(
                     raise SemanticReleaseBlocked(
                         "Rollback target must be a retained published release"
                     )
+                verify_persisted_extension(cursor, release_id)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"

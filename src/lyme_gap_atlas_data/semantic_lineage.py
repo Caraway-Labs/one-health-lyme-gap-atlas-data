@@ -30,6 +30,10 @@ _UNSAFE_KEY = re.compile(
     re.IGNORECASE,
 )
 _BASIS = {
+    "atlas-nclimgrid-county-day/2": {
+        "SYNTHETIC_FIXTURE",
+        "CURRENT_CODE_SOURCE_BACKED_REPLAY",
+    },
     "infected-tick-metrics-v1": {
         "SYNTHETIC_FIXTURE",
         "CURRENT_CODE_CI_TESTED_SOURCE_REPLAY_LIMITED",
@@ -105,15 +109,25 @@ def lineage_id(lineage: Mapping[str, Any]) -> str:
     return "lineage:v1:" + digest
 
 
-def _validate_edge(edge: Mapping[str, Any], registry: Mapping[str, Any]) -> None:
+def _validate_edge(
+    edge: Mapping[str, Any], registry: Mapping[str, Any], *, allow_climate_inputs: bool = False
+) -> None:
     version_id = _required(edge.get("source_version_id"), "source version")
     source = _object(registry, "source_versions", version_id)
     for field in ("source_id", "dataset_id", "resource_key", "source_vintage", "publisher"):
         _same(edge.get(field), source.get(field), field)
     run_id = _required(edge.get("ingestion_run_id"), "ingestion run")
     run = _object(registry, "runs", run_id)
-    _same(run.get("source_version_id"), version_id, "run/source version")
-    _same(run.get("dataset_id"), source.get("dataset_id"), "run/dataset")
+    climate_input = (
+        allow_climate_inputs
+        and source.get("approved") is True
+        and source.get("source_vintage") == "2025"
+        and isinstance(run.get("input_source_versions"), Mapping)
+        and run["input_source_versions"].get(version_id) == source.get("dataset_id")
+    )
+    if not climate_input:
+        _same(run.get("source_version_id"), version_id, "run/source version")
+        _same(run.get("dataset_id"), source.get("dataset_id"), "run/dataset")
     artifact_id = _required(edge.get("artifact_id"), "artifact")
     artifact = _object(registry, "artifacts", artifact_id)
     _same(artifact.get("ingestion_run_id"), run_id, "artifact/run")
@@ -155,7 +169,12 @@ def _validate_edge(edge: Mapping[str, Any], registry: Mapping[str, Any]) -> None
         raise SemanticLineageError("source-only record cannot claim canonical identity")
 
 
-def validate_lineage(lineage: Mapping[str, Any], registry: Mapping[str, Any]) -> None:
+def validate_lineage(
+    lineage: Mapping[str, Any],
+    registry: Mapping[str, Any],
+    *,
+    approved_climate_metadata_revisions: set[str] | None = None,
+) -> None:
     """Validate a complete semantic trace against explicit authority records."""
     if lineage.get("contract_version") != CONTRACT_VERSION:
         raise SemanticLineageError("unsupported lineage contract version")
@@ -163,7 +182,9 @@ def validate_lineage(lineage: Mapping[str, Any], registry: Mapping[str, Any]) ->
     metadata = lineage.get("metadata")
     if not isinstance(observation, Mapping) or not isinstance(metadata, Mapping):
         raise SemanticLineageError("observation and metadata required")
-    validate_metadata(metadata)
+    validate_metadata(
+        metadata, approved_climate_metadata_revisions=approved_climate_metadata_revisions
+    )
     measure = metadata["measure"]
     validate_observation(observation, measure)
     _same(
@@ -180,7 +201,16 @@ def validate_lineage(lineage: Mapping[str, Any], registry: Mapping[str, Any]) ->
     for edge in edges:
         if not isinstance(edge, Mapping):
             raise SemanticLineageError("invalid source edge")
-        _validate_edge(edge, registry)
+        _validate_edge(
+            edge,
+            registry,
+            allow_climate_inputs=(
+                metadata["visibility"] == "CONSUMER_SAFE"
+                and measure["methodology_version"] == "atlas-nclimgrid-county-day/2"
+                and approved_climate_metadata_revisions is not None
+                and metadata["revision_id"] in approved_climate_metadata_revisions
+            ),
+        )
         record_id = edge["record_id"]
         if record_id in record_ids:
             raise SemanticLineageError("duplicate ambiguous lineage edge")
@@ -247,7 +277,8 @@ def validate_lineage(lineage: Mapping[str, Any], registry: Mapping[str, Any]) ->
     if not isinstance(method, Mapping):
         raise SemanticLineageError("transformation required")
     _required(method.get("id"), "transformation ID")
-    _required(method.get("version"), "transformation version")
+    if method.get("version") != "atlas-nclimgrid-county-day/2":
+        _required(method.get("version"), "transformation version")
     _same(method.get("methodology_version"), measure["methodology_version"], "methodology version")
     if observation["origin"] == "DERIVED":
         _same(
