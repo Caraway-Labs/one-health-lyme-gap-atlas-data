@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -25,7 +26,7 @@ from .adapters import AcquireResult, AcquisitionArtifact
 from .artifact_replay import ArtifactMember, validate_names
 from .bulk_stage import remove_transport, stage_json_rows
 from .identity import deterministic_record_id, publisher_record_id, source_row_hash
-from .types import RunState, SourceDefinition, Stage
+from .types import AdapterKind, RunState, SourceDefinition, Stage
 
 
 class StageEffects(Protocol):
@@ -168,7 +169,26 @@ class SnowflakeStageEffects:
     def register_artifact(
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
+        if definition.adapter_kind is AdapterKind.RSS_ATOM:
+            raise PermissionError("INTELLIGENCE_STORAGE_EFFECTS_REQUIRED")
+        return self._register_artifact(definition, state, acquired)
+
+    def _register_artifact(
+        self,
+        definition: SourceDefinition,
+        state: RunState,
+        acquired: AcquireResult,
+        *,
+        capture_identity: str | None = None,
+    ) -> dict[str, Any]:
+        """Explicit intelligence composition calls only after source/retention checks."""
         artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
+        if capture_identity is not None and (
+            definition.adapter_kind is not AdapterKind.RSS_ATOM
+            or len(artifacts) != 1
+            or re.fullmatch(r"[a-f0-9]{64}", capture_identity) is None
+        ):
+            raise PermissionError("INTELLIGENCE_CAPTURE_IDENTITY_INVALID")
         primary_source = _primary_artifact(acquired, artifacts)
         now = datetime.now(UTC)
         retained: list[dict[str, Any]] = []
@@ -195,6 +215,8 @@ class SnowflakeStageEffects:
                         else f"{state.ingestion_run_id}:ACQUIRE:"
                         f"{hashlib.sha256(source_artifact.name.encode()).hexdigest()[:32]}"
                     )
+                    if capture_identity is not None:
+                        request_id = f"{state.ingestion_run_id}:ACQUIRE:{capture_identity}"
                     # Each capture has its own immutable run/artifact link.
                     # The full SHA-256 remains the stable cross-run content identity.
                     artifact_id = _member_artifact_id(
@@ -203,6 +225,11 @@ class SnowflakeStageEffects:
                         source_artifact,
                         len(artifacts),
                     )
+                    if capture_identity is not None:
+                        captured_key = (
+                            f"{definition.resource_key}:{state.ingestion_run_id}:{capture_identity}"
+                        )
+                        artifact_id = f"intelligence-capture:{_stable_id(captured_key)}"
                     cursor.execute(
                         """MERGE INTO GOVERNANCE.INGESTION_REQUESTS target
                     USING (SELECT %s AS ingestion_request_id, %s AS ingestion_run_id,
@@ -522,6 +549,8 @@ class SnowflakeStageEffects:
         self, definition: SourceDefinition, state: RunState, record_count: int
     ) -> dict[str, Any]:
         publication_id = _stable_id(f"publication:{state.ingestion_run_id}")
+        if definition.adapter_kind is AdapterKind.RSS_ATOM:
+            raise PermissionError("INTELLIGENCE_STORAGE_EFFECTS_REQUIRED")
         lineage = {
             "source_id": definition.source_id,
             "dataset_id": definition.dataset_id,
@@ -814,6 +843,8 @@ def _planned_artifact_id(
 def _lineage_rows(
     definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
 ) -> list[tuple[Any, ...]]:
+    if definition.adapter_kind is AdapterKind.RSS_ATOM:
+        raise PermissionError("INTELLIGENCE_STORAGE_EFFECTS_REQUIRED")
     rows: list[tuple[Any, ...]] = []
     acquisition = state.checkpoint(Stage.ACQUIRE)
     retrieved_at = (

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Synthetic research search</title>
+<entry><id>urn:synthetic:paper:1</id><title type="html">Research &amp;lt;em&amp;gt;update&amp;lt;/em&amp;gt;</title>
+<link href="https://example.org/article/1" rel="alternate" type="text/html"/>
+<published>2026-09-30T10:00:00.123456789-04:00</published>
+<updated>2026-09-30T14:30:00Z</updated>
+<summary type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Permitted summary.</p><script>hidden payload</script></div></summary>
+<category term="tick-borne"/></entry>
+<entry><id>urn:synthetic:paper:2</id><title>Unknown publisher date</title><published>2026-09-30</published></entry>
+</feed>
