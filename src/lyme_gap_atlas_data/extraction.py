@@ -9,9 +9,12 @@ from typing import Any, Protocol
 
 import httpx
 from lyme_gap_atlas_kg import GraphContribution
+from opentelemetry import trace
 
 from .contribution_admission import AdmittedContribution, admit_graph_contribution
 from .literature import extraction_provider
+
+_TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.extraction")
 
 
 class ContractExtractor(Protocol):
@@ -230,8 +233,13 @@ class ExtractionCoordinator:
                 # returned paper identity before graph publication.
                 paper_schema = schema["$defs"]["PaperNode"]["properties"]
                 paper_schema["query_match_ids"]["enum"] = [list(expected_query_match_ids)]
-            raw = self._providers[route].extract(full_request, schema)
-            admitted = admit_graph_contribution(raw)
+            with _TRACER.start_as_current_span("pmc_extraction.provider_request") as span:
+                span.set_attribute("atlas.provider_route", route)
+                span.set_attribute("atlas.extraction_attempt_id", request_id)
+                span.set_attribute("atlas.estimated_input_tokens", tokens)
+                raw = self._providers[route].extract(full_request, schema)
+            with _TRACER.start_as_current_span("pmc_extraction.parse_validate"):
+                admitted = admit_graph_contribution(raw)
             contribution = admitted.contribution
             if contribution.passages:
                 embeddings = self._embedder.embed(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +25,7 @@ from lyme_gap_atlas_data.pmc_extraction_worker import (
     ApprovedPaper,
     PMCExtractionWorker,
     PMCOpenAccessClient,
+    _failure_outcome,
     _provider_rejected_before_inference,
     _provider_rejection_rationale,
 )
@@ -158,6 +160,31 @@ def test_provider_rejection_rationale_retains_only_bounded_codes() -> None:
             httpx.HTTPStatusError("rejected", request=request, response=invalid)
         )
         == "provider_http_429"
+    )
+
+
+def test_failure_taxonomy_separates_provider_and_contract_failures() -> None:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    rejected = httpx.HTTPStatusError(
+        "secret response body", request=request, response=httpx.Response(400, request=request)
+    )
+    limited = httpx.HTTPStatusError(
+        "secret response body", request=request, response=httpx.Response(429, request=request)
+    )
+    assert _failure_outcome("extract", rejected) == (
+        "provider_rejected_pre_inference",
+        False,
+        "review_provider_contract",
+    )
+    assert _failure_outcome("extract", limited) == (
+        "provider_transient",
+        True,
+        "retry_after_provider_recovery",
+    )
+    assert _failure_outcome("claim", RuntimeError("private SQL")) == (
+        "runtime_contract",
+        False,
+        "repair_runtime_schema_or_grant",
     )
 
 
@@ -437,7 +464,8 @@ def test_no_approved_paper_does_not_fetch_or_publish() -> None:
     ledger, fetcher = Ledger(None), Fetcher()
     publisher = Publisher(ledger.events)
     result = worker(ledger, fetcher, Coordinator(contribution()), publisher).run()
-    assert result == {"status": "NO_APPROVED_PAPER"}
+    assert result["status"] == "NO_APPROVED_PAPER"
+    assert isinstance(result["run_id"], str)
     assert not fetcher.called and not publisher.called
 
 
@@ -485,3 +513,29 @@ def test_exhausted_budget_is_recorded_without_publication() -> None:
         ).run()
     assert not publisher.called
     assert ledger.events[-1] == "fail:RuntimeError"
+
+
+def test_provider_failure_log_has_correlation_and_redacts_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ledger = Ledger(approved_paper())
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "req_safe"},
+        json={"error": {"type": "invalid_request_error", "message": "SECRET_ARTICLE_TEXT"}},
+    )
+    error = httpx.HTTPStatusError("SECRET_ARTICLE_TEXT", request=request, response=response)
+    with pytest.raises(httpx.HTTPStatusError):
+        worker(ledger, Fetcher(), Coordinator(error), Publisher(ledger.events)).run()
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "SECRET_ARTICLE_TEXT" not in messages
+    failures = [
+        json.loads(record.getMessage().removeprefix("pmc.stage "))
+        for record in caplog.records
+        if '"failure_category"' in record.getMessage()
+    ]
+    assert failures
+    assert all(item["run_id"] == failures[0]["run_id"] for item in failures)
+    assert failures[-1]["provider_rationale"].endswith("request_id_req_safe")
