@@ -1,6 +1,14 @@
 title = "One Health Lyme Gap Atlas data pipeline secret-scanning exceptions"
 
 [[allowlists]]
+description = "DATA #131 synthetic canonical-URL deduplication digest, not a credential"
+condition = "AND"
+commits = ["da1bfe80c47d61c8f5fcaa49c55121080b029688"]
+paths = ['''^tests/fixtures/intelligence/v1/(atom|email|rss|web)-item\.json$''']
+regexTarget = "secret"
+regexes = ['''^1394a4e1c0bf2a6d258e57a05268114a6251f69983549366fdda5fa3c57239ea$''']
+
+[[allowlists]]
 description = "Public CDC historical resource identifier, not an authentication secret"
 condition = "AND"
 paths = [

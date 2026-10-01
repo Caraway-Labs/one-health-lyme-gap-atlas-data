@@ -59,6 +59,16 @@ All identity digests use SHA-256 over UTF-8 canonical JSON: sorted object keys,
 compact separators, no ASCII escaping, no NaN. Version the normalization rules
 as `intelligence-identity-v1` in provenance.
 
+Before hashing publisher/update/event timestamps, canonicalize their strict UTC
+RFC3339 representation to `YYYY-MM-DDTHH:MM:SS[.fraction]Z`: replace `+00:00`
+with `Z`, remove trailing fractional zeroes, and omit the fraction if zero.
+Preserve all remaining fractional digits; never round or truncate them.
+For example, `2026-09-29T08:00:00.100+00:00` becomes
+`2026-09-29T08:00:00.1Z`. Equivalent UTC spellings must not create revisions.
+Compact ISO dates/times are not accepted; calendar validation is mandatory.
+This timestamp subset does not support leap-second `:60` values; retain their
+unsupported chronology limitation instead of silently rewriting them.
+
 1. Canonical URL: HTTPS only; no userinfo, fragment, secret/query tracking fields,
    or nonstandard port. Lowercase host and remove port 443. Preserve path case,
    trailing slash, percent encodings, and semantically significant query fields.
@@ -143,6 +153,16 @@ work without deleting last valid items.
 Parser drift, access expiry, rate limits, upstream outage, malformed content,
 partial acceptance/persistence, and telemetry failure remain distinct. Failure
 diagnostics are allowlisted codes, never raw exception text or message content.
+Quiet and healthy outcomes have no rejected items; a healthy capture has at
+least one accepted item and a last-item-observed timestamp. Parser drift/malformed
+states require a parser failure and a positive consecutive-failure count;
+rate-limit/upstream-outage states require a fetch failure and positive count;
+access expiry requires fetch/policy failure and positive count. Partial outcomes
+require parser/policy/storage failure with positive count, plus rejected items
+unless the failure is persistence itself. Stale outcomes require a reviewed
+policy reference. These are record invariants, not source threshold decisions.
+`never_fetched` has no successful fetch/item timestamps, accepted/rejected items,
+or failure evidence; failed attempts use their explicit failure state instead.
 Retries remain within source limits and transient-failure policy. #136 must add
 reviewed thresholds, owners, escalation, alert deduplication, recovery, and real
 runtime evidence; no monitoring platform or notification delivery is added here.

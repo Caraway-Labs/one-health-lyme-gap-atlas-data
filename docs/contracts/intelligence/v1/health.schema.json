@@ -39,14 +39,14 @@
     "observed_at": {
       "type": "string",
       "format": "date-time",
-      "pattern": "(Z|[+]00:00)$"
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
     },
     "last_fetch_success_at": {
       "anyOf": [
         {
           "type": "string",
           "format": "date-time",
-          "pattern": "(Z|[+]00:00)$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
         },
         {
           "type": "null"
@@ -58,7 +58,7 @@
         {
           "type": "string",
           "format": "date-time",
-          "pattern": "(Z|[+]00:00)$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
         },
         {
           "type": "null"
@@ -70,7 +70,7 @@
         {
           "type": "string",
           "format": "date-time",
-          "pattern": "(Z|[+]00:00)$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
         },
         {
           "type": "null"
@@ -82,7 +82,7 @@
         {
           "type": "string",
           "format": "date-time",
-          "pattern": "(Z|[+]00:00)$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
         },
         {
           "type": "null"
@@ -184,7 +184,7 @@
           "last_fetch_success_at": {
             "type": "string",
             "format": "date-time",
-            "pattern": "(Z|[+]00:00)$"
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
           },
           "failure_category": {
             "type": "null"
@@ -207,6 +207,9 @@
         "properties": {
           "accepted_items": {
             "const": 0
+          },
+          "rejected_items": {
+            "const": 0
           }
         }
       }
@@ -223,6 +226,14 @@
         "properties": {
           "accepted_items": {
             "minimum": 1
+          },
+          "rejected_items": {
+            "const": 0
+          },
+          "last_item_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]+)?(?:Z|[+]00:00)$"
           }
         }
       }
@@ -242,8 +253,142 @@
           },
           "last_item_observed_at": {
             "type": "null"
+          },
+          "accepted_items": {
+            "const": 0
+          },
+          "rejected_items": {
+            "const": 0
+          },
+          "failure_category": {
+            "type": "null"
+          },
+          "consecutive_failures": {
+            "const": 0
           }
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "stale"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "policy_ref": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "parser_drift",
+              "malformed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "const": "parser"
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "rate_limited",
+              "upstream_outage"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "const": "fetch"
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "access_expired"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "enum": [
+              "fetch",
+              "policy"
+            ]
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "failure_category": {
+            "enum": [
+              "parser",
+              "policy",
+              "storage"
+            ]
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          }
+        },
+        "anyOf": [
+          {
+            "properties": {
+              "rejected_items": {
+                "minimum": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "failure_category": {
+                "const": "storage"
+              }
+            }
+          }
+        ]
       }
     }
   ]
