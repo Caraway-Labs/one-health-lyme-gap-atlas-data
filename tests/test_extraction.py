@@ -265,7 +265,7 @@ def test_openai_responses_uses_the_closed_strict_schema(
     assert "default" not in strict_schema["properties"]["optional_field"]
 
 
-def test_openai_transports_claimed_query_ids_as_supported_array_constraints(
+def test_openai_restores_known_accepted_transport_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -288,10 +288,10 @@ def test_openai_transports_claimed_query_ids_as_supported_array_constraints(
     query_ids["enum"] = [expected]
     extraction.OpenAIResponsesExtractor("test-key").extract("request", schema)
     transported = captured["json"]["text"]["format"]["schema"]
+    known_accepted = extraction._strict_response_schema(GraphContribution.model_json_schema())
+    assert transported == known_accepted
     actual = transported["$defs"]["PaperNode"]["properties"]["query_match_ids"]
-    assert actual["items"]["enum"] == expected
-    assert actual["minItems"] == actual["maxItems"] == len(expected)
-    assert "enum" not in actual
+    assert actual == known_accepted["$defs"]["PaperNode"]["properties"]["query_match_ids"]
     assert query_ids["enum"] == [expected]  # provider adaptation does not mutate the guard input
 
 

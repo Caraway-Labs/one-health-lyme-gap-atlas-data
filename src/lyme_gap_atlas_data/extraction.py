@@ -109,14 +109,11 @@ class OpenAIResponsesExtractor:
             .get("properties", {})
             .get("query_match_ids")
         )
-        exact_arrays = query_ids.pop("enum", None) if isinstance(query_ids, dict) else None
-        if exact_arrays is not None:
-            # OpenAI's strict subset supports scalar item enums and array size
-            # limits. The canonical worker still checks the complete ordered IDs.
-            expected = exact_arrays[0]
-            query_ids["items"]["enum"] = expected
-            query_ids["minItems"] = len(expected)
-            query_ids["maxItems"] = len(expected)
+        if isinstance(query_ids, dict):
+            # Keep OpenAI's previously accepted transport schema. The worker
+            # still rejects any returned provenance IDs that differ from the
+            # approved paper; Groq retains its provider-specific enum.
+            query_ids.pop("enum", None)
         payload = {
             "model": "gpt-5.6-luna",
             "service_tier": "default",
