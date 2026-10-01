@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -11,9 +14,12 @@ from runpy import run_path
 import pytest
 import yaml
 
-build_spec = run_path(
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "prod_literature_job_spec.py"
+_MODULE = run_path(
     str(Path(__file__).resolve().parents[1] / "scripts" / "prod_literature_job_spec.py")
-)["build_spec"]
+)
+build_spec = _MODULE["build_spec"]
+secret_readiness = _MODULE["secret_readiness"]
 
 DIGEST = "sha256:" + "a" * 64
 
@@ -217,7 +223,12 @@ def test_live_app_without_vpc_gets_private_network_only_for_graph_stage() -> Non
         baseline,
         operation="preflight",
         image_digest=DIGEST,
-        secrets={"NEO4J_RUNTIME_PASSWORD": "graph-secret"},
+        secrets={
+            "NCBI_EMAIL": "operator@example.test",
+            "NEO4J_RUNTIME_PASSWORD": "graph-secret",
+            "GROQ_API_KEY": "groq-secret",
+            "OPENAI_API_KEY": "openai-secret",
+        },
     )
     assert "vpc" not in baseline
     assert preflight["vpc"]["id"] == "a937d8dd-4ee9-4de2-a8df-b32e7ad4098e"
@@ -313,3 +324,177 @@ def test_all_prod_app_spec_mutators_share_one_non_canceling_lock() -> None:
     assert "promote-prod.yml" in mutators
     assert "run-prod-literature-once.yml" in mutators
     assert len(mutators) == 7
+
+
+def test_host_secret_readiness_collects_every_stage_without_values() -> None:
+    baseline = _baseline()
+    for job in baseline["jobs"]:
+        job["envs"] = [
+            entry
+            for entry in job["envs"]
+            if entry["key"] not in {"SNOWFLAKE_PRIVATE_KEY_B64", "SPACES_ACCESS_KEY_ID"}
+        ]
+    before = deepcopy(baseline)
+    result = secret_readiness(
+        baseline,
+        operation="preflight",
+        secrets={"NCBI_API_KEY": "OPTIONAL_SECRET_SENTINEL"},
+        workflow_run_id="12345",
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["run_id"] == "12345"
+    assert result["scope"] == "host_secret_presence"
+    assert result["runtime_readiness"] == "NOT_CHECKED"
+    assert {(item["stage"], item["capability"]) for item in result["blockers"]} == {
+        (stage, key)
+        for stage in ("discover", "extract", "build-corpus")
+        for key in ("SNOWFLAKE_PRIVATE_KEY_B64", "SPACES_ACCESS_KEY_ID")
+    } | {
+        ("discover", "NCBI_EMAIL"),
+        ("extract", "NEO4J_RUNTIME_PASSWORD"),
+        ("extract", "GROQ_API_KEY"),
+        ("extract", "OPENAI_API_KEY"),
+    }
+    assert all(
+        item["remediation_owner"] and item["next_action"] and item["retryable"] is False
+        for item in result["blockers"]
+    )
+    assert "OPTIONAL_SECRET_SENTINEL" not in json.dumps(result)
+    assert "encrypted" not in json.dumps(result)
+    assert baseline == before
+
+
+@pytest.mark.parametrize("credential_type", [None, "GENERAL", "SECRET"])
+def test_empty_or_unprotected_inherited_credential_blocks(credential_type: str | None) -> None:
+    baseline = _baseline()
+    credential = next(
+        entry for entry in baseline["jobs"][1]["envs"] if entry["key"] == "SPACES_ACCESS_KEY_ID"
+    )
+    credential.update(type=credential_type, value="" if credential_type == "SECRET" else "x")
+    result = secret_readiness(baseline, operation="build-corpus", secrets={})
+    assert [item["capability"] for item in result["blockers"]] == ["SPACES_ACCESS_KEY_ID"]
+
+
+def test_ready_host_report_never_claims_runtime_or_optional_key_is_required() -> None:
+    result = secret_readiness(
+        _baseline(), operation="discover", secrets={"NCBI_EMAIL": "EMAIL_SENTINEL"}
+    )
+    assert result["status"] == "READY"
+    assert result["runtime_readiness"] == "NOT_CHECKED"
+    assert result["blockers"] == []
+    assert result["optional_configuration"] == {"NCBI_API_KEY_present": False}
+    assert "EMAIL_SENTINEL" not in json.dumps(result)
+
+
+def test_cli_blocked_report_does_not_write_a_deployable_spec(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline_path, output, report = (
+        tmp_path / "baseline.json",
+        tmp_path / "operation.json",
+        tmp_path / "readiness.json",
+    )
+    baseline_path.write_text(json.dumps(_baseline()), encoding="utf-8")
+    for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("NCBI_API_KEY", "OPTIONAL_SECRET_SENTINEL")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "spec",
+            "--baseline",
+            str(baseline_path),
+            "--output",
+            str(output),
+            "--operation",
+            "preflight",
+            "--image-digest",
+            DIGEST,
+            "--workflow-run-id",
+            "12345",
+            "--readiness-report",
+            str(report),
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        run_path(str(_SCRIPT))["main"]()
+    result = json.loads(report.read_text())
+    assert result["status"] == "BLOCKED"
+    assert {item["capability"] for item in result["blockers"]} == {
+        "NCBI_EMAIL",
+        "NEO4J_RUNTIME_PASSWORD",
+        "GROQ_API_KEY",
+        "OPENAI_API_KEY",
+    }
+    assert not output.exists()
+    assert "OPTIONAL_SECRET_SENTINEL" not in str(error.value)
+
+
+def test_real_workflow_missing_secrets_never_updates_or_restores_topology(tmp_path: Path) -> None:
+    bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
+    if not bash or not Path(bash).exists():
+        pytest.skip("workflow integration requires bash")
+    workflow = yaml.safe_load(Path(".github/workflows/run-prod-literature-once.yml").read_text())
+    body = workflow["jobs"]["run"]["steps"][-1]["run"]
+    fixture, updates = tmp_path / "baseline.json", tmp_path / "updates"
+    fixture.write_text(json.dumps(_baseline()), encoding="utf-8")
+    # The actual deployed-image/topology reads use fixture-only doctl/jq functions.
+    # Every App update (including restoration) is a failing, recorded sentinel.
+    harness = (
+        r"""
+doctl() {
+  if [ "$1 $2" = "apps update" ]; then
+    echo UPDATE >> "$UPDATE_SENTINEL"
+    return 99
+  fi
+  if [ "$1 $2 $3" = "apps spec get" ]; then cat "$BASELINE_FIXTURE"; else echo '{}'; fi
+}
+jq() {
+  if [ "$#" -ne 3 ]; then cat >/dev/null; fi
+  case "$*" in
+    *phase*) echo ACTIVE ;;
+    *active_deployment*) echo deployment ;;
+    *length*) echo 1 ;;
+    *) echo "$IMAGE_DIGEST" ;;
+  esac
+}
+python() { "$PYTHON_EXECUTABLE" "$@"; }
+"""
+        + body
+    )
+    env = os.environ.copy()
+    env.update(
+        GITHUB_REF="refs/heads/main",
+        GITHUB_SHA="a" * 40,
+        GITHUB_RUN_ID="12345",
+        PROD_APP_ID="fixture-prod",
+        DEV_APP_ID="fixture-dev",
+        IMAGE_DIGEST=DIGEST,
+        MAX_RECORDS="25",
+        BATCH_SIZE="25",
+        ESTIMATED_COST_USD="0.20",
+        DISCOVERY_RUN_ID="",
+        LITERATURE_OPERATION="preflight",
+        LITERATURE_FAMILY="surveillance_epidemiology",
+        BASELINE_FIXTURE=fixture.as_posix(),
+        UPDATE_SENTINEL=updates.as_posix(),
+        PYTHON_EXECUTABLE=Path(sys.executable).as_posix(),
+    )
+    for key in (
+        "NCBI_EMAIL",
+        "NCBI_API_KEY",
+        "NEO4J_RUNTIME_PASSWORD",
+        "GROQ_API_KEY",
+        "OPENAI_API_KEY",
+    ):
+        env.pop(key, None)
+    result = subprocess.run(
+        [bash, "-c", harness], env=env, capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode != 0
+    assert '"status": "BLOCKED"' in result.stdout
+    for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+        assert key in result.stdout
+    assert not updates.exists()
+    assert "encrypted" not in result.stdout + result.stderr

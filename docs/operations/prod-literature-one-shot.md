@@ -83,6 +83,30 @@ query, extraction, Snowflake write, or Neo4j write. After the workflow
 finishes, verify that `doctl apps spec get $prodAppId --format json` lists only
 the original six jobs and no `literature-*-once` job. Stop if restoration fails.
 
+Before the workflow can change App/VPC topology, its existing spec builder emits
+one sanitized host-secret report. It lists every missing required literature
+secret and inherited Snowflake/Spaces credential together, mapped to discovery,
+extraction or corpus stages, with owner, retryability and next action. A `preflight`
+invocation checks the secret prerequisites for all three operations; other
+invocations check only their selected operation. Optional `NCBI_API_KEY` absence
+does not block. No credential value or captured App spec enters this report.
+
+The report's `scope=host_secret_presence` and `runtime_readiness=NOT_CHECKED` are
+explicit: `READY` here proves only secret configuration presence/protection, not
+database contracts, private connectivity, artifact access or provider validity.
+The existing runtime preflight still checks those accessible runtime contracts
+before claim. If host readiness is `BLOCKED`, no temporary spec is written and
+the workflow performs neither the App update nor its restoration update. Fix the
+named configuration and repeat the protected operation; do not bypass the gate.
+Reports use the existing workflow run ID and remain in its sanitized logs after
+private temporary report/spec files are removed.
+
+For a local fixture or previously authorized privately captured spec, the same
+builder accepts `--readiness-report <private-json-path>` alongside its existing
+arguments. Never publish the baseline or generated deployment specification.
+This host check does not provide a durable pre-batch canary gate or a complete
+pre-topology network/database readiness proof.
+
 The discovery output's `discovery_run_id` is the batch key for later operations.
 Supply that same UUID as the workflow's optional `discovery_run_id` input for
 extraction and corpus rebuild. When supplied, the extraction claim and corpus
