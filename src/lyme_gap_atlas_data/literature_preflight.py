@@ -233,6 +233,23 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
             cursor.execute(
                 "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS "
                 "WHERE CONSTRAINT_SCHEMA = 'KNOWLEDGE_GRAPH' "
+                "AND CONSTRAINT_NAME = 'CK_PMC_ATTEMPT_CLASSIFICATION'"
+            )
+            classification_clauses = cursor.fetchall()
+            required_classifications = {
+                "provider_rejected_pre_inference",
+                "contract_remediation_reopen",
+            }
+            if not any(
+                required_classifications.issubset(
+                    set(re.findall(r"'([^']+)'", str(item[0]).lower()))
+                )
+                for item in classification_clauses
+            ):
+                missing.append("PMC_ATTEMPT_CLASSIFICATION_CONTRACT")
+            cursor.execute(
+                "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS "
+                "WHERE CONSTRAINT_SCHEMA = 'KNOWLEDGE_GRAPH' "
                 "AND CONSTRAINT_NAME = 'CK_EXTRACTION_ATTEMPT_DIAGNOSTIC_TYPE'"
             )
             clauses = cursor.fetchall()
@@ -246,7 +263,8 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 if not any(
                     right in {"USAGE", "OWNERSHIP"}
                     and granted_on == "PROCEDURE"
-                    and procedure in name
+                    and name.split("(", 1)[0].strip()
+                    == f"{settings.snowflake_database}.GOVERNANCE.{procedure}".upper()
                     for right, granted_on, name in grants
                 ):
                     missing.append(f"GOVERNANCE.{procedure}:USAGE")

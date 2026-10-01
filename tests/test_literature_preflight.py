@@ -122,9 +122,11 @@ def test_effective_grants_include_inherited_role() -> None:
 
 
 @pytest.mark.parametrize("operation", ["discover", "extract", "build-corpus"])
+@pytest.mark.parametrize("valid_contract", [False, True])
 def test_preflight_detects_missing_column_and_write_privilege(
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
+    valid_contract: bool,
 ) -> None:
     statements: list[str] = []
 
@@ -151,7 +153,30 @@ def test_preflight_detects_missing_column_and_write_privilege(
 
         def fetchall(self) -> list[tuple[str, ...]]:
             if self.sql.startswith("SHOW GRANTS"):
-                return []
+                prefix = "ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE."
+                if valid_contract:
+                    return [
+                        ("", "USAGE", "PROCEDURE", prefix + name + "(VARCHAR, NUMBER)")
+                        for name in ("SP_RESERVE_KG_LLM_BUDGET", "SP_FINALIZE_KG_LLM_BUDGET")
+                    ]
+                return [
+                    (
+                        "",
+                        "USAGE",
+                        "PROCEDURE",
+                        "OTHER_DB.GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET(VARCHAR)",
+                    ),
+                    ("", "USAGE", "PROCEDURE", prefix + "SP_FINALIZE_KG_LLM_BUDGET_COPY(VARCHAR)"),
+                ]
+            if "CK_PMC_ATTEMPT_CLASSIFICATION" in self.sql:
+                return [
+                    (
+                        "CLASSIFICATION IN ('provider_rejected_pre_inference', "
+                        "'contract_remediation_reopen')"
+                        if valid_contract
+                        else "CLASSIFICATION IN ('provider_rejected_pre_inference')",
+                    )
+                ]
             if (
                 "INFORMATION_SCHEMA.COLUMNS" in self.sql
                 and self.metadata_table == "PUBMED_DISCOVERY_RUNS"
@@ -192,5 +217,11 @@ def test_preflight_detects_missing_column_and_write_privilege(
         assert "RAW_ARTIFACT_ID" in _WRITE_COLUMNS["KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS"]
     if operation == "extract":
         assert "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS:COLUMNS" in missing
+        for capability in (
+            "PMC_ATTEMPT_CLASSIFICATION_CONTRACT",
+            "GOVERNANCE.SP_RESERVE_KG_LLM_BUDGET:USAGE",
+            "GOVERNANCE.SP_FINALIZE_KG_LLM_BUDGET:USAGE",
+        ):
+            assert (capability in missing) is not valid_contract
     if operation != "build-corpus":
         assert "GOVERNANCE.RAW_ARTIFACTS:COLUMNS" in missing
