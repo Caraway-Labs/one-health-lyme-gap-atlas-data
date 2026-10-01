@@ -65,3 +65,40 @@ Private-network readiness before temporary topology mutation remains unproved
 without an approved existing execution surface. Host secret checks were delivered
 separately in merged DATA PR #543. KG13 grounded-answer QA is a separate acceptance criterion.
 This slice does not complete KG15 or authorize production extraction/deployment.
+
+## Read-only attempt, graph and artifact receipt seam
+
+`inspect_group_canary_receipts(group, cursor)` accepts an existing authorized
+Snowflake cursor and a parsed group identity. It makes only two bounded SELECTs;
+it does not construct a connection, invoke a provider, claim a paper or mutate
+history. There is no CLI/workflow activation or caller success assertion.
+
+The first projection preserves missing joins and rejects zero or multiple group
+attempt contexts. The authoritative context must match the exact group inventory
+and fingerprint, discovery, image, extraction method and group contract. The
+attempt must be completed, the paper processed with a steward decision, and the
+canary PMID must remain in the exact authoritative discovery scope. Aware start
+and finish timestamps must establish completion after that group's recorded
+extraction/group readiness. There is no age-based reuse allowance.
+
+The second projection requires exactly one receipt for that extraction attempt
+and an exact artifact-ID/PMID join to `PMC_FULL_TEXT_ARTIFACTS`. Paper/PMC identity,
+nonempty artifact provenance, valid source/contribution hashes and positive
+graph counts must match. Artifact admission must precede the attempt; an older
+valid immutable artifact is reused on retries without repeating acquisition.
+Freshness applies to the same-group canary attempt and successful graph
+publication, which must fall within that completed attempt after readiness.
+Missing or ambiguous joins, stale chronology, identity changes and read failures
+return typed sanitized blockers. Reports omit object keys, license URLs, content
+and exception bodies. This is ledger lineage verification, not a fresh download
+or revalidation of artifact bytes/license policy.
+
+Successful lineage reports `receipt_readiness: READY` only for scope
+`same_group_attempt_graph_artifact_receipts`. Overall `status` always remains
+`BLOCKED`, with corpus admission, actual serving visibility and full pre-topology
+readiness explicitly `NOT_CHECKED`, and continuation still unimplemented. The
+runtime's existing `phase: continue` denial is unchanged. The remaining corpus
+join must bind a fresh completed build and its exact canary units to this receipt
+lineage; the serving seam must prove provider-free visibility through the actual
+query. Private-network proof still needs an approved existing execution surface.
+Offline fixture success is not production evidence or authorization to run.
