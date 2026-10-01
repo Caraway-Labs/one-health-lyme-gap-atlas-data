@@ -157,9 +157,9 @@ def build_spec(
         if value
     )
     job.pop("schedule", None)
-    # Remove unrelated source tokens. The temporary job has only the credentials
-    # its chosen literature stage needs, and none are added to persistent jobs.
-    unrelated = {"DATA_GOV_API_KEY", "SOCRATA_APP_TOKEN", "OTEL_EXPORTER_OTLP_HEADERS"}
+    # Remove unrelated source tokens. Preserve the existing opaque collector
+    # headers with the inherited endpoint; neither is added to persistent jobs.
+    unrelated = {"DATA_GOV_API_KEY", "SOCRATA_APP_TOKEN"}
     job["envs"] = [entry for entry in job["envs"] if entry["key"] not in unrelated]
     supplied = secrets or {}
     if operation == "preflight":
