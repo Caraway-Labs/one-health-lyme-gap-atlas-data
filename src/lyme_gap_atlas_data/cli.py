@@ -1091,6 +1091,21 @@ def source_nclimgrid_report(
     typer.echo(json.dumps({"report": str(output), "county_csv": str(county_csv)}))
 
 
+@source_app.command("nclimgrid-publication-candidate")
+def source_nclimgrid_publication_candidate(
+    output: str = typer.Option(..., "--output"),
+) -> None:
+    """Prepare the approved January capture's read-only consumer review artifact."""
+    from .climate_publication import ClimatePublicationBlocked, create_candidate
+
+    try:
+        report = create_candidate(Path(output))
+    except ClimatePublicationBlocked as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(json.dumps(report))
+
+
 @source_app.command("nclimgrid-pilot-measure")
 def source_nclimgrid_pilot_measure(
     action: str = typer.Option(..., "--action"),
