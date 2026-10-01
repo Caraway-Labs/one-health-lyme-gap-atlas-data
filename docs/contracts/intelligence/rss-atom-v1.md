@@ -20,6 +20,11 @@ closed. Invalid RFC3339 offset components remain invalid chronology. Unmapped
 distinct publisher categories produce one counted limitation, retaining raw
 publisher text only in the private artifact.
 
+An Atom link without required `href` yields unknown canonical URL. Empty `href`
+also yields unknown: RFC3986 empty-reference resolution can identify the feed
+document, but it is insufficient evidence of a publication identity. Distinct
+publisher IDs retain their source-scoped fallback identities in both cases.
+
 The `rss_atom` adapter uses the existing source definition, artifact/run capture,
 checkpoint/resume and stage state machine. Tier A may read bounded `sample.xml`
 fixtures for a candidate source. No source definition or schedule is activated.

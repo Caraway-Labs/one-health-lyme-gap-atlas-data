@@ -113,11 +113,15 @@ def parse_feed(
         else:
             entry_base = _xml_base(entry, feed_base)
             links = [
-                urljoin(_xml_base(node, entry_base), node.get("href", ""))
+                None
+                if node.get("href") in {None, ""}
+                else urljoin(_xml_base(node, entry_base), node.attrib["href"])
                 for node in entry.findall(ATOM + "link")
                 if node.get("rel", "alternate") == "alternate"
                 and node.get("type", "text/html") in {"text/html", "application/xhtml+xml"}
             ]
+            # Atom requires href. An empty RFC3986 reference identifies the
+            # feed document, not an evidenced publication; abstain in both cases.
             # Ambiguous alternatives stay unknown rather than choosing a publisher URL.
             item = {
                 "publisher_identity": _text(entry, ATOM + "id"),
