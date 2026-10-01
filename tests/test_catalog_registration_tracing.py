@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from opentelemetry.exporter.otlp.proto.common.trace_encoder import encode_spans
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -23,6 +24,8 @@ def test_export_omits_option_limits_and_preserves_registration_evidence(
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     monkeypatch.setattr(registration, "_TRACER", provider.get_tracer("registration-test"))
     received: list[tuple[str, int, int, str]] = []
+    sentinel = "PRIVATE_REGISTRATION_PAYLOAD_SENTINEL"
+    failure = RuntimeError(sentinel)
     result: dict[str, int | str] = {
         "status": "COMPLETED",
         "processed_datasets": 3,
@@ -39,14 +42,15 @@ def test_export_omits_option_limits_and_preserves_registration_evidence(
             (config_sha256, maximum_artifacts, maximum_datasets, progress.registration_run_id)
         )
         if failed:
-            raise RuntimeError("registration failed")
+            raise failure
         return result
 
     monkeypatch.setattr(registration, "_register_completed_discovery", register)
     try:
         if failed:
-            with pytest.raises(RuntimeError, match="registration failed"):
+            with pytest.raises(RuntimeError) as caught:
                 registration.register_completed_discovery("a" * 64, *limits)
+            assert caught.value is failure
         else:
             assert registration.register_completed_discovery("a" * 64, *limits) is result
         assert provider.force_flush()
@@ -54,8 +58,16 @@ def test_export_omits_option_limits_and_preserves_registration_evidence(
         assert len(spans) == 1
         span = spans[0]
         assert span.name == "catalog_registration.run"
-        # Inspect the real SDK's exported, serialized attributes, not a fake span.
-        attributes: dict[str, Any] = json.loads(span.to_json())["attributes"]
+        # Inspect the whole real SDK export, including events and status text.
+        serialized = span.to_json()
+        assert sentinel not in serialized
+        assert not span.events
+        attributes: dict[str, Any] = json.loads(serialized)["attributes"]
+        encoded = encode_spans(spans)
+        assert sentinel.encode() not in encoded.SerializeToString()
+        encoded_span = encoded.resource_spans[0].scope_spans[0].spans[0]
+        assert not encoded_span.events
+        assert {attribute.key for attribute in encoded_span.attributes} == set(attributes)
         assert "atlas.registration.maximum_artifacts" not in attributes
         assert "atlas.registration.maximum_datasets" not in attributes
         run_id = attributes["atlas.registration.run_id"]
@@ -67,6 +79,8 @@ def test_export_omits_option_limits_and_preserves_registration_evidence(
                 "error.type": "RuntimeError",
             }
             assert span.status.status_code is StatusCode.ERROR
+            assert span.status.description == "RuntimeError"
+            assert encoded_span.status.message == "RuntimeError"
         else:
             assert attributes == {
                 "atlas.registration.run_id": run_id,

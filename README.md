@@ -108,6 +108,9 @@ dataset/resource counts. They omit the configured artifact/dataset limit
 option values. Those limits still control execution and remain in the existing
 durable registration ledger and operator diagnostics. This applies to newly
 exported spans; previously stored traces are retained unchanged as history.
+On failure, registration spans retain the exception type and safe error status
+without recording raw exception messages or stack traces; the original
+exception still propagates to the caller.
 
 ### Temporary registration backfill
 

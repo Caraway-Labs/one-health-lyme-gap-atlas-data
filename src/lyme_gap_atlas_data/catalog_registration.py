@@ -101,7 +101,9 @@ def _registration_span(
     name: str, attributes: dict[str, str | int | float | bool | None]
 ) -> Generator[Any, None, None]:
     """Create a privacy-safe child span without recording exception text or payloads."""
-    with _TRACER.start_as_current_span(name) as span:
+    with _TRACER.start_as_current_span(
+        name, record_exception=False, set_status_on_exception=False
+    ) as span:
         for key, value in attributes.items():
             if value is not None:
                 span.set_attribute(key, value)
