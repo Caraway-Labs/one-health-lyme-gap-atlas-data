@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from copy import deepcopy
 from pathlib import Path
 from runpy import run_path
@@ -67,6 +69,104 @@ def _baseline() -> dict:
         "vpc": {"id": "a937d8dd-4ee9-4de2-a8df-b32e7ad4098e"},
         "jobs": [job(name, spaces=name != names[-1]) for name in names],
     }
+
+
+@pytest.mark.parametrize("operation", ["preflight", "discover", "extract", "build-corpus"])
+def test_existing_opaque_collector_headers_follow_only_temporary_job(
+    operation: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline = _baseline()
+    endpoint = {
+        "key": "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "scope": "RUN_TIME",
+        "value": "https://collector.example.invalid/v1/traces",
+    }
+    headers = {
+        "key": "OTEL_EXPORTER_OTLP_HEADERS",
+        "scope": "RUN_TIME",
+        "type": "SECRET",
+        "value": "DUMMY_OPAQUE_ENCRYPTED_HEADER_SENTINEL",
+    }
+    for job in baseline["jobs"]:
+        job["envs"] += [
+            deepcopy(endpoint),
+            deepcopy(headers),
+            {"key": "DATA_GOV_API_KEY", "type": "SECRET", "value": "dummy-source"},
+            {"key": "SOCRATA_APP_TOKEN", "type": "SECRET", "value": "dummy-source"},
+        ]
+    before = deepcopy(baseline)
+    result = build_spec(
+        baseline,
+        operation=operation,
+        image_digest=DIGEST,
+        family="vector_host_pathogen",
+        max_records=10,
+        batch_size=10,
+        secrets={
+            "NCBI_EMAIL": "operator@example.test",
+            "NEO4J_RUNTIME_PASSWORD": "dummy",
+            "GROQ_API_KEY": "dummy",
+            "OPENAI_API_KEY": "dummy",
+        },
+    )
+    assert baseline == before
+    assert result["jobs"][:6] == before["jobs"]
+    envs = {entry["key"]: entry for entry in result["jobs"][-1]["envs"]}
+    assert envs["OTEL_EXPORTER_OTLP_ENDPOINT"] == endpoint
+    assert envs["OTEL_EXPORTER_OTLP_HEADERS"] == headers
+    assert "DATA_GOV_API_KEY" not in envs
+    assert "SOCRATA_APP_TOKEN" not in envs
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+def test_spec_cli_never_prints_opaque_header(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline = _baseline()
+    for job in baseline["jobs"]:
+        job["envs"] += [
+            {
+                "key": "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "value": "https://collector.example.invalid/v1/traces",
+            },
+            {
+                "key": "OTEL_EXPORTER_OTLP_HEADERS",
+                "type": "SECRET",
+                "scope": "RUN_TIME",
+                "value": "DUMMY_OPAQUE_HEADER_SENTINEL",
+            },
+        ]
+    source, output = tmp_path / "baseline.json", tmp_path / "output.json"
+    source.write_text(json.dumps(baseline), encoding="utf-8")
+    monkeypatch.setenv("NCBI_EMAIL", "operator@example.test")
+    for key in ("NCBI_API_KEY", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "spec",
+            "--baseline",
+            str(source),
+            "--output",
+            str(output),
+            "--operation",
+            "discover",
+            "--image-digest",
+            DIGEST,
+        ],
+    )
+    run_path(str(Path(__file__).resolve().parents[1] / "scripts/prod_literature_job_spec.py"))[
+        "main"
+    ]()
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    envs = {entry["key"]: entry for entry in json.loads(output.read_text())["jobs"][-1]["envs"]}
+    assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["value"] == "DUMMY_OPAQUE_HEADER_SENTINEL"
 
 
 @pytest.mark.parametrize("operation", ["preflight", "discover", "extract", "build-corpus"])
