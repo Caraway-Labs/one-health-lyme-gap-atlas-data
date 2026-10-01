@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -579,7 +580,11 @@ def is_authorized_legacy_reconciliation(
 
 
 def apply_migrations(
-    settings: SnowflakeSettings, database: str, commit: str | None = None
+    settings: SnowflakeSettings,
+    database: str,
+    commit: str | None = None,
+    *,
+    expected_pending: list[dict[str, str]] | None = None,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
@@ -596,8 +601,15 @@ def apply_migrations(
             cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
             applied = dict(cursor.fetchall())
         except ProgrammingError:
+            if expected_pending is not None:
+                raise
             applied = {}
         reconciled = _reconciled_legacy_migrations(cursor, database)
+    if expected_pending is not None:
+        require_reviewed_pending_set(
+            [_migration_metadata(item) for item in plan if item.version not in applied],
+            expected_pending,
+        )
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
@@ -630,3 +642,59 @@ def apply_migrations(
             connection.commit()
         executed.append(migration.version)
     return executed
+
+
+def _migration_metadata(migration: Migration) -> dict[str, str]:
+    return {
+        "version": migration.version,
+        "filename": migration.filename,
+        "sha256": migration.sha256,
+    }
+
+
+def pending_migration_plan(settings: SnowflakeSettings, database: str) -> list[dict[str, str]]:
+    """Read the exact pending source set; an unreadable ledger is a stop condition."""
+    plan = migration_plan(database)
+    with connect(settings, include_database=False) as connection, connection.cursor() as cursor:
+        cursor.execute(f"USE DATABASE {database}")
+        cursor.execute("SELECT version FROM GOVERNANCE.SCHEMA_MIGRATIONS")
+        applied = {row[0] for row in cursor.fetchall()}
+    return [item for item in plan if item["version"] not in applied]
+
+
+def parse_reviewed_pending_set(value: str) -> list[dict[str, str]]:
+    """Accept explicit JSON metadata only, including an explicitly reviewed empty set."""
+    try:
+        reviewed = json.loads(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Reviewed pending migrations must be a JSON array") from error
+    if not isinstance(reviewed, list):
+        raise ValueError("Reviewed pending migrations must be a JSON array")
+    versions: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in reviewed:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"version", "filename", "sha256"}
+            or not all(isinstance(field, str) for field in item.values())
+            or not re.fullmatch(r"V[0-9]+", item["version"])
+            or not re.fullmatch(r"V[0-9]+__[A-Za-z0-9_-]+\.sql", item["filename"])
+            or not item["filename"].startswith(item["version"] + "__")
+            or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])
+            or item["version"] in versions
+        ):
+            raise ValueError("Invalid or duplicate reviewed migration metadata")
+        versions.add(item["version"])
+        result.append(item)
+    return result
+
+
+def require_reviewed_pending_set(
+    actual: list[dict[str, str]], reviewed: list[dict[str, str]]
+) -> None:
+    """Compare complete metadata sets without accepting additions or omissions."""
+    validated = parse_reviewed_pending_set(json.dumps(reviewed))
+    if sorted(actual, key=lambda item: item["version"]) != sorted(
+        validated, key=lambda item: item["version"]
+    ):
+        raise ValueError("Actual pending migrations differ from the reviewed pending set")
