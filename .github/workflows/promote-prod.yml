@@ -36,6 +36,9 @@ jobs:
           test -n "$IMAGE_DIGEST"
           dev_digest="$(doctl apps spec get "$DEV_APP_ID" --format json | jq -r '.jobs[0].image.digest')"
           test "$dev_digest" = "$IMAGE_DIGEST"
+          source_digest="$(doctl registry repository list-manifests pipeline --output json \
+            | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
+          test "$source_digest" = "$IMAGE_DIGEST"
       - name: Verify PROD target has been explicitly provisioned
         run: |
           test -n "$PROD_APP_ID"
