@@ -82,17 +82,20 @@ boundary before coding executable publication or access DDL.
 
 API reads only release ID, measure ID, reviewed semantic version, county FIPS,
 period start/end, DAY resolution, value, value state, unit, null denominator,
-coverage status, source-time presence, valid/source-supported fraction,
+coverage status, source-time presence, expected/intersected/source-supported/valid
+areas, valid/source-supported fraction,
 monthly source-supported/legal-county fraction, retrieval time, nullable original
-publication time, publisher/dataset/vintage, method/weight/geometry versions,
+publication time, distinct upstream modification time, publisher/dataset/vintage,
+method/weight/geometry versions, labeled 24-hour early-morning-ending convention,
 metadata revision and limitations. Exclude internal run, capture, revision and
 artifact IDs; hashes; payloads; private URIs; credentials; and arbitrary JSON.
 Do not forward candidate NDJSON wholesale. All rows carry one release identity.
 
-Propose semantic version `2.0.0` for the four existing measure IDs, with
-methodology `/2`. Steward review must decide whether the corrected denominator
-is a changed scientific meaning or a documented equivalence to v1; do not
-rewrite the historical v1 candidate or label the artifact `/1`.
+Existing semantic governance requires semantic version `2.0.0` for the four
+existing measure IDs with methodology `/2`. This aligns the approved verified
+candidate; it does not add a product meaning or assert equivalence to v1.
+Retain the historical v1 candidate and `/1` labels. Publication still requires
+actual REVIEWED metadata and real review evidence, never invented approval.
 Daily completeness is valid area / monthly source-supported area, threshold
 0.95. Monthly spatial support is a separate fraction, not a daily missingness
 test. Canonical county identity uses the existing 2022 asset; analysis geometry
@@ -122,9 +125,8 @@ labeled partial/source-missing fixtures; release without extension and pointer
 rollback expose no climate; intended API-reader SELECT and lineage audit.
 Run repository Quality and deployment checks on the exact reviewed head.
 
-Smallest next action: stewardship and release-owner review of the semantic
-version and release-extension boundary, followed by the bounded validator/view
-implementation above. Target PROD capture/authority and intended-reader proof
+The existing-release boundary is implementable; proceed with bounded offline
+validator/view implementation and exact review. Target PROD capture/authority and intended-reader proof
 are prerequisites, not permission errors to bypass. API #84 owner can consume
 the named allowlist after those gates land; this DATA draft does not duplicate
 API implementation or authorize deployment.
