@@ -388,11 +388,53 @@ def reconcile_capture(capture: Mapping[str, Any], original: Mapping[str, Any]) -
     returned = capture["payload"]
     if isinstance(returned, str):
         returned = json.loads(returned)
+    returned = recover_stored_doubles(capture, returned)
     _require(content_equivalent(original, returned), "REVISION_CONTENT")
     reconciled = dict(capture) | {"payload": canonical_source_row(original)}
     # Validates original source/normalized hashes, revision identity and scientific contract.
     project_capture_record(reconciled)
     return reconciled
+
+
+def native_double_query(query: str) -> str:
+    """Read native values only for actual DOUBLE storage, from the same revision row."""
+    columns = ", ".join(
+        f"AS_DOUBLE(payload:record:{field}) AS native_{field}, "
+        f"TO_JSON(payload:record:{field}) AS rendered_{field}, "
+        f"TYPEOF(payload:record:{field}) AS stored_type_{field}"
+        for field in (*AREAS, *FRACTIONS, "value")
+    )
+    columns += ", record_id AS native_record_id, ingestion_run_id AS native_run_id"
+    return query.replace("FROM GOVERNANCE.", f", {columns}\nFROM GOVERNANCE.", 1)
+
+
+def recover_stored_doubles(capture: Mapping[str, Any], payload: Any) -> dict[str, Any]:
+    """Recover DOUBLE rendering only; no NUMBER casting, tolerances or content repair."""
+    _require(
+        capture.get("native_record_id") == capture.get("record_id")
+        and capture.get("native_run_id") == capture.get("ingestion_run_id") == RUN_ID,
+        "NATIVE_PROBE_IDENTITY",
+    )
+    _require(isinstance(payload, dict) and isinstance(payload.get("record"), dict), "PAYLOAD")
+    recovered = dict(payload) | {"record": dict(payload["record"])}
+    for field in (*AREAS, *FRACTIONS, "value"):
+        _require(field in recovered["record"] and f"native_{field}" in capture, "NATIVE_PROBE")
+        stored_type, native = capture.get(f"stored_type_{field}"), capture[f"native_{field}"]
+        value = recovered["record"][field]
+        _require(stored_type in {"DOUBLE", "DECIMAL", "INTEGER", "NULL_VALUE"}, "NATIVE_TYPE")
+        if stored_type == "DOUBLE":
+            _require(type(native) is float and _finite(native) and _finite(value), "NATIVE_DOUBLE")
+            rendered = capture.get(f"rendered_{field}")
+            _require(isinstance(rendered, str), "NATIVE_PROBE")
+            assert isinstance(rendered, str)
+            _require(content_equivalent(value, json.loads(rendered)), "REVISION_CONTENT")
+            recovered["record"][field] = native
+        else:
+            _require(native is None, "NATIVE_NONDOUBLE")
+            _require(
+                value is None if stored_type == "NULL_VALUE" else _finite(value), "NATIVE_TYPE"
+            )
+    return recovered
 
 
 def project_verified_partitions(
@@ -432,7 +474,7 @@ def project_verified_partitions(
                 + ",".join(["%s"] * len(originals))
                 + ")"
             )
-            cursor.execute(query, (RUN_ID, *originals))
+            cursor.execute(native_double_query(query), (RUN_ID, *originals))
             columns = [str(column[0]).lower() for column in cursor.description]
             captures = cursor.fetchall()
             _require(len(captures) == len(originals), "REVISION_COUNT")

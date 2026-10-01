@@ -125,7 +125,17 @@ def fixture_capture(record: dict[str, Any] | None = None) -> dict[str, Any]:
         publication.NOAA_SHA,
         "simplified-ingestion-v2",
     )
-    return dict(zip(KEYS, cursor.inserted, strict=True))
+    capture = dict(zip(KEYS, cursor.inserted, strict=True))
+    source = normalized["record"]
+    for field in (*publication.AREAS, *publication.FRACTIONS, "value"):
+        value = source[field]
+        stored_type = "NULL_VALUE" if value is None else "DECIMAL"
+        if field == "value" and type(value) is float:
+            stored_type = "DOUBLE"
+        capture[f"stored_type_{field}"] = stored_type
+        capture[f"native_{field}"] = value if stored_type == "DOUBLE" else None
+        capture[f"rendered_{field}"] = json.dumps(value)
+    return capture | {"native_record_id": capture["record_id"], "native_run_id": publication.RUN_ID}
 
 
 def test_real_writer_zero_and_small_source_footprint_are_preserved() -> None:
@@ -686,3 +696,71 @@ def test_diagnostic_finds_first_strict_rejection_and_finishes_partition_proof() 
     assert set(report["stored_numeric_types"].values()) == {"DOUBLE"}
     assert report["native_double_source_sha256"] == report["stored_source_sha256"]
     assert report["native_double_normalized_sha256"] == report["stored_normalized_sha256"]
+
+
+def test_native_double_restores_observed_json_precision_loss_with_mixed_storage_types() -> None:
+    capture = fixture_capture(fixture_record(value=1.0000000000000002))
+    original = json.loads(capture["payload"])
+    returned = json.loads(capture["payload"])
+    returned["record"]["value"] = 1.0
+    capture["rendered_value"] = "1.0"
+    capture["payload"] = returned
+    capture["stored_type_valid_fraction_of_supported_area"] = "INTEGER"
+    returned["record"]["valid_fraction_of_supported_area"] = 1
+    reconciled = publication.reconcile_capture(capture, original)
+    assert publication.project_capture_record(reconciled)["value"] == 1.0000000000000002
+    assert (
+        publication.recover_stored_doubles(capture, returned)["record"][
+            "valid_fraction_of_supported_area"
+        ]
+        == 1
+    )
+    assert "AS_DOUBLE(payload:record:value)" in publication.native_double_query(
+        publication.CAPTURE_QUERY
+    )
+    assert "::DOUBLE" not in publication.native_double_query(publication.CAPTURE_QUERY)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"native_value": 2.0},
+        {"native_value": None},
+        {"native_value": True},
+        {"native_value": float("inf")},
+        {"native_value": float("nan")},
+        {"native_value": 1},
+        {"stored_type_value": "BOOLEAN"},
+        {"native_record_id": "wrong-record"},
+        {"native_run_id": "wrong-run"},
+    ],
+)
+def test_bad_or_changed_double_probes_fail_closed(change: dict[str, Any]) -> None:
+    capture = fixture_capture(fixture_record(value=1.0000000000000002))
+    original = json.loads(capture["payload"])
+    capture.update(change)
+    with pytest.raises(publication.ClimatePublicationBlocked):
+        publication.reconcile_capture(capture, original)
+
+
+def test_decimal_precision_difference_cannot_be_accepted_by_a_double_cast() -> None:
+    capture = fixture_capture(fixture_record(value=1.0000000000000002))
+    original = json.loads(capture["payload"])
+    capture["stored_type_value"] = "DECIMAL"
+    capture["native_value"] = None
+    returned = json.loads(capture["payload"])
+    returned["record"]["value"] = 1.0
+    capture["payload"] = returned
+    with pytest.raises(publication.ClimatePublicationBlocked, match="REVISION_CONTENT"):
+        publication.reconcile_capture(capture, original)
+    capture["native_value"] = original["record"]["value"]
+    with pytest.raises(publication.ClimatePublicationBlocked, match="NATIVE_NONDOUBLE"):
+        publication.reconcile_capture(capture, original)
+
+
+def test_missing_native_probe_is_rejected() -> None:
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+    del capture["native_value"]
+    with pytest.raises(publication.ClimatePublicationBlocked, match="NATIVE_PROBE"):
+        publication.reconcile_capture(capture, original)
