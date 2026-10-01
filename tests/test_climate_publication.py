@@ -619,3 +619,66 @@ def test_batch_reconciliation_fails_closed_without_emitting_output(
     with pytest.raises(publication.ClimatePublicationBlocked):
         publication.project_verified_partitions(Cursor(), [partition], tmp_path / "candidate")
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "original,returned,mismatch",
+    [
+        (
+            {"record": {"value": 1.0000000000000002}},
+            {"record": {"value": 1.0}},
+            "NUMERIC_VALUE_OR_PRECISION",
+        ),
+        ({"record": {"value": 1.0}}, {"record": {"value": True}}, "TYPE_OR_VALUE"),
+        ({"record": {"metadata": None}}, {"record": {}}, "MISSING_OR_EXTRA_FIELD"),
+        ({"record": {"value": float("inf")}}, {"record": {"value": 1}}, "NONFINITE_NUMBER"),
+    ],
+)
+def test_safe_diagnostic_classifies_content_rejections(
+    original: Any, returned: Any, mismatch: str
+) -> None:
+    reports = publication.content_mismatches(original, returned)
+    assert len(reports) == 1 and reports[0]["class"] == mismatch
+    assert reports[0]["path"].startswith("$.record.")
+    assert all("value" not in key for key in reports[0])
+
+
+def test_diagnostic_finds_first_strict_rejection_and_finishes_partition_proof() -> None:
+    from types import SimpleNamespace
+
+    first = fixture_capture()
+    second = fixture_capture(fixture_record(id="fixture-second", value=1.0000000000000002))
+    originals = [json.loads(first["payload"]), json.loads(second["payload"])]
+    first["payload"] = json.loads(first["payload"])
+    first["payload"]["record"]["value"] = 0
+    second["payload"] = json.loads(second["payload"])
+    second["payload"]["record"]["value"] = 1.0
+    for capture, original in zip((first, second), originals, strict=True):
+        for field in (*publication.AREAS, *publication.FRACTIONS, "value"):
+            capture[f"native_{field}"] = original["record"][field]
+
+    class Cursor:
+        description = [(field,) for field in first]
+        calls = 0
+
+        def execute(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            self.calls += 1
+            assert sql.startswith("SELECT") and parameters[0] == publication.RUN_ID
+            assert "payload:record:value::DOUBLE AS native_value" in sql
+            assert set(parameters[1:]) == {first["record_id"], second["record_id"]}
+
+        def fetchall(self) -> list[Any]:
+            return [tuple(second.values()), tuple(first.values())]
+
+    cursor = Cursor()
+    partitions = [SimpleNamespace(ordinal=0, records=originals, partition_id="verified-fixture")]
+    partitions += [SimpleNamespace(ordinal=i, records=[]) for i in range(1, 1560)]
+    report = publication.first_revision_content_mismatch(cursor, partitions)
+    assert cursor.calls == 1 and report["verified_partitions"] == 1560
+    assert report["revisions_inspected"] == 2 and report["record_id"] == second["record_id"]
+    assert report["content_mismatches"][0]["class"] == "NUMERIC_VALUE_OR_PRECISION"
+    assert report["strict_content_equivalent"] is False
+    assert report["stored_source_sha256"] == report["partition_source_sha256"]
+    assert report["native_double_content_equivalent"] is True
+    assert report["native_double_source_sha256"] == report["stored_source_sha256"]
+    assert report["native_double_normalized_sha256"] == report["stored_normalized_sha256"]

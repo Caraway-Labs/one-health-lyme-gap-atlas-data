@@ -542,6 +542,15 @@ def compare_capture_encoding(
                 _require(len(matches) == 1, "PARTITION_DUPLICATE")
     _require(partition_count == 1560 and len(matches) == 1, "PARTITION_RECONCILIATION")
     partition, original = matches[0]
+    return encoding_report(capture, original, partition, partition_count)
+
+
+def encoding_report(
+    capture: Mapping[str, Any], original: Mapping[str, Any], partition: Any, partition_count: int
+) -> dict[str, Any]:
+    payload = capture["payload"]
+    if isinstance(payload, str):
+        payload = json.loads(payload)
     original_record, returned_record = original["record"], payload["record"]
     differences = [
         {
@@ -554,7 +563,21 @@ def compare_capture_encoding(
         != canonical_source_row({field: returned_record.get(field)})
     ]
     _require(len(differences) <= 64, "DIAGNOSTIC_BOUND")
+    native_fields = (*AREAS, *FRACTIONS, "value")
+    native_report: dict[str, Any] = {"native_double_probe_available": False}
+    if all(f"native_{field}" in capture for field in native_fields):
+        native_payload = dict(payload) | {"record": dict(returned_record)}
+        for field in native_fields:
+            native_payload["record"][field] = capture[f"native_{field}"]
+        native_report = {
+            "native_double_probe_available": True,
+            "native_double_content_equivalent": content_equivalent(original, native_payload),
+            "native_double_source_sha256": source_row_hash(native_payload["record"]),
+            "native_double_normalized_sha256": _digest(canonical_source_row(native_payload)),
+            "native_double_mismatches": content_mismatches(original, native_payload),
+        }
     return {
+        **native_report,
         "capture_run_id": RUN_ID,
         "record_id": capture["record_id"],
         "record_revision": capture["record_revision"],
@@ -569,5 +592,100 @@ def compare_capture_encoding(
         "differing_fields": differences,
         "records_equal": original_record == returned_record,
         "top_level_fields_equal": set(original) == set(payload),
+        "strict_content_equivalent": content_equivalent(original, payload),
+        "content_mismatches": content_mismatches(original, payload),
+        "returned_payload_text_sha256": _digest(capture["payload"])
+        if isinstance(capture["payload"], str)
+        else _digest(canonical_source_row(payload)),
         "publication_status": "DIAGNOSTIC_NOT_ACCEPTANCE",
     }
+
+
+def content_mismatches(
+    original: Any, returned: Any, path: str = "$", depth: int = 0
+) -> list[dict[str, str]]:
+    """Safe structural/number mismatch classes; never emit values or relax the comparator."""
+    _require(depth <= 8, "DIAGNOSTIC_DEPTH")
+    if content_equivalent(original, returned):
+        return []
+    if isinstance(original, dict) and isinstance(returned, dict):
+        result = []
+        for key in sorted(set(original) | set(returned)):
+            if key not in original or key not in returned:
+                result.append({"path": f"{path}.{key}", "class": "MISSING_OR_EXTRA_FIELD"})
+            else:
+                result.extend(
+                    content_mismatches(original[key], returned[key], f"{path}.{key}", depth + 1)
+                )
+            _require(len(result) <= 64, "DIAGNOSTIC_BOUND")
+        return result
+    if isinstance(original, list) and isinstance(returned, list) and len(original) == len(returned):
+        result = []
+        for index, (left, right) in enumerate(zip(original, returned, strict=True)):
+            result.extend(content_mismatches(left, right, f"{path}[{index}]", depth + 1))
+            _require(len(result) <= 64, "DIAGNOSTIC_BOUND")
+        return result
+    numeric = type(original) in (int, float) and type(returned) in (int, float)
+    mismatch = "NUMERIC_VALUE_OR_PRECISION" if numeric else "TYPE_OR_VALUE"
+    if numeric and not (_finite(original) and _finite(returned)):
+        mismatch = "NONFINITE_NUMBER"
+    return [
+        {
+            "path": path,
+            "class": mismatch,
+            "partition_type": type(original).__name__,
+            "revision_type": type(returned).__name__,
+        }
+    ]
+
+
+def first_revision_content_mismatch(cursor: Any, partitions: Iterable[Any]) -> dict[str, Any]:
+    """Read partition-sized revision batches until first rejection; finish partition proof."""
+    report: dict[str, Any] | None = None
+    partition_count, inspected = 0, 0
+    for partition in partitions:
+        _require(
+            partition.ordinal == partition_count and len(partition.records) <= 250,
+            "PARTITION_ORDER",
+        )
+        partition_count += 1
+        if report is not None:
+            continue
+        originals = {
+            deterministic_record_id(RESOURCE_KEY, 2, row["record"]): row
+            for row in partition.records
+        }
+        _require(
+            len(originals) == len(partition.records) and bool(originals), "PARTITION_DUPLICATE"
+        )
+        query = (
+            CAPTURE_QUERY.split("ORDER BY", 1)[0]
+            + " AND record_id IN ("
+            + ",".join(["%s"] * len(originals))
+            + ")"
+        )
+        native_columns = ", ".join(
+            f"payload:record:{field}::DOUBLE AS native_{field}"
+            for field in (*AREAS, *FRACTIONS, "value")
+        )
+        query = query.replace("FROM GOVERNANCE.", f", {native_columns}\nFROM GOVERNANCE.", 1)
+        cursor.execute(query, (RUN_ID, *originals))
+        columns = [str(column[0]).lower() for column in cursor.description]
+        rows = [dict(zip(columns, values, strict=True)) for values in cursor.fetchall()]
+        captures = {row["record_id"]: row for row in rows}
+        _require(
+            len(captures) == len(rows) and captures.keys() == originals.keys(), "REVISION_IDENTITY"
+        )
+        for record_id, original in originals.items():
+            capture = captures[record_id]
+            payload = capture["payload"]
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            inspected += 1
+            if not content_equivalent(original, payload):
+                report = encoding_report(capture, original, partition, partition_count)
+                break
+    _require(partition_count == 1560, "PARTITION_RECONCILIATION")
+    _require(report is not None, "NO_CONTENT_MISMATCH")
+    assert report is not None
+    return report | {"verified_partitions": partition_count, "revisions_inspected": inspected}
