@@ -13,7 +13,9 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
+from .literature_tracing import trace_fields
 from .settings import PipelineSettings
 
 _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.literature-preflight")
@@ -298,6 +300,7 @@ def literature_preflight(
         ]
         combined_blockers = [blocker for check in checks for blocker in check["blockers"]]
         return {
+            **trace_fields(),
             "run_id": run_id,
             "operation": "all",
             "environment": settings.topx_env,
@@ -310,6 +313,7 @@ def literature_preflight(
     if operation not in {"discover", "extract", "build-corpus"}:
         raise ValueError("unsupported literature operation")
     identity = {
+        **trace_fields(),
         "run_id": run_id,
         "environment": settings.topx_env,
         "code_sha": _identity(os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"),
@@ -406,6 +410,8 @@ def literature_preflight(
                 )
         span.set_attribute("atlas.outcome", "blocked" if blockers else "ready")
         span.set_attribute("atlas.blocker_count", len(blockers))
+        if blockers:
+            span.set_status(Status(StatusCode.ERROR, "preflight_blocked"))
     return {
         **identity,
         "operation": operation,

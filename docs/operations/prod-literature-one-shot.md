@@ -299,3 +299,36 @@ active digest after every run. If restoration fails, stop all further app
 deployments and have the production owner restore the retained baseline or
 previous approved deployment revision using the normal protected path. Keep
 Snowflake artifacts, attempts, and graph receipts intact; do not reset them.
+
+## Bounded literature trace export
+
+The literature CLI buffers up to 128 finished child spans for up to five minutes.
+When the command ends, it queues the finished CLI root before its children and
+then flushes the standard SDK batch exporter. This gives a tail sampler the final
+root error status at its first decision, rather than only an early successful
+preflight span. Failed PMC stages and blocked preflight spans carry ERROR status
+with a bounded category; exception bodies are not recorded.
+
+The SDK queue and export batch are capped at 256 spans; each span has at most
+64 attributes with strings capped at 1,024 characters, and no events or links.
+Full existing sanitized diagnostics remain in the durable ledgers. Flush and
+shutdown each wait at most five seconds; telemetry cannot abort ingestion.
+The current OTLP endpoint and opaque headers are reused without collector,
+sampling, credential, grant, or persistent-job changes.
+
+A span limit, five-minute deferral expiry, early explicit flush, or shutdown
+switches to normal streaming and emits a safe `atlas-data.trace_buffer` warning.
+The time limit bounds buffering, not execution: it does not terminate a command
+or alter budgets, retries, or governance. After fallback, complete-trace/error
+retention is not promised. SIGKILL, hard termination, or a process crash can lose
+buffered spans; already committed attempt context and diagnostics still survive.
+Graceful Python exceptions and exits close the root before the CLI flush boundary.
+
+When an actual OTel context exists, `trace_id` is stored in the existing
+`attempt_context` and `stage_failure` JSON diagnostics and returned by bounded
+literature status inspection. A missing/invalid context does not invent an ID.
+This permits direct collector lookup after temporary worker cleanup. A stored ID
+or completed SDK flush is not evidence that a collector retained the trace.
+The current pilot samples successful traces at 10%; late spans can inherit an
+earlier discard decision. Validate a received trace's source, digest, workflow,
+run, and attempt identity separately before declaring end-to-end delivery.
