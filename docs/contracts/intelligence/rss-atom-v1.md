@@ -5,6 +5,21 @@ DATA #135 is stacked on #132 and consumes this implementation without a second
 normalizer. Review/merge #132 first, then reconcile #135 with current main;
 neither PR authorizes production release.
 
+Private retained payloads now require `source_context` version
+`intelligence-acquisition-v1`: source ID, immutable registry version/checksum,
+requested/effective HTTPS URLs, fetch status/time, capture mode and raw-byte SHA.
+`resource_key` must equal registry `source_id`; no implicit source mapping exists.
+Replay and conditional cache validation reject missing context or registry,
+rights, endpoint and identity drift even when the XML bytes are unchanged.
+Fixture captures are explicitly marked `fixture` and cannot authorize live
+warehouse retention. The public #131 item/source/health schemas stay unchanged.
+DATA #135 must record and check the immutable run/artifact context receipt before
+inserting normalized captures. Atom URL resolution uses the verified effective
+response URL and inherited root/entry/link `xml:base`; unsupported bases fail
+closed. Invalid RFC3339 offset components remain invalid chronology. Unmapped
+distinct publisher categories produce one counted limitation, retaining raw
+publisher text only in the private artifact.
+
 The `rss_atom` adapter uses the existing source definition, artifact/run capture,
 checkpoint/resume and stage state machine. Tier A may read bounded `sample.xml`
 fixtures for a candidate source. No source definition or schedule is activated.
