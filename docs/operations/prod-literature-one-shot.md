@@ -371,3 +371,12 @@ or completed SDK flush is not evidence that a collector retained the trace.
 The current pilot samples successful traces at 10%; late spans can inherit an
 earlier discard decision. Validate a received trace's source, digest, workflow,
 run, and attempt identity separately before declaring end-to-end delivery.
+
+## KG15 group gate implementation boundary
+
+The [group gate contract](kg15-group-gate.md) documents the first offline-reviewed
+inventory/claim seam. The protected workflow does not expose its manifest yet.
+Group continuation is explicitly blocked until authoritative same-group fresh
+canary receipts, corpus admission and actual serving visibility are implemented.
+Existing one-paper invocations and final batch counts do not complete this gate.
+No production canary, new access or workflow activation is authorized by this seam.
