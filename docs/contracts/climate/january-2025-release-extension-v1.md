@@ -45,6 +45,9 @@ appending a run row does not add it to an already published release. At 64 hex
 characters per ID, this list is approximately 26 MB of compact JSON. Verify the
 target release VARIANT capacity and connector support before building a live
 manifest; this draft does not claim that large-manifest round trip is proven.
+Snowflake documents support for objects over 16 MB in existing VARIANT columns
+without schema alteration ([data preparation guidance](https://docs.snowflake.com/en/user-guide/data-load-considerations-prepare));
+the target connector/session round trip still requires verification.
 
 Method `/2` requires semantic version `2.0.0` under existing semantic governance.
 Historical `/1`, `1.0.0` remains unchanged; no scientific equivalence is asserted.
