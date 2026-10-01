@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections import Counter
 from typing import Any
@@ -28,7 +29,8 @@ WITH batch AS (
          c.details:workflow_run_id::STRING AS workflow_run_id,
          c.details:environment::STRING AS environment,
          c.details:code_sha::STRING AS code_sha,
-         c.details:image_sha::STRING AS image_sha
+         c.details:image_sha::STRING AS image_sha,
+         c.details:trace_id::STRING AS trace_id
   FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
   JOIN batch b ON b.pmid = a.pmid
   LEFT JOIN KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS c
@@ -69,7 +71,7 @@ SELECT p.pmid, p.pmcid, p.state, p.final_review_decision_id,
        COALESCE(a.correlation_id,e.correlation_id), a.workflow_run_id,
        a.environment, a.code_sha, a.image_sha,
        f.pmid IS NOT NULL, r.pmid IS NOT NULL, u.pmid IS NOT NULL,
-       e.reason, e.correlation_id, e.occurred_at, a.evidence_at
+       e.reason, e.correlation_id, e.occurred_at, a.evidence_at, a.trace_id
 FROM batch b
 JOIN KNOWLEDGE_GRAPH.PAPERS p ON p.pmid = b.pmid
 LEFT JOIN latest_attempt a ON a.pmid = p.pmid
@@ -109,8 +111,11 @@ def _paper_status(row: tuple[Any, ...], *, include_latest_event: bool = False) -
         published,
         admitted,
     ) = row[:21]
-    if include_latest_event and len(row) == 25:
-        event_reason, event_run_id, event_at, attempt_at = row[21:]
+    trace_id = str(row[25]) if len(row) > 25 and row[25] else None
+    if trace_id and (not re.fullmatch(r"[0-9a-f]{32}", trace_id) or int(trace_id, 16) == 0):
+        trace_id = None
+    if include_latest_event and len(row) >= 25:
+        event_reason, event_run_id, event_at, attempt_at = row[21:25]
         if (
             state in {"retry_pending", "retry_exhausted"}
             and event_reason
@@ -124,6 +129,7 @@ def _paper_status(row: tuple[Any, ...], *, include_latest_event: bool = False) -
             # The latest failed run did not create this historical attempt.
             provider_rationale = error_class = workflow_run_id = None
             environment = code_sha = image_sha = None
+            trace_id = None
     if attempt_status == "failed" and not category:
         category, retryable, action = "legacy_unclassified", False, "inspect_attempt_ledger"
     if not action:
@@ -162,6 +168,7 @@ def _paper_status(row: tuple[Any, ...], *, include_latest_event: bool = False) -
         "failure_category": str(category) if category else None,
         "provider_rationale": str(provider_rationale) if provider_rationale else None,
         "correlation_id": str(correlation_id) if correlation_id else None,
+        "trace_id": trace_id,
         "workflow_run_id": str(workflow_run_id) if workflow_run_id else None,
         "environment": str(environment) if environment else None,
         "code_sha": str(code_sha) if code_sha else None,
@@ -238,6 +245,7 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
                 "next_action",
                 "provider_rationale",
                 "correlation_id",
+                "trace_id",
             )
         }
         for paper in history_rows

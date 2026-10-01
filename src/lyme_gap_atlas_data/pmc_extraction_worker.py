@@ -23,6 +23,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
 from .artifacts import Artifact, create_artifact
@@ -41,6 +42,7 @@ from .extraction import (
     OpenAIResponsesExtractor,
 )
 from .literature_preflight import literature_preflight
+from .literature_tracing import trace_fields
 from .pmc_graph import (
     AdmittedFullText,
     Neo4jPaperPublisher,
@@ -116,6 +118,7 @@ def _stage(name: str, fields: dict[str, str]) -> Iterator[None]:
             span.set_attribute("atlas.failure_category", category)
             span.set_attribute("atlas.retryable", retryable)
             span.set_attribute("atlas.next_action", action)
+            span.set_status(Status(StatusCode.ERROR, category))
             _LOGGER.error(
                 "pmc.stage %s",
                 json.dumps(
@@ -406,6 +409,7 @@ class PMCExtractionWorker:
         run_id = str(uuid.uuid4())
         token = _RUN_ID.set(run_id)
         fields = {
+            **trace_fields(),
             "run_id": run_id,
             "environment": _bounded_identity(self._environment, "environment"),
             "code_sha": _bounded_identity(
@@ -567,6 +571,7 @@ class PMCExtractionWorker:
                         paper, attempt_id, diagnostics, span, published=False
                     )
                 span.set_attribute("error.type", type(error).__name__)
+                span.set_status(Status(StatusCode.ERROR, _failure_outcome(stage, error)[0]))
                 stage_token = _FAILURE_STAGE.set(stage)
                 try:
                     self._ledger.fail(paper, attempt_id, error)
@@ -807,6 +812,7 @@ class SnowflakePMCExtractionLedger:
             ),
         )
         context = {
+            **trace_fields(),
             "run_id": _correlation_id(),
             "discovery_run_id": self._discovery_run_id,
             "environment": _bounded_identity(os.getenv("TOPX_ENV"), "environment"),
@@ -935,6 +941,7 @@ class SnowflakePMCExtractionLedger:
                     (type(error).__name__, attempt_id),
                 )
                 details: dict[str, object] = {
+                    **trace_fields(),
                     "run_id": _correlation_id(),
                     "stage": _FAILURE_STAGE.get(),
                     "failure_category": category,

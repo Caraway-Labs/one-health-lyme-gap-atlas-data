@@ -265,3 +265,21 @@ def test_newer_pre_attempt_failure_overrides_current_status_but_preserves_histor
     assert module._paper_status(older_event, include_latest_event=True)["correlation_id"] == "run-2"
     published = row[:2] + ("processed",) + row[3:]
     assert module._paper_status(published, include_latest_event=True)["correlation_id"] == "run-2"
+
+
+@pytest.mark.parametrize("trace_id", ["a" * 32, None, "SECRET_TRACE_SENTINEL", "0" * 32])
+def test_status_trace_identity_is_bounded_and_not_misattributed(trace_id: str | None) -> None:
+    old = Cursor().fetchall()[2]
+    now = datetime(2026, 10, 1)
+    row = old + (None, None, None, now) + (trace_id,)
+    paper = module._paper_status(row)
+    expected = trace_id if trace_id == "a" * 32 else None
+    assert paper["trace_id"] == expected
+    newer = old + (
+        "stage_failure:acquire:artifact_license_identity:false:review_open_access_and_identity",
+        "new-worker-run",
+        now + timedelta(minutes=1),
+        now,
+        trace_id,
+    )
+    assert module._paper_status(newer, include_latest_event=True)["trace_id"] is None
