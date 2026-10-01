@@ -240,6 +240,10 @@ def test_extraction_request_marks_query_match_ids_as_exact_provenance() -> None:
     assert '"query_match_ids": ["match-1"]' in request
     assert "Copy query_match_ids from Identity" in request
     assert "provenance IDs, not facts to infer from the article" in request
+    assert '"content_hash": "' + "d" * 64 + '"' in request
+    assert '"full_text_object_key": "dev/key.bin"' in request
+    assert "Copy content_hash and full_text_object_key from Identity" in request
+    assert "byte-for-byte. Do not calculate a new hash" in request
 
 
 def approved_paper(*, state: str = "approved") -> ApprovedPaper:
