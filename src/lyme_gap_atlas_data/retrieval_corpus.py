@@ -284,8 +284,9 @@ def _load_eligible_papers(
             ON r.pmid = p.pmid
          WHERE (%s IS NULL OR p.pmid = %s)
            AND (%s IS NULL OR EXISTS (
-             SELECT 1 FROM KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m
-             WHERE m.pmid = p.pmid AND m.discovery_run_id = %s))
+             SELECT 1 FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
+             WHERE d.discovery_run_id = %s
+               AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)))
          ORDER BY p.pmid, r.published_at DESC NULLS LAST
         """,
         (pmid, pmid, discovery_run_id, discovery_run_id),
@@ -409,8 +410,10 @@ def build_retrieval_corpus(
                  WHERE corpus_rules_version = %s
                    AND (%s IS NULL OR pmid = %s)
                    AND (%s IS NULL OR pmid IN (
-                     SELECT pmid FROM KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES
-                     WHERE discovery_run_id = %s))
+                     SELECT p.pmid FROM KNOWLEDGE_GRAPH.PAPERS p
+                     JOIN KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
+                       ON d.discovery_run_id = %s
+                      AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)))
                 """,
                 (rules.rules_version, pmid, pmid, discovery_run_id, discovery_run_id),
             )

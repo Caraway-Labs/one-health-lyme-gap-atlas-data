@@ -192,6 +192,7 @@ def discover_pubmed(
     limit = min(history.count, maximum_records)
     artifact_store = s3 or _spaces_client(settings)
     saved_records = 0
+    observed_pmids: set[str] = set()
     raw_artifact_ids: list[str] = []
     started_at = datetime.now(UTC)
     with connect(SnowflakeSettings()) as connection:
@@ -332,11 +333,27 @@ def discover_pubmed(
                         VALUES (source.query_match_id, source.pmid, source.family, source.query_sha256, source.discovery_run_id)""",
                         (match_id, record.pmid, family, query_sha256, run_id),
                     )
+                    observed_pmids.add(record.pmid)
                     saved_records += 1
                 raw_artifact_ids.append(artifact_id)
                 cursor.execute(
-                    "UPDATE KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS SET next_retstart = %s, raw_artifact_id = %s WHERE discovery_run_id = %s",
-                    (retstart + cursor_at.batch_size, artifact_id, run_id),
+                    """UPDATE KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS
+                       SET next_retstart = %s, raw_artifact_id = %s,
+                           request_evidence = PARSE_JSON(%s)
+                       WHERE discovery_run_id = %s""",
+                    (
+                        retstart + cursor_at.batch_size,
+                        artifact_id,
+                        json.dumps(
+                            {
+                                "provider": "NCBI",
+                                "operation": "esearch",
+                                "pmids": sorted(observed_pmids),
+                            },
+                            sort_keys=True,
+                        ),
+                        run_id,
+                    ),
                 )
                 connection.commit()
                 time.sleep(MIN_REQUEST_INTERVAL_SECONDS)

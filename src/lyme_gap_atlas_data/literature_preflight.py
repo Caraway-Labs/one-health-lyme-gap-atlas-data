@@ -29,6 +29,78 @@ _READABLE_TABLES = (
     "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS",
     "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS",
 )
+_COLUMNS = {
+    "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS": (
+        "DISCOVERY_RUN_ID, REQUEST_EVIDENCE, NEXT_RETSTART, STATUS"
+    ),
+    "KNOWLEDGE_GRAPH.PAPERS": "PMID, PMCID, STATE, FINAL_REVIEW_DECISION_ID",
+    "KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES": "PMID, QUERY_MATCH_ID, DISCOVERY_RUN_ID",
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS": "EXTRACTION_ATTEMPT_ID, PMID, ATTEMPT_NUMBER, STATUS",
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS": "EXTRACTION_ATTEMPT_ID, CLASSIFICATION",
+    "KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS": (
+        "EXTRACTION_ATTEMPT_ID, DIAGNOSTIC_TYPE, DETAILS"
+    ),
+    "KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS": "PMID, ARTIFACT_ID, OBJECT_KEY",
+    "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS": "PMID, EXTRACTION_ATTEMPT_ID",
+    "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS": "BUILD_ID, STATUS",
+    "KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS": "PMID, BUILD_ID",
+    "KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS": "PMID, REASON, CORRELATION_ID",
+    "GOVERNANCE.RAW_ARTIFACTS": "ARTIFACT_ID, INGESTION_RUN_ID, SHA256",
+    "GOVERNANCE.INGESTION_REQUESTS": "INGESTION_RUN_ID, REQUEST_PURPOSE, REDACTED_REQUEST",
+}
+_WRITE_PRIVILEGES = {
+    "discover": (
+        ("KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS", "UPDATE"),
+        ("KNOWLEDGE_GRAPH.PAPERS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES", "INSERT"),
+        ("GOVERNANCE.RAW_ARTIFACTS", "INSERT"),
+        ("GOVERNANCE.INGESTION_REQUESTS", "INSERT"),
+    ),
+    "extract": (
+        ("KNOWLEDGE_GRAPH.PAPERS", "UPDATE"),
+        ("KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS", "INSERT"),
+        ("GOVERNANCE.RAW_ARTIFACTS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS", "UPDATE"),
+        ("KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_CLASSIFICATIONS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS", "INSERT"),
+    ),
+    "build-corpus": (
+        ("KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS", "UPDATE"),
+        ("KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS", "INSERT"),
+        ("KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS", "DELETE"),
+    ),
+}
+
+
+def _effective_grants(cursor: Any, role: str) -> list[tuple[str, str, str]]:
+    """Include grants on roles inherited by the actual session's runtime role."""
+    pending = [role]
+    visited: set[str] = set()
+    grants: list[tuple[str, str, str]] = []
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        if len(visited) >= 16 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", current):
+            raise ValueError("runtime role hierarchy cannot be verified")
+        visited.add(current)
+        cursor.execute("SHOW GRANTS TO ROLE " + current)
+        for row in cursor.fetchall():
+            privilege, granted_on, name = (
+                str(row[1]).upper(),
+                str(row[2]).upper(),
+                str(row[3]).upper(),
+            )
+            if granted_on == "ROLE":
+                pending.append(name)
+            else:
+                grants.append((privilege, granted_on, name))
+    return grants
 
 
 def _identity(value: str | None, kind: str) -> str:
@@ -70,9 +142,35 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
             tables = _READABLE_TABLES[1:8]
         for table in tables:
             try:
-                cursor.execute(f"SELECT 1 FROM {table} LIMIT 0")
+                cursor.execute(f"SELECT {_COLUMNS[table]} FROM {table} LIMIT 0")
             except Exception:
                 missing.append(table)
+        # Some audit tables are intentionally write only for the runtime role.
+        # Inspect their schema without requesting a broader SELECT grant.
+        for table in (
+            "KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS",
+            "GOVERNANCE.RAW_ARTIFACTS",
+            "GOVERNANCE.INGESTION_REQUESTS",
+        ):
+            if table not in {name for name, _ in _WRITE_PRIVILEGES[operation]}:
+                continue
+            schema, name = table.split(".")
+            cursor.execute(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                (schema, name),
+            )
+            columns = {str(row[0]).upper() for row in cursor.fetchall()}
+            if not set(_COLUMNS[table].split(", ")).issubset(columns):
+                missing.append(f"{table}:COLUMNS")
+        grants = _effective_grants(cursor, settings.snowflake_role)
+        for table, privilege in _WRITE_PRIVILEGES[operation]:
+            qualified = f"{settings.snowflake_database}.{table}".upper()
+            if not any(
+                granted_on == "TABLE" and name == qualified and right in {privilege, "OWNERSHIP"}
+                for right, granted_on, name in grants
+            ):
+                missing.append(f"{table}:{privilege}")
         # The budget procedure is not invoked: it reserves spend. Inspect the
         # current role's grant instead, keeping preflight free of mutation.
         if operation == "extract":
@@ -88,14 +186,12 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 for item in clauses
             ):
                 missing.append("DATA528_ATTEMPT_DIAGNOSTIC_CONTRACT")
-            cursor.execute("SHOW GRANTS TO ROLE " + settings.snowflake_role)
-            grants = cursor.fetchall()
             for procedure in ("SP_RESERVE_KG_LLM_BUDGET", "SP_FINALIZE_KG_LLM_BUDGET"):
                 if not any(
-                    str(row[1]).upper() == "USAGE"
-                    and str(row[2]).upper() == "PROCEDURE"
-                    and procedure in str(row[3]).upper()
-                    for row in grants
+                    right in {"USAGE", "OWNERSHIP"}
+                    and granted_on == "PROCEDURE"
+                    and procedure in name
+                    for right, granted_on, name in grants
                 ):
                     missing.append(f"GOVERNANCE.{procedure}:USAGE")
     return {"role": settings.snowflake_role, "missing_capabilities": missing}

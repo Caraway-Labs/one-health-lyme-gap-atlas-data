@@ -194,7 +194,7 @@ def test_claim_query_prioritizes_recovery_and_excludes_pre_inference_rejections(
     assert "provider_rejected_pre_inference" in source
     assert "contract_remediation_reopen" in source
     assert "CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END" in source
-    assert "m.discovery_run_id = %s" in source
+    assert "ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)" in source
 
 
 def test_identity_mismatch_records_redacted_field_names() -> None:
@@ -573,6 +573,12 @@ def test_attempt_context_is_persisted_with_discovery_and_worker_run_ids(
         def commit(self) -> None:
             return None
 
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
     monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
     token = pmc_extraction_worker._RUN_ID.set("worker-run-1")
     try:
@@ -589,6 +595,51 @@ def test_attempt_context_is_persisted_with_discovery_and_worker_run_ids(
     assert details["run_id"] == "worker-run-1"
     assert details["discovery_run_id"] == discovery_id
     assert details["code_sha"] == "a" * 40
+
+
+def test_attempt_context_failure_rolls_back_reserved_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actions: list[str] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, _args: object) -> None:
+            actions.append(sql)
+            if "EXTRACTION_ATTEMPT_DIAGNOSTICS" in sql:
+                raise RuntimeError("diagnostic write failed")
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def autocommit(self, enabled: bool) -> None:
+            actions.append(f"autocommit:{enabled}")
+
+        def commit(self) -> None:
+            actions.append("commit")
+
+        def rollback(self) -> None:
+            actions.append("rollback")
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    ledger = pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private")
+    with pytest.raises(RuntimeError, match="diagnostic write failed"):
+        ledger.record_attempt(approved_paper(), "b" * 64, "openai:test", 10, 900)
+    assert actions[0] == "autocommit:False"
+    assert actions[-1] == "rollback"
+    assert "commit" not in actions
 
 
 def test_failed_attempt_persists_redacted_stage_diagnostic(
@@ -647,3 +698,60 @@ def test_failed_attempt_persists_redacted_stage_diagnostic(
     assert details["failure_category"] == "provider_rejected_pre_inference"
     assert details["provider_rationale"].endswith("request_id_req_safe")
     assert "SECRET_BODY" not in str(executed)
+
+
+def test_pre_attempt_license_failure_has_typed_state_event_without_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, args: object) -> None:
+            executed.append((sql, args))
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    stage_token = pmc_extraction_worker._FAILURE_STAGE.set("acquire")
+    run_token = pmc_extraction_worker._RUN_ID.set("worker-run-before-attempt")
+    try:
+        pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private").fail(
+            approved_paper(), None, ValueError("SECRET_LICENSE_TEXT")
+        )
+    finally:
+        pmc_extraction_worker._FAILURE_STAGE.reset(stage_token)
+        pmc_extraction_worker._RUN_ID.reset(run_token)
+    assert not any("UPDATE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS" in sql for sql, _ in executed)
+    event = next(args for sql, args in executed if "PAPER_STATE_EVENTS" in sql)
+    assert isinstance(event, tuple)
+    assert event[3] == (
+        "stage_failure:acquire:artifact_license_identity:false:review_open_access_and_identity"
+    )
+    assert event[4] == "worker-run-before-attempt"
+    assert "SECRET_LICENSE_TEXT" not in str(executed)

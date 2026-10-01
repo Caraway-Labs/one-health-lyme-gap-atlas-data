@@ -1,6 +1,7 @@
 # ruff: noqa: E501  # compact XML fixture remains intentionally source-faithful.
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -121,6 +122,66 @@ def test_discovery_rejects_unbounded_or_non_review_execution() -> None:
                 ncbi_email="steward@example.org", papers_require_human_review=False
             ),
         )
+
+
+def test_repeated_discovery_retains_membership_in_each_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence: dict[str, list[str]] = {}
+
+    class Client:
+        def start(self, family: str) -> HistoryCursor:
+            return HistoryCursor(family, "history", "1", 1, 0)
+
+        def fetch(self, _cursor: HistoryCursor) -> bytes:
+            return EFETCH
+
+    class Store:
+        def put_object(self, **_kwargs: object) -> None:
+            return None
+
+    class Cursor:
+        def execute(self, query: str, values: object = None) -> None:
+            if "request_evidence = PARSE_JSON" in query:
+                assert isinstance(values, tuple)
+                evidence[values[3]] = json.loads(values[2])["pmids"]
+
+    class Connection:
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        @contextmanager
+        def cursor(self):
+            yield Cursor()
+
+        def commit(self) -> None:
+            return None
+
+    @contextmanager
+    def fake_connect(_settings: object):
+        yield Connection()
+
+    monkeypatch.setattr("lyme_gap_atlas_data.pubmed_discovery.connect", fake_connect)
+    monkeypatch.setattr("lyme_gap_atlas_data.pubmed_discovery.time.sleep", lambda _x: None)
+    settings = PipelineSettings(ncbi_email="reader@example.test")
+    first = discover_pubmed(
+        "vector_host_pathogen",
+        maximum_records=1,
+        batch_size=1,
+        settings=settings,
+        client=Client(),
+        s3=Store(),
+    )
+    second = discover_pubmed(
+        "vector_host_pathogen",
+        maximum_records=1,
+        batch_size=1,
+        settings=settings,
+        client=Client(),
+        s3=Store(),
+    )
+    assert first["discovery_run_id"] != second["discovery_run_id"]
+    assert evidence == {first["discovery_run_id"]: ["123"], second["discovery_run_id"]: ["123"]}
 
 
 def test_dev_job_is_bounded_and_uses_runtime_contact_secret() -> None:

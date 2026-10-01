@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from lyme_gap_atlas_data.literature_preflight import literature_preflight
+from lyme_gap_atlas_data.literature_preflight import (
+    _effective_grants,
+    _snowflake_contract,
+    literature_preflight,
+)
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 
@@ -97,3 +101,69 @@ def test_all_operation_reports_stage_owned_blockers_once() -> None:
     assert calls == ["discover", "extract", "build-corpus"]
     assert {item["stage"] for item in result["blockers"]} >= {"discover", "extract"}
     assert len(result["run_id"]) == 36
+
+
+def test_effective_grants_include_inherited_role() -> None:
+    class Cursor:
+        current = ""
+
+        def execute(self, sql: str) -> None:
+            self.current = sql
+
+        def fetchall(self) -> list[tuple[str, str, str, str]]:
+            if self.current.endswith("RUNTIME"):
+                return [("", "USAGE", "ROLE", "PARENT")]
+            return [("", "INSERT", "TABLE", "DB.KNOWLEDGE_GRAPH.PAPERS")]
+
+    assert _effective_grants(Cursor(), "RUNTIME") == [
+        ("INSERT", "TABLE", "DB.KNOWLEDGE_GRAPH.PAPERS")
+    ]
+
+
+def test_preflight_detects_missing_column_and_write_privilege(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Cursor:
+        sql = ""
+
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, _args: object = None) -> None:
+            self.sql = sql
+            if "SELECT PMID, PMCID, STATE" in sql:
+                raise RuntimeError("unknown column")
+
+        def fetchone(self) -> tuple[str, str]:
+            return ("RUNTIME", "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+
+        def fetchall(self) -> list[tuple[str, ...]]:
+            if self.sql.startswith("SHOW GRANTS"):
+                return []
+            return [("PMID",)]
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.literature_preflight.connect", lambda _settings: Connection()
+    )
+    settings = PipelineSettings(
+        _env_file=None,  # type: ignore[call-arg]
+        snowflake_role="RUNTIME",
+        snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    )
+    missing = _snowflake_contract(settings, "discover")["missing_capabilities"]
+    assert "KNOWLEDGE_GRAPH.PAPERS" in missing
+    assert "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS:UPDATE" in missing
+    assert "GOVERNANCE.RAW_ARTIFACTS:COLUMNS" in missing

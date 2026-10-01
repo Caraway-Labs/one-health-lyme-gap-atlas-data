@@ -109,13 +109,28 @@ class ObservedTyper(typer.Typer):
 
     def __call__(self, *args: object, **kwargs: object) -> object:
         configure_logging()
-        configure_tracing(SERVICE_NAME)
+        tracing_ready = True
+        try:
+            configure_tracing(SERVICE_NAME)
+        except Exception:
+            # Export configuration is optional. Never block ingestion because a
+            # collector endpoint or header was malformed; omit the exception
+            # message because it can contain credentials.
+            tracing_ready = False
+            logging.getLogger(__name__).warning("atlas-data.tracing_unavailable")
+        tracer = (
+            trace.get_tracer(SERVICE_NAME)
+            if tracing_ready
+            else trace.NoOpTracerProvider().get_tracer(SERVICE_NAME)
+        )
         command = _command_path(sys.argv[1:])
         started = monotonic()
         try:
             # The current context lets safe, bounded child spans correlate to the
             # command that invoked them without adding command arguments to traces.
-            with trace.get_tracer(SERVICE_NAME).start_as_current_span("atlas-data.cli") as span:
+            with tracer.start_as_current_span(
+                "atlas-data.cli", record_exception=False, set_status_on_exception=False
+            ) as span:
                 span.set_attribute("atlas.command", command)
                 span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
                 try:

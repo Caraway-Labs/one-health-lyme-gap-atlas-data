@@ -5,6 +5,9 @@ from typing import Any
 
 import pytest
 import typer
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from lyme_gap_atlas_data import cli
 
@@ -48,7 +51,12 @@ def _configure_observed_app(monkeypatch: pytest.MonkeyPatch, span: FakeSpan) -> 
     monkeypatch.setattr(cli, "configure_logging", lambda: None)
     monkeypatch.setattr(cli, "configure_tracing", lambda _service: None)
     monkeypatch.setenv("TOPX_ENV", "prod")
-    tracer = SimpleNamespace(start_as_current_span=lambda _name: span)
+
+    def start_span(_name: str, **kwargs: object) -> FakeSpan:
+        assert kwargs == {"record_exception": False, "set_status_on_exception": False}
+        return span
+
+    tracer = SimpleNamespace(start_as_current_span=start_span)
     monkeypatch.setattr(cli.trace, "get_tracer", lambda _service: tracer)
     monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
     return provider
@@ -87,7 +95,7 @@ def test_cli_initializes_observability_once_per_invocation(monkeypatch: pytest.M
     monkeypatch.setattr(
         cli.trace,
         "get_tracer",
-        lambda _service: SimpleNamespace(start_as_current_span=lambda _name: span),
+        lambda _service: SimpleNamespace(start_as_current_span=lambda _name, **_kwargs: span),
     )
     monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
     monkeypatch.setattr(typer.Typer, "__call__", lambda *_args, **_kwargs: None)
@@ -128,3 +136,44 @@ def test_pmc_extraction_command_requires_explicit_confirmation() -> None:
     assert command.callback is not None
     with pytest.raises(typer.BadParameter, match="steward approves"):
         command.callback(estimated_cost_usd=1.0, confirm=False)
+
+
+def test_exported_cli_span_never_contains_exception_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(cli, "configure_tracing", lambda _service: None)
+    monkeypatch.setattr(cli.trace, "get_tracer", lambda _service: provider.get_tracer("test"))
+    monkeypatch.setattr(cli.trace, "get_tracer_provider", lambda: provider)
+    monkeypatch.setattr(cli.sys, "argv", ["atlas-data", "pipeline", "pmc-extract"])
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("SECRET_MODEL_INPUT_SENTINEL")
+
+    monkeypatch.setattr(typer.Typer, "__call__", fail)
+    with pytest.raises(RuntimeError, match="SECRET_MODEL_INPUT_SENTINEL"):
+        cli.ObservedTyper()()
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    assert spans[0].events == ()
+    assert "SECRET_MODEL_INPUT_SENTINEL" not in repr(spans[0].attributes)
+    assert "SECRET_MODEL_INPUT_SENTINEL" not in repr(spans[0].status)
+
+
+def test_bad_exporter_configuration_cannot_abort_command(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "configure_tracing",
+        lambda _service: (_ for _ in ()).throw(ValueError("SECRET_OTLP_HEADER_SENTINEL")),
+    )
+    monkeypatch.setattr(typer.Typer, "__call__", lambda *_args, **_kwargs: "completed")
+    assert cli.ObservedTyper()() == "completed"
+    assert "SECRET_OTLP_HEADER_SENTINEL" not in caplog.text
+    assert "tracing_unavailable" in caplog.text

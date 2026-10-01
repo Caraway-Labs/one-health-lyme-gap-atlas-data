@@ -22,6 +22,10 @@ _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.extraction")
 _LOGGER = logging.getLogger(__name__)
 
 
+class BudgetUnavailable(RuntimeError):
+    """A governed budget reservation declined the attempted provider call."""
+
+
 def _post_provider(
     url: str,
     *,
@@ -308,7 +312,7 @@ class ExtractionCoordinator:
         route = self.route_for_request(full_request)
         estimated_cost = self._cost(route, tokens)
         if not self._budget.reserve(request_id, route, estimated_cost):
-            raise RuntimeError("extraction budget is unavailable")
+            raise BudgetUnavailable("extraction budget is unavailable")
         try:
             # The validated Pydantic schema is passed directly to the provider. The
             # provider adapter must request strict structured output and returns no

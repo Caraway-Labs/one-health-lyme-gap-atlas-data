@@ -23,6 +23,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
 from opentelemetry import trace
+from pydantic import ValidationError
 
 from .artifacts import Artifact, create_artifact
 from .contribution_admission import (
@@ -33,6 +34,7 @@ from .contribution_admission import (
     endpoint_matrix_prompt,
 )
 from .extraction import (
+    BudgetUnavailable,
     ExtractionCoordinator,
     GroqStructuredExtractor,
     OpenAIEmbeddingClient,
@@ -75,6 +77,10 @@ def _failure_outcome(stage: str, error: Exception) -> tuple[str, bool, str]:
         return "terminal_governance", False, "return_to_steward_review"
     if stage == "claim" or stage == "persist":
         return "runtime_contract", False, "repair_runtime_schema_or_grant"
+    if isinstance(error, BudgetUnavailable):
+        return "budget_unavailable", False, "check_budget_reservation"
+    if stage == "artifact_persist":
+        return "artifact_transport", True, "check_artifact_store_then_retry"
     if stage == "acquire":
         if isinstance(error, (httpx.TransportError, httpx.HTTPStatusError)):
             return "artifact_transport", True, "retry_after_pmc_recovery"
@@ -88,9 +94,11 @@ def _failure_outcome(stage: str, error: Exception) -> tuple[str, bool, str]:
         return "provider_transport", True, "retry_after_provider_recovery"
     if stage == "validate":
         return "provenance_validation", False, "review_contribution_contract"
+    if isinstance(error, (ContributionAdmissionError, ValidationError, json.JSONDecodeError)):
+        return "response_contract_validation", False, "review_provider_schema_and_response"
     if stage == "graph_publish":
         return "graph_publication", True, "reconcile_graph_receipt_before_retry"
-    return "model_or_response_contract", False, "review_extraction_attempt"
+    return "model_execution", True, "inspect_model_execution_then_retry"
 
 
 @contextmanager
@@ -457,13 +465,17 @@ class PMCExtractionWorker:
                     resource_key=f"{self._artifact_prefix}/pmc_full_text",
                     run_id=paper.pmid,
                 )
-                self._artifact_store.put_object(
-                    Bucket=self._artifact_bucket,
-                    Key=artifact.object_key,
-                    Body=jats,
-                    ContentType="application/xml",
-                )
-                artifact_id = self._ledger.record_artifact(paper, artifact, admitted)
+                stage = "artifact_persist"
+                with _stage(stage, {**fields, "pmid": paper.pmid}):
+                    self._artifact_store.put_object(
+                        Bucket=self._artifact_bucket,
+                        Key=artifact.object_key,
+                        Body=jats,
+                        ContentType="application/xml",
+                    )
+                stage = "persist"
+                with _stage(stage, {**fields, "pmid": paper.pmid}):
+                    artifact_id = self._ledger.record_artifact(paper, artifact, admitted)
                 request = build_extraction_request(paper, admitted, artifact)
                 request_sha = hashlib.sha256(request.encode()).hexdigest()
                 stage = "persist"
@@ -495,10 +507,14 @@ class PMCExtractionWorker:
                 ):
                     receipt = self._publisher.publish(contribution)
                 contribution_sha = contribution_sha256(contribution)
-                self._ledger.record_receipt(
-                    paper, attempt_id, artifact_id, contribution_sha, receipt
-                )
-                self._ledger.finish(paper, attempt_id)
+                stage = "persist"
+                with _stage(
+                    stage, {**fields, "pmid": paper.pmid, "extraction_attempt_id": attempt_id}
+                ):
+                    self._ledger.record_receipt(
+                        paper, attempt_id, artifact_id, contribution_sha, receipt
+                    )
+                    self._ledger.finish(paper, attempt_id)
                 self._emit_admission_diagnostics(
                     paper, attempt_id, built.dropped_edges, span, published=True
                 )
@@ -628,7 +644,10 @@ class SnowflakePMCExtractionLedger:
                    FROM KNOWLEDGE_GRAPH.PAPERS p
                    JOIN KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m ON m.pmid = p.pmid
                    WHERE p.state IN ('approved', 'retry_pending') AND p.pmcid IS NOT NULL
-                     AND (%s IS NULL OR m.discovery_run_id = %s)
+                     AND (%s IS NULL OR EXISTS (
+                       SELECT 1 FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
+                       WHERE d.discovery_run_id = %s
+                         AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)))
                      AND NOT EXISTS (SELECT 1 FROM KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS r
                                      WHERE r.pmid = p.pmid)
                      AND (SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
@@ -737,43 +756,70 @@ class SnowflakePMCExtractionLedger:
     ) -> str:
         attempt_id = str(uuid.uuid4())
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS
+            connection.autocommit(False)
+            try:
+                self._insert_attempt_and_context(
+                    connection,
+                    cursor,
+                    paper,
+                    attempt_id,
+                    request_sha256,
+                    route,
+                    estimated_input_tokens,
+                    lease_seconds,
+                )
+            except Exception:
+                connection.rollback()
+                raise
+        return attempt_id
+
+    def _insert_attempt_and_context(
+        self,
+        connection: Any,
+        cursor: Any,
+        paper: ApprovedPaper,
+        attempt_id: str,
+        request_sha256: str,
+        route: str,
+        estimated_input_tokens: int,
+        lease_seconds: int,
+    ) -> None:
+        cursor.execute(
+            """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS
                    (extraction_attempt_id, pmid, attempt_number, provider_route, model_identifier,
                     estimated_input_tokens, request_sha256, status, lease_expires_at, method_version)
                    SELECT %s, %s, COALESCE(MAX(attempt_number), 0) + 1, %s, %s, %s, %s,
                           'reserved', DATEADD(second, %s, CURRENT_TIMESTAMP()), %s
                    FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS WHERE pmid = %s""",
-                (
-                    attempt_id,
-                    paper.pmid,
-                    route,
-                    route,
-                    estimated_input_tokens,
-                    request_sha256,
-                    lease_seconds,
-                    self._configuration_version,
-                    paper.pmid,
-                ),
-            )
-            context = {
-                "run_id": _correlation_id(),
-                "discovery_run_id": self._discovery_run_id,
-                "environment": _bounded_identity(os.getenv("TOPX_ENV"), "environment"),
-                "code_sha": _bounded_identity(
-                    os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"
-                ),
-                "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
-                "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
-            }
-            cursor.execute(
-                """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+            (
+                attempt_id,
+                paper.pmid,
+                route,
+                route,
+                estimated_input_tokens,
+                request_sha256,
+                lease_seconds,
+                self._configuration_version,
+                paper.pmid,
+            ),
+        )
+        context = {
+            "run_id": _correlation_id(),
+            "discovery_run_id": self._discovery_run_id,
+            "environment": _bounded_identity(os.getenv("TOPX_ENV"), "environment"),
+            "code_sha": _bounded_identity(
+                os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"
+            ),
+            "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
+            "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
+        }
+        cursor.execute(
+            """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
                    (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
                    SELECT %s, %s, %s, 'attempt_context', PARSE_JSON(%s)""",
-                (str(uuid.uuid4()), attempt_id, paper.pmid, json.dumps(context, sort_keys=True)),
-            )
-            connection.commit()
-        return attempt_id
+            (str(uuid.uuid4()), attempt_id, paper.pmid, json.dumps(context, sort_keys=True)),
+        )
+        connection.commit()
 
     def record_diagnostics(
         self,
@@ -874,6 +920,7 @@ class SnowflakePMCExtractionLedger:
 
     def fail(self, paper: ApprovedPaper, attempt_id: str | None, error: Exception) -> None:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            category, retryable, action = _failure_outcome(_FAILURE_STAGE.get(), error)
             provider_rejected = attempt_id is not None and _provider_rejected_before_inference(
                 error
             )
@@ -884,7 +931,6 @@ class SnowflakePMCExtractionLedger:
                        WHERE extraction_attempt_id = %s""",
                     (type(error).__name__, attempt_id),
                 )
-                category, retryable, action = _failure_outcome(_FAILURE_STAGE.get(), error)
                 details: dict[str, object] = {
                     "run_id": _correlation_id(),
                     "stage": _FAILURE_STAGE.get(),
@@ -911,11 +957,11 @@ class SnowflakePMCExtractionLedger:
                        (classification_id, extraction_attempt_id, pmid, classification, rationale, correlation_id)
                        VALUES (%s, %s, %s, 'provider_rejected_pre_inference', %s, %s)""",
                     (
-                        _correlation_id(),
+                        str(uuid.uuid4()),
                         attempt_id,
                         paper.pmid,
                         _provider_rejection_rationale(error),
-                        str(uuid.uuid4()),
+                        _correlation_id(),
                     ),
                 )
             cursor.execute(
@@ -942,7 +988,13 @@ class SnowflakePMCExtractionLedger:
                 """INSERT INTO KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS
                    (paper_state_event_id, pmid, from_state, to_state, reason, correlation_id, actor)
                    VALUES (%s, %s, 'extracting', %s, %s, %s, CURRENT_USER())""",
-                (str(uuid.uuid4()), paper.pmid, target, type(error).__name__, _correlation_id()),
+                (
+                    str(uuid.uuid4()),
+                    paper.pmid,
+                    target,
+                    f"stage_failure:{_FAILURE_STAGE.get()}:{category}:{str(retryable).lower()}:{action}",
+                    _correlation_id(),
+                ),
             )
             connection.commit()
 

@@ -38,7 +38,7 @@ def test_batch_scoped_eligibility_uses_discovery_run_id() -> None:
 
     cursor = Cursor()
     assert _load_eligible_papers(cursor, None, "run-1") == ([], 0)
-    assert "m.discovery_run_id = %s" in cursor.sql
+    assert "ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)" in cursor.sql
     assert cursor.args == (None, None, "run-1", "run-1")
 
 

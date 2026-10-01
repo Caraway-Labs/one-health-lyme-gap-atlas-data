@@ -16,6 +16,11 @@ _BATCH_SQL = """
 WITH batch AS (
   SELECT DISTINCT m.pmid FROM KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m
   WHERE m.discovery_run_id = %s
+  UNION
+  SELECT p.pmid FROM KNOWLEDGE_GRAPH.PAPERS p
+  JOIN KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
+    ON d.discovery_run_id = %s
+   AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)
 ), latest_attempt AS (
   SELECT a.pmid, a.extraction_attempt_id, a.status, a.error_class,
          a.attempt_number, c.details:run_id::STRING AS correlation_id,
@@ -30,8 +35,6 @@ WITH batch AS (
    AND c.diagnostic_type = 'attempt_context'
   WHERE c.extraction_attempt_id IS NULL
      OR c.details:discovery_run_id::STRING = %s
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY a.pmid
-    ORDER BY a.attempt_number DESC, a.extraction_attempt_id DESC) = 1
 ), latest_failure AS (
   SELECT d.extraction_attempt_id, d.details
   FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS d
@@ -39,25 +42,44 @@ WITH batch AS (
   WHERE d.diagnostic_type = 'stage_failure'
   QUALIFY ROW_NUMBER() OVER (PARTITION BY d.extraction_attempt_id
     ORDER BY d.diagnostic_id DESC) = 1
+), latest_paper_failure AS (
+  SELECT e.pmid, e.reason, e.correlation_id
+  FROM KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS e
+  JOIN batch b ON b.pmid = e.pmid
+  WHERE e.reason LIKE 'stage_failure:%'
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY e.pmid
+    ORDER BY e.occurred_at DESC, e.paper_state_event_id DESC) = 1
 )
 SELECT p.pmid, p.pmcid, p.state, p.final_review_decision_id,
        a.extraction_attempt_id, a.status, a.error_class, a.attempt_number,
-       d.details:failure_category::STRING, d.details:retryable::BOOLEAN,
-       d.details:next_action::STRING, d.details:stage::STRING,
+       COALESCE(d.details:failure_category::STRING,
+         IFF(a.extraction_attempt_id IS NULL AND p.state IN ('retry_pending','retry_exhausted'),
+             SPLIT_PART(e.reason, ':', 3), NULL)),
+       COALESCE(d.details:retryable::BOOLEAN,
+         IFF(a.extraction_attempt_id IS NULL AND p.state IN ('retry_pending','retry_exhausted'),
+             SPLIT_PART(e.reason, ':', 4) = 'true', NULL)),
+       COALESCE(d.details:next_action::STRING,
+         IFF(a.extraction_attempt_id IS NULL AND p.state IN ('retry_pending','retry_exhausted'),
+             SPLIT_PART(e.reason, ':', 5), NULL)),
+       COALESCE(d.details:stage::STRING,
+         IFF(a.extraction_attempt_id IS NULL AND p.state IN ('retry_pending','retry_exhausted'),
+             SPLIT_PART(e.reason, ':', 2), NULL)),
        d.details:provider_rationale::STRING,
-       a.correlation_id, a.workflow_run_id, a.environment, a.code_sha, a.image_sha,
+       COALESCE(a.correlation_id,e.correlation_id), a.workflow_run_id,
+       a.environment, a.code_sha, a.image_sha,
        f.pmid IS NOT NULL, r.pmid IS NOT NULL, u.pmid IS NOT NULL
 FROM batch b
 JOIN KNOWLEDGE_GRAPH.PAPERS p ON p.pmid = b.pmid
 LEFT JOIN latest_attempt a ON a.pmid = p.pmid
 LEFT JOIN latest_failure d ON d.extraction_attempt_id = a.extraction_attempt_id
+LEFT JOIN latest_paper_failure e ON e.pmid = p.pmid
 LEFT JOIN (SELECT DISTINCT pmid FROM KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS) f
   ON f.pmid = p.pmid
 LEFT JOIN (SELECT DISTINCT pmid FROM KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS) r
   ON r.pmid = p.pmid
 LEFT JOIN (SELECT DISTINCT pmid FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS) u
   ON u.pmid = p.pmid
-ORDER BY p.pmid
+ORDER BY p.pmid, a.attempt_number DESC NULLS LAST, a.extraction_attempt_id DESC
 """
 
 
@@ -158,12 +180,33 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
                 set_status_on_exception=False,
             ) as lookup:
                 lookup.set_attribute("atlas.discovery_run_id", run_id)
-                cursor.execute(_BATCH_SQL, (run_id, run_id))
+                cursor.execute(_BATCH_SQL, (run_id, run_id, run_id))
                 rows = cursor.fetchall()
-    papers = [_paper_status(tuple(row)) for row in rows]
+    history_rows = [_paper_status(tuple(row)) for row in rows]
+    papers = list({str(paper["pmid"]): paper for paper in reversed(history_rows)}.values())
+    papers.sort(key=lambda paper: str(paper["pmid"]))
+    attempt_history = [
+        {
+            key: paper[key]
+            for key in (
+                "pmid",
+                "extraction_attempt_id",
+                "attempt_number",
+                "attempt_status",
+                "failure_stage",
+                "failure_category",
+                "retryable",
+                "next_action",
+                "provider_rationale",
+                "correlation_id",
+            )
+        }
+        for paper in history_rows
+        if paper["extraction_attempt_id"]
+    ]
     stage_counts = Counter(str(paper["stage"]) for paper in papers)
     failure_counts = Counter(
-        str(paper["failure_category"]) for paper in papers if paper["failure_category"]
+        str(paper["failure_category"]) for paper in history_rows if paper["failure_category"]
     )
     stage_totals = {
         "discovery": {
@@ -182,9 +225,9 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
             "failed": sum(paper["failure_stage"] == "acquire" for paper in papers),
         },
         "extraction": {
-            "entered": sum(bool(paper["extraction_attempt_id"]) for paper in papers),
-            "succeeded": sum(paper["attempt_status"] == "completed" for paper in papers),
-            "failed": sum(paper["attempt_status"] == "failed" for paper in papers),
+            "entered": len(attempt_history),
+            "succeeded": sum(paper["attempt_status"] == "completed" for paper in attempt_history),
+            "failed": sum(paper["attempt_status"] == "failed" for paper in attempt_history),
         },
         "graph_publication": {
             "entered": sum(
@@ -208,5 +251,6 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
         "stage_counts": dict(stage_counts),
         "stage_totals": stage_totals,
         "failure_category_counts": dict(failure_counts),
+        "attempt_history": attempt_history,
         "papers": papers,
     }
