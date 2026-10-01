@@ -91,9 +91,32 @@ invocation checks the secret prerequisites for all three operations; other
 invocations check only their selected operation. Optional `NCBI_API_KEY` absence
 does not block. No credential value or captured App spec enters this report.
 
-The report's `scope=host_secret_presence` and `runtime_readiness=NOT_CHECKED` are
-explicit: `READY` here proves only secret configuration presence/protection, not
+The report's `scope=host_baseline_configuration` and `runtime_readiness=NOT_CHECKED` are
+explicit: `READY` here proves the existing captured App baseline/configuration guards
+and secret presence/protection, not
 database contracts, private connectivity, artifact access or provider validity.
+
+The report aggregates reviewed app/region/VPC, six scheduled jobs, active job
+digests, operation template configuration, unique environment keys and protected
+credentials before spec generation. Values and unknown job/environment names are
+omitted. Remote DEV/PROD image/source-workflow checks still run in their existing
+protected workflow order; this report does not replace or aggregate those reads.
+Invalid invocation bounds still fail closed through the existing argument guards.
+
+`literature-status` additionally reconciles exact membership against the discovery
+run's authoritative `request_evidence:pmids`, with exclusive current-status buckets
+whose counts cover that inventory. Missing/extra/ambiguous or inconsistent records
+are explicit. Provider result count and overlapping historical stage totals are
+not substituted for inventory. Missing historical inventories remain
+`NOT_ATTRIBUTED`; malformed ones remain invalid. Observed artifact/receipt/corpus
+presence flags are not exact receipt lineage, fresh canary proof or serving proof.
+
+Offline fixtures exercise the existing PubMed metadata retry bound of three calls
+with linear 0.4/0.8-second backoff and no sleep after exhaustion, plus persistence
+once after successful transient recovery. Existing atomic corpus rollback and
+publication replacement regressions remain authoritative for their own scopes.
+No jitter or new provider retry policy is introduced; no real provider/model call
+or complete end-to-end retry/idempotency acceptance is claimed.
 The existing runtime preflight still checks those accessible runtime contracts
 before claim. If host readiness is `BLOCKED`, no temporary spec is written and
 the workflow performs neither the App update nor its restoration update. Fix the

@@ -20,8 +20,72 @@ _MODULE = run_path(
 )
 build_spec = _MODULE["build_spec"]
 secret_readiness = _MODULE["secret_readiness"]
+host_readiness = _MODULE["host_readiness"]
 
 DIGEST = "sha256:" + "a" * 64
+
+
+def test_host_report_aggregates_drift_and_secrets_without_echoing_values() -> None:
+    baseline = _baseline()
+    baseline["name"] = baseline["region"] = "private-sentinel"
+    baseline["vpc"] = {"id": "private-sentinel"}
+    baseline["jobs"][0]["kind"] = "PRE_DEPLOY"
+    baseline["jobs"][0]["image"]["digest"] = "private-sentinel"
+    for entry in baseline["jobs"][0]["envs"]:
+        if entry["key"] in {"SNOWFLAKE_ROLE", "SPACES_BUCKET"}:
+            entry["value"] = "private-sentinel"
+    before = deepcopy(baseline)
+    report = host_readiness(baseline, operation="preflight", image_digest=DIGEST, secrets={})
+    capabilities = {item["capability"] for item in report["blockers"]}
+    assert capabilities >= {
+        "reviewed_production_app",
+        "reviewed_production_region",
+        "reviewed_private_vpc",
+        "reviewed_scheduled_job_kinds",
+        "active_job_image_digest",
+        "SNOWFLAKE_ROLE",
+        "SPACES_BUCKET",
+        "NCBI_EMAIL",
+        "GROQ_API_KEY",
+        "OPENAI_API_KEY",
+        "NEO4J_RUNTIME_PASSWORD",
+    }
+    assert report["status"] == "BLOCKED"
+    assert report["scope"] == "host_baseline_configuration"
+    assert report["runtime_readiness"] == "NOT_CHECKED"
+    assert "private-sentinel" not in json.dumps(report)
+    assert baseline == before
+    with pytest.raises(ValueError) as error:
+        build_spec(baseline, operation="preflight", image_digest=DIGEST)
+    assert capabilities <= {
+        item["capability"] for item in json.loads(str(error.value).split(": ", 1)[1])["blockers"]
+    }
+
+
+@pytest.mark.parametrize("jobs", [None, {}, [None], [{"name": []}]])
+def test_malformed_topology_returns_sanitized_aggregate_blockers(jobs: object) -> None:
+    baseline = _baseline()
+    baseline["jobs"] = jobs
+    report = host_readiness(baseline, operation="preflight", image_digest=DIGEST, secrets={})
+    assert report["status"] == "BLOCKED"
+    assert "reviewed_six_job_topology" in {item["capability"] for item in report["blockers"]}
+
+
+def test_duplicate_template_env_and_preexisting_secret_are_reported_together() -> None:
+    baseline = _baseline()
+    baseline["jobs"][0]["envs"].append(deepcopy(baseline["jobs"][0]["envs"][0]))
+    baseline["jobs"][0]["envs"].append({"key": "NCBI_EMAIL", "value": "private-sentinel"})
+    report = host_readiness(
+        baseline,
+        operation="discover",
+        image_digest=DIGEST,
+        secrets={"NCBI_EMAIL": "operator@example.test"},
+    )
+    assert {item["capability"] for item in report["blockers"]} >= {
+        "unique_valid_template_environment",
+        "no_preexisting_NCBI_EMAIL",
+    }
+    assert "private-sentinel" not in json.dumps(report)
 
 
 def _baseline() -> dict:
@@ -431,14 +495,21 @@ def test_cli_blocked_report_does_not_write_a_deployable_spec(
     assert "OPTIONAL_SECRET_SENTINEL" not in str(error.value)
 
 
-def test_real_workflow_missing_secrets_never_updates_or_restores_topology(tmp_path: Path) -> None:
+def test_real_workflow_aggregate_drift_and_secrets_never_updates_or_restores_topology(
+    tmp_path: Path,
+) -> None:
     bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
     if not bash or not Path(bash).exists():
         pytest.skip("workflow integration requires bash")
     workflow = yaml.safe_load(Path(".github/workflows/run-prod-literature-once.yml").read_text())
     body = workflow["jobs"]["run"]["steps"][-1]["run"]
     fixture, updates = tmp_path / "baseline.json", tmp_path / "updates"
-    fixture.write_text(json.dumps(_baseline()), encoding="utf-8")
+    baseline = _baseline()
+    baseline["region"] = "private-drift-sentinel"
+    next(entry for entry in baseline["jobs"][0]["envs"] if entry["key"] == "SNOWFLAKE_ROLE")[
+        "value"
+    ] = "private-drift-sentinel"
+    fixture.write_text(json.dumps(baseline), encoding="utf-8")
     # The actual deployed-image/topology reads use fixture-only doctl/jq functions.
     # Every App update (including restoration) is a failing, recorded sentinel.
     harness = (
@@ -496,5 +567,9 @@ python() { "$PYTHON_EXECUTABLE" "$@"; }
     assert '"status": "BLOCKED"' in result.stdout
     for key in ("NCBI_EMAIL", "NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
         assert key in result.stdout
+    assert "reviewed_production_region" in result.stdout
+    assert "SNOWFLAKE_ROLE" in result.stdout
+    assert "host_baseline_configuration" in result.stdout
     assert not updates.exists()
     assert "encrypted" not in result.stdout + result.stderr
+    assert "private-drift-sentinel" not in result.stdout + result.stderr

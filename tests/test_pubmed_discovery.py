@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from lyme_gap_atlas_data import pubmed_discovery as module
 from lyme_gap_atlas_data.literature import HistoryCursor
 from lyme_gap_atlas_data.pubmed_discovery import (
     MAX_RECORDS_PER_RUN,
@@ -23,6 +24,32 @@ EFETCH = b"""<?xml version='1.0'?><PubmedArticleSet><PubmedArticle>
 <PublicationTypeList><PublicationType>Journal Article</PublicationType></PublicationTypeList></Article></MedlineCitation>
 <PubmedData><ArticleIdList><ArticleId IdType='pmc'>PMC123</ArticleId></ArticleIdList></PubmedData>
 </PubmedArticle></PubmedArticleSet>"""
+
+
+@pytest.mark.parametrize("failures", [0, 1, 2, 3])
+def test_existing_metadata_retry_is_bounded_with_deterministic_backoff(
+    failures: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+    delays: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", delays.append)
+
+    def fetch() -> bytes:
+        nonlocal calls
+        calls += 1
+        if calls <= failures:
+            raise RuntimeError("fixture-transient")
+        return EFETCH
+
+    if failures == 3:
+        with pytest.raises(RuntimeError, match="fixture-transient"):
+            module._retry(fetch)
+    else:
+        assert module._retry(fetch) == EFETCH
+    assert calls == min(failures + 1, module.MAX_RETRIES)
+    assert delays == [
+        module.MIN_REQUEST_INTERVAL_SECONDS * index for index in range(1, min(failures, 2) + 1)
+    ]
 
 
 def test_normalize_efetch_metadata_without_full_text() -> None:
@@ -93,6 +120,12 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     assert result["status"] == "COMPLETED"
     assert result["record_count"] == 1
     assert calls == 2
+    assert events.count("artifact") == 1
+    assert sum("MERGE INTO KNOWLEDGE_GRAPH.PAPERS " in sql for sql, _values in statements) == 1
+    assert (
+        sum("MERGE INTO KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES " in sql for sql, _values in statements)
+        == 1
+    )
     assert events.index("artifact") < events.index("raw")
     evidence_statement = next(
         statement for statement, _ in statements if "PUBMED_DISCOVERY_RUNS" in statement
