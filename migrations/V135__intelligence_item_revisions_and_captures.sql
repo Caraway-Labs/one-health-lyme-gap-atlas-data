@@ -70,6 +70,9 @@ GRANT SELECT, INSERT ON TABLE GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
 -- conflicting publisher revision is authoritative from arrival time.
 CREATE VIEW IF NOT EXISTS PRESENTATION.INTELLIGENCE_FEED_V AS
 SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
+       c.item_id AS deduplication_key,
+       c.item_document:content_sha256::VARCHAR AS content_sha256,
+       c.item_document:transport_identity_sha256::VARCHAR AS transport_identity_sha256,
        IFF(IS_NULL_VALUE(c.item_document:canonical_url), NULL,
            c.item_document:canonical_url::VARCHAR) AS canonical_url,
        IFF(IS_NULL_VALUE(c.item_document:title), NULL,
@@ -82,13 +85,14 @@ SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
            c.item_document:event_at::VARCHAR) AS event_at,
        c.item_document:fetched_at::VARCHAR AS fetched_at,
        IFF(IS_NULL_VALUE(c.item_document:excerpt), NULL,
-           c.item_document:excerpt::VARCHAR) AS permitted_excerpt,
+           c.item_document:excerpt::VARCHAR) AS excerpt,
        c.item_document:field_states AS field_states,
        c.item_document:geographies AS geographies,
        c.item_document:topics AS topics,
        c.item_document:provenance AS provenance,
        c.item_document:limitations AS limitations,
        c.item_document:contract_version::VARCHAR AS contract_version,
+       c.item_document:content_is_untrusted::BOOLEAN AS content_is_untrusted,
        s.registry_document:organization::VARCHAR AS organization,
        s.registry_document:trust_classification::VARCHAR AS reviewed_trust_classification
 FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES c

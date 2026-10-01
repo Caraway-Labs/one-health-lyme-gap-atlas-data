@@ -415,3 +415,5 @@ def test_migration_is_additive_narrow_and_public_view_is_current_reviewed_versio
     assert "newer.registry_version > s.registry_version" in view
     assert "state::VARCHAR IN ('active', 'manual')" in view
     assert "artifact_uri" not in view and "SELECT *" not in view
+    assert "AS excerpt" in view and "AS content_is_untrusted" in view
+    assert "AS deduplication_key" in view and "AS transport_identity_sha256" in view
