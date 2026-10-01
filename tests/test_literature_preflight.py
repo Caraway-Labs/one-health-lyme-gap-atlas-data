@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from lyme_gap_atlas_data.literature_preflight import (
+    _WRITE_COLUMNS,
     _effective_grants,
     _snowflake_contract,
     literature_preflight,
@@ -129,6 +130,7 @@ def test_preflight_detects_missing_column_and_write_privilege(
 
     class Cursor:
         sql = ""
+        metadata_table = ""
 
         def __enter__(self) -> Cursor:
             return self
@@ -139,6 +141,8 @@ def test_preflight_detects_missing_column_and_write_privilege(
         def execute(self, sql: str, _args: object = None) -> None:
             self.sql = sql
             statements.append(sql)
+            if "INFORMATION_SCHEMA.COLUMNS" in sql and isinstance(_args, tuple):
+                self.metadata_table = str(_args[1])
             if "FROM KNOWLEDGE_GRAPH.PAPERS LIMIT 0" in sql:
                 raise RuntimeError("unknown column")
 
@@ -148,6 +152,17 @@ def test_preflight_detects_missing_column_and_write_privilege(
         def fetchall(self) -> list[tuple[str, ...]]:
             if self.sql.startswith("SHOW GRANTS"):
                 return []
+            if (
+                "INFORMATION_SCHEMA.COLUMNS" in self.sql
+                and self.metadata_table == "PUBMED_DISCOVERY_RUNS"
+            ):
+                return [
+                    (column,)
+                    for column in _WRITE_COLUMNS["KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS"].split(
+                        ", "
+                    )
+                    if column != "RAW_ARTIFACT_ID"
+                ]
             return [("PMID",)]
 
     class Connection:
@@ -173,6 +188,8 @@ def test_preflight_detects_missing_column_and_write_privilege(
     assert any("FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS LIMIT 0" in sql for sql in statements)
     if operation == "discover":
         assert "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS:UPDATE" in missing
+        assert "KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS:COLUMNS" in missing
+        assert "RAW_ARTIFACT_ID" in _WRITE_COLUMNS["KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS"]
     if operation == "extract":
         assert "KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS:COLUMNS" in missing
     if operation != "build-corpus":
