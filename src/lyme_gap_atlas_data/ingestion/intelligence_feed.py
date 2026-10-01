@@ -179,11 +179,17 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self.tls_context = ssl.create_default_context()
         super().__init__(host, timeout=timeout, context=self.tls_context)
         self.address = address
+        self.request_timeout = timeout
 
     def connect(self) -> None:
         # No second hostname lookup, proxy environment or unverified TLS/SNI.
+        deadline = time.monotonic() + self.request_timeout
         raw = socket.create_connection((self.address, 443), timeout=self.timeout)
         try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _failure("FEED_TIMEOUT")
+            raw.settimeout(remaining)
             self.sock = self.tls_context.wrap_socket(raw, server_hostname=self.host)
         except BaseException:
             raw.close()
@@ -268,6 +274,7 @@ class IntelligenceFeedAdapter:
         resolve: Callable[[str, float], tuple[str, ...]] = _resolve,
         sleep: Callable[[float], None] = time.sleep,
         cache: FeedCache | None = None,
+        cache_allowed: Callable[[FeedCache], bool] | None = None,
     ) -> None:
         self.lookup = registry_lookup
         self.retention_allowed = retention_allowed
@@ -275,6 +282,7 @@ class IntelligenceFeedAdapter:
         self.resolve = resolve
         self.sleep = sleep
         self.cache = cache
+        self.cache_allowed = cache_allowed
 
     @staticmethod
     def _source(definition: SourceDefinition) -> dict[str, Any]:
@@ -317,6 +325,15 @@ class IntelligenceFeedAdapter:
             "artifact_sha256": hashlib.sha256(raw).hexdigest(),
             "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         }
+        # Private replay manifest only; never part of an intelligence item or log.
+        for key in ("etag", "last-modified"):
+            value = response.headers.get(key)
+            if (
+                value is not None
+                and len(value) <= 512
+                and all(32 <= ord(char) < 127 for char in value)
+            ):
+                payload[key] = value
         return AcquireResult(
             payload=payload,
             raw_payload=raw,
@@ -343,6 +360,8 @@ class IntelligenceFeedAdapter:
         }
         cache = self.cache
         if cache is not None:
+            if self.cache_allowed is None or not self.cache_allowed(cache):
+                raise _failure("FEED_RETAINED_CACHE_REQUIRED")
             if cache.source_sha256 != identity_hash(source) or not cache.artifact_id:
                 raise _failure("FEED_CACHE_SOURCE_MISMATCH")
             parse_feed(cache.body, source)
@@ -374,6 +393,8 @@ class IntelligenceFeedAdapter:
             response = self.request(
                 safe_url or "", addresses[0], headers, limits["maximum_bytes"], remaining
             )
+            if time.monotonic() >= deadline:
+                raise _failure("FEED_TIMEOUT")
             if len(response.body) > limits["maximum_bytes"]:
                 raise _failure("FEED_TOO_LARGE")
             if response.status in {301, 302, 303, 307, 308}:
@@ -391,6 +412,8 @@ class IntelligenceFeedAdapter:
                     raise _failure("FEED_304_WITHOUT_CAPTURE")
                 return FeedResponse(304, response.headers, cache.body)
             if response.status == 200:
+                if redirects:
+                    return FeedResponse(200, {}, response.body)
                 return response
             if response.status == 429 or 500 <= response.status <= 599:
                 if attempts >= limits["maximum_attempts"]:

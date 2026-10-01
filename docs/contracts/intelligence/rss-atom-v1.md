@@ -25,7 +25,11 @@ entities, deep trees and excessive nodes are rejected, including UTF-16 DTDs.
 Compressed responses are rejected; requests ask for identity encoding.
 
 A conditional poll requires a validated retained `FeedCache` tied to the exact
-registry checksum and private artifact ID. Validators never pass to a redirected
+registry checksum and private artifact ID. An injected retained-cache permission
+check must verify the actual prior artifact reference and body checksum; merely
+constructing a `FeedCache` does not authorize it. Safe response validators remain
+in the private replay manifest and are never public item fields or log values.
+Validators never pass to a redirected
 endpoint. A 304 without that capture fails closed. Existing capture bytes are
 registered in the new run, preserving their SHA and the new fetch/run provenance.
 Cache creation/retrieval and approved scheduler composition remain activation

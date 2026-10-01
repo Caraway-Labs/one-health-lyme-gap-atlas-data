@@ -243,7 +243,12 @@ def test_conditional_repoll_retains_real_capture_and_unchanged_revision() -> Non
         '"publisher-etag"',
         "Wed, 30 Sep 2026 14:00:00 GMT",
     )
-    adapter, calls = fetch_adapter(record, [FeedResponse(304, {}, b"")], cache=cache)
+    adapter, calls = fetch_adapter(
+        record,
+        [FeedResponse(304, {}, b"")],
+        cache=cache,
+        cache_allowed=lambda saved: saved == cache,
+    )
     acquired = adapter.acquire(definition(record))
     assert acquired.raw_payload == raw and acquired.detail["fetch_status"] == 304
     assert calls[0][1] == "93.184.216.34"
