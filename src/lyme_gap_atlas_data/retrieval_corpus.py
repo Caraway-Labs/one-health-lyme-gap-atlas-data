@@ -28,6 +28,7 @@ CORPUS_RULES_VERSION = "retrieval-corpus-v1"
 TARGET_CHARS = 1200
 OVERLAP_CHARS = 200
 MIN_CHUNK_CHARS = 40
+CORPUS_INSERT_BATCH_SIZE = 128
 _SPACE = re.compile(r"\s+")
 
 
@@ -405,6 +406,7 @@ def build_retrieval_corpus(
                 missing += metrics.missing_provenance_rejections
                 all_units.extend(units)
 
+            cursor.execute("BEGIN TRANSACTION")
             cursor.execute(
                 """
                 DELETE FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS
@@ -418,8 +420,8 @@ def build_retrieval_corpus(
                 """,
                 (rules.rules_version, pmid, pmid, discovery_run_id, discovery_run_id),
             )
-            for unit in all_units:
-                cursor.execute(
+            for start in range(0, len(all_units), CORPUS_INSERT_BATCH_SIZE):
+                cursor.executemany(
                     """
                     INSERT INTO KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS (
                       unit_id, corpus_rules_version, build_id, pmid, pmcid, artifact_id,
@@ -429,24 +431,27 @@ def build_retrieval_corpus(
                       %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
-                    (
-                        unit.unit_id,
-                        rules.rules_version,
-                        build_id,
-                        unit.pmid,
-                        unit.pmcid,
-                        unit.artifact_id,
-                        unit.object_key,
-                        unit.jats_sha256,
-                        unit.text_sha256,
-                        unit.contribution_sha256,
-                        unit.chunk_index,
-                        unit.char_start,
-                        unit.char_end,
-                        unit.section_label,
-                        unit.unit_text,
-                        unit.unit_text_sha256,
-                    ),
+                    [
+                        (
+                            unit.unit_id,
+                            rules.rules_version,
+                            build_id,
+                            unit.pmid,
+                            unit.pmcid,
+                            unit.artifact_id,
+                            unit.object_key,
+                            unit.jats_sha256,
+                            unit.text_sha256,
+                            unit.contribution_sha256,
+                            unit.chunk_index,
+                            unit.char_start,
+                            unit.char_end,
+                            unit.section_label,
+                            unit.unit_text,
+                            unit.unit_text_sha256,
+                        )
+                        for unit in all_units[start : start + CORPUS_INSERT_BATCH_SIZE]
+                    ],
                 )
             cursor.execute(
                 """

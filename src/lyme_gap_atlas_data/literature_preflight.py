@@ -13,7 +13,9 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
+from .literature_tracing import trace_fields
 from .settings import PipelineSettings
 
 _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.literature-preflight")
@@ -170,6 +172,23 @@ def _identity(value: str | None, kind: str) -> str:
     return value if value and re.fullmatch(patterns[kind], value) else "unknown"
 
 
+def _classification_contract_supported(clause: str) -> bool:
+    """Recognize only positive membership on the worker's classification column."""
+    clause = clause.strip()
+    while clause.startswith("(") and clause.endswith(")"):
+        clause = clause[1:-1].strip()
+    membership = re.fullmatch(
+        r'(?:(?i:CLASSIFICATION)|"CLASSIFICATION")\s+(?i:IN)\s*'
+        r"\(\s*('[A-Za-z_]+'(?:\s*,\s*'[A-Za-z_]+')*)\s*\)",
+        clause,
+    )
+    if membership is None:
+        return False
+    return {"provider_rejected_pre_inference", "contract_remediation_reopen"}.issubset(
+        set(re.findall(r"'([^']+)'", membership.group(1)))
+    )
+
+
 def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str, object]:
     """Exercise SELECT capabilities under the same role that will claim work."""
     missing: list[str] = []
@@ -231,6 +250,17 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
             cursor.execute(
                 "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS "
                 "WHERE CONSTRAINT_SCHEMA = 'KNOWLEDGE_GRAPH' "
+                "AND CONSTRAINT_NAME = 'CK_PMC_ATTEMPT_CLASSIFICATION' "
+                "AND CONSTRAINT_TABLE = 'EXTRACTION_ATTEMPT_CLASSIFICATIONS'"
+            )
+            classification_clauses = cursor.fetchall()
+            if not any(
+                _classification_contract_supported(str(item[0])) for item in classification_clauses
+            ):
+                missing.append("PMC_ATTEMPT_CLASSIFICATION_CONTRACT")
+            cursor.execute(
+                "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS "
+                "WHERE CONSTRAINT_SCHEMA = 'KNOWLEDGE_GRAPH' "
                 "AND CONSTRAINT_NAME = 'CK_EXTRACTION_ATTEMPT_DIAGNOSTIC_TYPE'"
             )
             clauses = cursor.fetchall()
@@ -244,7 +274,8 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 if not any(
                     right in {"USAGE", "OWNERSHIP"}
                     and granted_on == "PROCEDURE"
-                    and procedure in name
+                    and name.split("(", 1)[0].strip()
+                    == f"{settings.snowflake_database}.GOVERNANCE.{procedure}".upper()
                     for right, granted_on, name in grants
                 ):
                     missing.append(f"GOVERNANCE.{procedure}:USAGE")
@@ -298,6 +329,7 @@ def literature_preflight(
         ]
         combined_blockers = [blocker for check in checks for blocker in check["blockers"]]
         return {
+            **trace_fields(),
             "run_id": run_id,
             "operation": "all",
             "environment": settings.topx_env,
@@ -310,6 +342,7 @@ def literature_preflight(
     if operation not in {"discover", "extract", "build-corpus"}:
         raise ValueError("unsupported literature operation")
     identity = {
+        **trace_fields(),
         "run_id": run_id,
         "environment": settings.topx_env,
         "code_sha": _identity(os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"),
@@ -406,6 +439,8 @@ def literature_preflight(
                 )
         span.set_attribute("atlas.outcome", "blocked" if blockers else "ready")
         span.set_attribute("atlas.blocker_count", len(blockers))
+        if blockers:
+            span.set_status(Status(StatusCode.ERROR, "preflight_blocked"))
     return {
         **identity,
         "operation": operation,

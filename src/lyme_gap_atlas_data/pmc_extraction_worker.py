@@ -23,6 +23,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
 from .artifacts import Artifact, create_artifact
@@ -40,7 +41,9 @@ from .extraction import (
     OpenAIEmbeddingClient,
     OpenAIResponsesExtractor,
 )
+from .extraction_group import ExtractionGroup, GroupGateBlocked
 from .literature_preflight import literature_preflight
+from .literature_tracing import trace_fields
 from .pmc_graph import (
     AdmittedFullText,
     Neo4jPaperPublisher,
@@ -116,6 +119,7 @@ def _stage(name: str, fields: dict[str, str]) -> Iterator[None]:
             span.set_attribute("atlas.failure_category", category)
             span.set_attribute("atlas.retryable", retryable)
             span.set_attribute("atlas.next_action", action)
+            span.set_status(Status(StatusCode.ERROR, category))
             _LOGGER.error(
                 "pmc.stage %s",
                 json.dumps(
@@ -406,6 +410,7 @@ class PMCExtractionWorker:
         run_id = str(uuid.uuid4())
         token = _RUN_ID.set(run_id)
         fields = {
+            **trace_fields(),
             "run_id": run_id,
             "environment": _bounded_identity(self._environment, "environment"),
             "code_sha": _bounded_identity(
@@ -567,6 +572,7 @@ class PMCExtractionWorker:
                         paper, attempt_id, diagnostics, span, published=False
                     )
                 span.set_attribute("error.type", type(error).__name__)
+                span.set_status(Status(StatusCode.ERROR, _failure_outcome(stage, error)[0]))
                 stage_token = _FAILURE_STAGE.set(stage)
                 try:
                     self._ledger.fail(paper, attempt_id, error)
@@ -635,11 +641,73 @@ class SnowflakePMCExtractionLedger:
         self._bucket = bucket
         self._configuration_version = configuration_version
         batch_id = os.getenv("ATLAS_DISCOVERY_RUN_ID")
-        self._discovery_run_id = str(uuid.UUID(batch_id)) if batch_id else None
+        manifest = os.getenv("ATLAS_EXTRACTION_GROUP_MANIFEST")
+        try:
+            self._discovery_run_id = str(uuid.UUID(batch_id)) if batch_id else None
+        except ValueError:
+            if manifest is not None:
+                raise GroupGateBlocked("matching_group_runtime_identity") from None
+            raise
+        self._group = (
+            ExtractionGroup.parse(
+                manifest,
+                discovery_run_id=self._discovery_run_id,
+                image_digest=os.getenv("IMAGE_DIGEST"),
+                configuration_version=configuration_version,
+            )
+            if manifest is not None
+            else None
+        )
+        self._group_readiness_at: str | None = None
+        self._group_claimed_pmid: str | None = None
+
+    def _validate_group(self, cursor: Any) -> None:
+        if self._group is None:
+            return
+        cursor.execute(
+            """SELECT p.pmid, p.state, p.final_review_decision_id
+               FROM KNOWLEDGE_GRAPH.PAPERS p
+               WHERE ARRAY_CONTAINS(TO_VARIANT(p.pmid), PARSE_JSON(%s))
+                 AND EXISTS (SELECT 1 FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
+                             WHERE d.discovery_run_id = %s
+                               AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids))""",
+            (json.dumps(self._group.pmids), self._group.discovery_run_id),
+        )
+        rows = cursor.fetchall()
+        if (
+            len(rows) != len(self._group.pmids)
+            or {str(row[0]) for row in rows} != set(self._group.pmids)
+            or any(row[1] not in ("approved", "retry_pending") or not row[2] for row in rows)
+        ):
+            raise GroupGateBlocked("exact_steward_approved_discovery_inventory")
+        cursor.execute(
+            """SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+               WHERE diagnostic_type = 'attempt_context'
+                 AND details:extraction_group:group_id::STRING = %s""",
+            (self._group.group_id,),
+        )
+        prior = cursor.fetchone()
+        if prior is None or prior[0] != 0:
+            raise GroupGateBlocked("group_canary_already_attempted_or_unverifiable")
+
+    def validate_group_before_providers(self) -> None:
+        """Read authoritative approval/scope/context; never reserve or claim here."""
+        if self._group is None:
+            return
+        with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            self._validate_group(cursor)
+        self._group_readiness_at = datetime.now(UTC).isoformat()
 
     def claim_one(self, lease_seconds: int) -> ApprovedPaper | None:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
             connection.autocommit(False)
+            try:
+                self._validate_group(cursor)
+                if self._group is not None and self._group_readiness_at is None:
+                    raise GroupGateBlocked("successful_group_readiness_before_claim")
+            except GroupGateBlocked:
+                connection.rollback()
+                raise
             cursor.execute(
                 """SELECT p.pmid, p.pmcid, p.title, COALESCE(p.journal, ''),
                           TO_VARCHAR(p.publication_date), p.publication_types, p.language,
@@ -651,6 +719,7 @@ class SnowflakePMCExtractionLedger:
                        SELECT 1 FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
                        WHERE d.discovery_run_id = %s
                          AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)))
+                     AND (%s IS NULL OR ARRAY_CONTAINS(TO_VARIANT(p.pmid), PARSE_JSON(%s)))
                      AND NOT EXISTS (SELECT 1 FROM KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS r
                                      WHERE r.pmid = p.pmid)
                      AND (SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
@@ -669,7 +738,12 @@ class SnowflakePMCExtractionLedger:
                             p.publication_types, p.language, p.state
                    ORDER BY CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END, p.pmid
                    LIMIT 1""",
-                (self._discovery_run_id, self._discovery_run_id),
+                (
+                    self._discovery_run_id,
+                    self._discovery_run_id,
+                    json.dumps(self._group.pmids) if self._group else None,
+                    json.dumps(self._group.pmids) if self._group else None,
+                ),
             )
             row = cursor.fetchone()
             if row is None:
@@ -686,6 +760,9 @@ class SnowflakePMCExtractionLedger:
                 query_match_ids=tuple(row[7]),
                 state=str(row[8]),
             )
+            if self._group is not None and paper.pmid not in self._group.pmids:
+                connection.rollback()
+                raise GroupGateBlocked("claimed_paper_in_exact_group_inventory")
             cursor.execute(
                 """UPDATE KNOWLEDGE_GRAPH.PAPERS SET state = 'extracting', updated_at = CURRENT_TIMESTAMP()
                    WHERE pmid = %s AND state IN ('approved', 'retry_pending')""",
@@ -701,6 +778,8 @@ class SnowflakePMCExtractionLedger:
                 (str(uuid.uuid4()), paper.pmid, paper.state, _correlation_id()),
             )
             connection.commit()
+            if self._group is not None:
+                self._group_claimed_pmid = paper.pmid
             return paper
 
     def record_artifact(
@@ -757,6 +836,10 @@ class SnowflakePMCExtractionLedger:
         estimated_input_tokens: int,
         lease_seconds: int,
     ) -> str:
+        if self._group is not None and (
+            self._group_readiness_at is None or self._group_claimed_pmid != paper.pmid
+        ):
+            raise GroupGateBlocked("validated_group_claim_before_attempt")
         attempt_id = str(uuid.uuid4())
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
             connection.autocommit(False)
@@ -806,7 +889,8 @@ class SnowflakePMCExtractionLedger:
                 paper.pmid,
             ),
         )
-        context = {
+        context: dict[str, Any] = {
+            **trace_fields(),
             "run_id": _correlation_id(),
             "discovery_run_id": self._discovery_run_id,
             "environment": _bounded_identity(os.getenv("TOPX_ENV"), "environment"),
@@ -816,6 +900,11 @@ class SnowflakePMCExtractionLedger:
             "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
             "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
         }
+        if self._group is not None:
+            context["extraction_group"] = {
+                **self._group.context(),
+                "readiness_completed_at": self._group_readiness_at,
+            }
         cursor.execute(
             """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
                    (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
@@ -935,6 +1024,7 @@ class SnowflakePMCExtractionLedger:
                     (type(error).__name__, attempt_id),
                 )
                 details: dict[str, object] = {
+                    **trace_fields(),
                     "run_id": _correlation_id(),
                     "stage": _FAILURE_STAGE.get(),
                     "failure_category": category,
@@ -1059,6 +1149,8 @@ def run_pmc_extraction(*, estimated_cost_usd: float, settings: Any) -> dict[str,
     _LOGGER.info("literature.preflight %s", json.dumps(readiness, sort_keys=True))
     if readiness["status"] != "READY":
         raise RuntimeError("literature preflight blocked extraction before paper claim")
+    ledger = SnowflakePMCExtractionLedger(bucket=settings.spaces_bucket)
+    ledger.validate_group_before_providers()
     required = {
         "GROQ_API_KEY": settings.groq_api_key,
         "OPENAI_API_KEY": settings.openai_api_key,
@@ -1084,7 +1176,7 @@ def run_pmc_extraction(*, estimated_cost_usd: float, settings: Any) -> dict[str,
             cost_estimator=lambda _route, _tokens: estimated_cost_usd,
         )
         worker = PMCExtractionWorker(
-            ledger=SnowflakePMCExtractionLedger(bucket=settings.spaces_bucket),
+            ledger=ledger,
             fetcher=PMCOpenAccessClient(),
             artifact_store=_spaces_client(settings),
             coordinator=coordinator,

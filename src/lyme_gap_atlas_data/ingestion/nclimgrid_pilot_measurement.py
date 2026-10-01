@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import time
@@ -325,6 +326,40 @@ def inspect_run(run_id: str) -> dict[str, object]:
             for a in artifacts
         ],
     }
+
+
+def candidate_report(run_id: str) -> dict[str, object]:
+    """Read only the approved capture twice using existing protected DEV access."""
+    from ..climate_publication import RUN_ID, candidate_evidence
+
+    if run_id != RUN_ID:
+        raise MeasurementError("Candidate requires the approved January capture")
+    with tempfile.TemporaryDirectory(
+        prefix="nclimgrid-candidate-", dir=os.getenv("RUNNER_TEMP")
+    ) as directory:
+        evidence = candidate_evidence(Path(directory))
+    evidence["code_sha"] = os.getenv("GITHUB_SHA")
+    return evidence
+
+
+def candidate_diagnostic(run_id: str) -> dict[str, object]:
+    """Diagnose the first strict content mismatch without emitting payloads."""
+    from ..climate_publication import RUN_ID, first_revision_content_mismatch
+
+    if run_id != RUN_ID:
+        raise MeasurementError("Diagnostic requires the approved January capture")
+    identity = _identity()
+    if not all(
+        identity[key]
+        for key in ("user_matches", "role_matches", "database_matches", "warehouse_matches")
+    ):
+        raise MeasurementError("Diagnostic requires the protected DEV runtime")
+    _run(run_id)
+    with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+        result = first_revision_content_mismatch(
+            cursor, SnowflakeCheckpointStore().iter_partitions(run_id)
+        )
+    return result | {"code_sha": os.getenv("GITHUB_SHA"), "writes_performed": False}
 
 
 def ordered_read(run_id: str) -> dict[str, object]:

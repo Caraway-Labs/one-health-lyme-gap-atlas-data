@@ -39,10 +39,178 @@ PROD_ROLE = "OH_LYME_PROD_RUNTIME"
 PROD_BUCKET = "one-health-lyme-gap-atlas-data-prod"
 NEO4J_URI = "bolt://10.116.0.3:7687"
 VPC_ID = "a937d8dd-4ee9-4de2-a8df-b32e7ad4098e"
+RUNTIME_CREDENTIALS = (
+    "SNOWFLAKE_ACCOUNT",
+    "SNOWFLAKE_USER",
+    "SNOWFLAKE_PRIVATE_KEY_B64",
+    "SNOWFLAKE_PRIVATE_KEY_PASSPHRASE",
+    "SPACES_ACCESS_KEY_ID",
+    "SPACES_SECRET_ACCESS_KEY",
+)
+LITERATURE_SECRETS = {
+    "discover": ("NCBI_EMAIL",),
+    "extract": ("NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"),
+    "build-corpus": (),
+}
+
+
+def secret_readiness(
+    baseline: dict[str, Any],
+    *,
+    operation: str,
+    secrets: dict[str, str],
+    workflow_run_id: str = "",
+) -> dict[str, Any]:
+    """Aggregate known credential omissions without revealing any values or making calls."""
+    if operation not in {"preflight", *LITERATURE_SECRETS}:
+        raise ValueError("unsupported literature operation")
+    stages = tuple(LITERATURE_SECRETS) if operation == "preflight" else (operation,)
+    blockers: list[dict[str, Any]] = []
+    raw_jobs = baseline.get("jobs", [])
+    jobs = [job for job in raw_jobs if isinstance(job, dict)] if isinstance(raw_jobs, list) else []
+    for stage in stages:
+        template_name = "catalog-discovery" if stage == "discover" else "approved-source-ingestion"
+        template = next((job for job in jobs if job.get("name") == template_name), {})
+        env = _env(template) if template else {}
+        for key in RUNTIME_CREDENTIALS:
+            entry = env.get(key, {})
+            if entry.get("type") != "SECRET" or not entry.get("value"):
+                blockers.append(
+                    {
+                        "stage": stage,
+                        "capability": key,
+                        "failure_category": "preflight_configuration",
+                        "remediation_owner": "production_platform_owner",
+                        "retryable": False,
+                        "next_action": "repair_existing_runtime_credential_configuration",
+                    }
+                )
+        for key in LITERATURE_SECRETS[stage]:
+            if not secrets.get(key):
+                blockers.append(
+                    {
+                        "stage": stage,
+                        "capability": key,
+                        "failure_category": "preflight_configuration",
+                        "remediation_owner": "production_environment_owner",
+                        "retryable": False,
+                        "next_action": "configure_required_environment_secret",
+                    }
+                )
+    return {
+        "run_id": workflow_run_id
+        if re.fullmatch(r"[0-9]{1,20}", workflow_run_id)
+        else str(uuid.uuid4()),
+        "operation": operation,
+        "scope": "host_secret_presence",
+        "status": "BLOCKED" if blockers else "READY",
+        "runtime_readiness": "NOT_CHECKED",
+        "blockers": blockers,
+        "optional_configuration": {"NCBI_API_KEY_present": bool(secrets.get("NCBI_API_KEY"))},
+    }
 
 
 def _env(job: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {entry["key"]: entry for entry in job["envs"]}
+    entries = job.get("envs", [])
+    return (
+        {
+            entry["key"]: entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str)
+        }
+        if isinstance(entries, list)
+        else {}
+    )
+
+
+def host_readiness(
+    baseline: dict[str, Any],
+    *,
+    operation: str,
+    image_digest: str,
+    secrets: dict[str, str],
+    workflow_run_id: str = "",
+) -> dict[str, Any]:
+    """Aggregate existing baseline/configuration guards with credential omissions."""
+    report = secret_readiness(
+        baseline, operation=operation, secrets=secrets, workflow_run_id=workflow_run_id
+    )
+    report["scope"] = "host_baseline_configuration"
+    blockers = report["blockers"]
+
+    def check(valid: bool, capability: str, stage: str = "host") -> None:
+        if not valid:
+            blockers.append(
+                {
+                    "stage": stage,
+                    "capability": capability,
+                    "failure_category": "preflight_configuration",
+                    "remediation_owner": "production_platform_owner",
+                    "retryable": False,
+                    "next_action": "restore_reviewed_baseline_configuration",
+                }
+            )
+
+    check(baseline.get("name") == "oh-lyme-data-prod", "reviewed_production_app")
+    check(baseline.get("region") == "sfo", "reviewed_production_region")
+    vpc = baseline.get("vpc")
+    check(not vpc or isinstance(vpc, dict) and vpc.get("id") == VPC_ID, "reviewed_private_vpc")
+    check(re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest) is not None, "immutable_image_digest")
+    raw_jobs = baseline.get("jobs")
+    jobs = [job for job in raw_jobs if isinstance(job, dict)] if isinstance(raw_jobs, list) else []
+    check(
+        isinstance(raw_jobs, list) and len(raw_jobs) == len(jobs) == 6, "reviewed_six_job_topology"
+    )
+    names = [job.get("name") for job in jobs]
+    check(
+        all(isinstance(name, str) for name in names) and set(names) == EXPECTED_JOBS,
+        "reviewed_scheduled_job_names",
+    )
+    check(all(job.get("kind") == "SCHEDULED" for job in jobs), "reviewed_scheduled_job_kinds")
+    check(
+        all(
+            isinstance(job.get("image"), dict) and job["image"].get("digest") == image_digest
+            for job in jobs
+        ),
+        "active_job_image_digest",
+    )
+    stages = tuple(LITERATURE_SECRETS) if operation == "preflight" else (operation,)
+    required = {
+        "TOPX_ENV": "prod",
+        "ENABLE_PRODUCTION_EXECUTION": "true",
+        "SNOWFLAKE_DATABASE": PROD_DATABASE,
+        "SNOWFLAKE_ROLE": PROD_ROLE,
+        "SNOWFLAKE_AUTH_METHOD": "key_pair",
+        "SPACES_BUCKET": PROD_BUCKET,
+        "SPACES_PREFIX": "prod",
+    }
+    for stage in stages:
+        name = "catalog-discovery" if stage == "discover" else "approved-source-ingestion"
+        matches = [job for job in jobs if job.get("name") == name]
+        check(len(matches) == 1, "one_reviewed_runtime_template", stage)
+        template = matches[0] if len(matches) == 1 else {}
+        entries = template.get("envs")
+        env = _env(template)
+        check(
+            isinstance(entries, list) and len(entries) == len(env),
+            "unique_valid_template_environment",
+            stage,
+        )
+        for key, value in required.items():
+            check(env.get(key, {}).get("value") == value, key, stage)
+        collision_env = env
+        if operation == "preflight":
+            # Preflight injects every stage's secret into the ingestion template.
+            selected = next(
+                (job for job in jobs if job.get("name") == "approved-source-ingestion"), {}
+            )
+            collision_env = _env(selected)
+        for key in LITERATURE_SECRETS[stage]:
+            check(key not in collision_env, "no_preexisting_" + key, stage)
+        if operation == "discover" and secrets.get("NCBI_API_KEY"):
+            check("NCBI_API_KEY" not in env, "no_preexisting_NCBI_API_KEY", stage)
+    report["status"] = "BLOCKED" if blockers else "READY"
+    return report
 
 
 def _require_runtime(job: dict[str, Any], *, spaces: bool) -> None:
@@ -58,14 +226,9 @@ def _require_runtime(job: dict[str, Any], *, spaces: bool) -> None:
         required |= {"SPACES_BUCKET": PROD_BUCKET, "SPACES_PREFIX": "prod"}
     if any(env.get(key, {}).get("value") != value for key, value in required.items()):
         raise ValueError("baseline runtime environment differs from reviewed PROD values")
-    credential_keys = {
-        "SNOWFLAKE_ACCOUNT",
-        "SNOWFLAKE_USER",
-        "SNOWFLAKE_PRIVATE_KEY_B64",
-        "SNOWFLAKE_PRIVATE_KEY_PASSPHRASE",
-    }
+    credential_keys = set(RUNTIME_CREDENTIALS[:4])
     if spaces:
-        credential_keys |= {"SPACES_ACCESS_KEY_ID", "SPACES_SECRET_ACCESS_KEY"}
+        credential_keys |= set(RUNTIME_CREDENTIALS[4:])
     if any(env.get(key, {}).get("type") != "SECRET" for key in credential_keys):
         raise ValueError("baseline is missing a protected runtime credential")
 
@@ -93,6 +256,15 @@ def build_spec(
     secrets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a new spec; reject drift and every unbounded invocation."""
+    readiness = host_readiness(
+        baseline,
+        operation=operation,
+        image_digest=image_digest,
+        secrets=secrets or {},
+        workflow_run_id=workflow_run_id,
+    )
+    if readiness["status"] == "BLOCKED":
+        raise ValueError("host readiness BLOCKED: " + json.dumps(readiness))
     if baseline.get("name") != "oh-lyme-data-prod":
         raise ValueError("unexpected production app")
     if baseline.get("region") != "sfo":
@@ -132,6 +304,12 @@ def build_spec(
         raise ValueError("estimated cost must be a decimal number") from error
     if not estimate.is_finite() or not Decimal("0.20") <= estimate <= Decimal("20"):
         raise ValueError("estimated cost must be between 0.20 and 20 USD")
+
+    readiness = secret_readiness(
+        baseline, operation=operation, secrets=secrets or {}, workflow_run_id=workflow_run_id
+    )
+    if readiness["status"] == "BLOCKED":
+        raise ValueError("host secret readiness BLOCKED: " + json.dumps(readiness))
 
     template_name = (
         "approved-source-ingestion"
@@ -217,8 +395,30 @@ def main() -> None:
     parser.add_argument("--discovery-run-id", default="")
     parser.add_argument("--source-commit", default="")
     parser.add_argument("--workflow-run-id", default="")
+    parser.add_argument("--readiness-report", type=Path)
     args = parser.parse_args()
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+    supplied = {
+        key: os.environ.get(key, "")
+        for key in (
+            "NCBI_EMAIL",
+            "NCBI_API_KEY",
+            "NEO4J_RUNTIME_PASSWORD",
+            "GROQ_API_KEY",
+            "OPENAI_API_KEY",
+        )
+    }
+    readiness = host_readiness(
+        baseline,
+        operation=args.operation,
+        image_digest=args.image_digest,
+        secrets=supplied,
+        workflow_run_id=args.workflow_run_id,
+    )
+    if args.readiness_report:
+        args.readiness_report.write_text(json.dumps(readiness), encoding="utf-8")
+    if readiness["status"] == "BLOCKED":
+        raise SystemExit("host readiness BLOCKED: " + json.dumps(readiness))
     result = build_spec(
         baseline,
         operation=args.operation,
@@ -230,16 +430,7 @@ def main() -> None:
         discovery_run_id=args.discovery_run_id,
         source_commit=args.source_commit,
         workflow_run_id=args.workflow_run_id,
-        secrets={
-            key: os.environ.get(key, "")
-            for key in (
-                "NCBI_EMAIL",
-                "NCBI_API_KEY",
-                "NEO4J_RUNTIME_PASSWORD",
-                "GROQ_API_KEY",
-                "OPENAI_API_KEY",
-            )
-        },
+        secrets=supplied,
     )
     args.output.write_text(json.dumps(result), encoding="utf-8")
 

@@ -46,12 +46,16 @@ from .ingestion import (
 )
 from .literature_preflight import literature_preflight
 from .literature_status import literature_status
+from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
 from .migrations import (
     apply_migrations,
     migration_authority_preflight,
     migration_plan,
+    parse_reviewed_pending_set,
+    pending_migration_plan,
     reconcile_legacy_dev_migrations,
     reconcile_legacy_prod_migrations,
+    require_reviewed_pending_set,
 )
 from .operation_capabilities import (
     assess_operation,
@@ -157,9 +161,19 @@ class ObservedTyper(typer.Typer):
 
     def __call__(self, *args: object, **kwargs: object) -> object:
         configure_logging()
+        supplied = kwargs.get("args")
+        arguments = (
+            supplied
+            if isinstance(supplied, list) and all(isinstance(value, str) for value in supplied)
+            else sys.argv[1:]
+        )
+        command = _command_path(arguments)
         tracing_ready = True
         try:
-            configure_tracing(SERVICE_NAME)
+            if command in LITERATURE_COMMANDS:
+                configure_literature_tracing(SERVICE_NAME)
+            else:
+                configure_tracing(SERVICE_NAME)
         except Exception:
             # Export configuration is optional. Never block ingestion because a
             # collector endpoint or header was malformed; omit the exception
@@ -171,7 +185,6 @@ class ObservedTyper(typer.Typer):
             if tracing_ready
             else trace.NoOpTracerProvider().get_tracer(SERVICE_NAME)
         )
-        command = _command_path(sys.argv[1:])
         started = monotonic()
         try:
             # The current context lets safe, bounded child spans correlate to the
@@ -181,6 +194,8 @@ class ObservedTyper(typer.Typer):
             ) as span:
                 span.set_attribute("atlas.command", command)
                 span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
+                for key, value in trace_fields().items():
+                    span.set_attribute(f"atlas.{key}", value)
                 try:
                     result = super().__call__(*args, **kwargs)
                 except BaseException as error:
@@ -592,6 +607,36 @@ def apply_migrations_command(
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
     typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+
+
+@pipeline_app.command("pending-migration-plan")
+def pending_migration_plan_command(
+    database: str = typer.Option(..., "--database"),
+) -> None:
+    """Read pending versions, filenames, and checksums without migration mutation."""
+    typer.echo(json.dumps(pending_migration_plan(_settings(), database)))
+
+
+@pipeline_app.command("apply-reviewed-dev-migrations")
+def apply_reviewed_dev_migrations_command(
+    database: str = typer.Option(..., "--database"),
+    expected_pending_json: str = typer.Option(..., "--expected-pending-json"),
+    commit: str | None = typer.Option(None, "--commit"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Check reviewed DEV scope before legacy reconciliation or migration application."""
+    if not confirm:
+        raise typer.BadParameter("Pass --confirm to apply reviewed DEV migrations")
+    if database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
+        raise typer.BadParameter("Reviewed DEV migrations require the isolated DEV database")
+    reviewed = parse_reviewed_pending_set(expected_pending_json)
+    settings = _settings()
+    actual = pending_migration_plan(settings, database)
+    typer.echo(json.dumps({"pending_migrations": actual}))
+    require_reviewed_pending_set(actual, reviewed)
+    reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
+    applied = apply_migrations(settings, database, commit, expected_pending=reviewed)
+    typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 
 
 @pipeline_app.command("reconcile-legacy-dev-migrations")
@@ -1046,6 +1091,21 @@ def source_nclimgrid_report(
     typer.echo(json.dumps({"report": str(output), "county_csv": str(county_csv)}))
 
 
+@source_app.command("nclimgrid-publication-candidate")
+def source_nclimgrid_publication_candidate(
+    output: str = typer.Option(..., "--output"),
+) -> None:
+    """Prepare the approved January capture's read-only consumer review artifact."""
+    from .climate_publication import ClimatePublicationBlocked, create_candidate
+
+    try:
+        report = create_candidate(Path(output))
+    except ClimatePublicationBlocked as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(json.dumps(report))
+
+
 @source_app.command("nclimgrid-pilot-measure")
 def source_nclimgrid_pilot_measure(
     action: str = typer.Option(..., "--action"),
@@ -1060,10 +1120,13 @@ def source_nclimgrid_pilot_measure(
         "ordered-read": lambda: measurement.ordered_read(_required_run_id(run_id)),
         "report": lambda: measurement.time_report(_required_run_id(run_id)),
         "benchmark-history": lambda: measurement.benchmark_history(_required_run_id(run_id)),
+        "candidate": lambda: measurement.candidate_report(_required_run_id(run_id)),
+        "candidate-diagnostic": lambda: measurement.candidate_diagnostic(_required_run_id(run_id)),
     }
     if action not in actions:
         raise typer.BadParameter(
-            "Use preflight, inspect, ordered-read, report, or benchmark-history"
+            "Use preflight, inspect, ordered-read, report, benchmark-history, "
+            "candidate, or candidate-diagnostic"
         )
     if action == "preflight" and run_id is not None:
         raise typer.BadParameter("Preflight does not accept a run ID")

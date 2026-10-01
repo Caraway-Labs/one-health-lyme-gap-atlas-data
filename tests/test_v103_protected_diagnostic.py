@@ -243,6 +243,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert workflow[True]["workflow_dispatch"]["inputs"]["diagnose_v103_state"]["type"] == "boolean"
     assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
+        "expected_pending_json",
         "diagnose_v103_state",
         "diagnose_query_id",
     }
@@ -259,9 +260,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     assert "apply-migrations" not in branch
     assert "source run" not in branch
     assert "PROD" not in branch
-    assert (
-        shell.index('if [ "$DIAGNOSE_V103_STATE" = "true" ]; then')
-        < shell.index("reconcile-legacy-dev-migrations")
-        < shell.index("apply-migrations")
+    assert shell.index('if [ "$DIAGNOSE_V103_STATE" = "true" ]; then') < shell.index(
+        "apply-reviewed-dev-migrations"
     )
     assert "QUERY_HISTORY_BY_USER" in shell

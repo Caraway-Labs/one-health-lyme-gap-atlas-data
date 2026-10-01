@@ -83,6 +83,53 @@ query, extraction, Snowflake write, or Neo4j write. After the workflow
 finishes, verify that `doctl apps spec get $prodAppId --format json` lists only
 the original six jobs and no `literature-*-once` job. Stop if restoration fails.
 
+Before the workflow can change App/VPC topology, its existing spec builder emits
+one sanitized host-secret report. It lists every missing required literature
+secret and inherited Snowflake/Spaces credential together, mapped to discovery,
+extraction or corpus stages, with owner, retryability and next action. A `preflight`
+invocation checks the secret prerequisites for all three operations; other
+invocations check only their selected operation. Optional `NCBI_API_KEY` absence
+does not block. No credential value or captured App spec enters this report.
+
+The report's `scope=host_baseline_configuration` and `runtime_readiness=NOT_CHECKED` are
+explicit: `READY` here proves the existing captured App baseline/configuration guards
+and secret presence/protection, not
+database contracts, private connectivity, artifact access or provider validity.
+
+The report aggregates reviewed app/region/VPC, six scheduled jobs, active job
+digests, operation template configuration, unique environment keys and protected
+credentials before spec generation. Values and unknown job/environment names are
+omitted. Remote DEV/PROD image/source-workflow checks still run in their existing
+protected workflow order; this report does not replace or aggregate those reads.
+Invalid invocation bounds still fail closed through the existing argument guards.
+
+`literature-status` additionally reconciles exact membership against the discovery
+run's authoritative `request_evidence:pmids`, with exclusive current-status buckets
+whose counts cover that inventory. Missing/extra/ambiguous or inconsistent records
+are explicit. Provider result count and overlapping historical stage totals are
+not substituted for inventory. Missing historical inventories remain
+`NOT_ATTRIBUTED`; malformed ones remain invalid. Observed artifact/receipt/corpus
+presence flags are not exact receipt lineage, fresh canary proof or serving proof.
+
+Offline fixtures exercise the existing PubMed metadata retry bound of three calls
+with linear 0.4/0.8-second backoff and no sleep after exhaustion, plus persistence
+once after successful transient recovery. Existing atomic corpus rollback and
+publication replacement regressions remain authoritative for their own scopes.
+No jitter or new provider retry policy is introduced; no real provider/model call
+or complete end-to-end retry/idempotency acceptance is claimed.
+The existing runtime preflight still checks those accessible runtime contracts
+before claim. If host readiness is `BLOCKED`, no temporary spec is written and
+the workflow performs neither the App update nor its restoration update. Fix the
+named configuration and repeat the protected operation; do not bypass the gate.
+Reports use the existing workflow run ID and remain in its sanitized logs after
+private temporary report/spec files are removed.
+
+For a local fixture or previously authorized privately captured spec, the same
+builder accepts `--readiness-report <private-json-path>` alongside its existing
+arguments. Never publish the baseline or generated deployment specification.
+This host check does not provide a durable pre-batch canary gate or a complete
+pre-topology network/database readiness proof.
+
 The discovery output's `discovery_run_id` is the batch key for later operations.
 Supply that same UUID as the workflow's optional `discovery_run_id` input for
 extraction and corpus rebuild. When supplied, the extraction claim and corpus
@@ -299,3 +346,60 @@ active digest after every run. If restoration fails, stop all further app
 deployments and have the production owner restore the retained baseline or
 previous approved deployment revision using the normal protected path. Keep
 Snowflake artifacts, attempts, and graph receipts intact; do not reset them.
+
+## Bounded literature trace export
+
+The literature CLI buffers up to 128 finished child spans for up to five minutes.
+When the command ends, it queues the finished CLI root before its children and
+then flushes the standard SDK batch exporter. This gives a tail sampler the final
+root error status at its first decision, rather than only an early successful
+preflight span. Failed PMC stages and blocked preflight spans carry ERROR status
+with a bounded category; exception bodies are not recorded.
+
+The SDK queue and export batch are capped at 256 spans; each span has at most
+64 attributes with strings capped at 1,024 characters, and no events or links.
+Full existing sanitized diagnostics remain in the durable ledgers. Flush and
+shutdown each wait at most five seconds for their delegate calls, up to ten
+seconds combined. Lock acquisition and child draining precede those waits;
+the installed production batch processor queues spans without blocking. These
+limits do not provide a universal bound for arbitrary custom delegates.
+The current OTLP endpoint and opaque headers are reused without collector,
+sampling, credential, grant, or persistent-job changes.
+Parsed headers are validated before exporter construction; malformed headers
+disable optional tracing with a fixed safe diagnostic and ingestion continues.
+The SDK's two diagnostics that include raw transport/HTTP reasons retain safe
+HTTP status, retry delay, and finite reason categories; raw reasons and exception
+details are removed before logging handlers receive them. Other SDK diagnostics
+remain enabled, and connection retries retain their SDK behavior.
+
+This processor supports one literature CLI invocation per worker process.
+Concurrent or reentrant CLI invocations in one Python process are unsupported:
+the root state and provider shutdown belong to that invocation. Concurrent
+child spans within the single invocation are supported; each separate worker
+process has its own processor and provider.
+
+A span limit, five-minute deferral expiry, early explicit flush, or shutdown
+switches to normal streaming and emits a safe `atlas-data.trace_buffer` warning.
+The time limit bounds buffering, not execution: it does not terminate a command
+or alter budgets, retries, or governance. After fallback, complete-trace/error
+retention is not promised. SIGKILL, hard termination, or a process crash can lose
+buffered spans; already committed attempt context and diagnostics still survive.
+Graceful Python exceptions and exits close the root before the CLI flush boundary.
+
+When an actual OTel context exists, `trace_id` is stored in the existing
+`attempt_context` and `stage_failure` JSON diagnostics and returned by bounded
+literature status inspection. A missing/invalid context does not invent an ID.
+This permits direct collector lookup after temporary worker cleanup. A stored ID
+or completed SDK flush is not evidence that a collector retained the trace.
+The current pilot samples successful traces at 10%; late spans can inherit an
+earlier discard decision. Validate a received trace's source, digest, workflow,
+run, and attempt identity separately before declaring end-to-end delivery.
+
+## KG15 group gate implementation boundary
+
+The [group gate contract](kg15-group-gate.md) documents the first offline-reviewed
+inventory/claim seam. The protected workflow does not expose its manifest yet.
+Group continuation is explicitly blocked until authoritative same-group fresh
+canary receipts, corpus admission and actual serving visibility are implemented.
+Existing one-paper invocations and final batch counts do not complete this gate.
+No production canary, new access or workflow activation is authorized by this seam.

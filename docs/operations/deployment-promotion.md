@@ -63,6 +63,26 @@ Completed controls:
 
 ### DEV legacy migration-ledger recovery
 
+The protected `deploy-dev.yml` mutation path requires `expected_pending_json`:
+an explicitly reviewed JSON array of pending `version`, `filename`, and `sha256`
+objects. Obtain the safe metadata with the read-only
+`pipeline pending-migration-plan --database ONE_HEALTH_LYME_GAP_ATLAS_DEV` command
+using an authorized DEV read connection, then review that exact output for the
+dispatch commit. Use `[]` only when an empty pending set was explicitly reviewed.
+The workflow emits the actual pending metadata and fails before legacy
+reconciliation or migration application if any version, filename, or checksum
+differs, including a concurrently added migration. It checks the set again at
+application. A missing or unreadable ledger stops this protected path; it does
+not bootstrap a missing ledger. The diagnostic-only workflow modes remain
+read-only and do not require a reviewed set. PROD retains its existing protected
+promotion controls. Review a changed set and obtain exact authorization before
+redispatch; never automatically replace the reviewed set with the actual set.
+
+One or multiple pending migrations can be reviewed together. An in-flight V135
+release remains compatible once V135's exact filename/checksum and every other
+pending DEV migration are explicitly included; a V135-only review fails if
+another pending migration appears. This control does not authorize a release.
+
 If the checksum-enforced runner encounters the documented DEV legacy set for
 V028, V029, and V033, it remains fail-closed until the separately reviewed
 `pipeline reconcile-legacy-dev-migrations --confirm` command runs. That

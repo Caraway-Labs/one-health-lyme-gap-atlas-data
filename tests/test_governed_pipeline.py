@@ -858,7 +858,11 @@ def test_catalog_registration_merge_span_contains_only_safe_correlation_fields(
         def __init__(self) -> None:
             self.span = Span()
 
-        def start_as_current_span(self, _name: str) -> Span:
+        def start_as_current_span(
+            self, _name: str, *, record_exception: bool, set_status_on_exception: bool
+        ) -> Span:
+            assert record_exception is False
+            assert set_status_on_exception is False
             return self.span
 
     class Cursor:
@@ -2144,8 +2148,8 @@ def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key()
     assert (
         "SELECT version, filename, sha256, applied_at FROM GOVERNANCE.SCHEMA_MIGRATIONS" in workflow
     )
-    assert "reconcile-legacy-dev-migrations" in workflow
-    assert "atlas-data pipeline apply-migrations" in workflow
+    assert "atlas-data pipeline apply-reviewed-dev-migrations" in workflow
+    assert '--expected-pending-json "$EXPECTED_PENDING_JSON"' in workflow
     assert '--database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm' in workflow
     assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in workflow
 

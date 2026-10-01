@@ -56,6 +56,8 @@ on:
           - ordered-read
           - report
           - benchmark-history
+          - candidate
+          - candidate-diagnostic
       recapture:
         description: Explicitly create new captures for completed batch definitions
         required: false
@@ -134,6 +136,9 @@ jobs:
               test -z "$MEASUREMENT_RUN_ID"
             else
               test -n "$MEASUREMENT_RUN_ID"
+            fi
+            if [ "${{ inputs.measurement_action }}" = "candidate" ] || [ "${{ inputs.measurement_action }}" = "candidate-diagnostic" ]; then
+              test "$MEASUREMENT_RUN_ID" = "c2eb2146-005d-44d2-bac4-e2805ca42577"
             fi
           fi
           if [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then
