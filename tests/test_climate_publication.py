@@ -656,6 +656,7 @@ def test_diagnostic_finds_first_strict_rejection_and_finishes_partition_proof() 
     for capture, original in zip((first, second), originals, strict=True):
         for field in (*publication.AREAS, *publication.FRACTIONS, "value"):
             capture[f"native_{field}"] = original["record"][field]
+            capture[f"stored_type_{field}"] = "DOUBLE"
 
     class Cursor:
         description = [(field,) for field in first]
@@ -665,6 +666,7 @@ def test_diagnostic_finds_first_strict_rejection_and_finishes_partition_proof() 
             self.calls += 1
             assert sql.startswith("SELECT") and parameters[0] == publication.RUN_ID
             assert "payload:record:value::DOUBLE AS native_value" in sql
+            assert "TYPEOF(payload:record:value) AS stored_type_value" in sql
             assert set(parameters[1:]) == {first["record_id"], second["record_id"]}
 
         def fetchall(self) -> list[Any]:
@@ -680,5 +682,7 @@ def test_diagnostic_finds_first_strict_rejection_and_finishes_partition_proof() 
     assert report["strict_content_equivalent"] is False
     assert report["stored_source_sha256"] == report["partition_source_sha256"]
     assert report["native_double_content_equivalent"] is True
+    assert len(report["stored_numeric_types"]) == 7
+    assert set(report["stored_numeric_types"].values()) == {"DOUBLE"}
     assert report["native_double_source_sha256"] == report["stored_source_sha256"]
     assert report["native_double_normalized_sha256"] == report["stored_normalized_sha256"]

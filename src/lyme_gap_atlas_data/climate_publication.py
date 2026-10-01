@@ -575,6 +575,9 @@ def encoding_report(
             "native_double_source_sha256": source_row_hash(native_payload["record"]),
             "native_double_normalized_sha256": _digest(canonical_source_row(native_payload)),
             "native_double_mismatches": content_mismatches(original, native_payload),
+            "stored_numeric_types": {
+                field: capture.get(f"stored_type_{field}") for field in native_fields
+            },
         }
     return {
         **native_report,
@@ -665,7 +668,8 @@ def first_revision_content_mismatch(cursor: Any, partitions: Iterable[Any]) -> d
             + ")"
         )
         native_columns = ", ".join(
-            f"payload:record:{field}::DOUBLE AS native_{field}"
+            f"payload:record:{field}::DOUBLE AS native_{field}, "
+            f"TYPEOF(payload:record:{field}) AS stored_type_{field}"
             for field in (*AREAS, *FRACTIONS, "value")
         )
         query = query.replace("FROM GOVERNANCE.", f", {native_columns}\nFROM GOVERNANCE.", 1)
