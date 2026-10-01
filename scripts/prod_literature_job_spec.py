@@ -66,7 +66,8 @@ def secret_readiness(
         raise ValueError("unsupported literature operation")
     stages = tuple(LITERATURE_SECRETS) if operation == "preflight" else (operation,)
     blockers: list[dict[str, Any]] = []
-    jobs = baseline.get("jobs", [])
+    raw_jobs = baseline.get("jobs", [])
+    jobs = [job for job in raw_jobs if isinstance(job, dict)] if isinstance(raw_jobs, list) else []
     for stage in stages:
         template_name = "catalog-discovery" if stage == "discover" else "approved-source-ingestion"
         template = next((job for job in jobs if job.get("name") == template_name), {})
@@ -110,7 +111,106 @@ def secret_readiness(
 
 
 def _env(job: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {entry["key"]: entry for entry in job["envs"]}
+    entries = job.get("envs", [])
+    return (
+        {
+            entry["key"]: entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str)
+        }
+        if isinstance(entries, list)
+        else {}
+    )
+
+
+def host_readiness(
+    baseline: dict[str, Any],
+    *,
+    operation: str,
+    image_digest: str,
+    secrets: dict[str, str],
+    workflow_run_id: str = "",
+) -> dict[str, Any]:
+    """Aggregate existing baseline/configuration guards with credential omissions."""
+    report = secret_readiness(
+        baseline, operation=operation, secrets=secrets, workflow_run_id=workflow_run_id
+    )
+    report["scope"] = "host_baseline_configuration"
+    blockers = report["blockers"]
+
+    def check(valid: bool, capability: str, stage: str = "host") -> None:
+        if not valid:
+            blockers.append(
+                {
+                    "stage": stage,
+                    "capability": capability,
+                    "failure_category": "preflight_configuration",
+                    "remediation_owner": "production_platform_owner",
+                    "retryable": False,
+                    "next_action": "restore_reviewed_baseline_configuration",
+                }
+            )
+
+    check(baseline.get("name") == "oh-lyme-data-prod", "reviewed_production_app")
+    check(baseline.get("region") == "sfo", "reviewed_production_region")
+    vpc = baseline.get("vpc")
+    check(not vpc or isinstance(vpc, dict) and vpc.get("id") == VPC_ID, "reviewed_private_vpc")
+    check(re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest) is not None, "immutable_image_digest")
+    raw_jobs = baseline.get("jobs")
+    jobs = [job for job in raw_jobs if isinstance(job, dict)] if isinstance(raw_jobs, list) else []
+    check(
+        isinstance(raw_jobs, list) and len(raw_jobs) == len(jobs) == 6, "reviewed_six_job_topology"
+    )
+    names = [job.get("name") for job in jobs]
+    check(
+        all(isinstance(name, str) for name in names) and set(names) == EXPECTED_JOBS,
+        "reviewed_scheduled_job_names",
+    )
+    check(all(job.get("kind") == "SCHEDULED" for job in jobs), "reviewed_scheduled_job_kinds")
+    check(
+        all(
+            isinstance(job.get("image"), dict) and job["image"].get("digest") == image_digest
+            for job in jobs
+        ),
+        "active_job_image_digest",
+    )
+    stages = tuple(LITERATURE_SECRETS) if operation == "preflight" else (operation,)
+    required = {
+        "TOPX_ENV": "prod",
+        "ENABLE_PRODUCTION_EXECUTION": "true",
+        "SNOWFLAKE_DATABASE": PROD_DATABASE,
+        "SNOWFLAKE_ROLE": PROD_ROLE,
+        "SNOWFLAKE_AUTH_METHOD": "key_pair",
+        "SPACES_BUCKET": PROD_BUCKET,
+        "SPACES_PREFIX": "prod",
+    }
+    for stage in stages:
+        name = "catalog-discovery" if stage == "discover" else "approved-source-ingestion"
+        matches = [job for job in jobs if job.get("name") == name]
+        check(len(matches) == 1, "one_reviewed_runtime_template", stage)
+        template = matches[0] if len(matches) == 1 else {}
+        entries = template.get("envs")
+        env = _env(template)
+        check(
+            isinstance(entries, list) and len(entries) == len(env),
+            "unique_valid_template_environment",
+            stage,
+        )
+        for key, value in required.items():
+            check(env.get(key, {}).get("value") == value, key, stage)
+        collision_env = env
+        if operation == "preflight":
+            # Preflight injects every stage's secret into the ingestion template.
+            selected = next(
+                (job for job in jobs if job.get("name") == "approved-source-ingestion"), {}
+            )
+            collision_env = _env(selected)
+        for key in LITERATURE_SECRETS[stage]:
+            check(key not in collision_env, "no_preexisting_" + key, stage)
+        if operation == "discover" and secrets.get("NCBI_API_KEY"):
+            check("NCBI_API_KEY" not in env, "no_preexisting_NCBI_API_KEY", stage)
+    report["status"] = "BLOCKED" if blockers else "READY"
+    return report
 
 
 def _require_runtime(job: dict[str, Any], *, spaces: bool) -> None:
@@ -156,6 +256,15 @@ def build_spec(
     secrets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a new spec; reject drift and every unbounded invocation."""
+    readiness = host_readiness(
+        baseline,
+        operation=operation,
+        image_digest=image_digest,
+        secrets=secrets or {},
+        workflow_run_id=workflow_run_id,
+    )
+    if readiness["status"] == "BLOCKED":
+        raise ValueError("host readiness BLOCKED: " + json.dumps(readiness))
     if baseline.get("name") != "oh-lyme-data-prod":
         raise ValueError("unexpected production app")
     if baseline.get("region") != "sfo":
@@ -299,13 +408,17 @@ def main() -> None:
             "OPENAI_API_KEY",
         )
     }
-    readiness = secret_readiness(
-        baseline, operation=args.operation, secrets=supplied, workflow_run_id=args.workflow_run_id
+    readiness = host_readiness(
+        baseline,
+        operation=args.operation,
+        image_digest=args.image_digest,
+        secrets=supplied,
+        workflow_run_id=args.workflow_run_id,
     )
     if args.readiness_report:
         args.readiness_report.write_text(json.dumps(readiness), encoding="utf-8")
     if readiness["status"] == "BLOCKED":
-        raise SystemExit("host secret readiness BLOCKED: " + json.dumps(readiness))
+        raise SystemExit("host readiness BLOCKED: " + json.dumps(readiness))
     result = build_spec(
         baseline,
         operation=args.operation,

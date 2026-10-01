@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -9,6 +10,120 @@ from typing import Any
 import pytest
 
 from lyme_gap_atlas_data import literature_status as module
+
+
+def test_exact_inventory_partition_retains_missing_extra_and_current_retry_state() -> None:
+    papers = [
+        {
+            "pmid": "1",
+            "state": "processed",
+            "reviewed": True,
+            "acquired": True,
+            "graph_published": True,
+            "corpus_admitted": True,
+        },
+        {"pmid": "2", "state": "retry_pending", "reviewed": True, "acquired": True},
+        {"pmid": "3", "state": "rejected"},
+        {"pmid": "5", "state": "approved", "reviewed": True},
+    ]
+    report = module.reconcile_inventory(["1", "2", "3", "4"], papers)
+    assert report["status"] == "MISMATCHED"
+    assert report["missing_pmids"] == ["4"]
+    assert report["unexpected_pmids"] == ["5"]
+    assert report["status_pmids"] == {
+        "published_with_corpus_rows": ["1"],
+        "retry_pending": ["2"],
+        "excluded": ["3"],
+        "missing_ledger": ["4"],
+    }
+    assert report["counted_inventory"] == report["expected_count"] == 4
+    assert sum(report["status_counts"].values()) == 4
+    assert report["receipt_lineage"] == report["serving_visibility"] == "NOT_CHECKED"
+
+
+def test_duplicate_or_inconsistent_observed_inventory_is_not_silently_reconciled() -> None:
+    report = module.reconcile_inventory(
+        ["1", "2"],
+        [
+            {"pmid": "1", "state": "approved"},
+            {"pmid": "1", "state": "processed"},
+            {"pmid": "2", "state": "processed", "corpus_admitted": True},
+        ],
+    )
+    assert report["status"] == "MISMATCHED"
+    assert report["duplicate_pmids"] == ["1"]
+    assert report["status_counts"] == {"ambiguous_ledger": 1, "inconsistent_stage_flags": 1}
+
+
+@pytest.mark.parametrize("expected", [["1", "2"], ["1", "2", "3"]])
+def test_authoritative_inventory_is_used_instead_of_provider_result_count(
+    monkeypatch: pytest.MonkeyPatch,
+    expected: list[str],
+) -> None:
+    cursor = Cursor()
+    monkeypatch.setattr(cursor, "fetchone", lambda: ("COMPLETED", 25, json.dumps(expected)))
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection(cursor))
+    result = module.literature_status(str(uuid.uuid4()))
+    assert result["provider_result_count"] == 25
+    assert result["discovered"] == 2
+    assert result["inventory_reconciliation"]["expected_count"] == len(expected)
+    assert result["inventory_reconciliation"]["missing_pmids"] == (
+        ["3"] if len(expected) == 3 else []
+    )
+    assert result["inventory_reconciliation"]["status"] == (
+        "MISMATCHED" if len(expected) == 3 else "MATCHED"
+    )
+    assert all("SELECT" in sql or "WITH batch" in sql for sql, _args in cursor.calls)
+
+
+@pytest.mark.parametrize("inventory", [None, '"private-sentinel"', '["1","1"]'])
+def test_unknown_or_invalid_inventory_is_not_invented(
+    inventory: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cursor = Cursor()
+    monkeypatch.setattr(cursor, "fetchone", lambda: ("COMPLETED", 25, inventory))
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection(cursor))
+    result = module.literature_status(str(uuid.uuid4()))["inventory_reconciliation"]
+    assert result["status"] == (
+        "NOT_ATTRIBUTED" if inventory is None else "INVALID_AUTHORITATIVE_INVENTORY"
+    )
+    assert "private-sentinel" not in json.dumps(result)
+
+
+def test_unknown_provider_count_stays_null_without_losing_inventory_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cursor = Cursor()
+    monkeypatch.setattr(cursor, "fetchone", lambda: ("COMPLETED", None, ["1", "2"]))
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection(cursor))
+    result = module.literature_status(str(uuid.uuid4()))
+    assert result["provider_result_count"] is None
+    assert result["inventory_reconciliation"]["status"] == "MATCHED"
+
+
+def test_physical_duplicate_paper_rows_survive_history_deduplication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cursor = Cursor()
+    rows = cursor.fetchall()
+
+    def fetchall() -> list[tuple[Any, ...]]:
+        if "RETRIEVAL_CORPUS_BUILDS WHERE" in cursor.calls[-1][0]:
+            return []
+        return [
+            tuple(row) + (None, None, None, None, None, 2 if row[0] == "1" else 1) for row in rows
+        ]
+
+    monkeypatch.setattr(cursor, "fetchone", lambda: ("COMPLETED", 25, ["1", "2"]))
+    monkeypatch.setattr(cursor, "fetchall", fetchall)
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection(cursor))
+    result = module.literature_status(str(uuid.uuid4()))
+    assert len(result["papers"]) == 2
+    inventory = result["inventory_reconciliation"]
+    assert inventory["ledger_cardinality"] == "CHECKED"
+    assert inventory["status"] == "MISMATCHED"
+    assert inventory["duplicate_pmids"] == ["1"]
+    assert inventory["status_counts"] == {"ambiguous_ledger": 1, "retry_pending": 1}
 
 
 class Cursor:
