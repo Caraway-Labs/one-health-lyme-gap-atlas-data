@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS CONFORMED.INTELLIGENCE_ITEM_REVISIONS (
     PRIMARY KEY (item_id, revision_id)
 );
 
+-- Immutable private acquisition receipt recorded before normalized captures.
+-- Exact replay is allowed; changed source/version/URL/time for a run/artifact
+-- is rejected under the same bounded writer guard as item captures.
+CREATE TABLE IF NOT EXISTS GOVERNANCE.INTELLIGENCE_ACQUISITION_CONTEXTS (
+    ingestion_run_id VARCHAR NOT NULL,
+    artifact_id VARCHAR NOT NULL,
+    context_sha256 VARCHAR(64) NOT NULL,
+    context_document VARIANT NOT NULL,
+    recorded_at TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (ingestion_run_id, artifact_id)
+);
+
 -- Run-pinned captures keep publisher conflicts and each transport/source
 -- attribution. Repeat polls retain new fetch/run/artifact evidence, not new
 -- publication or content-revision timestamps.
@@ -64,6 +76,8 @@ GRANT SELECT, UPDATE ON TABLE GOVERNANCE.INTELLIGENCE_WRITE_GUARD
 GRANT SELECT, INSERT ON TABLE CONFORMED.INTELLIGENCE_ITEM_REVISIONS
     TO ROLE OH_LYME_{{ ENV }}_RUNTIME;
 GRANT SELECT, INSERT ON TABLE GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
+    TO ROLE OH_LYME_{{ ENV }}_RUNTIME;
+GRANT SELECT, INSERT ON TABLE GOVERNANCE.INTELLIGENCE_ACQUISITION_CONTEXTS
     TO ROLE OH_LYME_{{ ENV }}_RUNTIME;
 
 -- Keep every source and revision. This projection does not decide which

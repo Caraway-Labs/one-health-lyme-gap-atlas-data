@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from ..intelligence_items import validate_record
+from ..intelligence_items import validate_acquisition_context, validate_record
 from ..intelligence_storage import IntelligenceStore
 from ..settings import PipelineSettings
 from .adapters import AcquireResult
@@ -48,18 +48,41 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         ):
             raise PermissionError("INTELLIGENCE_EFFECTS_DEFINITION_REQUIRED")
         validate_record("source", source)
+        if (
+            definition.resource_key != source["source_id"]
+            or definition.source_id != source["source_id"]
+        ):
+            raise PermissionError("INTELLIGENCE_EFFECTS_DEFINITION_REQUIRED")
         return source
 
     def register_artifact(
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
         source = self._definition(definition)
+        context = acquired.payload.get("source_context")
+        validate_acquisition_context(
+            source, definition.resource_key, definition.endpoint_template, context
+        )
+        if (
+            context["artifact_sha256"] != acquired.artifact_sha256
+            or acquired.payload.get("fetched_at") != context["fetched_at"]
+        ):
+            raise PermissionError("INTELLIGENCE_ARTIFACT_RETENTION_REQUIRED")
         approved = self.store.lookup_source(source["source_id"], source["registry_version"])
         if approved != source or not self.artifact_policy_allowed(
             source["access_use"]["content_retention_policy_ref"], definition.artifact_policy
         ):
             raise PermissionError("INTELLIGENCE_ARTIFACT_RETENTION_REQUIRED")
-        return super().register_artifact(definition, state, acquired)
+        receipt = self._register_artifact(definition, state, acquired)
+        self.store.record_acquisition(
+            source_id=source["source_id"],
+            registry_version=source["registry_version"],
+            resource_key=definition.resource_key,
+            run_id=state.ingestion_run_id,
+            artifact_id=receipt["artifact_id"],
+            context=context,
+        )
+        return receipt
 
     def materialize_normalized(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]

@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_intelligence_feed import FIXTURES, approved, definition
+from test_intelligence_feed import FIXTURES, approved, definition, fetch_adapter
 
 from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, InMemoryCheckpointStore, Tier
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
+from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, acquisition_context
 from lyme_gap_atlas_data.intelligence_items import identity_hash, normalize_item
 from lyme_gap_atlas_data.intelligence_storage import (
     IntelligenceStorageError,
@@ -31,6 +32,9 @@ class Ledger:
         self.sources: list[dict[str, Any]] = [approved()]
         self.runs = {"fixture-run": "synthetic-publication"}
         self.artifacts = {("fixture-artifact", "fixture-run"): "a" * 64}
+        self.endpoints = {("fixture-artifact", "fixture-run"): "https://example.org/feed.xml"}
+        self.contexts: dict[tuple[str, str], tuple[str, str]] = {}
+        self.pin("fixture-run", "fixture-artifact", self.sources[0], "2026-10-01T00:00:00Z")
         self.revisions: dict[tuple[str, str], tuple[str, str]] = {}
         self.captures: dict[str, tuple[str, str]] = {}
         self.role = "OH_LYME_DEV_RUNTIME"
@@ -41,8 +45,25 @@ class Ledger:
         self.fail_commit = False
         self.lock = threading.Lock()
         self.events: list[str] = []
+        self.fail_at: str | None = None
+
+    def pin(self, run_id: str, artifact_id: str, source: dict[str, Any], fetched_at: str) -> None:
+        context = acquisition_context(
+            definition(source),
+            source,
+            effective_url=source["fetch_location"],
+            fetched_at=fetched_at,
+            artifact_sha256=self.artifacts[(artifact_id, run_id)],
+            capture_mode="https",
+        )
+        self.contexts[(run_id, artifact_id)] = (identity_hash(context), json.dumps(context))
+
+    def fail(self, stage: str) -> None:
+        if self.fail_at == stage:
+            raise RuntimeError("private warehouse statement and credential")
 
     def connect(self) -> Connection:
+        self.fail("factory")
         return Connection(self)
 
 
@@ -54,19 +75,22 @@ class Connection:
         self.pending: tuple[Any, Any] | None = None
 
     def __enter__(self) -> Connection:
+        self.ledger.fail("connection_enter")
         return self
 
     def __exit__(self, *args: Any) -> None:
         if self.locked:
             self.rollback()
+        self.ledger.fail("connection_exit")
 
     def cursor(self) -> Cursor:
+        self.ledger.fail("cursor")
         return Cursor(self)
 
     def commit(self) -> None:
         if self.ledger.fail_commit:
             raise RuntimeError("private warehouse statement and credential")
-        self.ledger.revisions, self.ledger.captures = self.pending
+        self.ledger.revisions, self.ledger.captures, self.ledger.contexts = self.pending
         self.ledger.events.append("commit")
         self.active = False
         if self.locked:
@@ -80,6 +104,7 @@ class Connection:
         if self.locked:
             self.ledger.lock.release()
             self.locked = False
+        self.ledger.fail("rollback")
 
 
 class Cursor:
@@ -89,10 +114,11 @@ class Cursor:
         self.rowcount = 0
 
     def __enter__(self) -> Cursor:
+        self.connection.ledger.fail("cursor_enter")
         return self
 
     def __exit__(self, *args: Any) -> None:
-        pass
+        self.connection.ledger.fail("cursor_exit")
 
     def fetchall(self) -> list[Any]:
         return self.rows
@@ -102,11 +128,14 @@ class Cursor:
         database = self.connection.ledger
         self.rows = []
         if sql.startswith("SELECT CURRENT_ROLE"):
+            database.fail("context")
             self.rows = [(database.role, database.database, 1 if self.connection.active else None)]
         elif sql.startswith("ALTER SESSION"):
+            database.fail("setup")
             assert not self.connection.active
             assert "LOCK_TIMEOUT=5" in sql
         elif sql == "BEGIN TRANSACTION":
+            database.fail("begin")
             self.connection.active = True
             database.events.append("begin")
         elif sql.startswith("UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD"):
@@ -117,9 +146,11 @@ class Cursor:
             self.connection.pending = (
                 copy.deepcopy(database.revisions),
                 copy.deepcopy(database.captures),
+                copy.deepcopy(database.contexts),
             )
             database.events.append("guard")
         elif "FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS S" in sql:
+            database.fail("lookup")
             matching = [
                 s for s in database.sources if (s["source_id"], s["registry_version"]) == params
             ]
@@ -135,7 +166,21 @@ class Cursor:
         elif "FROM GOVERNANCE.INGESTION_RUNS" in sql:
             self.rows = [(database.runs[params[0]],)] if params[0] in database.runs else []
         elif "FROM GOVERNANCE.RAW_ARTIFACTS" in sql:
-            self.rows = [(database.artifacts[params],)] if params in database.artifacts else []
+            self.rows = (
+                [
+                    (database.artifacts[params], database.endpoints.get(params))
+                    if "R.ENDPOINT" in sql
+                    else (database.artifacts[params],)
+                ]
+                if params in database.artifacts
+                else []
+            )
+        elif "FROM GOVERNANCE.INTELLIGENCE_ACQUISITION_CONTEXTS" in sql:
+            value = self.connection.pending[2].get(params)
+            self.rows = [value] if value else []
+        elif sql.startswith("INSERT INTO GOVERNANCE.INTELLIGENCE_ACQUISITION_CONTEXTS"):
+            assert self.connection.locked
+            self.connection.pending[2][params[:2]] = params[2:]
         elif "FROM CONFORMED.INTELLIGENCE_ITEM_REVISIONS" in sql:
             assert self.connection.locked
             value = self.connection.pending[0].get(params)
@@ -209,6 +254,8 @@ def test_atomic_first_write_replay_and_new_poll_capture() -> None:
     assert len(database.revisions) == len(database.captures) == 1
     database.runs["next-run"] = "synthetic-publication"
     database.artifacts[("next-artifact", "next-run")] = "a" * 64
+    database.endpoints[("next-artifact", "next-run")] = "https://example.org/feed.xml"
+    database.pin("next-run", "next-artifact", database.sources[0], "2026-10-01T01:00:00Z")
     repoll = item(
         fetched_at="2026-10-01T01:00:00Z",
         provenance={**document["provenance"], "run_id": "next-run", "artifact_id": "next-artifact"},
@@ -229,12 +276,25 @@ def test_corrections_conflicting_dates_and_cross_transport_attribution() -> None
     other = approved()
     other.update(source_id="synthetic-atom", transport="atom", family="nih_niaid")
     database.sources.append(other)
-    attributed = item(other)
+    database.runs["atom-run"] = other["source_id"]
+    database.artifacts[("atom-artifact", "atom-run")] = "a" * 64
+    database.endpoints[("atom-artifact", "atom-run")] = other["fetch_location"]
+    database.pin("atom-run", "atom-artifact", other, "2026-10-01T00:00:00Z")
+    attributed = item(
+        other,
+        provenance={**first["provenance"], "run_id": "atom-run", "artifact_id": "atom-artifact"},
+    )
     assert (
         attributed["item_id"] == first["item_id"]
         and attributed["revision_id"] == first["revision_id"]
     )
-    assert write(database, [attributed], source_id="synthetic-atom") == WriteReceipt(0, 1, 0)
+    assert write(
+        database,
+        [attributed],
+        source_id="synthetic-atom",
+        resource_key="synthetic-atom",
+        run_id="atom-run",
+    ) == WriteReceipt(0, 1, 0)
     captures = [json.loads(value[1]) for value in database.captures.values()]
     assert {x["source_id"] for x in captures} == {"synthetic-publication", "synthetic-atom"}
     assert {x["transport"] for x in captures} == {"rss", "atom"}
@@ -277,7 +337,7 @@ def test_conflicting_replay_never_overwrites_provenance() -> None:
     write(database, [original])
     changed = copy.deepcopy(original)
     changed["fetched_at"] = "2026-10-01T00:01:00Z"
-    with pytest.raises(IntelligenceStorageError, match="CAPTURE_REPLAY_CONFLICT"):
+    with pytest.raises(IntelligenceStorageError, match="ACQUISITION_REFERENCE_INVALID"):
         write(database, [changed])
     assert json.loads(database.captures[capture_id(original)][1]) == original
 
@@ -376,10 +436,13 @@ def test_offline_transport_to_storage_to_public_contract_fields() -> None:
     database = Ledger()
 
     class FixtureEffects(IntelligenceStageEffects):
-        def register_artifact(self, definition: Any, state: Any, acquired: Any) -> dict[str, Any]:
+        def _register_artifact(self, definition: Any, state: Any, acquired: Any) -> dict[str, Any]:
             database.runs[state.ingestion_run_id] = definition.resource_key
             artifact_id = "fixture-" + state.ingestion_run_id
             database.artifacts[(artifact_id, state.ingestion_run_id)] = acquired.artifact_sha256
+            database.endpoints[(artifact_id, state.ingestion_run_id)] = acquired.payload[
+                "source_context"
+            ]["effective_url"]
             return {"artifact_id": artifact_id, "artifact_sha256": acquired.artifact_sha256}
 
     effects = FixtureEffects(
@@ -388,8 +451,15 @@ def test_offline_transport_to_storage_to_public_contract_fields() -> None:
         artifact_policy_allowed=lambda ref, policy: True,
     )
     checkpoints = InMemoryCheckpointStore()
+    # Test-only transport: identical local bytes through the injected HTTP seam.
+    # No live provider or warehouse, and no fixture-mode bypass in the writer.
+    adapter, _ = fetch_adapter(
+        database.sources[0], [FeedResponse(200, {}, (FIXTURES / "rss/sample.xml").read_bytes())]
+    )
+    original_acquire = adapter.acquire
+    adapter.acquire = lambda selected, **kwargs: original_acquire(selected)
     orchestrator = IngestionOrchestrator(
-        store=checkpoints, fixture_dir=FIXTURES / "rss", effects=effects
+        store=checkpoints, fixture_dir=FIXTURES / "rss", effects=effects, adapter=adapter
     )
     state = orchestrator.run(definition(database.sources[0]), tier=Tier.A)
     assert state.status.value == "SUCCEEDED"
@@ -417,3 +487,191 @@ def test_migration_is_additive_narrow_and_public_view_is_current_reviewed_versio
     assert "artifact_uri" not in view and "SELECT *" not in view
     assert "AS excerpt" in view and "AS content_is_untrusted" in view
     assert "AS deduplication_key" in view and "AS transport_identity_sha256" in view
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "factory",
+        "connection_enter",
+        "cursor",
+        "cursor_enter",
+        "context",
+        "lookup",
+        "cursor_exit",
+        "connection_exit",
+    ],
+)
+def test_lookup_redacts_entire_provider_lifecycle(stage: str) -> None:
+    database = Ledger()
+    database.fail_at = stage
+    with pytest.raises(IntelligenceStorageError) as caught:
+        store(database).lookup_source("synthetic-publication", 1)
+    assert str(caught.value) == "INTELLIGENCE_SOURCE_LOOKUP_FAILED"
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert not database.captures and not database.revisions
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "factory",
+        "connection_enter",
+        "cursor",
+        "cursor_enter",
+        "context",
+        "setup",
+        "begin",
+        "lookup",
+        "cursor_exit",
+        "connection_exit",
+    ],
+)
+def test_write_redacts_entire_provider_lifecycle(stage: str) -> None:
+    database = Ledger()
+    database.fail_at = stage
+    with pytest.raises(IntelligenceStorageError) as caught:
+        write(database, [item()])
+    assert str(caught.value) == "INTELLIGENCE_TRANSACTION_FAILED"
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    if stage not in {"cursor_exit", "connection_exit"}:
+        assert not database.captures and not database.revisions
+    else:
+        # Commit succeeded before cleanup failed: exact replay remains safe.
+        database.fail_at = None
+        assert write(database, [item()]) == WriteReceipt(0, 0, 1)
+
+
+def test_rollback_failure_cannot_replace_original_safe_error() -> None:
+    database = Ledger()
+    database.fail_at = "rollback"
+    forged = item()
+    forged["revision_id"] = "b" * 64
+    with pytest.raises(IntelligenceStorageError) as caught:
+        write(database, [forged])
+    assert str(caught.value) == "INTELLIGENCE_ITEM_HASH_MISMATCH"
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert not database.captures and not database.revisions
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "factory",
+        "connection_enter",
+        "cursor",
+        "cursor_enter",
+        "context",
+        "setup",
+        "begin",
+        "lookup",
+        "cursor_exit",
+        "connection_exit",
+    ],
+)
+def test_registration_redacts_entire_provider_lifecycle(stage: str) -> None:
+    database = Ledger()
+    context = json.loads(database.contexts[("fixture-run", "fixture-artifact")][1])
+    database.contexts.clear()
+    database.fail_at = stage
+    with pytest.raises(IntelligenceStorageError) as caught:
+        record_context(database, context)
+    assert str(caught.value) == "INTELLIGENCE_ACQUISITION_REGISTRATION_FAILED"
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert not database.captures and not database.revisions
+    if stage not in {"cursor_exit", "connection_exit"}:
+        assert not database.contexts
+
+
+def test_private_permission_callback_error_is_not_preserved() -> None:
+    database = Ledger()
+
+    def policy(ref: str) -> bool:
+        raise PermissionError("private warehouse credential")
+
+    writer = IntelligenceStore(connection_factory=database.connect, retention_allowed=policy)
+    with pytest.raises(IntelligenceStorageError) as caught:
+        writer.lookup_source("synthetic-publication", 1)
+    assert str(caught.value) == "INTELLIGENCE_SOURCE_LOOKUP_FAILED"
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+
+
+@pytest.mark.parametrize(
+    "drift", ["source", "version", "rights", "resource", "receipt", "missing", "endpoint"]
+)
+def test_unchanged_artifact_cannot_be_relabelled(drift: str) -> None:
+    database = Ledger()
+    source = copy.deepcopy(database.sources[0])
+    kwargs: dict[str, Any] = {}
+    if drift == "source":
+        source["source_id"] = "other-source"
+        database.sources.append(source)
+        # Even changing the caller's run/resource labels cannot change the receipt.
+        database.runs["fixture-run"] = "other-source"
+        kwargs.update(source_id="other-source", resource_key="other-source")
+    elif drift == "version":
+        source["registry_version"] = 2
+        database.sources.append(source)
+        kwargs["registry_version"] = 2
+    elif drift == "rights":
+        source["access_use"]["excerpt_max_chars"] = 500
+        database.sources = [source]
+    elif drift == "resource":
+        database.runs["fixture-run"] = "other-resource"
+        kwargs["resource_key"] = "other-resource"
+    elif drift == "receipt":
+        key = ("fixture-run", "fixture-artifact")
+        context = json.loads(database.contexts[key][1])
+        context["effective_url"] = "https://example.org/changed.xml"
+        database.contexts[key] = (database.contexts[key][0], json.dumps(context))
+    elif drift == "missing":
+        database.contexts.clear()
+    else:
+        database.endpoints[("fixture-artifact", "fixture-run")] = "https://example.org/changed.xml"
+    with pytest.raises(IntelligenceStorageError):
+        write(database, [item(source)], **kwargs)
+    assert not database.captures and not database.revisions
+
+
+def record_context(database: Ledger, context: dict[str, Any]) -> None:
+    store(database).record_acquisition(
+        source_id="synthetic-publication",
+        registry_version=1,
+        resource_key="synthetic-publication",
+        run_id="fixture-run",
+        artifact_id="fixture-artifact",
+        context=context,
+    )
+
+
+def test_acquisition_receipt_is_immutable_and_required_before_capture() -> None:
+    database = Ledger()
+    context = json.loads(database.contexts[("fixture-run", "fixture-artifact")][1])
+    database.contexts.clear()
+    record_context(database, context)
+    assert write(database, [item()]) == WriteReceipt(1, 1, 0)
+    original = copy.deepcopy(database.contexts)
+    record_context(database, context)
+    context["fetched_at"] = "2026-10-01T00:01:00Z"
+    with pytest.raises(IntelligenceStorageError, match="ACQUISITION_REPLAY_CONFLICT") as caught:
+        record_context(database, context)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert database.contexts == original
+
+
+@pytest.mark.parametrize("change", ["endpoint", "fixture", "sha", "rights"])
+def test_acquisition_registration_checks_raw_and_review_before_inserting(change: str) -> None:
+    database = Ledger()
+    context = json.loads(database.contexts[("fixture-run", "fixture-artifact")][1])
+    database.contexts.clear()
+    if change == "endpoint":
+        database.endpoints[("fixture-artifact", "fixture-run")] = "https://example.org/other.xml"
+    elif change == "fixture":
+        context["capture_mode"] = "fixture"
+    elif change == "sha":
+        context["artifact_sha256"] = "b" * 64
+    else:
+        database.sources[0]["access_use"]["excerpt_max_chars"] = 500
+    with pytest.raises(IntelligenceStorageError):
+        record_context(database, context)
+    assert not database.contexts and not database.captures

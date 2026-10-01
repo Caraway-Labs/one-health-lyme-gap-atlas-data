@@ -11,6 +11,24 @@ immutable by version. The runtime validates exactly one matching source version,
 its checksum and permissions before persisting a public-safe item. It cannot
 create or approve registry rows.
 
+Before item insertion, `INTELLIGENCE_ACQUISITION_CONTEXTS` pins the private v1
+source ID/version/registry checksum, requested/effective URL, status/time,
+HTTPS capture mode and raw SHA to the actual run/artifact. Registration verifies
+`INGESTION_RUNS.resource_key == source_id` and the RAW artifact's joined request
+endpoint/checksum under the writer guard. Exact receipt replay is allowed; changed
+context is rejected. Item writes independently check this receipt against the
+current reviewed registry and pinned retrieval time. Unchanged bytes cannot be
+relabelled as another source/version. Legacy captures without receipts and
+fixture-mode manifests fail closed. Runtime has only SELECT/INSERT on the private
+receipt table; consumers receive no access. The provisional migration remains
+unapplied and requires parent reservation and grant review.
+
+All public store operations redact connection creation, context entry/setup,
+lookup, transaction and context cleanup errors to finite diagnostics, without a
+raw exception chain. Rollback/cleanup failures preserve the original failure.
+A cleanup error after a successful commit is reported as failure; callers must
+retry the immutable unit and rely on exact replay, never assume no rows committed.
+
 Publication content revisions live separately from run-pinned captures. Captures
 retain source/version, transport, canonical dates and missingness, permitted text,
 tag origin, run/artifact provenance and limitations. A repeat fetch gets a new
