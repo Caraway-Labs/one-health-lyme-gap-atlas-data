@@ -1091,6 +1091,21 @@ def source_nclimgrid_report(
     typer.echo(json.dumps({"report": str(output), "county_csv": str(county_csv)}))
 
 
+@source_app.command("nclimgrid-publication-candidate")
+def source_nclimgrid_publication_candidate(
+    output: str = typer.Option(..., "--output"),
+) -> None:
+    """Prepare the approved January capture's read-only consumer review artifact."""
+    from .climate_publication import ClimatePublicationBlocked, create_candidate
+
+    try:
+        report = create_candidate(Path(output))
+    except ClimatePublicationBlocked as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(json.dumps(report))
+
+
 @source_app.command("nclimgrid-pilot-measure")
 def source_nclimgrid_pilot_measure(
     action: str = typer.Option(..., "--action"),
@@ -1105,10 +1120,13 @@ def source_nclimgrid_pilot_measure(
         "ordered-read": lambda: measurement.ordered_read(_required_run_id(run_id)),
         "report": lambda: measurement.time_report(_required_run_id(run_id)),
         "benchmark-history": lambda: measurement.benchmark_history(_required_run_id(run_id)),
+        "candidate": lambda: measurement.candidate_report(_required_run_id(run_id)),
+        "candidate-diagnostic": lambda: measurement.candidate_diagnostic(_required_run_id(run_id)),
     }
     if action not in actions:
         raise typer.BadParameter(
-            "Use preflight, inspect, ordered-read, report, or benchmark-history"
+            "Use preflight, inspect, ordered-read, report, benchmark-history, "
+            "candidate, or candidate-diagnostic"
         )
     if action == "preflight" and run_id is not None:
         raise typer.BadParameter("Preflight does not accept a run ID")
