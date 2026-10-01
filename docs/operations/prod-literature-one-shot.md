@@ -23,6 +23,15 @@ operation is in flight before approving it.
 
 ## Before the first protected release
 
+Apply the reviewed V134 diagnostic-type migration through the protected
+promotion path before running the DATA #528 worker image. Extraction preflight
+blocks if the attempt-context and stage-failure contract is absent. Do not
+deploy the image first or bypass a blocked preflight.
+V134 also adds the discovery-run link to the existing corpus build ledger.
+Status reports linked failed builds by build ID (also their correlation ID),
+with retryability and next action. Its corpus failure count measures builds,
+not papers; historical builds without a discovery link remain unattributed.
+
 1. Merge the reviewed DATA #497 PR through normal governance. Confirm the
    immutable pipeline image digest is active in both DEV and PROD; the workflow
    verifies both active deployments and rejects drift. Do not run the workflow
@@ -65,10 +74,26 @@ $digest = ((doctl apps spec get $prodAppId --format json | ConvertFrom-Json).job
 gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=preflight -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
 ```
 
-`preflight` checks private Neo4j Bolt connectivity inside the temporary VPC job.
-It performs no PubMed query, extraction, Snowflake write, or Neo4j write. After the workflow
+`preflight` checks all three literature operations: required secret names (presence
+only), actual runtime Snowflake role and read contract, the DATA #528 diagnostic
+constraint, budget-procedure grant, Spaces bucket access, and private Neo4j Bolt
+connectivity. It returns one `READY` or `BLOCKED` JSON result with all detected
+blockers, affected stages, retryability, and next actions. It performs no PubMed
+query, extraction, Snowflake write, or Neo4j write. After the workflow
 finishes, verify that `doctl apps spec get $prodAppId --format json` lists only
 the original six jobs and no `literature-*-once` job. Stop if restoration fails.
+
+The discovery output's `discovery_run_id` is the batch key for later operations.
+Supply that same UUID as the workflow's optional `discovery_run_id` input for
+extraction and corpus rebuild. When supplied, the extraction claim and corpus
+admission are restricted to that discovery batch. The worker appends a sanitized
+attempt context and failure diagnostic to the existing Snowflake attempt ledger.
+Use `atlas-data pipeline literature-status --discovery-run-id <UUID>` with an
+authorized read connection to see exact PMIDs, attempt IDs, stage counts,
+failure categories, retryability, provider rationale, graph receipts, and corpus
+admission. The command reads only existing ledgers and receipts. Run it after
+each one-paper job and after corpus rebuild; an older unscoped attempt may still
+appear for a PMID that belongs to more than one historical discovery run.
 
 ## 1. Discover up to 400 citation records in one family
 
@@ -219,7 +244,7 @@ separate direct Neo4j write command.
 
 ```powershell
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,STATE,FINAL_REVIEW_DECISION_ID FROM KNOWLEDGE_GRAPH.PAPERS WHERE STATE IN ('approved','retry_pending') AND PMCID IS NOT NULL ORDER BY CASE WHEN STATE='retry_pending' THEN 0 ELSE 1 END,PMID LIMIT 25" --format JSON
-gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=extract -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
+gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=extract -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20 -f discovery_run_id=$discoveryRunId
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,STATE,ACCESS_STATUS,FULL_TEXT_OBJECT_KEY,CONTENT_SHA256 FROM KNOWLEDGE_GRAPH.PAPERS WHERE STATE IN ('processed','retry_pending','retry_exhausted','access_rejected') ORDER BY UPDATED_AT DESC LIMIT 25" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,ARTIFACT_ID,LICENSE_URL,JATS_SHA256,TEXT_SHA256 FROM KNOWLEDGE_GRAPH.PMC_FULL_TEXT_ARTIFACTS ORDER BY ADMITTED_AT DESC LIMIT 25" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,ATTEMPT_NUMBER,PROVIDER_ROUTE,STATUS,ERROR_CLASS,STARTED_AT,FINISHED_AT FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS ORDER BY STARTED_AT DESC LIMIT 25" --format JSON
@@ -252,7 +277,7 @@ immutable JATS/text hashes, and a graph contribution receipt. It records a
 versioned build ID and content hash.
 
 ```powershell
-gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=build-corpus -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20
+gh workflow run run-prod-literature-once.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f image_digest=$digest -f operation=build-corpus -f family=surveillance_epidemiology -f max_records=25 -f batch_size=25 -f estimated_cost_usd=0.20 -f discovery_run_id=$discoveryRunId
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT BUILD_ID,CORPUS_RULES_VERSION,STATUS,PAPERS_ADMITTED,CHUNKS_WRITTEN,CORPUS_CONTENT_SHA256,STARTED_AT FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_BUILDS ORDER BY STARTED_AT DESC LIMIT 5" --format JSON
 snow sql -c ATLAS_PROD_RUNTIME_AUDIT -q "SELECT PMID,PMCID,COUNT(*) AS UNITS FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS WHERE CORPUS_RULES_VERSION='retrieval-corpus-v1' GROUP BY PMID,PMCID ORDER BY PMID" --format JSON
 ```

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +25,7 @@ from lyme_gap_atlas_data.pmc_extraction_worker import (
     ApprovedPaper,
     PMCExtractionWorker,
     PMCOpenAccessClient,
+    _failure_outcome,
     _provider_rejected_before_inference,
     _provider_rejection_rationale,
 )
@@ -161,12 +163,38 @@ def test_provider_rejection_rationale_retains_only_bounded_codes() -> None:
     )
 
 
+def test_failure_taxonomy_separates_provider_and_contract_failures() -> None:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    rejected = httpx.HTTPStatusError(
+        "secret response body", request=request, response=httpx.Response(400, request=request)
+    )
+    limited = httpx.HTTPStatusError(
+        "secret response body", request=request, response=httpx.Response(429, request=request)
+    )
+    assert _failure_outcome("extract", rejected) == (
+        "provider_rejected_pre_inference",
+        False,
+        "review_provider_contract",
+    )
+    assert _failure_outcome("extract", limited) == (
+        "provider_transient",
+        True,
+        "retry_after_provider_recovery",
+    )
+    assert _failure_outcome("claim", RuntimeError("private SQL")) == (
+        "runtime_contract",
+        False,
+        "repair_runtime_schema_or_grant",
+    )
+
+
 def test_claim_query_prioritizes_recovery_and_excludes_pre_inference_rejections() -> None:
     source = inspect.getsource(pmc_extraction_worker.SnowflakePMCExtractionLedger.claim_one)
     assert "EXTRACTION_ATTEMPT_CLASSIFICATIONS" in source
     assert "provider_rejected_pre_inference" in source
     assert "contract_remediation_reopen" in source
     assert "CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END" in source
+    assert "ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)" in source
 
 
 def test_identity_mismatch_records_redacted_field_names() -> None:
@@ -437,7 +465,8 @@ def test_no_approved_paper_does_not_fetch_or_publish() -> None:
     ledger, fetcher = Ledger(None), Fetcher()
     publisher = Publisher(ledger.events)
     result = worker(ledger, fetcher, Coordinator(contribution()), publisher).run()
-    assert result == {"status": "NO_APPROVED_PAPER"}
+    assert result["status"] == "NO_APPROVED_PAPER"
+    assert isinstance(result["run_id"], str)
     assert not fetcher.called and not publisher.called
 
 
@@ -485,3 +514,244 @@ def test_exhausted_budget_is_recorded_without_publication() -> None:
         ).run()
     assert not publisher.called
     assert ledger.events[-1] == "fail:RuntimeError"
+
+
+def test_provider_failure_log_has_correlation_and_redacts_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ledger = Ledger(approved_paper())
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "req_safe"},
+        json={"error": {"type": "invalid_request_error", "message": "SECRET_ARTICLE_TEXT"}},
+    )
+    error = httpx.HTTPStatusError("SECRET_ARTICLE_TEXT", request=request, response=response)
+    with pytest.raises(httpx.HTTPStatusError):
+        worker(ledger, Fetcher(), Coordinator(error), Publisher(ledger.events)).run()
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "SECRET_ARTICLE_TEXT" not in messages
+    failures = [
+        json.loads(record.getMessage().removeprefix("pmc.stage "))
+        for record in caplog.records
+        if '"failure_category"' in record.getMessage()
+    ]
+    assert failures
+    assert all(item["run_id"] == failures[0]["run_id"] for item in failures)
+    assert failures[-1]["provider_rationale"].endswith("request_id_req_safe")
+
+
+def test_attempt_context_is_persisted_with_discovery_and_worker_run_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    discovery_id = "12345678-1234-4234-8234-123456789abc"
+    monkeypatch.setenv("ATLAS_DISCOVERY_RUN_ID", discovery_id)
+    monkeypatch.setenv("SOURCE_COMMIT", "a" * 40)
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, args: object) -> None:
+            executed.append((sql, args))
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    token = pmc_extraction_worker._RUN_ID.set("worker-run-1")
+    try:
+        ledger = pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private")
+        attempt_id = ledger.record_attempt(approved_paper(), "b" * 64, "openai:test", 10, 900)
+    finally:
+        pmc_extraction_worker._RUN_ID.reset(token)
+    assert len(executed) == 2
+    assert "attempt_context" in executed[1][0]
+    args = executed[1][1]
+    assert isinstance(args, tuple)
+    assert args[1] == attempt_id
+    details = json.loads(args[3])
+    assert details["run_id"] == "worker-run-1"
+    assert details["discovery_run_id"] == discovery_id
+    assert details["code_sha"] == "a" * 40
+
+
+def test_attempt_context_failure_rolls_back_reserved_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actions: list[str] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, _args: object) -> None:
+            actions.append(sql)
+            if "EXTRACTION_ATTEMPT_DIAGNOSTICS" in sql:
+                raise RuntimeError("diagnostic write failed")
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def autocommit(self, enabled: bool) -> None:
+            actions.append(f"autocommit:{enabled}")
+
+        def commit(self) -> None:
+            actions.append("commit")
+
+        def rollback(self) -> None:
+            actions.append("rollback")
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    ledger = pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private")
+    with pytest.raises(RuntimeError, match="diagnostic write failed"):
+        ledger.record_attempt(approved_paper(), "b" * 64, "openai:test", 10, 900)
+    assert actions[0] == "autocommit:False"
+    assert actions[-1] == "rollback"
+    assert "commit" not in actions
+
+
+def test_failed_attempt_persists_redacted_stage_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, args: object) -> None:
+            executed.append((sql, args))
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "req_safe"},
+        json={"error": {"type": "invalid_request_error", "message": "SECRET_BODY"}},
+    )
+    error = httpx.HTTPStatusError("SECRET_BODY", request=request, response=response)
+    stage_token = pmc_extraction_worker._FAILURE_STAGE.set("extract")
+    run_token = pmc_extraction_worker._RUN_ID.set("worker-run-2")
+    try:
+        pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private").fail(
+            approved_paper(), "attempt-2", error
+        )
+    finally:
+        pmc_extraction_worker._FAILURE_STAGE.reset(stage_token)
+        pmc_extraction_worker._RUN_ID.reset(run_token)
+    diagnostic = next(args for sql, args in executed if "'stage_failure'" in sql)
+    assert isinstance(diagnostic, tuple)
+    details = json.loads(diagnostic[3])
+    assert details["run_id"] == "worker-run-2"
+    assert details["failure_category"] == "provider_rejected_pre_inference"
+    assert details["provider_rationale"].endswith("request_id_req_safe")
+    assert "SECRET_BODY" not in str(executed)
+
+
+def test_pre_attempt_license_failure_has_typed_state_event_without_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, args: object) -> None:
+            executed.append((sql, args))
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    stage_token = pmc_extraction_worker._FAILURE_STAGE.set("acquire")
+    run_token = pmc_extraction_worker._RUN_ID.set("worker-run-before-attempt")
+    try:
+        pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private").fail(
+            approved_paper(), None, ValueError("SECRET_LICENSE_TEXT")
+        )
+    finally:
+        pmc_extraction_worker._FAILURE_STAGE.reset(stage_token)
+        pmc_extraction_worker._RUN_ID.reset(run_token)
+    assert not any("UPDATE KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS" in sql for sql, _ in executed)
+    event = next(args for sql, args in executed if "PAPER_STATE_EVENTS" in sql)
+    assert isinstance(event, tuple)
+    assert event[3] == (
+        "stage_failure:acquire:artifact_license_identity:false:review_open_access_and_identity"
+    )
+    assert event[4] == "worker-run-before-attempt"
+    assert "SECRET_LICENSE_TEXT" not in str(executed)

@@ -4,9 +4,12 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
+from functools import wraps
 from pathlib import Path
 from time import monotonic
+from typing import ParamSpec, TypeVar
 
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
@@ -41,6 +44,8 @@ from .ingestion import (
     load_source_definition,
     starter_definition_yaml,
 )
+from .literature_preflight import literature_preflight
+from .literature_status import literature_status
 from .migrations import (
     apply_migrations,
     migration_authority_preflight,
@@ -66,7 +71,7 @@ from .pathogen_surveillance import (
     ingest_restricted_pathogen,
     ingest_restricted_pathogen_dev,
 )
-from .pmc_extraction_worker import run_pmc_extraction
+from .pmc_extraction_worker import _failure_outcome, run_pmc_extraction
 from .preflight import run_preflight
 from .pubmed_discovery import MAX_BATCH_SIZE, MAX_RECORDS_PER_RUN, discover_pubmed
 from .retrieval_corpus import build_retrieval_corpus
@@ -80,6 +85,51 @@ from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 from .tick_surveillance import collect_tick_surveillance_evidence, ingest_restricted_tick
 
 SERVICE_NAME = "one-health-lyme-gap-atlas-data"
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _safe_literature_command(
+    callback: Callable[_P, _R],
+) -> Callable[_P, _R]:
+    """End failures at the operator boundary before Rich can render payload causes."""
+
+    @wraps(callback)
+    def safe(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return callback(*args, **kwargs)
+        except (typer.BadParameter, typer.Exit):
+            raise
+        except Exception as error:
+            stage = {
+                "pmc_extract": "extract",
+                "pubmed_discover": "acquire",
+                "build_retrieval_corpus_command": "corpus_admit",
+            }.get(callback.__name__, "persist")
+            category, retryable, action = _failure_outcome(stage, error)
+            if stage == "corpus_admit":
+                category, retryable, action = (
+                    "corpus_admission_rebuild",
+                    True,
+                    "inspect_corpus_build_and_retry",
+                )
+            typer.echo(
+                json.dumps(
+                    {
+                        "command": callback.__name__,
+                        "stage": stage,
+                        "outcome": "failed",
+                        "failure_category": category,
+                        "retryable": retryable,
+                        "next_action": action,
+                    },
+                    sort_keys=True,
+                ),
+                err=True,
+            )
+            raise typer.Exit(code=1) from None
+
+    return safe
 
 
 def _command_path(arguments: list[str]) -> str:
@@ -107,13 +157,28 @@ class ObservedTyper(typer.Typer):
 
     def __call__(self, *args: object, **kwargs: object) -> object:
         configure_logging()
-        configure_tracing(SERVICE_NAME)
+        tracing_ready = True
+        try:
+            configure_tracing(SERVICE_NAME)
+        except Exception:
+            # Export configuration is optional. Never block ingestion because a
+            # collector endpoint or header was malformed; omit the exception
+            # message because it can contain credentials.
+            tracing_ready = False
+            logging.getLogger(__name__).warning("atlas-data.tracing_unavailable")
+        tracer = (
+            trace.get_tracer(SERVICE_NAME)
+            if tracing_ready
+            else trace.NoOpTracerProvider().get_tracer(SERVICE_NAME)
+        )
         command = _command_path(sys.argv[1:])
         started = monotonic()
         try:
             # The current context lets safe, bounded child spans correlate to the
             # command that invoked them without adding command arguments to traces.
-            with trace.get_tracer(SERVICE_NAME).start_as_current_span("atlas-data.cli") as span:
+            with tracer.start_as_current_span(
+                "atlas-data.cli", record_exception=False, set_status_on_exception=False
+            ) as span:
                 span.set_attribute("atlas.command", command)
                 span.set_attribute("atlas.environment", os.getenv("TOPX_ENV", "dev"))
                 try:
@@ -391,6 +456,7 @@ def discover(
 
 
 @pipeline_app.command("pubmed-discover")
+@_safe_literature_command
 def pubmed_discover(
     family: str = typer.Option(..., "--family"),
     max_records: int = typer.Option(
@@ -399,12 +465,38 @@ def pubmed_discover(
     batch_size: int = typer.Option(MAX_BATCH_SIZE, "--batch-size", min=1, max=MAX_BATCH_SIZE),
 ) -> None:
     """Capture bounded PubMed citation metadata; it cannot approve or fetch full text."""
+    readiness = literature_preflight(PipelineSettings(), operation="discover")
+    typer.echo(json.dumps(readiness, sort_keys=True))
+    if readiness["status"] != "READY":
+        raise typer.Exit(code=1)
     typer.echo(
         json.dumps(discover_pubmed(family, maximum_records=max_records, batch_size=batch_size))
     )
 
 
+@pipeline_app.command("literature-preflight")
+@_safe_literature_command
+def literature_preflight_command(
+    operation: str = typer.Option(..., "--operation"),
+) -> None:
+    """Inspect literature runtime readiness without claiming or changing a paper."""
+    result = literature_preflight(PipelineSettings(), operation=operation)
+    typer.echo(json.dumps(result, sort_keys=True))
+    if result["status"] != "READY":
+        raise typer.Exit(code=1)
+
+
+@pipeline_app.command("literature-status")
+@_safe_literature_command
+def literature_status_command(
+    discovery_run_id: str = typer.Option(..., "--discovery-run-id"),
+) -> None:
+    """Reconcile a bounded PubMed run from existing review and receipt ledgers."""
+    typer.echo(json.dumps(literature_status(discovery_run_id), sort_keys=True))
+
+
 @pipeline_app.command("pmc-extract")
+@_safe_literature_command
 def pmc_extract(
     estimated_cost_usd: float = typer.Option(..., "--estimated-cost-usd", min=0.01, max=20.0),
     confirm: bool = typer.Option(False, "--confirm"),
@@ -420,6 +512,7 @@ def pmc_extract(
 
 
 @pipeline_app.command("build-retrieval-corpus")
+@_safe_literature_command
 def build_retrieval_corpus_command(
     confirm: bool = typer.Option(False, "--confirm"),
     pmid: str | None = typer.Option(None, "--pmid"),
@@ -427,6 +520,10 @@ def build_retrieval_corpus_command(
     """Rebuild the DEV retrieval corpus from approved PMC artifacts and receipts."""
     if not confirm:
         raise typer.BadParameter("Pass --confirm to rebuild the DEV retrieval corpus")
+    readiness = literature_preflight(PipelineSettings(), operation="build-corpus")
+    typer.echo(json.dumps(readiness, sort_keys=True))
+    if readiness["status"] != "READY":
+        raise typer.Exit(code=1)
     typer.echo(json.dumps(build_retrieval_corpus(pmid=pmid, settings=PipelineSettings())))
 
 

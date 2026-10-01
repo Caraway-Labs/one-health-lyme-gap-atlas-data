@@ -32,6 +32,11 @@ on:
         required: true
         default: "0.20"
         type: string
+      discovery_run_id:
+        description: Existing PubMed discovery UUID to scope extraction and corpus admission
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -54,6 +59,7 @@ jobs:
       MAX_RECORDS: ${{ inputs.max_records }}
       BATCH_SIZE: ${{ inputs.batch_size }}
       ESTIMATED_COST_USD: ${{ inputs.estimated_cost_usd }}
+      DISCOVERY_RUN_ID: ${{ inputs.discovery_run_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
@@ -75,6 +81,9 @@ jobs:
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$MAX_RECORDS" =~ ^[0-9]{1,3}$ ]]
           [[ "$BATCH_SIZE" =~ ^[0-9]{1,3}$ ]]
+          source_digest="$(doctl registry repository list-manifests pipeline --output json \
+            | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
+          test "$source_digest" = "$IMAGE_DIGEST"
 
           baseline_spec="$(mktemp)"
           operation_spec="$(mktemp)"
@@ -112,7 +121,9 @@ jobs:
             --baseline "$baseline_spec" --output "$operation_spec" \
             --operation "$LITERATURE_OPERATION" --image-digest "$IMAGE_DIGEST" \
             --family "$LITERATURE_FAMILY" --max-records "$MAX_RECORDS" \
-            --batch-size "$BATCH_SIZE" --estimated-cost-usd "$ESTIMATED_COST_USD"
+            --batch-size "$BATCH_SIZE" --estimated-cost-usd "$ESTIMATED_COST_USD" \
+            --discovery-run-id "$DISCOVERY_RUN_ID" --source-commit "$GITHUB_SHA" \
+            --workflow-run-id "$GITHUB_RUN_ID"
           baseline_captured=true
           doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
             --format ID,ActiveDeployment.ID --no-header

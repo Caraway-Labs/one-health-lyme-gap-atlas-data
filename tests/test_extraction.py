@@ -1,13 +1,60 @@
-from contextlib import suppress
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import pytest
 from lyme_gap_atlas_kg import GraphContribution, PaperNode
 
 from lyme_gap_atlas_data import extraction
 from lyme_gap_atlas_data.extraction import ExtractionCoordinator, GroqStructuredExtractor
 from lyme_gap_atlas_data.literature import GROQ_MAX_INPUT_TOKENS
+
+
+def test_provider_metadata_never_logs_payload_or_unsanitized_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=extraction.__name__)
+    attributes: dict[str, object] = {}
+
+    class Span:
+        def set_attribute(self, key: str, value: object) -> None:
+            attributes[key] = value
+
+    class Tracer:
+        @contextmanager
+        def start_as_current_span(self, _name: str, **kwargs: object) -> Iterator[Span]:
+            assert kwargs == {"record_exception": False, "set_status_on_exception": False}
+            yield Span()
+
+    monkeypatch.setattr(extraction, "_TRACER", Tracer())
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "private\nrequest-id"},
+        text="SECRET_MODEL_RESPONSE",
+    )
+    monkeypatch.setattr(extraction.httpx, "post", lambda *_args, **_kwargs: response)
+    with pytest.raises(httpx.HTTPStatusError):
+        extraction._post_provider(
+            "https://api.openai.com/v1/responses",
+            headers={"Authorization": "SECRET_KEY"},
+            payload={"input": "SECRET_FULL_ARTICLE", "model": "example"},
+            timeout=1,
+            provider="openai",
+            model="example",
+        )
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    for secret in ("SECRET_MODEL_RESPONSE", "SECRET_FULL_ARTICLE", "SECRET_KEY", "private"):
+        assert secret not in messages
+    assert '"http_status": 400' in messages
+    assert attributes["atlas.outcome"] == "failed"
+    assert "private" not in str(attributes)
+    assert "SECRET" not in str(attributes)
 
 
 class FakeExtractor:

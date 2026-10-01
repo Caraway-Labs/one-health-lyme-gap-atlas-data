@@ -6,10 +6,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -20,6 +23,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 from neo4j import GraphDatabase
 from opentelemetry import trace
+from pydantic import ValidationError
 
 from .artifacts import Artifact, create_artifact
 from .contribution_admission import (
@@ -30,11 +34,13 @@ from .contribution_admission import (
     endpoint_matrix_prompt,
 )
 from .extraction import (
+    BudgetUnavailable,
     ExtractionCoordinator,
     GroqStructuredExtractor,
     OpenAIEmbeddingClient,
     OpenAIResponsesExtractor,
 )
+from .literature_preflight import literature_preflight
 from .pmc_graph import (
     AdmittedFullText,
     Neo4jPaperPublisher,
@@ -46,6 +52,91 @@ _OAI_ENDPOINT = "https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/"
 _OAI_HEADERS = {"Accept-Encoding": "gzip, deflate"}
 _LOGGER = logging.getLogger(__name__)
 _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.pmc-extraction")
+_RUN_ID: ContextVar[str | None] = ContextVar("pmc_run_id", default=None)
+_FAILURE_STAGE: ContextVar[str] = ContextVar("pmc_failure_stage", default="extract")
+
+
+def _correlation_id() -> str:
+    return _RUN_ID.get() or str(uuid.uuid4())
+
+
+def _bounded_identity(value: str | None, kind: str) -> str:
+    """Accept only deployment identifiers, never arbitrary environment content."""
+    patterns = {
+        "environment": r"dev|prod",
+        "code_sha": r"[0-9a-f]{40}",
+        "image_sha": r"sha256:[0-9a-f]{64}",
+        "workflow_run_id": r"[0-9]{1,20}",
+    }
+    return value if value and re.fullmatch(patterns[kind], value) else "unknown"
+
+
+def _failure_outcome(stage: str, error: Exception) -> tuple[str, bool, str]:
+    """Classify a failure without serializing exception text or provider bodies."""
+    if stage == "governance":
+        return "terminal_governance", False, "return_to_steward_review"
+    if stage == "claim" or stage == "persist":
+        return "runtime_contract", False, "repair_runtime_schema_or_grant"
+    if isinstance(error, BudgetUnavailable):
+        return "budget_unavailable", False, "check_budget_reservation"
+    if stage == "artifact_persist":
+        return "artifact_transport", True, "check_artifact_store_then_retry"
+    if stage == "acquire":
+        if isinstance(error, (httpx.TransportError, httpx.HTTPStatusError)):
+            return "artifact_transport", True, "retry_after_pmc_recovery"
+        return "artifact_license_identity", False, "review_open_access_and_identity"
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        if status == 429 or status >= 500:
+            return "provider_transient", True, "retry_after_provider_recovery"
+        return "provider_rejected_pre_inference", False, "review_provider_contract"
+    if isinstance(error, httpx.TransportError):
+        return "provider_transport", True, "retry_after_provider_recovery"
+    if stage == "validate":
+        return "provenance_validation", False, "review_contribution_contract"
+    if isinstance(error, (ContributionAdmissionError, ValidationError, json.JSONDecodeError)):
+        return "response_contract_validation", False, "review_provider_schema_and_response"
+    if stage == "graph_publish":
+        return "graph_publication", True, "reconcile_graph_receipt_before_retry"
+    return "model_execution", True, "inspect_model_execution_then_retry"
+
+
+@contextmanager
+def _stage(name: str, fields: dict[str, str]) -> Iterator[None]:
+    with _TRACER.start_as_current_span(
+        f"pmc_extraction.{name}", record_exception=False, set_status_on_exception=False
+    ) as span:
+        for key, value in fields.items():
+            span.set_attribute(f"atlas.{key}", value)
+        try:
+            yield
+        except Exception as error:
+            category, retryable, action = _failure_outcome(name, error)
+            span.set_attribute("atlas.outcome", "failed")
+            span.set_attribute("atlas.failure_category", category)
+            span.set_attribute("atlas.retryable", retryable)
+            span.set_attribute("atlas.next_action", action)
+            _LOGGER.error(
+                "pmc.stage %s",
+                json.dumps(
+                    {
+                        **fields,
+                        "stage": name,
+                        "outcome": "failed",
+                        "failure_category": category,
+                        "retryable": retryable,
+                        "next_action": action,
+                    },
+                    sort_keys=True,
+                ),
+            )
+            raise
+        else:
+            span.set_attribute("atlas.outcome", "completed")
+            _LOGGER.info(
+                "pmc.stage %s",
+                json.dumps({**fields, "stage": name, "outcome": "completed"}, sort_keys=True),
+            )
 
 
 def _provider_rejected_before_inference(error: Exception) -> bool:
@@ -309,23 +400,63 @@ class PMCExtractionWorker:
         self._now = now
 
     def run(self) -> dict[str, object]:
-        paper = self._ledger.claim_one(self._lease_seconds)
+        run_id = str(uuid.uuid4())
+        token = _RUN_ID.set(run_id)
+        fields = {
+            "run_id": run_id,
+            "environment": _bounded_identity(self._environment, "environment"),
+            "code_sha": _bounded_identity(
+                os.getenv("GITHUB_SHA") or os.getenv("SOURCE_COMMIT"), "code_sha"
+            ),
+            "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
+            "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
+        }
+        discovery_run_id = os.getenv("ATLAS_DISCOVERY_RUN_ID")
+        if discovery_run_id:
+            fields["discovery_run_id"] = str(uuid.UUID(discovery_run_id))
+        try:
+            with _stage("claim", fields):
+                paper = self._ledger.claim_one(self._lease_seconds)
+        finally:
+            _RUN_ID.reset(token)
         if paper is None:
-            return {"status": "NO_APPROVED_PAPER"}
+            return {"status": "NO_APPROVED_PAPER", "run_id": run_id}
         if (
             paper.state not in {"approved", "retry_pending"}
             or not paper.pmcid
             or not paper.query_match_ids
         ):
+            _LOGGER.error(
+                "pmc.stage %s",
+                json.dumps(
+                    {
+                        **fields,
+                        "pmid": paper.pmid,
+                        "stage": "governance",
+                        "outcome": "failed",
+                        "failure_category": "terminal_governance",
+                        "retryable": False,
+                        "next_action": "return_to_steward_review",
+                    },
+                    sort_keys=True,
+                ),
+            )
             raise ValueError("only an approved, provenance-complete paper may be extracted")
         attempt_id: str | None = None
         built: AdmittedContribution | None = None
-        with _TRACER.start_as_current_span("pmc_extraction.run") as span:
+        with _TRACER.start_as_current_span(
+            "pmc_extraction.run", record_exception=False, set_status_on_exception=False
+        ) as span:
+            token = _RUN_ID.set(run_id)
+            for key, value in fields.items():
+                span.set_attribute(f"atlas.{key}", value)
             span.set_attribute("atlas.pmc.pmid", paper.pmid)
             span.set_attribute("atlas.pmc.pmcid", paper.pmcid)
+            stage = "acquire"
             try:
-                jats = self._fetcher.fetch_jats(paper.pmcid)
-                admitted = admit_pmc_open_access(jats)
+                with _stage(stage, {**fields, "pmid": paper.pmid, "pmcid": paper.pmcid}):
+                    jats = self._fetcher.fetch_jats(paper.pmcid)
+                    admitted = admit_pmc_open_access(jats)
                 if admitted.pmcid != paper.pmcid:
                     raise ValueError("PMC JATS identity does not match the claimed paper")
                 artifact = create_artifact(
@@ -334,34 +465,56 @@ class PMCExtractionWorker:
                     resource_key=f"{self._artifact_prefix}/pmc_full_text",
                     run_id=paper.pmid,
                 )
-                self._artifact_store.put_object(
-                    Bucket=self._artifact_bucket,
-                    Key=artifact.object_key,
-                    Body=jats,
-                    ContentType="application/xml",
-                )
-                artifact_id = self._ledger.record_artifact(paper, artifact, admitted)
+                stage = "artifact_persist"
+                with _stage(stage, {**fields, "pmid": paper.pmid}):
+                    self._artifact_store.put_object(
+                        Bucket=self._artifact_bucket,
+                        Key=artifact.object_key,
+                        Body=jats,
+                        ContentType="application/xml",
+                    )
+                stage = "persist"
+                with _stage(stage, {**fields, "pmid": paper.pmid}):
+                    artifact_id = self._ledger.record_artifact(paper, artifact, admitted)
                 request = build_extraction_request(paper, admitted, artifact)
                 request_sha = hashlib.sha256(request.encode()).hexdigest()
-                attempt_id = self._ledger.record_attempt(
-                    paper,
-                    request_sha,
-                    self._coordinator.route_for_request(request),
-                    self._coordinator.estimate_input_tokens(request),
-                    self._lease_seconds,
-                )
+                stage = "persist"
+                with _stage(stage, {**fields, "pmid": paper.pmid}):
+                    attempt_id = self._ledger.record_attempt(
+                        paper,
+                        request_sha,
+                        self._coordinator.route_for_request(request),
+                        self._coordinator.estimate_input_tokens(request),
+                        self._lease_seconds,
+                    )
                 span.set_attribute("atlas.pmc.extraction_attempt_id", attempt_id)
-                built = self._coordinator.build_contribution(
-                    attempt_id, request, paper.query_match_ids
-                )
+                stage = "extract"
+                with _stage(
+                    stage, {**fields, "pmid": paper.pmid, "extraction_attempt_id": attempt_id}
+                ):
+                    built = self._coordinator.build_contribution(
+                        attempt_id, request, paper.query_match_ids
+                    )
                 contribution = built.contribution
-                validate_contribution_identity(contribution, paper, admitted, artifact)
-                receipt = self._publisher.publish(contribution)
+                stage = "validate"
+                with _stage(
+                    stage, {**fields, "pmid": paper.pmid, "extraction_attempt_id": attempt_id}
+                ):
+                    validate_contribution_identity(contribution, paper, admitted, artifact)
+                stage = "graph_publish"
+                with _stage(
+                    stage, {**fields, "pmid": paper.pmid, "extraction_attempt_id": attempt_id}
+                ):
+                    receipt = self._publisher.publish(contribution)
                 contribution_sha = contribution_sha256(contribution)
-                self._ledger.record_receipt(
-                    paper, attempt_id, artifact_id, contribution_sha, receipt
-                )
-                self._ledger.finish(paper, attempt_id)
+                stage = "persist"
+                with _stage(
+                    stage, {**fields, "pmid": paper.pmid, "extraction_attempt_id": attempt_id}
+                ):
+                    self._ledger.record_receipt(
+                        paper, attempt_id, artifact_id, contribution_sha, receipt
+                    )
+                    self._ledger.finish(paper, attempt_id)
                 self._emit_admission_diagnostics(
                     paper, attempt_id, built.dropped_edges, span, published=True
                 )
@@ -374,6 +527,7 @@ class PMCExtractionWorker:
                 span.set_attribute("atlas.pmc.dropped_edge_count", built.dropped_edge_count)
                 return {
                     "status": "COMPLETED",
+                    "run_id": run_id,
                     "pmid": paper.pmid,
                     "artifact_sha256": artifact.sha256,
                     "contribution_sha256": contribution_sha,
@@ -382,6 +536,24 @@ class PMCExtractionWorker:
                     "dropped_edge_count": built.dropped_edge_count,
                 }
             except Exception as error:
+                category, retryable, action = _failure_outcome(stage, error)
+                event = {
+                    **fields,
+                    "pmid": paper.pmid,
+                    "pmcid": paper.pmcid,
+                    "extraction_attempt_id": attempt_id,
+                    "stage": stage,
+                    "outcome": "failed",
+                    "failure_category": category,
+                    "retryable": retryable,
+                    "next_action": action,
+                }
+                if isinstance(error, httpx.HTTPStatusError):
+                    event["provider_rationale"] = _provider_rejection_rationale(error)
+                _LOGGER.error("pmc.stage %s", json.dumps(event, sort_keys=True))
+                span.set_attribute("atlas.failure_category", category)
+                span.set_attribute("atlas.retryable", retryable)
+                span.set_attribute("atlas.next_action", action)
                 diagnostics: Sequence[RedactedEdgeDiagnostic] = ()
                 if isinstance(error, (ContributionAdmissionError, ContributionIdentityError)):
                     diagnostics = error.diagnostics
@@ -392,8 +564,14 @@ class PMCExtractionWorker:
                         paper, attempt_id, diagnostics, span, published=False
                     )
                 span.set_attribute("error.type", type(error).__name__)
-                self._ledger.fail(paper, attempt_id, error)
+                stage_token = _FAILURE_STAGE.set(stage)
+                try:
+                    self._ledger.fail(paper, attempt_id, error)
+                finally:
+                    _FAILURE_STAGE.reset(stage_token)
                 raise
+            finally:
+                _RUN_ID.reset(token)
 
     def _emit_admission_diagnostics(
         self,
@@ -453,6 +631,8 @@ class SnowflakePMCExtractionLedger:
     def __init__(self, *, bucket: str, configuration_version: str = "kg-v1.0.0") -> None:
         self._bucket = bucket
         self._configuration_version = configuration_version
+        batch_id = os.getenv("ATLAS_DISCOVERY_RUN_ID")
+        self._discovery_run_id = str(uuid.UUID(batch_id)) if batch_id else None
 
     def claim_one(self, lease_seconds: int) -> ApprovedPaper | None:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
@@ -464,6 +644,10 @@ class SnowflakePMCExtractionLedger:
                    FROM KNOWLEDGE_GRAPH.PAPERS p
                    JOIN KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m ON m.pmid = p.pmid
                    WHERE p.state IN ('approved', 'retry_pending') AND p.pmcid IS NOT NULL
+                     AND (%s IS NULL OR EXISTS (
+                       SELECT 1 FROM KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
+                       WHERE d.discovery_run_id = %s
+                         AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)))
                      AND NOT EXISTS (SELECT 1 FROM KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS r
                                      WHERE r.pmid = p.pmid)
                      AND (SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
@@ -481,7 +665,8 @@ class SnowflakePMCExtractionLedger:
                    GROUP BY p.pmid, p.pmcid, p.title, p.journal, p.publication_date,
                             p.publication_types, p.language, p.state
                    ORDER BY CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END, p.pmid
-                   LIMIT 1"""
+                   LIMIT 1""",
+                (self._discovery_run_id, self._discovery_run_id),
             )
             row = cursor.fetchone()
             if row is None:
@@ -510,7 +695,7 @@ class SnowflakePMCExtractionLedger:
                 """INSERT INTO KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS
                    (paper_state_event_id, pmid, from_state, to_state, reason, correlation_id, actor)
                    VALUES (%s, %s, %s, 'extracting', 'pmc_extraction_claim', %s, CURRENT_USER())""",
-                (str(uuid.uuid4()), paper.pmid, paper.state, str(uuid.uuid4())),
+                (str(uuid.uuid4()), paper.pmid, paper.state, _correlation_id()),
             )
             connection.commit()
             return paper
@@ -571,27 +756,70 @@ class SnowflakePMCExtractionLedger:
     ) -> str:
         attempt_id = str(uuid.uuid4())
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS
+            connection.autocommit(False)
+            try:
+                self._insert_attempt_and_context(
+                    connection,
+                    cursor,
+                    paper,
+                    attempt_id,
+                    request_sha256,
+                    route,
+                    estimated_input_tokens,
+                    lease_seconds,
+                )
+            except Exception:
+                connection.rollback()
+                raise
+        return attempt_id
+
+    def _insert_attempt_and_context(
+        self,
+        connection: Any,
+        cursor: Any,
+        paper: ApprovedPaper,
+        attempt_id: str,
+        request_sha256: str,
+        route: str,
+        estimated_input_tokens: int,
+        lease_seconds: int,
+    ) -> None:
+        cursor.execute(
+            """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS
                    (extraction_attempt_id, pmid, attempt_number, provider_route, model_identifier,
                     estimated_input_tokens, request_sha256, status, lease_expires_at, method_version)
                    SELECT %s, %s, COALESCE(MAX(attempt_number), 0) + 1, %s, %s, %s, %s,
                           'reserved', DATEADD(second, %s, CURRENT_TIMESTAMP()), %s
                    FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS WHERE pmid = %s""",
-                (
-                    attempt_id,
-                    paper.pmid,
-                    route,
-                    route,
-                    estimated_input_tokens,
-                    request_sha256,
-                    lease_seconds,
-                    self._configuration_version,
-                    paper.pmid,
-                ),
-            )
-            connection.commit()
-        return attempt_id
+            (
+                attempt_id,
+                paper.pmid,
+                route,
+                route,
+                estimated_input_tokens,
+                request_sha256,
+                lease_seconds,
+                self._configuration_version,
+                paper.pmid,
+            ),
+        )
+        context = {
+            "run_id": _correlation_id(),
+            "discovery_run_id": self._discovery_run_id,
+            "environment": _bounded_identity(os.getenv("TOPX_ENV"), "environment"),
+            "code_sha": _bounded_identity(
+                os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA"), "code_sha"
+            ),
+            "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST"), "image_sha"),
+            "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID"), "workflow_run_id"),
+        }
+        cursor.execute(
+            """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+                   (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
+                   SELECT %s, %s, %s, 'attempt_context', PARSE_JSON(%s)""",
+            (str(uuid.uuid4()), attempt_id, paper.pmid, json.dumps(context, sort_keys=True)),
+        )
+        connection.commit()
 
     def record_diagnostics(
         self,
@@ -686,12 +914,13 @@ class SnowflakePMCExtractionLedger:
                 """INSERT INTO KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS
                    (paper_state_event_id, pmid, from_state, to_state, reason, correlation_id, actor)
                    VALUES (%s, %s, 'extracting', 'processed', 'graph_publication_receipt', %s, CURRENT_USER())""",
-                (str(uuid.uuid4()), paper.pmid, str(uuid.uuid4())),
+                (str(uuid.uuid4()), paper.pmid, _correlation_id()),
             )
             connection.commit()
 
     def fail(self, paper: ApprovedPaper, attempt_id: str | None, error: Exception) -> None:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+            category, retryable, action = _failure_outcome(_FAILURE_STAGE.get(), error)
             provider_rejected = attempt_id is not None and _provider_rejected_before_inference(
                 error
             )
@@ -701,6 +930,26 @@ class SnowflakePMCExtractionLedger:
                        SET status = 'failed', error_class = %s, finished_at = CURRENT_TIMESTAMP()
                        WHERE extraction_attempt_id = %s""",
                     (type(error).__name__, attempt_id),
+                )
+                details: dict[str, object] = {
+                    "run_id": _correlation_id(),
+                    "stage": _FAILURE_STAGE.get(),
+                    "failure_category": category,
+                    "retryable": retryable,
+                    "next_action": action,
+                }
+                if isinstance(error, httpx.HTTPStatusError):
+                    details["provider_rationale"] = _provider_rejection_rationale(error)
+                cursor.execute(
+                    """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+                       (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
+                       SELECT %s, %s, %s, 'stage_failure', PARSE_JSON(%s)""",
+                    (
+                        str(uuid.uuid4()),
+                        attempt_id,
+                        paper.pmid,
+                        json.dumps(details, sort_keys=True),
+                    ),
                 )
             if provider_rejected and isinstance(error, httpx.HTTPStatusError):
                 cursor.execute(
@@ -712,7 +961,7 @@ class SnowflakePMCExtractionLedger:
                         attempt_id,
                         paper.pmid,
                         _provider_rejection_rationale(error),
-                        str(uuid.uuid4()),
+                        _correlation_id(),
                     ),
                 )
             cursor.execute(
@@ -739,7 +988,13 @@ class SnowflakePMCExtractionLedger:
                 """INSERT INTO KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS
                    (paper_state_event_id, pmid, from_state, to_state, reason, correlation_id, actor)
                    VALUES (%s, %s, 'extracting', %s, %s, %s, CURRENT_USER())""",
-                (str(uuid.uuid4()), paper.pmid, target, type(error).__name__, str(uuid.uuid4())),
+                (
+                    str(uuid.uuid4()),
+                    paper.pmid,
+                    target,
+                    f"stage_failure:{_FAILURE_STAGE.get()}:{category}:{str(retryable).lower()}:{action}",
+                    _correlation_id(),
+                ),
             )
             connection.commit()
 
@@ -797,6 +1052,10 @@ def run_pmc_extraction(*, estimated_cost_usd: float, settings: Any) -> dict[str,
         raise ValueError(
             "estimated_cost_usd must be at least the $0.20 per-call bound and no more than the daily budget"
         )
+    readiness = literature_preflight(settings, operation="extract")
+    _LOGGER.info("literature.preflight %s", json.dumps(readiness, sort_keys=True))
+    if readiness["status"] != "READY":
+        raise RuntimeError("literature preflight blocked extraction before paper claim")
     required = {
         "GROQ_API_KEY": settings.groq_api_key,
         "OPENAI_API_KEY": settings.openai_api_key,
