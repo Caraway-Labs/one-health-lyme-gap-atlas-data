@@ -342,6 +342,30 @@ def candidate_report(run_id: str) -> dict[str, object]:
     return evidence
 
 
+def candidate_diagnostic(run_id: str) -> dict[str, object]:
+    """Diagnose one revision against verified partitions without emitting payloads."""
+    from ..climate_publication import CAPTURE_QUERY, RUN_ID, compare_capture_encoding
+
+    if run_id != RUN_ID:
+        raise MeasurementError("Diagnostic requires the approved January capture")
+    identity = _identity()
+    if not all(
+        identity[key]
+        for key in ("user_matches", "role_matches", "database_matches", "warehouse_matches")
+    ):
+        raise MeasurementError("Diagnostic requires the protected DEV runtime")
+    _run(run_id)
+    with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+        cursor.execute(CAPTURE_QUERY + " LIMIT 1", (run_id,))
+        columns = [str(column[0]).lower() for column in cursor.description]
+        row = cursor.fetchone()
+    if row is None:
+        raise MeasurementError("Approved capture lacks revisions")
+    capture = dict(zip(columns, row, strict=True))
+    result = compare_capture_encoding(capture, SnowflakeCheckpointStore().iter_partitions(run_id))
+    return result | {"code_sha": os.getenv("GITHUB_SHA"), "writes_performed": False}
+
+
 def ordered_read(run_id: str) -> dict[str, object]:
     _run(run_id)
     store = SnowflakeCheckpointStore()

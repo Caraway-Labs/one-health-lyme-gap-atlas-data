@@ -497,3 +497,33 @@ def test_candidate_dispatch_uses_runner_temp_and_removes_outputs(
     monkeypatch.setattr(publication, "candidate_evidence", evidence)
     assert measurement.candidate_report(publication.RUN_ID)["code_sha"] == "reviewed-code-sha"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_encoding_diagnostic_distinguishes_numeric_representation_without_exposing_values() -> None:
+    from types import SimpleNamespace
+
+    capture = fixture_capture()
+    original = json.loads(capture["payload"])
+    returned = json.loads(capture["payload"])
+    returned["record"]["value"] = 0  # Model a distinct JSON number representation.
+    capture["payload"] = returned
+    partitions = [SimpleNamespace(records=[original], partition_id="verified-fixture")]
+    partitions += [SimpleNamespace(records=[], partition_id="empty-fixture")] * 1559
+    report = publication.compare_capture_encoding(capture, partitions)
+    assert report["stored_source_sha256"] == report["partition_source_sha256"]
+    assert report["stored_source_sha256"] != report["revision_source_sha256"]
+    assert report["records_equal"] is True
+    assert report["differing_fields"] == [
+        {"field": "value", "partition_type": "float", "revision_type": "int"}
+    ]
+    assert "payload" not in report and "record" not in report
+    with pytest.raises(publication.ClimatePublicationBlocked, match="SOURCE_HASH"):
+        publication.project_capture_record(capture)
+
+
+def test_diagnostic_dispatch_rejects_other_run_before_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lyme_gap_atlas_data.ingestion import nclimgrid_pilot_measurement as measurement
+
+    monkeypatch.setattr(measurement, "_identity", lambda: pytest.fail("private read"))
+    with pytest.raises(measurement.MeasurementError, match="approved January capture"):
+        measurement.candidate_diagnostic("another-run")

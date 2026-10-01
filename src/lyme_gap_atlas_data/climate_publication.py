@@ -408,3 +408,55 @@ def candidate_evidence(directory: Path) -> dict[str, Any]:
         "examples": examples,
         "writes_performed": False,
     }
+
+
+def compare_capture_encoding(
+    capture: Mapping[str, Any], partitions: Iterable[Any]
+) -> dict[str, Any]:
+    """Compare one revision with canonical partition bytes, emitting no source values."""
+    payload = capture["payload"]
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    matches: list[tuple[Any, Mapping[str, Any]]] = []
+    partition_count = 0
+    for partition in partitions:
+        partition_count += 1
+        for normalized in partition.records:
+            record = normalized.get("record")
+            if (
+                isinstance(record, dict)
+                and deterministic_record_id(RESOURCE_KEY, 2, record) == capture["record_id"]
+            ):
+                matches.append((partition, normalized))
+                _require(len(matches) == 1, "PARTITION_DUPLICATE")
+    _require(partition_count == 1560 and len(matches) == 1, "PARTITION_RECONCILIATION")
+    partition, original = matches[0]
+    original_record, returned_record = original["record"], payload["record"]
+    differences = [
+        {
+            "field": field,
+            "partition_type": type(original_record.get(field)).__name__,
+            "revision_type": type(returned_record.get(field)).__name__,
+        }
+        for field in sorted(set(original_record) | set(returned_record))
+        if canonical_source_row({field: original_record.get(field)})
+        != canonical_source_row({field: returned_record.get(field)})
+    ]
+    _require(len(differences) <= 64, "DIAGNOSTIC_BOUND")
+    return {
+        "capture_run_id": RUN_ID,
+        "record_id": capture["record_id"],
+        "record_revision": capture["record_revision"],
+        "partition_id": partition.partition_id,
+        "verified_partitions": partition_count,
+        "stored_source_sha256": capture["source_row_hash"],
+        "partition_source_sha256": source_row_hash(original_record),
+        "revision_source_sha256": source_row_hash(returned_record),
+        "stored_normalized_sha256": capture["normalized_sha256"],
+        "partition_normalized_sha256": _digest(canonical_source_row(original)),
+        "revision_normalized_sha256": _digest(canonical_source_row(payload)),
+        "differing_fields": differences,
+        "records_equal": original_record == returned_record,
+        "top_level_fields_equal": set(original) == set(payload),
+        "publication_status": "DIAGNOSTIC_NOT_ACCEPTANCE",
+    }
