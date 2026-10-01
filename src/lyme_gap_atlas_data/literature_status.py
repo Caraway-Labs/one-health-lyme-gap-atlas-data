@@ -42,13 +42,18 @@ def reconcile_inventory(
         observed.setdefault(pmid, []).append(paper)
     missing = sorted(expected - observed.keys())
     unexpected = sorted(observed.keys() - expected)
-    duplicate = sorted(pmid for pmid, rows in observed.items() if len(rows) != 1)
+    duplicate = sorted(
+        pmid
+        for pmid, rows in observed.items()
+        if len(rows) != 1
+        or any(paper.get("ledger_paper_records") not in (None, 1) for paper in rows)
+    )
     memberships: dict[str, list[str]] = {}
     for pmid in sorted(expected):
         rows = observed.get(pmid, [])
         if not rows:
             status = "missing_ledger"
-        elif len(rows) != 1:
+        elif pmid in duplicate:
             status = "ambiguous_ledger"
         else:
             paper = rows[0]
@@ -102,6 +107,9 @@ def reconcile_inventory(
         "counted_inventory": sum(len(values) for values in memberships.values()),
         "receipt_lineage": "NOT_CHECKED",
         "serving_visibility": "NOT_CHECKED",
+        "ledger_cardinality": "CHECKED"
+        if all(paper.get("ledger_paper_records") is not None for paper in papers)
+        else "NOT_ATTRIBUTED",
     }
 
 
@@ -114,6 +122,10 @@ WITH batch AS (
   JOIN KNOWLEDGE_GRAPH.PUBMED_DISCOVERY_RUNS d
     ON d.discovery_run_id = %s
    AND ARRAY_CONTAINS(TO_VARIANT(p.pmid), d.request_evidence:pmids)
+), paper_cardinality AS (
+  SELECT p.pmid, COUNT(*) AS records
+  FROM KNOWLEDGE_GRAPH.PAPERS p JOIN batch b ON b.pmid = p.pmid
+  GROUP BY p.pmid
 ), latest_attempt AS (
   SELECT a.pmid, a.extraction_attempt_id, a.status, a.error_class,
          a.attempt_number, COALESCE(a.finished_at, a.started_at) AS evidence_at,
@@ -163,9 +175,10 @@ SELECT p.pmid, p.pmcid, p.state, p.final_review_decision_id,
        COALESCE(a.correlation_id,e.correlation_id), a.workflow_run_id,
        a.environment, a.code_sha, a.image_sha,
        f.pmid IS NOT NULL, r.pmid IS NOT NULL, u.pmid IS NOT NULL,
-       e.reason, e.correlation_id, e.occurred_at, a.evidence_at, a.trace_id
+       e.reason, e.correlation_id, e.occurred_at, a.evidence_at, a.trace_id, pc.records
 FROM batch b
 JOIN KNOWLEDGE_GRAPH.PAPERS p ON p.pmid = b.pmid
+JOIN paper_cardinality pc ON pc.pmid = p.pmid
 LEFT JOIN latest_attempt a ON a.pmid = p.pmid
 LEFT JOIN latest_failure d ON d.extraction_attempt_id = a.extraction_attempt_id
 LEFT JOIN latest_paper_failure e ON e.pmid = p.pmid
@@ -268,6 +281,7 @@ def _paper_status(row: tuple[Any, ...], *, include_latest_event: bool = False) -
         "error_class": str(error_class) if error_class else None,
         "retryable": bool(retryable) if category else None,
         "next_action": str(action) if action else None,
+        "ledger_paper_records": int(row[26]) if len(row) > 26 and row[26] is not None else None,
     }
 
 

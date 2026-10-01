@@ -101,6 +101,31 @@ def test_unknown_provider_count_stays_null_without_losing_inventory_status(
     assert result["inventory_reconciliation"]["status"] == "MATCHED"
 
 
+def test_physical_duplicate_paper_rows_survive_history_deduplication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cursor = Cursor()
+    rows = cursor.fetchall()
+
+    def fetchall() -> list[tuple[Any, ...]]:
+        if "RETRIEVAL_CORPUS_BUILDS WHERE" in cursor.calls[-1][0]:
+            return []
+        return [
+            tuple(row) + (None, None, None, None, None, 2 if row[0] == "1" else 1) for row in rows
+        ]
+
+    monkeypatch.setattr(cursor, "fetchone", lambda: ("COMPLETED", 25, ["1", "2"]))
+    monkeypatch.setattr(cursor, "fetchall", fetchall)
+    monkeypatch.setattr(module, "connect", lambda _settings: Connection(cursor))
+    result = module.literature_status(str(uuid.uuid4()))
+    assert len(result["papers"]) == 2
+    inventory = result["inventory_reconciliation"]
+    assert inventory["ledger_cardinality"] == "CHECKED"
+    assert inventory["status"] == "MISMATCHED"
+    assert inventory["duplicate_pmids"] == ["1"]
+    assert inventory["status_counts"] == {"ambiguous_ledger": 1, "retry_pending": 1}
+
+
 class Cursor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
