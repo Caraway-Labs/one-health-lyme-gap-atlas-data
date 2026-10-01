@@ -397,6 +397,24 @@ def test_nested_atom_xml_base_uses_root_entry_and_link_and_effective_response_ur
     assert document["canonical_url"] == "https://example.org/articles/revised/paper.html"
 
 
+@pytest.mark.parametrize("link", ["<link/>", '<link href=""/>'])
+def test_atom_missing_and_empty_href_cannot_collapse_distinct_publications(link: str) -> None:
+    record = approved()
+    record["transport"] = "atom"
+    raw = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://example.org/">'
+        f"<entry><id>first-publication</id><title>First</title>{link}</entry>"
+        f"<entry><id>second-publication</id><title>Second</title>{link}</entry></feed>"
+    ).encode()
+    documents = normalized(record, raw)
+    assert len(documents) == 2
+    assert all(document["canonical_url"] is None for document in documents)
+    assert all(
+        document["field_states"]["canonical_url"] == "not_provided" for document in documents
+    )
+    assert len({document["item_id"] for document in documents}) == 2
+
+
 @pytest.mark.parametrize("offset", ["+00:60", "+01:99", "+24:00", "-00:60", "-23:99"])
 def test_invalid_atom_offsets_stay_invalid_not_normalized(offset: str) -> None:
     raw = (

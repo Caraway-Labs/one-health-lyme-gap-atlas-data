@@ -26,6 +26,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlsplit
+from uuid import uuid4
 from xml.parsers import expat
 
 from ..intelligence_items import (
@@ -113,11 +114,15 @@ def parse_feed(
         else:
             entry_base = _xml_base(entry, feed_base)
             links = [
-                urljoin(_xml_base(node, entry_base), node.get("href", ""))
+                None
+                if node.get("href") in {None, ""}
+                else urljoin(_xml_base(node, entry_base), node.attrib["href"])
                 for node in entry.findall(ATOM + "link")
                 if node.get("rel", "alternate") == "alternate"
                 and node.get("type", "text/html") in {"text/html", "application/xhtml+xml"}
             ]
+            # Atom requires href. An empty RFC3986 reference identifies the
+            # feed document, not an evidenced publication; abstain in both cases.
             # Ambiguous alternatives stay unknown rather than choosing a publisher URL.
             item = {
                 "publisher_identity": _text(entry, ATOM + "id"),
@@ -219,6 +224,7 @@ def acquisition_context(
 ) -> dict[str, Any]:
     context = {
         "context_version": ACQUISITION_VERSION,
+        "attempt_id": uuid4().hex,
         "source_id": source["source_id"],
         "registry_version": source["registry_version"],
         "registry_sha256": identity_hash(source),

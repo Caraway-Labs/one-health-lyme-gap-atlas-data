@@ -280,6 +280,7 @@ ACQUISITION_VERSION = "intelligence-acquisition-v1"
 ACQUISITION_FIELDS = frozenset(
     {
         "context_version",
+        "attempt_id",
         "source_id",
         "registry_version",
         "registry_sha256",
@@ -316,6 +317,7 @@ def validate_acquisition_context(
         raise ValueError("INTELLIGENCE_ACQUISITION_CONTEXT_MISMATCH")
     if (
         context["context_version"] != ACQUISITION_VERSION
+        or re.fullmatch(r"[a-f0-9]{32}", context["attempt_id"]) is None
         or resource_key != source["source_id"]
         or context["source_id"] != source["source_id"]
         or context["registry_version"] != source["registry_version"]
