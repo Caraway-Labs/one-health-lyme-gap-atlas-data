@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_feed import (
     FeedCache,
     FeedResponse,
     IntelligenceFeedAdapter,
+    acquisition_context,
     parse_feed,
 )
 from lyme_gap_atlas_data.ingestion.types import AdapterKind, SourceDefinition
@@ -87,6 +90,14 @@ def normalized(record: dict[str, Any], raw: bytes) -> list[dict[str, Any]]:
         "fetched_at": "2026-10-01T01:00:00Z",
         "_acquisition_lineage": {"ingestion_run_id": "local-run", "artifact_id": "local-artifact"},
     }
+    payload["source_context"] = acquisition_context(
+        definition(record),
+        record,
+        effective_url=definition(record).endpoint_template,
+        fetched_at=payload["fetched_at"],
+        artifact_sha256=payload["artifact_sha256"],
+        capture_mode="fixture",
+    )
     return adapter.normalize(definition(record), payload).records
 
 
@@ -243,6 +254,17 @@ def test_conditional_repoll_retains_real_capture_and_unchanged_revision() -> Non
         '"publisher-etag"',
         "Wed, 30 Sep 2026 14:00:00 GMT",
     )
+    cache = replace(
+        cache,
+        source_context=acquisition_context(
+            definition(record),
+            record,
+            effective_url=record["fetch_location"],
+            fetched_at="2026-09-30T15:00:00Z",
+            artifact_sha256=hashlib.sha256(raw).hexdigest(),
+            capture_mode="https",
+        ),
+    )
     adapter, calls = fetch_adapter(
         record,
         [FeedResponse(304, {}, b"")],
@@ -335,3 +357,78 @@ def test_cross_feed_attribution_and_conflicting_chronology_remain_separate() -> 
     conflicting = normalized(source(), raw.replace(b"10:00:00 -0400", b"11:00:00 -0400"))[0]
     assert conflicting["item_id"] == original["item_id"]
     assert conflicting["revision_id"] != original["revision_id"]
+
+
+def test_multiple_unmapped_categories_have_unique_information_preserving_limitation() -> None:
+    raw = (
+        b"<rss version='2.0'><channel><item><title>A</title><guid>a</guid>"
+        b"<category>first unknown</category><category>second unknown</category>"
+        b"<category>first unknown</category></item></channel></rss>"
+    )
+    document = normalized(source(), raw)[0]
+    assert document["topics"] == []
+    assert "Publisher topics without reviewed taxonomy mapping: 2" in document["limitations"]
+    assert len(document["limitations"]) == len(set(document["limitations"]))
+
+
+def test_nested_atom_xml_base_uses_root_entry_and_link_and_effective_response_url() -> None:
+    record = approved()
+    record["transport"] = "atom"
+    record["limits"]["maximum_redirects"] = 1
+    raw = (
+        b'<feed xmlns="http://www.w3.org/2005/Atom" xml:base="../articles/">'
+        b'<entry xml:base="2026/"><id>a</id><title>A</title>'
+        b'<link xml:base="../revised/" href="paper.html"/></entry></feed>'
+    )
+    adapter, _ = fetch_adapter(
+        record,
+        [FeedResponse(302, {"location": "/feeds/current.xml"}, b""), FeedResponse(200, {}, raw)],
+    )
+    captured = adapter.acquire(definition(record))
+    assert (
+        captured.payload["source_context"]["effective_url"]
+        == "https://example.org/feeds/current.xml"
+    )
+    captured.payload["_acquisition_lineage"] = {
+        "ingestion_run_id": "local-run",
+        "artifact_id": "local-artifact",
+    }
+    document = adapter.normalize(definition(record), captured.payload).records[0]
+    assert document["canonical_url"] == "https://example.org/articles/revised/paper.html"
+
+
+@pytest.mark.parametrize("offset", ["+00:60", "+01:99", "+24:00", "-00:60", "-23:99"])
+def test_invalid_atom_offsets_stay_invalid_not_normalized(offset: str) -> None:
+    raw = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>a</id><title>A</title>'
+        f"<published>2026-09-30T14:00:00{offset}</published></entry></feed>"
+    ).encode()
+    document = normalized(source("atom"), raw)[0]
+    assert document["published_at"] is None
+    assert document["field_states"]["published_at"] == "invalid"
+
+
+@pytest.mark.parametrize("drift", ["source", "version", "rights", "endpoint", "resource"])
+def test_unchanged_bytes_cannot_be_relabelled_during_replay(drift: str) -> None:
+    record = source()
+    adapter = IntelligenceFeedAdapter()
+    captured = adapter.acquire(definition(record), fixture_dir=FIXTURES / "rss")
+    captured.payload["_acquisition_lineage"] = {
+        "ingestion_run_id": "local-run",
+        "artifact_id": "local-artifact",
+    }
+    changed = copy.deepcopy(record)
+    target = definition(changed)
+    if drift == "source":
+        changed["source_id"] = "other-source"
+        target = definition(changed)
+    elif drift == "version":
+        changed["registry_version"] = 2
+    elif drift == "rights":
+        changed["access_use"]["excerpt_max_chars"] = 50
+    elif drift == "endpoint":
+        target = replace(target, endpoint_template="https://example.org/other.xml")
+    else:
+        target = replace(target, resource_key="unrelated-resource")
+    with pytest.raises(AcquisitionError, match="CONTEXT_MISMATCH|RESOURCE_SOURCE_MISMATCH"):
+        adapter.normalize(target, captured.payload)

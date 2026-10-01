@@ -243,6 +243,7 @@ def normalize_item(
         "limitations": limitations,
         "content_is_untrusted": True,
     }
+    unmapped = 0
     for topic in dict.fromkeys(topics):
         if TOKEN.fullmatch(topic):
             item["topics"].append(
@@ -255,7 +256,9 @@ def normalize_item(
                 }
             )
         else:
-            limitations.append("Publisher topic has no reviewed taxonomy mapping")
+            unmapped += 1
+    if unmapped:
+        limitations.append(f"Publisher topics without reviewed taxonomy mapping: {unmapped}")
     if not publisher_identity:
         publisher_identity = identity_hash(fields)
         limitations.append(
@@ -271,3 +274,66 @@ def normalize_item(
     )
     validate_record("item", item)
     return item
+
+
+ACQUISITION_VERSION = "intelligence-acquisition-v1"
+ACQUISITION_FIELDS = frozenset(
+    {
+        "context_version",
+        "source_id",
+        "registry_version",
+        "registry_sha256",
+        "requested_url",
+        "effective_url",
+        "capture_mode",
+        "fetch_status",
+        "fetched_at",
+        "artifact_sha256",
+    }
+)
+
+
+def validate_acquisition_context(
+    source: dict[str, Any],
+    resource_key: str,
+    requested_url: str,
+    context: Any,
+    *,
+    allow_fixture: bool = False,
+) -> None:
+    """Private immutable capture binding; public #131 item schemas stay unchanged."""
+    if not isinstance(context, dict) or set(context) != ACQUISITION_FIELDS:
+        raise ValueError("INTELLIGENCE_ACQUISITION_CONTEXT_REQUIRED")
+    if (
+        type(context["registry_version"]) is not int
+        or type(context["fetch_status"]) is not int
+        or any(
+            not isinstance(value, str)
+            for key, value in context.items()
+            if key not in {"registry_version", "fetch_status"}
+        )
+    ):
+        raise ValueError("INTELLIGENCE_ACQUISITION_CONTEXT_MISMATCH")
+    if (
+        context["context_version"] != ACQUISITION_VERSION
+        or resource_key != source["source_id"]
+        or context["source_id"] != source["source_id"]
+        or context["registry_version"] != source["registry_version"]
+        or context["registry_sha256"] != identity_hash(source)
+        or context["requested_url"] != canonical_url(requested_url)
+        or context["fetch_status"] not in {200, 304}
+        or context["capture_mode"] not in ({"fixture", "https"} if allow_fixture else {"https"})
+        or not isinstance(context["artifact_sha256"], str)
+        or re.fullmatch(r"[a-f0-9]{64}", context["artifact_sha256"]) is None
+        or canonical_timestamp(context["fetched_at"]) != context["fetched_at"]
+    ):
+        raise ValueError("INTELLIGENCE_ACQUISITION_CONTEXT_MISMATCH")
+    effective = canonical_url(context["effective_url"])
+    if not effective or effective != context["effective_url"]:
+        raise ValueError("INTELLIGENCE_ACQUISITION_URL_INVALID")
+    if context["capture_mode"] == "https" and (
+        source["state"] not in {"active", "manual"}
+        or canonical_url(source["fetch_location"]) != context["requested_url"]
+        or urlsplit(effective).hostname not in source["approved_hosts"]
+    ):
+        raise ValueError("INTELLIGENCE_ACQUISITION_SOURCE_NOT_APPROVED")

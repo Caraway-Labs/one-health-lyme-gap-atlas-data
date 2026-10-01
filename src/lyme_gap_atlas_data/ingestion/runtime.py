@@ -168,6 +168,14 @@ class SnowflakeStageEffects:
     def register_artifact(
         self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
     ) -> dict[str, Any]:
+        if definition.adapter_kind is AdapterKind.RSS_ATOM:
+            raise PermissionError("INTELLIGENCE_STORAGE_EFFECTS_REQUIRED")
+        return self._register_artifact(definition, state, acquired)
+
+    def _register_artifact(
+        self, definition: SourceDefinition, state: RunState, acquired: AcquireResult
+    ) -> dict[str, Any]:
+        """Explicit intelligence composition calls only after source/retention checks."""
         artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
         primary_source = _primary_artifact(acquired, artifacts)
         now = datetime.now(UTC)

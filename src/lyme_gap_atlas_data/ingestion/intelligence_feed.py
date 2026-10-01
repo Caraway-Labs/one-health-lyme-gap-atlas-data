@@ -28,20 +28,31 @@ from typing import Any
 from urllib.parse import urljoin, urlsplit
 from xml.parsers import expat
 
-from ..intelligence_items import canonical_timestamp, canonical_url, normalize_item, validate_record
-from .adapters import AcquireResult, AcquisitionError, NormalizeResult
+from ..intelligence_items import (
+    ACQUISITION_VERSION,
+    canonical_timestamp,
+    canonical_url,
+    identity_hash,
+    normalize_item,
+    validate_acquisition_context,
+    validate_record,
+)
+from .adapters import AcquireResult, AcquisitionArtifact, AcquisitionError, NormalizeResult
 from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIssue, ValidationResult
 
 PARSER_VERSION = "rss-atom-v1"
 FETCH_VERSION = "pinned-https-v1"
 ATOM = "{http://www.w3.org/2005/Atom}"
+XML_BASE = "{http://www.w3.org/XML/1998/namespace}base"
 
 
 def _failure(code: str) -> AcquisitionError:
     return AcquisitionError(code, code=code)
 
 
-def parse_feed(raw: bytes, source: dict[str, Any]) -> list[dict[str, Any]]:
+def parse_feed(
+    raw: bytes, source: dict[str, Any], *, base_url: str | None = None
+) -> list[dict[str, Any]]:
     """Reject DTD/entities, excessive depth/nodes/items and unsupported envelopes."""
     limits = source["limits"]
     if len(raw) > limits["maximum_bytes"]:
@@ -85,6 +96,9 @@ def parse_feed(raw: bytes, source: dict[str, Any]) -> list[dict[str, Any]]:
     if len(entries) > limits["maximum_items"]:
         raise _failure("FEED_ITEM_LIMIT")
     result: list[dict[str, Any]] = []
+    feed_base = base_url or source["fetch_location"] or ""
+    if transport == "atom":
+        feed_base = _xml_base(root, feed_base)
     for entry in entries:
         if transport == "rss":
             item: dict[str, Any] = {
@@ -97,8 +111,9 @@ def parse_feed(raw: bytes, source: dict[str, Any]) -> list[dict[str, Any]]:
                 "topics": tuple(_element_text(node) for node in entry.findall("category")),
             }
         else:
+            entry_base = _xml_base(entry, feed_base)
             links = [
-                node.get("href")
+                urljoin(_xml_base(node, entry_base), node.get("href", ""))
                 for node in entry.findall(ATOM + "link")
                 if node.get("rel", "alternate") == "alternate"
                 and node.get("type", "text/html") in {"text/html", "application/xhtml+xml"}
@@ -113,12 +128,26 @@ def parse_feed(raw: bytes, source: dict[str, Any]) -> list[dict[str, Any]]:
                 "updated_at": _publisher_date(_text(entry, ATOM + "updated")),
                 "topics": tuple(node.get("term", "") for node in entry.findall(ATOM + "category")),
             }
-        if item["url"] and source["fetch_location"]:
-            item["url"] = urljoin(source["fetch_location"], item["url"])
+        if item["url"] and feed_base:
+            item["url"] = urljoin(feed_base, item["url"])
         if len(item["topics"]) > 100:
             raise _failure("FEED_TOPIC_LIMIT")
         result.append(item)
     return result
+
+
+def _xml_base(node: ET.Element, inherited: str) -> str:
+    declared = node.get(XML_BASE)
+    if declared is None:
+        return inherited
+    resolved = urljoin(inherited, declared)
+    try:
+        canonical = canonical_url(resolved)
+    except ValueError as error:
+        raise _failure("XML_BASE_INVALID") from error
+    if not canonical:
+        raise _failure("XML_BASE_INVALID")
+    return canonical
 
 
 def _element_text(node: ET.Element) -> str:
@@ -149,6 +178,8 @@ def _publisher_date(value: str | None, *, rss: bool = False) -> str | None:
         )
         if match is None:
             return value
+        if match[3] != "Z" and (int(match[3][1:3]) > 23 or int(match[3][4:6]) > 59):
+            return value
         date = datetime.fromisoformat(match[1] + match[3].replace("Z", "+00:00"))
         seconds = date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
         return canonical_timestamp(seconds + ("." + match[2] if match[2] else "") + "Z")
@@ -161,6 +192,7 @@ class FeedResponse:
     status: int
     headers: Mapping[str, str]
     body: bytes
+    effective_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +204,39 @@ class FeedCache:
     artifact_id: str
     etag: str | None = None
     last_modified: str | None = None
+    source_context: dict[str, Any] | None = None
+
+
+def acquisition_context(
+    definition: SourceDefinition,
+    source: dict[str, Any],
+    *,
+    effective_url: str,
+    fetched_at: str,
+    artifact_sha256: str,
+    capture_mode: str,
+    fetch_status: int = 200,
+) -> dict[str, Any]:
+    context = {
+        "context_version": ACQUISITION_VERSION,
+        "source_id": source["source_id"],
+        "registry_version": source["registry_version"],
+        "registry_sha256": identity_hash(source),
+        "requested_url": canonical_url(definition.endpoint_template),
+        "effective_url": canonical_url(effective_url),
+        "capture_mode": capture_mode,
+        "fetch_status": fetch_status,
+        "fetched_at": canonical_timestamp(fetched_at),
+        "artifact_sha256": artifact_sha256,
+    }
+    validate_acquisition_context(
+        source,
+        definition.resource_key,
+        definition.endpoint_template,
+        context,
+        allow_fixture=capture_mode == "fixture",
+    )
+    return context
 
 
 class _PinnedHTTPS(http.client.HTTPSConnection):
@@ -290,6 +355,8 @@ class IntelligenceFeedAdapter:
         if not isinstance(source, dict):
             raise _failure("INTELLIGENCE_REGISTRY_REQUIRED")
         validate_record("source", source)
+        if definition.resource_key != source["source_id"]:
+            raise _failure("INTELLIGENCE_RESOURCE_SOURCE_MISMATCH")
         if source["source_id"] != definition.source_id or source["transport"] not in {
             "rss",
             "atom",
@@ -317,13 +384,25 @@ class IntelligenceFeedAdapter:
                 source["fetch_location"]
             ):
                 raise PermissionError("INTELLIGENCE_ENDPOINT_MISMATCH")
-            response = self._fetch(source)
+            response = self._fetch(definition, source)
             raw = response.body
-        entries = parse_feed(raw, source)
-        payload = {
+        fetched_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        effective_url = response.effective_url or definition.endpoint_template
+        entries = parse_feed(raw, source, base_url=effective_url)
+        digest = hashlib.sha256(raw).hexdigest()
+        payload: dict[str, Any] = {
             "xml_base64": base64.b64encode(raw).decode("ascii"),
-            "artifact_sha256": hashlib.sha256(raw).hexdigest(),
-            "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "artifact_sha256": digest,
+            "fetched_at": canonical_timestamp(fetched_at),
+            "source_context": acquisition_context(
+                definition,
+                source,
+                effective_url=effective_url,
+                fetched_at=fetched_at,
+                artifact_sha256=digest,
+                capture_mode="fixture" if fixture_dir is not None else "https",
+                fetch_status=response.status,
+            ),
         }
         # Private replay manifest only; never part of an intelligence item or log.
         for key in ("etag", "last-modified"):
@@ -339,6 +418,15 @@ class IntelligenceFeedAdapter:
             raw_payload=raw,
             artifact_sha256=payload["artifact_sha256"],
             media_type="application/xml",
+            artifacts=(
+                AcquisitionArtifact(
+                    name="feed.xml",
+                    payload=raw,
+                    media_type="application/xml",
+                    source_uri=effective_url,
+                    row_count=len(entries),
+                ),
+            ),
             row_count=len(entries),
             detail={
                 "fetch_status": response.status,
@@ -347,9 +435,7 @@ class IntelligenceFeedAdapter:
             },
         )
 
-    def _fetch(self, source: dict[str, Any]) -> FeedResponse:
-        from ..intelligence_items import identity_hash
-
+    def _fetch(self, definition: SourceDefinition, source: dict[str, Any]) -> FeedResponse:
         limits = source["limits"]
         deadline = time.monotonic() + limits["timeout_seconds"]
         url = source["fetch_location"]
@@ -364,7 +450,22 @@ class IntelligenceFeedAdapter:
                 raise _failure("FEED_RETAINED_CACHE_REQUIRED")
             if cache.source_sha256 != identity_hash(source) or not cache.artifact_id:
                 raise _failure("FEED_CACHE_SOURCE_MISMATCH")
-            parse_feed(cache.body, source)
+            try:
+                validate_acquisition_context(
+                    source,
+                    definition.resource_key,
+                    definition.endpoint_template,
+                    cache.source_context,
+                )
+            except (ValueError, TypeError) as error:
+                raise _failure("FEED_CACHE_SOURCE_MISMATCH") from error
+            if (
+                cache.source_context is None
+                or cache.source_context["artifact_sha256"] != hashlib.sha256(cache.body).hexdigest()
+                or cache.source_context["effective_url"] != source["fetch_location"]
+            ):
+                raise _failure("FEED_CACHE_SOURCE_MISMATCH")
+            parse_feed(cache.body, source, base_url=cache.source_context["effective_url"])
             for name, value in (
                 ("If-None-Match", cache.etag),
                 ("If-Modified-Since", cache.last_modified),
@@ -410,11 +511,11 @@ class IntelligenceFeedAdapter:
             if response.status == 304:
                 if cache is None or url != source["fetch_location"]:
                     raise _failure("FEED_304_WITHOUT_CAPTURE")
-                return FeedResponse(304, response.headers, cache.body)
+                return FeedResponse(304, response.headers, cache.body, url)
             if response.status == 200:
                 if redirects:
-                    return FeedResponse(200, {}, response.body)
-                return response
+                    return FeedResponse(200, {}, response.body, url)
+                return FeedResponse(200, response.headers, response.body, url)
             if response.status == 429 or 500 <= response.status <= 599:
                 if attempts >= limits["maximum_attempts"]:
                     raise _failure(
@@ -457,7 +558,24 @@ class IntelligenceFeedAdapter:
         if hashlib.sha256(raw).hexdigest() != payload["artifact_sha256"]:
             raise _failure("FEED_CAPTURE_HASH_MISMATCH")
         canonical_timestamp(payload["fetched_at"])
-        return parse_feed(raw, self._source(definition))
+        source = self._source(definition)
+        try:
+            validate_acquisition_context(
+                source,
+                definition.resource_key,
+                definition.endpoint_template,
+                payload.get("source_context"),
+                allow_fixture=True,
+            )
+        except (ValueError, TypeError) as error:
+            raise _failure("FEED_SOURCE_CONTEXT_MISMATCH") from error
+        context = payload["source_context"]
+        if (
+            context["artifact_sha256"] != payload["artifact_sha256"]
+            or context["fetched_at"] != payload["fetched_at"]
+        ):
+            raise _failure("FEED_SOURCE_CONTEXT_MISMATCH")
+        return parse_feed(raw, source, base_url=context["effective_url"])
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
         entries = self._entries(definition, payload)
