@@ -62,6 +62,6 @@ not be reused across groups; identity changes invalidate it. There is no
 time-based reuse window.
 
 Private-network readiness before temporary topology mutation remains unproved
-without an approved existing execution surface. Host secret checks are separately
-held in DATA PR #543. KG13 grounded-answer QA is a separate acceptance criterion.
+without an approved existing execution surface. Host secret checks were delivered
+separately in merged DATA PR #543. KG13 grounded-answer QA is a separate acceptance criterion.
 This slice does not complete KG15 or authorize production extraction/deployment.
