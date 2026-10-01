@@ -38,6 +38,7 @@ from .extraction import (
     OpenAIEmbeddingClient,
     OpenAIResponsesExtractor,
 )
+from .literature_preflight import literature_preflight
 from .pmc_graph import (
     AdmittedFullText,
     Neo4jPaperPublisher,
@@ -86,7 +87,9 @@ def _failure_outcome(stage: str, error: Exception) -> tuple[str, bool, str]:
 
 @contextmanager
 def _stage(name: str, fields: dict[str, str]) -> Iterator[None]:
-    with _TRACER.start_as_current_span(f"pmc_extraction.{name}") as span:
+    with _TRACER.start_as_current_span(
+        f"pmc_extraction.{name}", record_exception=False, set_status_on_exception=False
+    ) as span:
         for key, value in fields.items():
             span.set_attribute(f"atlas.{key}", value)
         try:
@@ -390,6 +393,9 @@ class PMCExtractionWorker:
             "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST")),
             "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID")),
         }
+        discovery_run_id = os.getenv("ATLAS_DISCOVERY_RUN_ID")
+        if discovery_run_id:
+            fields["discovery_run_id"] = str(uuid.UUID(discovery_run_id))
         try:
             with _stage("claim", fields):
                 paper = self._ledger.claim_one(self._lease_seconds)
@@ -405,7 +411,9 @@ class PMCExtractionWorker:
             raise ValueError("only an approved, provenance-complete paper may be extracted")
         attempt_id: str | None = None
         built: AdmittedContribution | None = None
-        with _TRACER.start_as_current_span("pmc_extraction.run") as span:
+        with _TRACER.start_as_current_span(
+            "pmc_extraction.run", record_exception=False, set_status_on_exception=False
+        ) as span:
             token = _RUN_ID.set(run_id)
             for key, value in fields.items():
                 span.set_attribute(f"atlas.{key}", value)
@@ -582,6 +590,8 @@ class SnowflakePMCExtractionLedger:
     def __init__(self, *, bucket: str, configuration_version: str = "kg-v1.0.0") -> None:
         self._bucket = bucket
         self._configuration_version = configuration_version
+        batch_id = os.getenv("ATLAS_DISCOVERY_RUN_ID")
+        self._discovery_run_id = str(uuid.UUID(batch_id)) if batch_id else None
 
     def claim_one(self, lease_seconds: int) -> ApprovedPaper | None:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
@@ -593,6 +603,7 @@ class SnowflakePMCExtractionLedger:
                    FROM KNOWLEDGE_GRAPH.PAPERS p
                    JOIN KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m ON m.pmid = p.pmid
                    WHERE p.state IN ('approved', 'retry_pending') AND p.pmcid IS NOT NULL
+                     AND (%s IS NULL OR m.discovery_run_id = %s)
                      AND NOT EXISTS (SELECT 1 FROM KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS r
                                      WHERE r.pmid = p.pmid)
                      AND (SELECT COUNT(*) FROM KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPTS a
@@ -610,7 +621,8 @@ class SnowflakePMCExtractionLedger:
                    GROUP BY p.pmid, p.pmcid, p.title, p.journal, p.publication_date,
                             p.publication_types, p.language, p.state
                    ORDER BY CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END, p.pmid
-                   LIMIT 1"""
+                   LIMIT 1""",
+                (self._discovery_run_id, self._discovery_run_id),
             )
             row = cursor.fetchone()
             if row is None:
@@ -718,6 +730,22 @@ class SnowflakePMCExtractionLedger:
                     self._configuration_version,
                     paper.pmid,
                 ),
+            )
+            context = {
+                "run_id": _correlation_id(),
+                "discovery_run_id": self._discovery_run_id,
+                "environment": _bounded_identity(os.getenv("TOPX_ENV")),
+                "code_sha": _bounded_identity(
+                    os.getenv("SOURCE_COMMIT") or os.getenv("GITHUB_SHA")
+                ),
+                "image_sha": _bounded_identity(os.getenv("IMAGE_DIGEST")),
+                "workflow_run_id": _bounded_identity(os.getenv("GITHUB_RUN_ID")),
+            }
+            cursor.execute(
+                """INSERT INTO KNOWLEDGE_GRAPH.EXTRACTION_ATTEMPT_DIAGNOSTICS
+                   (diagnostic_id, extraction_attempt_id, pmid, diagnostic_type, details)
+                   SELECT %s, %s, %s, 'attempt_context', PARSE_JSON(%s)""",
+                (str(uuid.uuid4()), attempt_id, paper.pmid, json.dumps(context, sort_keys=True)),
             )
             connection.commit()
         return attempt_id
@@ -947,6 +975,10 @@ def run_pmc_extraction(*, estimated_cost_usd: float, settings: Any) -> dict[str,
         raise ValueError(
             "estimated_cost_usd must be at least the $0.20 per-call bound and no more than the daily budget"
         )
+    readiness = literature_preflight(settings, operation="extract")
+    _LOGGER.info("literature.preflight %s", json.dumps(readiness, sort_keys=True))
+    if readiness["status"] != "READY":
+        raise RuntimeError("literature preflight blocked extraction before paper claim")
     required = {
         "GROQ_API_KEY": settings.groq_api_key,
         "OPENAI_API_KEY": settings.openai_api_key,

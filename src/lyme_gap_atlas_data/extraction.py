@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import logging
+import re
+import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -15,6 +19,86 @@ from .contribution_admission import AdmittedContribution, admit_graph_contributi
 from .literature import extraction_provider
 
 _TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.extraction")
+_LOGGER = logging.getLogger(__name__)
+
+
+def _post_provider(
+    url: str,
+    *,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: int,
+    provider: str,
+    model: str,
+) -> httpx.Response:
+    """Emit bounded metadata only; never serialize request or response content."""
+    request_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    schema = (
+        payload.get("text", {}).get("format", {}).get("schema")
+        if provider == "openai"
+        else (payload.get("response_format", {}).get("json_schema", {}).get("schema"))
+    )
+    schema_hash = (
+        hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
+        if schema
+        else "none"
+    )
+    started = time.monotonic()
+    status: int | None = None
+    safe_request_id = ""
+    response_bytes: int | None = None
+    service_tier = payload.get("service_tier")
+    with _TRACER.start_as_current_span(
+        "literature.provider_http", record_exception=False, set_status_on_exception=False
+    ) as span:
+        span.set_attribute("atlas.provider", provider)
+        span.set_attribute("atlas.model", model)
+        span.set_attribute("atlas.request_bytes", request_bytes)
+        span.set_attribute("atlas.schema_sha256", schema_hash)
+        if isinstance(service_tier, str):
+            span.set_attribute("atlas.service_tier", service_tier)
+        try:
+            response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
+            status = getattr(response, "status_code", None)
+            response_headers = getattr(response, "headers", {})
+            request_id = response_headers.get("x-request-id", "")
+            safe_request_id = request_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request_id) else ""
+            content = getattr(response, "content", None)
+            response_bytes = len(content) if isinstance(content, bytes) else None
+            if status is not None:
+                span.set_attribute("http.response.status_code", status)
+            if response_bytes is not None:
+                span.set_attribute("atlas.response_bytes", response_bytes)
+            if safe_request_id:
+                span.set_attribute("atlas.provider_request_id", safe_request_id)
+            response.raise_for_status()
+            outcome = "completed"
+            return response
+        except Exception:
+            outcome = "failed"
+            raise
+        finally:
+            latency_ms = int((time.monotonic() - started) * 1000)
+            span.set_attribute("atlas.latency_ms", latency_ms)
+            span.set_attribute("atlas.outcome", outcome)
+            _LOGGER.info(
+                "literature.provider_http %s",
+                json.dumps(
+                    {
+                        "provider": provider,
+                        "model": model,
+                        "request_bytes": request_bytes,
+                        "schema_sha256": schema_hash,
+                        "latency_ms": latency_ms,
+                        "response_bytes": response_bytes,
+                        "http_status": status,
+                        "provider_request_id": safe_request_id or None,
+                        "service_tier": service_tier if isinstance(service_tier, str) else None,
+                        "outcome": outcome,
+                    },
+                    sort_keys=True,
+                ),
+            )
 
 
 class ContractExtractor(Protocol):
@@ -79,10 +163,10 @@ class GroqStructuredExtractor:
         self._headers = {"Authorization": f"Bearer {api_key}"}
 
     def extract(self, full_request: str, schema: dict[str, object]) -> dict[str, object]:
-        response = httpx.post(
+        response = _post_provider(
             "https://api.groq.com/openai/v1/chat/completions",
             headers=self._headers,
-            json={
+            payload={
                 "model": "openai/gpt-oss-120b",
                 "messages": [{"role": "user", "content": full_request}],
                 "response_format": {
@@ -95,8 +179,9 @@ class GroqStructuredExtractor:
                 },
             },
             timeout=120,
+            provider="groq",
+            model="openai/gpt-oss-120b",
         )
-        response.raise_for_status()
         return dict(json.loads(response.json()["choices"][0]["message"]["content"]))
 
 
@@ -137,13 +222,14 @@ class OpenAIResponsesExtractor:
         # Reject before the provider call if a paper exceeds the $0.20 bound.
         if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 200_000:
             raise ValueError("OpenAI extraction request exceeds the budgeted input bound")
-        response = httpx.post(
+        response = _post_provider(
             "https://api.openai.com/v1/responses",
             headers=self._headers,
-            json=payload,
+            payload=payload,
             timeout=180,
+            provider="openai",
+            model="gpt-5.6-luna",
         )
-        response.raise_for_status()
         payload = response.json()
         text = next(
             content["text"]
@@ -159,17 +245,18 @@ class OpenAIEmbeddingClient:
         self._headers = {"Authorization": f"Bearer {api_key}"}
 
     def embed(self, summaries: list[str], dimensions: int) -> list[list[float]]:
-        response = httpx.post(
+        response = _post_provider(
             "https://api.openai.com/v1/embeddings",
             headers=self._headers,
-            json={
+            payload={
                 "model": "text-embedding-3-small",
                 "input": summaries,
                 "dimensions": dimensions,
             },
             timeout=120,
+            provider="openai",
+            model="text-embedding-3-small",
         )
-        response.raise_for_status()
         return [item["embedding"] for item in response.json()["data"]]
 
 
@@ -233,12 +320,20 @@ class ExtractionCoordinator:
                 # returned paper identity before graph publication.
                 paper_schema = schema["$defs"]["PaperNode"]["properties"]
                 paper_schema["query_match_ids"]["enum"] = [list(expected_query_match_ids)]
-            with _TRACER.start_as_current_span("pmc_extraction.provider_request") as span:
+            with _TRACER.start_as_current_span(
+                "pmc_extraction.provider_request",
+                record_exception=False,
+                set_status_on_exception=False,
+            ) as span:
                 span.set_attribute("atlas.provider_route", route)
                 span.set_attribute("atlas.extraction_attempt_id", request_id)
                 span.set_attribute("atlas.estimated_input_tokens", tokens)
                 raw = self._providers[route].extract(full_request, schema)
-            with _TRACER.start_as_current_span("pmc_extraction.parse_validate"):
+            with _TRACER.start_as_current_span(
+                "pmc_extraction.parse_validate",
+                record_exception=False,
+                set_status_on_exception=False,
+            ):
                 admitted = admit_graph_contribution(raw)
             contribution = admitted.contribution
             if contribution.passages:

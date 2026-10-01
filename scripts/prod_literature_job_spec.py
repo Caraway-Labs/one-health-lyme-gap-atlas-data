@@ -11,6 +11,7 @@ import copy
 import json
 import os
 import re
+import uuid
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,9 @@ def build_spec(
     max_records: int = 25,
     batch_size: int = 25,
     estimated_cost_usd: str = "0.20",
+    discovery_run_id: str = "",
+    source_commit: str = "",
+    workflow_run_id: str = "",
     secrets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a new spec; reject drift and every unbounded invocation."""
@@ -107,6 +111,15 @@ def build_spec(
         raise ValueError("production image digest differs from the reviewed active digest")
     if operation not in {"preflight", "discover", "extract", "build-corpus"}:
         raise ValueError("unsupported literature operation")
+    if discovery_run_id:
+        try:
+            discovery_run_id = str(uuid.UUID(discovery_run_id))
+        except ValueError as error:
+            raise ValueError("discovery_run_id must be a UUID") from error
+    if source_commit and not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise ValueError("source_commit must be a full Git SHA")
+    if workflow_run_id and not re.fullmatch(r"[0-9]{1,20}", workflow_run_id):
+        raise ValueError("workflow_run_id must be numeric")
     if (
         family not in FAMILIES
         or not 1 <= max_records <= 400
@@ -121,7 +134,7 @@ def build_spec(
         raise ValueError("estimated cost must be between 0.20 and 20 USD")
 
     template_name = (
-        "cdc-operations-watchdog"
+        "approved-source-ingestion"
         if operation == "preflight"
         else "catalog-discovery"
         if operation == "discover"
@@ -129,10 +142,20 @@ def build_spec(
     )
     result = copy.deepcopy(baseline)
     template = next(job for job in result["jobs"] if job["name"] == template_name)
-    _require_runtime(template, spaces=operation != "preflight")
+    _require_runtime(template, spaces=True)
     job = copy.deepcopy(template)
     job["name"] = f"literature-{operation}-once"
     job["kind"] = "PRE_DEPLOY"
+    job["envs"].extend(
+        {"key": key, "scope": "RUN_TIME", "value": value}
+        for key, value in (
+            ("IMAGE_DIGEST", image_digest),
+            ("SOURCE_COMMIT", source_commit),
+            ("GITHUB_RUN_ID", workflow_run_id),
+            ("ATLAS_DISCOVERY_RUN_ID", discovery_run_id),
+        )
+        if value
+    )
     job.pop("schedule", None)
     # Remove unrelated source tokens. The temporary job has only the credentials
     # its chosen literature stage needs, and none are added to persistent jobs.
@@ -141,17 +164,15 @@ def build_spec(
     supplied = secrets or {}
     if operation == "preflight":
         result["vpc"] = {"id": VPC_ID}
-        _add_secret(job, "NEO4J_RUNTIME_PASSWORD", supplied.get("NEO4J_RUNTIME_PASSWORD", ""))
+        for key in ("NEO4J_RUNTIME_PASSWORD", "GROQ_API_KEY", "OPENAI_API_KEY"):
+            if supplied.get(key):
+                _add_secret(job, key, supplied[key])
         job["envs"] += [
             {"key": "NEO4J_URI", "scope": "RUN_TIME", "value": NEO4J_URI},
             {"key": "NEO4J_RUNTIME_USER", "scope": "RUN_TIME", "value": "graph_runtime"},
         ]
         job["run_command"] = (
-            "/app/.venv/bin/python -c 'import os; from neo4j import GraphDatabase; "
-            'd=GraphDatabase.driver(os.environ["NEO4J_URI"], '
-            'auth=(os.environ["NEO4J_RUNTIME_USER"], '
-            'os.environ["NEO4J_RUNTIME_PASSWORD"])); '
-            "d.verify_connectivity(); d.close()'"
+            "/app/.venv/bin/atlas-data pipeline literature-preflight --operation extract"
         )
     elif operation == "discover":
         _add_secret(job, "NCBI_EMAIL", supplied.get("NCBI_EMAIL", ""))
@@ -193,6 +214,9 @@ def main() -> None:
     parser.add_argument("--max-records", type=int, default=25)
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--estimated-cost-usd", default="0.20")
+    parser.add_argument("--discovery-run-id", default="")
+    parser.add_argument("--source-commit", default="")
+    parser.add_argument("--workflow-run-id", default="")
     args = parser.parse_args()
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     result = build_spec(
@@ -203,6 +227,9 @@ def main() -> None:
         max_records=args.max_records,
         batch_size=args.batch_size,
         estimated_cost_usd=args.estimated_cost_usd,
+        discovery_run_id=args.discovery_run_id,
+        source_commit=args.source_commit,
+        workflow_run_id=args.workflow_run_id,
         secrets={
             key: os.environ.get(key, "")
             for key in (

@@ -194,6 +194,7 @@ def test_claim_query_prioritizes_recovery_and_excludes_pre_inference_rejections(
     assert "provider_rejected_pre_inference" in source
     assert "contract_remediation_reopen" in source
     assert "CASE WHEN p.state = 'retry_pending' THEN 0 ELSE 1 END" in source
+    assert "m.discovery_run_id = %s" in source
 
 
 def test_identity_mismatch_records_redacted_field_names() -> None:
@@ -539,3 +540,110 @@ def test_provider_failure_log_has_correlation_and_redacts_response(
     assert failures
     assert all(item["run_id"] == failures[0]["run_id"] for item in failures)
     assert failures[-1]["provider_rationale"].endswith("request_id_req_safe")
+
+
+def test_attempt_context_is_persisted_with_discovery_and_worker_run_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    discovery_id = "12345678-1234-4234-8234-123456789abc"
+    monkeypatch.setenv("ATLAS_DISCOVERY_RUN_ID", discovery_id)
+    monkeypatch.setenv("SOURCE_COMMIT", "a" * 40)
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, args: object) -> None:
+            executed.append((sql, args))
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    token = pmc_extraction_worker._RUN_ID.set("worker-run-1")
+    try:
+        ledger = pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private")
+        attempt_id = ledger.record_attempt(approved_paper(), "b" * 64, "openai:test", 10, 900)
+    finally:
+        pmc_extraction_worker._RUN_ID.reset(token)
+    assert len(executed) == 2
+    assert "attempt_context" in executed[1][0]
+    args = executed[1][1]
+    assert isinstance(args, tuple)
+    assert args[1] == attempt_id
+    details = json.loads(args[3])
+    assert details["run_id"] == "worker-run-1"
+    assert details["discovery_run_id"] == discovery_id
+    assert details["code_sha"] == "a" * 40
+
+
+def test_failed_attempt_persists_redacted_stage_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, args: object) -> None:
+            executed.append((sql, args))
+
+        def fetchone(self) -> tuple[int]:
+            return (0,)
+
+    class Connection:
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(pmc_extraction_worker, "connect", lambda _settings: Connection())
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "req_safe"},
+        json={"error": {"type": "invalid_request_error", "message": "SECRET_BODY"}},
+    )
+    error = httpx.HTTPStatusError("SECRET_BODY", request=request, response=response)
+    stage_token = pmc_extraction_worker._FAILURE_STAGE.set("extract")
+    run_token = pmc_extraction_worker._RUN_ID.set("worker-run-2")
+    try:
+        pmc_extraction_worker.SnowflakePMCExtractionLedger(bucket="private").fail(
+            approved_paper(), "attempt-2", error
+        )
+    finally:
+        pmc_extraction_worker._FAILURE_STAGE.reset(stage_token)
+        pmc_extraction_worker._RUN_ID.reset(run_token)
+    diagnostic = next(args for sql, args in executed if "'stage_failure'" in sql)
+    assert isinstance(diagnostic, tuple)
+    details = json.loads(diagnostic[3])
+    assert details["run_id"] == "worker-run-2"
+    assert details["failure_category"] == "provider_rejected_pre_inference"
+    assert details["provider_rationale"].endswith("request_id_req_safe")
+    assert "SECRET_BODY" not in str(executed)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 import xml.etree.ElementTree as ET
@@ -15,11 +16,13 @@ import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
+from opentelemetry import trace
 
 from .pmc_graph import admit_pmc_open_access
 from .settings import PipelineSettings
 
 logger = logging.getLogger(__name__)
+_TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.retrieval-corpus")
 
 CORPUS_RULES_VERSION = "retrieval-corpus-v1"
 TARGET_CHARS = 1200
@@ -254,7 +257,9 @@ def _spaces_client(settings: PipelineSettings) -> Any:
     )
 
 
-def _load_eligible_papers(cursor: Any, pmid: str | None) -> tuple[list[EligiblePaper], int]:
+def _load_eligible_papers(
+    cursor: Any, pmid: str | None, discovery_run_id: str | None = None
+) -> tuple[list[EligiblePaper], int]:
     """Return admitted processed papers and the count of excluded candidates.
 
     Steward approval is enforced by requiring ``processed`` plus a recorded
@@ -278,9 +283,12 @@ def _load_eligible_papers(cursor: Any, pmid: str | None) -> tuple[list[EligibleP
           LEFT JOIN KNOWLEDGE_GRAPH.GRAPH_PUBLICATION_RECEIPTS r
             ON r.pmid = p.pmid
          WHERE (%s IS NULL OR p.pmid = %s)
+           AND (%s IS NULL OR EXISTS (
+             SELECT 1 FROM KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES m
+             WHERE m.pmid = p.pmid AND m.discovery_run_id = %s))
          ORDER BY p.pmid, r.published_at DESC NULLS LAST
         """,
-        (pmid, pmid),
+        (pmid, pmid, discovery_run_id, discovery_run_id),
     )
     rows = cursor.fetchall()
     admitted: list[EligiblePaper] = []
@@ -332,10 +340,14 @@ def build_retrieval_corpus(
     *,
     settings: PipelineSettings | None = None,
     pmid: str | None = None,
+    discovery_run_id: str | None = None,
     rules: CorpusRules | None = None,
     artifact_store: ArtifactStore | None = None,
 ) -> dict[str, object]:
     """Rebuild the DEV retrieval corpus from approved PMC artifacts only."""
+    discovery_run_id = discovery_run_id or os.getenv("ATLAS_DISCOVERY_RUN_ID")
+    if discovery_run_id:
+        discovery_run_id = str(uuid.UUID(discovery_run_id))
     settings = settings or PipelineSettings()
     if settings.topx_env == "prod" and not settings.enable_production_execution:
         raise ValueError("Production corpus rebuild requires ENABLE_PRODUCTION_EXECUTION=true")
@@ -357,7 +369,17 @@ def build_retrieval_corpus(
             (build_id, rules.rules_version, rules_hash),
         )
         try:
-            papers, excluded = _load_eligible_papers(cursor, pmid)
+            with _TRACER.start_as_current_span(
+                "literature.corpus_admission",
+                record_exception=False,
+                set_status_on_exception=False,
+            ) as span:
+                span.set_attribute("atlas.build_id", build_id)
+                if discovery_run_id:
+                    span.set_attribute("atlas.discovery_run_id", discovery_run_id)
+                papers, excluded = _load_eligible_papers(cursor, pmid, discovery_run_id)
+                span.set_attribute("atlas.papers_eligible", len(papers))
+                span.set_attribute("atlas.papers_excluded", excluded)
             all_units: list[CorpusUnit] = []
             empty = 0
             duplicates = 0
@@ -386,8 +408,11 @@ def build_retrieval_corpus(
                 DELETE FROM KNOWLEDGE_GRAPH.RETRIEVAL_CORPUS_UNITS
                  WHERE corpus_rules_version = %s
                    AND (%s IS NULL OR pmid = %s)
+                   AND (%s IS NULL OR pmid IN (
+                     SELECT pmid FROM KNOWLEDGE_GRAPH.PAPER_QUERY_MATCHES
+                     WHERE discovery_run_id = %s))
                 """,
-                (rules.rules_version, pmid, pmid),
+                (rules.rules_version, pmid, pmid, discovery_run_id, discovery_run_id),
             )
             for unit in all_units:
                 cursor.execute(
@@ -460,6 +485,21 @@ def build_retrieval_corpus(
             )
             connection.commit()
         except Exception as error:
+            logger.error(
+                "literature.corpus_failed %s",
+                json.dumps(
+                    {
+                        "build_id": build_id,
+                        "discovery_run_id": discovery_run_id,
+                        "environment": settings.topx_env,
+                        "outcome": "failed",
+                        "failure_category": "corpus_admission_rebuild",
+                        "retryable": True,
+                        "next_action": "inspect_corpus_build_and_retry",
+                    },
+                    sort_keys=True,
+                ),
+            )
             connection.rollback()
             with connect(SnowflakeSettings()) as fail_connection:
                 fail_cursor = fail_connection.cursor()
@@ -476,9 +516,10 @@ def build_retrieval_corpus(
                 fail_connection.commit()
             raise
 
-    result = {
+    result: dict[str, object] = {
         "status": "completed",
         "build_id": build_id,
+        "discovery_run_id": discovery_run_id,
         "corpus_rules_version": rules.rules_version,
         "rules_sha256": rules_hash,
         "papers_considered": len(papers) + excluded,
@@ -491,9 +532,17 @@ def build_retrieval_corpus(
         "corpus_content_sha256": content_hash,
     }
     logger.info(
-        "retrieval_corpus.build_completed build_id=%s rules=%s chunks=%s",
-        build_id,
-        rules.rules_version,
-        len(all_units),
+        "literature.corpus_completed %s",
+        json.dumps(
+            {
+                "build_id": build_id,
+                "discovery_run_id": discovery_run_id,
+                "environment": settings.topx_env,
+                "outcome": "completed",
+                "papers_admitted": len(papers),
+                "chunks_written": len(all_units),
+            },
+            sort_keys=True,
+        ),
     )
     return result

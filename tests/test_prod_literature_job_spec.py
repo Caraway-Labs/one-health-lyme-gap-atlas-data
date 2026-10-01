@@ -121,7 +121,7 @@ def test_live_app_without_vpc_gets_private_network_only_for_graph_stage() -> Non
     )
     assert "vpc" not in baseline
     assert preflight["vpc"]["id"] == "a937d8dd-4ee9-4de2-a8df-b32e7ad4098e"
-    assert "verify_connectivity" in preflight["jobs"][-1]["run_command"]
+    assert "literature-preflight --operation extract" in preflight["jobs"][-1]["run_command"]
 
 
 @pytest.mark.parametrize(

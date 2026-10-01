@@ -41,6 +41,8 @@ from .ingestion import (
     load_source_definition,
     starter_definition_yaml,
 )
+from .literature_preflight import literature_preflight
+from .literature_status import literature_status
 from .migrations import (
     apply_migrations,
     migration_authority_preflight,
@@ -399,9 +401,32 @@ def pubmed_discover(
     batch_size: int = typer.Option(MAX_BATCH_SIZE, "--batch-size", min=1, max=MAX_BATCH_SIZE),
 ) -> None:
     """Capture bounded PubMed citation metadata; it cannot approve or fetch full text."""
+    readiness = literature_preflight(PipelineSettings(), operation="discover")
+    typer.echo(json.dumps(readiness, sort_keys=True))
+    if readiness["status"] != "READY":
+        raise typer.Exit(code=1)
     typer.echo(
         json.dumps(discover_pubmed(family, maximum_records=max_records, batch_size=batch_size))
     )
+
+
+@pipeline_app.command("literature-preflight")
+def literature_preflight_command(
+    operation: str = typer.Option(..., "--operation"),
+) -> None:
+    """Inspect literature runtime readiness without claiming or changing a paper."""
+    result = literature_preflight(PipelineSettings(), operation=operation)
+    typer.echo(json.dumps(result, sort_keys=True))
+    if result["status"] != "READY":
+        raise typer.Exit(code=1)
+
+
+@pipeline_app.command("literature-status")
+def literature_status_command(
+    discovery_run_id: str = typer.Option(..., "--discovery-run-id"),
+) -> None:
+    """Reconcile a bounded PubMed run from existing review and receipt ledgers."""
+    typer.echo(json.dumps(literature_status(discovery_run_id), sort_keys=True))
 
 
 @pipeline_app.command("pmc-extract")
@@ -427,6 +452,10 @@ def build_retrieval_corpus_command(
     """Rebuild the DEV retrieval corpus from approved PMC artifacts and receipts."""
     if not confirm:
         raise typer.BadParameter("Pass --confirm to rebuild the DEV retrieval corpus")
+    readiness = literature_preflight(PipelineSettings(), operation="build-corpus")
+    typer.echo(json.dumps(readiness, sort_keys=True))
+    if readiness["status"] != "READY":
+        raise typer.Exit(code=1)
     typer.echo(json.dumps(build_retrieval_corpus(pmid=pmid, settings=PipelineSettings())))
 
 

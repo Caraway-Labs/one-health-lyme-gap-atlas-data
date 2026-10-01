@@ -16,6 +16,7 @@ from typing import Any, Protocol
 import boto3  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
+from opentelemetry import trace
 
 from .artifacts import Artifact, create_artifact
 from .literature import (
@@ -27,6 +28,7 @@ from .literature import (
 from .settings import PipelineSettings
 
 logger = logging.getLogger(__name__)
+_TRACER = trace.get_tracer("one-health-lyme-gap-atlas-data.pubmed-discovery")
 
 PUBMED_RESOURCE_KEY = "pubmed_metadata"
 MAX_BATCH_SIZE = 200
@@ -180,7 +182,13 @@ def discover_pubmed(
     run_id = str(uuid.uuid4())
     query = build_pubmed_query(family)
     query_sha256 = hashlib.sha256(query.encode()).hexdigest()
-    history = _retry(lambda: runtime_client.start(family))
+    with _TRACER.start_as_current_span(
+        "literature.pubmed_esearch", record_exception=False, set_status_on_exception=False
+    ) as span:
+        span.set_attribute("atlas.discovery_run_id", run_id)
+        span.set_attribute("atlas.family", family)
+        span.set_attribute("atlas.environment", settings.topx_env)
+        history = _retry(lambda: runtime_client.start(family))
     limit = min(history.count, maximum_records)
     artifact_store = s3 or _spaces_client(settings)
     saved_records = 0
@@ -217,7 +225,14 @@ def discover_pubmed(
                     min(batch_size, limit - retstart),
                 )
                 try:
-                    payload = _retry(lambda cursor=cursor_at: runtime_client.fetch(cursor))
+                    with _TRACER.start_as_current_span(
+                        "literature.pubmed_efetch",
+                        record_exception=False,
+                        set_status_on_exception=False,
+                    ) as span:
+                        span.set_attribute("atlas.discovery_run_id", run_id)
+                        span.set_attribute("atlas.request_sequence", retstart // batch_size + 1)
+                        payload = _retry(lambda cursor=cursor_at: runtime_client.fetch(cursor))
                 except Exception as error:
                     cursor.execute(
                         """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
@@ -330,6 +345,19 @@ def discover_pubmed(
                 (datetime.now(UTC), run_id),
             )
             connection.commit()
+    logger.info(
+        "literature.discovery_completed %s",
+        json.dumps(
+            {
+                "discovery_run_id": run_id,
+                "environment": settings.topx_env,
+                "family": family,
+                "outcome": "completed",
+                "record_count": saved_records,
+            },
+            sort_keys=True,
+        ),
+    )
     return {
         "discovery_run_id": run_id,
         "family": family,
