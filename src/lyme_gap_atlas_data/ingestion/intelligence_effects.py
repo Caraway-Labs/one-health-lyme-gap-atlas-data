@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from ..intelligence_items import validate_acquisition_context, validate_record
+from ..intelligence_items import identity_hash, validate_acquisition_context, validate_record
 from ..intelligence_storage import IntelligenceStore
 from ..settings import PipelineSettings
 from .adapters import AcquireResult
@@ -73,7 +73,9 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
             source["access_use"]["content_retention_policy_ref"], definition.artifact_policy
         ):
             raise PermissionError("INTELLIGENCE_ARTIFACT_RETENTION_REQUIRED")
-        receipt = self._register_artifact(definition, state, acquired)
+        receipt = self._register_artifact(
+            definition, state, acquired, capture_identity=identity_hash(context)
+        )
         self.store.record_acquisition(
             source_id=source["source_id"],
             registry_version=source["registry_version"],

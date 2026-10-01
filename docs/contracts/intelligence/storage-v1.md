@@ -29,6 +29,15 @@ raw exception chain. Rollback/cleanup failures preserve the original failure.
 A cleanup error after a successful commit is reported as failure; callers must
 retry the immutable unit and rely on exact replay, never assume no rows committed.
 
+Acquisition uses a fresh opaque attempt ID retained in its private context. The
+explicit effects bind the request and artifact identity to the entire context
+checksum, so reacquisition after failed ACQUIRE uses a distinct immutable receipt
+even for identical bytes or a coarse/frozen fetch clock. Raw content-addressed
+bytes can share an object; request/artifact/receipt attribution cannot. An earlier
+committed receipt stays retained as acquisition evidence. It is never rewritten,
+deleted or treated as accepted item persistence. Fresh-process orchestrator tests
+cover receipt-commit cleanup failure and later payload/checkpoint save failures.
+
 Publication content revisions live separately from run-pinned captures. Captures
 retain source/version, transport, canonical dates and missingness, permitted text,
 tag origin, run/artifact provenance and limitations. A repeat fetch gets a new

@@ -436,7 +436,14 @@ def test_offline_transport_to_storage_to_public_contract_fields() -> None:
     database = Ledger()
 
     class FixtureEffects(IntelligenceStageEffects):
-        def _register_artifact(self, definition: Any, state: Any, acquired: Any) -> dict[str, Any]:
+        def _register_artifact(
+            self,
+            definition: Any,
+            state: Any,
+            acquired: Any,
+            *,
+            capture_identity: str | None = None,
+        ) -> dict[str, Any]:
             database.runs[state.ingestion_run_id] = definition.resource_key
             artifact_id = "fixture-" + state.ingestion_run_id
             database.artifacts[(artifact_id, state.ingestion_run_id)] = acquired.artifact_sha256
