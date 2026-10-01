@@ -87,6 +87,15 @@ def _paper_status(row: tuple[Any, ...]) -> dict[str, object]:
     ) = row
     if attempt_status == "failed" and not category:
         category, retryable, action = "legacy_unclassified", False, "inspect_attempt_ledger"
+    if not action:
+        if state in {"rejected", "ineligible", "access_rejected"}:
+            action = "return_to_steward_review"
+        elif published and not admitted:
+            action = "run_or_inspect_corpus_rebuild"
+        elif not review_id:
+            action = "await_steward_review"
+        elif not attempt_id:
+            action = "run_pmc_extraction"
     stage = (
         "corpus_admit"
         if admitted

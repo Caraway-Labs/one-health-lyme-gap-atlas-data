@@ -116,3 +116,32 @@ def test_reconcile_counts_and_failed_attempts(monkeypatch: pytest.MonkeyPatch) -
 def test_reconcile_rejects_unbounded_identifier() -> None:
     with pytest.raises(ValueError, match="UUID"):
         module.literature_status("' OR 1=1 --")
+
+
+def test_graph_published_paper_has_corpus_next_action() -> None:
+    row = (
+        "3",
+        "PMC3",
+        "processed",
+        "review-3",
+        "attempt-3",
+        "completed",
+        None,
+        1,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "run-3",
+        "workflow-3",
+        "prod",
+        "code-3",
+        "image-3",
+        True,
+        True,
+        False,
+    )
+    paper = module._paper_status(row)
+    assert paper["next_action"] == "run_or_inspect_corpus_rebuild"
+    assert paper["corpus_admitted"] is False
