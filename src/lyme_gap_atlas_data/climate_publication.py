@@ -12,7 +12,7 @@ import math
 import os
 import tempfile
 from collections.abc import Iterable, Mapping
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +78,7 @@ def _timestamp(value: Any) -> str:
     try:
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
         _require(parsed.tzinfo is not None and parsed.utcoffset() is not None, "RETRIEVAL_TIME")
-        return parsed.isoformat()
+        return parsed.astimezone(UTC).isoformat()
     except (TypeError, ValueError):
         raise ClimatePublicationBlocked("RETRIEVAL_TIME") from None
 
@@ -166,7 +166,8 @@ def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
             expected, intersected, supported, valid = (record.get(k) for k in AREAS)
             _require(all(_finite(v) for v in (expected, intersected, supported, valid)), "AREAS")
             _require(
-                expected > 0 and 0 <= valid <= supported <= intersected <= expected + 1e-6, "AREAS"
+                expected > 0 and 0 <= valid <= supported <= intersected <= expected * (1 + 1e-8),
+                "AREAS",
             )
             source_fraction, daily_fraction = (record.get(k) for k in FRACTIONS)
             _require(
@@ -204,6 +205,9 @@ def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
                 _require(record["source_time_present"] or valid == 0, "TIME_PRESENCE")
         for field in ("grid_id", "geometry_digest", "geometry_version"):
             _require(isinstance(record.get(field), str) and bool(record[field]), "GEOMETRY_LINEAGE")
+        _require(
+            record.get("weight_version") == "atlas-grid-county-area-weight/1", "WEIGHT_LINEAGE"
+        )
         if not out_of_scope:
             _require(
                 isinstance(record.get("weight_id"), str) and bool(record["weight_id"]),

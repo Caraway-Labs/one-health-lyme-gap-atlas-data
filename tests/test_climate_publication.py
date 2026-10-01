@@ -80,7 +80,7 @@ def fixture_record(**changes: Any) -> dict[str, Any]:
         "grid_id": "fixture-grid",
         "grid_crs": "EPSG:4326",
         "weight_id": "fixture-weight",
-        "weight_version": "atlas-county-raster-weights/1",
+        "weight_version": "atlas-grid-county-area-weight/1",
         "geometry_version": "fixture-geometry/1",
         "geometry_digest": "a" * 64,
         "noaa_sha256": publication.NOAA_SHA,
@@ -137,6 +137,32 @@ def test_real_writer_zero_and_small_source_footprint_are_preserved() -> None:
     assert projected["publication_status"] == "CANDIDATE_NOT_RELEASED"
     assert "release_id" not in projected
     assert projected["atlas_acquired_at"] == "2026-09-28T02:59:48+00:00"
+
+
+def test_geometry_relative_tolerance_matches_producer() -> None:
+    record = fixture_record(
+        expected_area_m2=1e9,
+        intersected_area_m2=1e9 + 5,
+        source_supported_area_m2=1e9,
+        valid_area_m2=1e9,
+        source_coverage_fraction=1.0,
+    )
+    assert publication.project_capture_record(fixture_capture(record))["value_state"] == "ZERO"
+    record["intersected_area_m2"] = 1e9 + 11
+    with pytest.raises(publication.ClimatePublicationBlocked, match="AREAS"):
+        publication.project_capture_record(fixture_capture(record))
+
+
+def test_equivalent_session_offsets_produce_identical_candidate_bytes() -> None:
+    capture = fixture_capture()
+    capture["retrieved_at"] = "2026-09-27T19:59:48-07:00"
+    offset_projection = publication.project_capture_record(capture)
+    capture["retrieved_at"] = datetime.fromisoformat("2026-09-28T02:59:48+00:00")
+    utc_projection = publication.project_capture_record(capture)
+    assert (
+        json.dumps(offset_projection, sort_keys=True).encode()
+        == json.dumps(utc_projection, sort_keys=True).encode()
+    )
 
 
 @pytest.mark.parametrize("status,valid", [("PARTIAL_COVERAGE", 30.0), ("SOURCE_MISSING", 0.0)])
@@ -210,6 +236,8 @@ def test_negative_temperature_and_source_supplied_tavg() -> None:
         {"valid_area_m2": 150},
         {"value": 1, "coverage_status": "PARTIAL_COVERAGE"},
         {"weight_id": None},
+        {"weight_version": "atlas-county-raster-weights/1"},
+        {"weight_version": None},
     ],
 )
 def test_invalid_content_rehashed_by_writer_still_fails_scientific_gate(
