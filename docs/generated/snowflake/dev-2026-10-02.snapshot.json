@@ -1,0 +1,696 @@
+{
+  "code_commit": "2515a20099b60fab2ad6cb8ea8a4be4b6f83f83a",
+  "content": {
+    "columns": [
+      {
+        "character_maximum_length": 16777216,
+        "name": "VERSION",
+        "nullable": false,
+        "object": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "ordinal_position": 1,
+        "type": "TEXT"
+      },
+      {
+        "character_maximum_length": 64,
+        "name": "SHA256",
+        "nullable": false,
+        "object": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "ordinal_position": 3,
+        "type": "TEXT"
+      }
+    ],
+    "future_grants": [],
+    "grants": [
+      {
+        "grant_option": false,
+        "kind": "DATABASE",
+        "object": "database",
+        "privilege": "USAGE",
+        "role": "migration_deployer"
+      },
+      {
+        "grant_option": false,
+        "kind": "DATABASE",
+        "object": "database",
+        "privilege": "USAGE",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "DATABASE",
+        "object": "database",
+        "privilege": "USAGE",
+        "role": "read"
+      },
+      {
+        "grant_option": false,
+        "kind": "DATABASE",
+        "object": "database",
+        "privilege": "USAGE",
+        "role": "runtime"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "CREATE PROCEDURE",
+        "role": "migration_deployer"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "CREATE PROCEDURE",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "CREATE TABLE",
+        "role": "migration_deployer"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "CREATE VIEW",
+        "role": "migration_deployer"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "CREATE VIEW",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "USAGE",
+        "role": "migration_deployer"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "USAGE",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "USAGE",
+        "role": "read"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "GOVERNANCE",
+        "privilege": "USAGE",
+        "role": "runtime"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "PRESENTATION",
+        "privilege": "CREATE VIEW",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "PRESENTATION",
+        "privilege": "USAGE",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "PRESENTATION",
+        "privilege": "USAGE",
+        "role": "read"
+      },
+      {
+        "grant_option": false,
+        "kind": "SCHEMA",
+        "object": "PRESENTATION",
+        "privilege": "USAGE",
+        "role": "runtime"
+      },
+      {
+        "grant_option": false,
+        "kind": "TABLE",
+        "object": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "privilege": "INSERT",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "TABLE",
+        "object": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "privilege": "SELECT",
+        "role": "owner"
+      },
+      {
+        "grant_option": false,
+        "kind": "TABLE",
+        "object": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "privilege": "SELECT",
+        "role": "read"
+      },
+      {
+        "grant_option": false,
+        "kind": "TABLE",
+        "object": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "privilege": "SELECT",
+        "role": "runtime"
+      },
+      {
+        "grant_option": true,
+        "kind": "SCHEMA",
+        "object": "PRESENTATION",
+        "privilege": "OWNERSHIP",
+        "role": "migration_deployer"
+      }
+    ],
+    "migrations": [
+      {
+        "checksum": "match",
+        "version": "V001"
+      },
+      {
+        "checksum": "match",
+        "version": "V002"
+      },
+      {
+        "checksum": "match",
+        "version": "V003"
+      },
+      {
+        "checksum": "match",
+        "version": "V004"
+      },
+      {
+        "checksum": "match",
+        "version": "V005"
+      },
+      {
+        "checksum": "match",
+        "version": "V006"
+      },
+      {
+        "checksum": "match",
+        "version": "V007"
+      },
+      {
+        "checksum": "match",
+        "version": "V008"
+      },
+      {
+        "checksum": "match",
+        "version": "V009"
+      },
+      {
+        "checksum": "match",
+        "version": "V010"
+      },
+      {
+        "checksum": "match",
+        "version": "V011"
+      },
+      {
+        "checksum": "match",
+        "version": "V012"
+      },
+      {
+        "checksum": "match",
+        "version": "V013"
+      },
+      {
+        "checksum": "match",
+        "version": "V014"
+      },
+      {
+        "checksum": "match",
+        "version": "V015"
+      },
+      {
+        "checksum": "match",
+        "version": "V016"
+      },
+      {
+        "checksum": "match",
+        "version": "V017"
+      },
+      {
+        "checksum": "match",
+        "version": "V018"
+      },
+      {
+        "checksum": "match",
+        "version": "V019"
+      },
+      {
+        "checksum": "match",
+        "version": "V020"
+      },
+      {
+        "checksum": "match",
+        "version": "V021"
+      },
+      {
+        "checksum": "match",
+        "version": "V022"
+      },
+      {
+        "checksum": "match",
+        "version": "V023"
+      },
+      {
+        "checksum": "match",
+        "version": "V024"
+      },
+      {
+        "checksum": "match",
+        "version": "V025"
+      },
+      {
+        "checksum": "match",
+        "version": "V026"
+      },
+      {
+        "checksum": "match",
+        "version": "V027"
+      },
+      {
+        "checksum": "match",
+        "version": "V028"
+      },
+      {
+        "checksum": "match",
+        "version": "V029"
+      },
+      {
+        "checksum": "match",
+        "version": "V030"
+      },
+      {
+        "checksum": "match",
+        "version": "V031"
+      },
+      {
+        "checksum": "match",
+        "version": "V032"
+      },
+      {
+        "checksum": "match",
+        "version": "V034"
+      },
+      {
+        "checksum": "match",
+        "version": "V035"
+      },
+      {
+        "checksum": "match",
+        "version": "V036"
+      },
+      {
+        "checksum": "match",
+        "version": "V037"
+      },
+      {
+        "checksum": "match",
+        "version": "V038"
+      },
+      {
+        "checksum": "match",
+        "version": "V039"
+      },
+      {
+        "checksum": "match",
+        "version": "V040"
+      },
+      {
+        "checksum": "match",
+        "version": "V041"
+      },
+      {
+        "checksum": "match",
+        "version": "V042"
+      },
+      {
+        "checksum": "match",
+        "version": "V043"
+      },
+      {
+        "checksum": "match",
+        "version": "V044"
+      },
+      {
+        "checksum": "match",
+        "version": "V045"
+      },
+      {
+        "checksum": "match",
+        "version": "V046"
+      },
+      {
+        "checksum": "match",
+        "version": "V047"
+      },
+      {
+        "checksum": "match",
+        "version": "V048"
+      },
+      {
+        "checksum": "match",
+        "version": "V053"
+      },
+      {
+        "checksum": "match",
+        "version": "V054"
+      },
+      {
+        "checksum": "match",
+        "version": "V055"
+      },
+      {
+        "checksum": "match",
+        "version": "V056"
+      },
+      {
+        "checksum": "match",
+        "version": "V057"
+      },
+      {
+        "checksum": "match",
+        "version": "V058"
+      },
+      {
+        "checksum": "match",
+        "version": "V059"
+      },
+      {
+        "checksum": "match",
+        "version": "V060"
+      },
+      {
+        "checksum": "match",
+        "version": "V061"
+      },
+      {
+        "checksum": "match",
+        "version": "V062"
+      },
+      {
+        "checksum": "match",
+        "version": "V063"
+      },
+      {
+        "checksum": "match",
+        "version": "V064"
+      },
+      {
+        "checksum": "match",
+        "version": "V065"
+      },
+      {
+        "checksum": "match",
+        "version": "V066"
+      },
+      {
+        "checksum": "match",
+        "version": "V067"
+      },
+      {
+        "checksum": "match",
+        "version": "V068"
+      },
+      {
+        "checksum": "match",
+        "version": "V069"
+      },
+      {
+        "checksum": "match",
+        "version": "V070"
+      },
+      {
+        "checksum": "match",
+        "version": "V071"
+      },
+      {
+        "checksum": "match",
+        "version": "V072"
+      },
+      {
+        "checksum": "match",
+        "version": "V073"
+      },
+      {
+        "checksum": "match",
+        "version": "V074"
+      },
+      {
+        "checksum": "match",
+        "version": "V075"
+      },
+      {
+        "checksum": "match",
+        "version": "V076"
+      },
+      {
+        "checksum": "match",
+        "version": "V077"
+      },
+      {
+        "checksum": "match",
+        "version": "V078"
+      },
+      {
+        "checksum": "match",
+        "version": "V079"
+      },
+      {
+        "checksum": "match",
+        "version": "V080"
+      },
+      {
+        "checksum": "match",
+        "version": "V081"
+      },
+      {
+        "checksum": "match",
+        "version": "V082"
+      },
+      {
+        "checksum": "match",
+        "version": "V083"
+      },
+      {
+        "checksum": "match",
+        "version": "V084"
+      },
+      {
+        "checksum": "match",
+        "version": "V085"
+      },
+      {
+        "checksum": "match",
+        "version": "V100"
+      },
+      {
+        "checksum": "match",
+        "version": "V101"
+      },
+      {
+        "checksum": "match",
+        "version": "V102"
+      },
+      {
+        "checksum": "match",
+        "version": "V103"
+      },
+      {
+        "checksum": "match",
+        "version": "V104"
+      },
+      {
+        "checksum": "match",
+        "version": "V105"
+      },
+      {
+        "checksum": "match",
+        "version": "V106"
+      },
+      {
+        "checksum": "match",
+        "version": "V107"
+      },
+      {
+        "checksum": "match",
+        "version": "V108"
+      },
+      {
+        "checksum": "match",
+        "version": "V109"
+      },
+      {
+        "checksum": "match",
+        "version": "V110"
+      },
+      {
+        "checksum": "match",
+        "version": "V111"
+      },
+      {
+        "checksum": "match",
+        "version": "V112"
+      },
+      {
+        "checksum": "match",
+        "version": "V113"
+      },
+      {
+        "checksum": "match",
+        "version": "V114"
+      },
+      {
+        "checksum": "match",
+        "version": "V115"
+      },
+      {
+        "checksum": "match",
+        "version": "V116"
+      },
+      {
+        "checksum": "match",
+        "version": "V117"
+      },
+      {
+        "checksum": "match",
+        "version": "V119"
+      },
+      {
+        "checksum": "match",
+        "version": "V120"
+      },
+      {
+        "checksum": "match",
+        "version": "V121"
+      },
+      {
+        "checksum": "match",
+        "version": "V122"
+      },
+      {
+        "checksum": "match",
+        "version": "V123"
+      },
+      {
+        "checksum": "match",
+        "version": "V124"
+      },
+      {
+        "checksum": "match",
+        "version": "V125"
+      },
+      {
+        "checksum": "match",
+        "version": "V127"
+      },
+      {
+        "checksum": "match",
+        "version": "V128"
+      },
+      {
+        "checksum": "match",
+        "version": "V134"
+      },
+      {
+        "checksum": "match",
+        "version": "V135"
+      },
+      {
+        "checksum": "match",
+        "version": "V136"
+      },
+      {
+        "checksum": "unverified_mismatch",
+        "version": "V033"
+      }
+    ],
+    "objects": [
+      {
+        "kind": "BASE TABLE",
+        "name": "GOVERNANCE.SCHEMA_MIGRATIONS",
+        "owner": "unknown"
+      }
+    ],
+    "omissions": [
+      "account_database_roles",
+      "data_rows",
+      "external_role_hierarchy",
+      "procedure_bodies",
+      "secondary_roles",
+      "unreviewed_columns",
+      "unreviewed_identifiers",
+      "unreviewed_procedures",
+      "view_bodies"
+    ],
+    "procedures": [],
+    "role_edges": [
+      {
+        "child": "owner",
+        "parent": "migration_deployer"
+      }
+    ]
+  },
+  "contract_hash": "c1a5e62ea8844fc7474d667e36655f8d5c434fbcb708813c15cd14c74dde9a78",
+  "contract_version": 1,
+  "environment": "dev",
+  "exporter_version": 1,
+  "generated_at": "2026-10-02T06:51:01.419647+00:00",
+  "inspected_role": "read",
+  "ledger_complete": true,
+  "scope": {
+    "maximum_age_hours": 24,
+    "objects": {
+      "GOVERNANCE.INGESTION_RUNS": {
+        "columns": [
+          "INGESTION_RUN_ID",
+          "RESOURCE_KEY",
+          "STATUS"
+        ],
+        "kind": "BASE TABLE"
+      },
+      "GOVERNANCE.SCHEMA_MIGRATIONS": {
+        "columns": [
+          "VERSION",
+          "SHA256"
+        ],
+        "kind": "BASE TABLE"
+      },
+      "PRESENTATION.GOVERNED_RELEASES": {
+        "columns": [
+          "RELEASE_ID"
+        ],
+        "kind": "BASE TABLE"
+      },
+      "PRESENTATION.V_COUNTY_ATLAS_CURRENT": {
+        "columns": [],
+        "kind": "VIEW"
+      }
+    },
+    "procedures": {},
+    "version": 1
+  },
+  "scope_hash": "581d8b002340e76b10ba945952bddada01f849b99599dd872e027d355b63d6ca",
+  "semantic_hash": "04376211b52f852a3e35df187e9ebbd9c828c1822180250eda489675dc735284",
+  "snapshot_version": 1,
+  "source": "live",
+  "unavailable": [],
+  "visibility": "partial"
+}
