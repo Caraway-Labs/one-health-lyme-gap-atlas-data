@@ -14,7 +14,7 @@ but does not replace, the two workspace references below.
 | `docs/operations/operation-capabilities-v1.md` | versioned curated capability contract | Covered preflight plan |
 | `docs/operations/snowflake-snapshots.md` | observed metadata contract and visibility limits | Bounded snapshot refresh/use; freshness and live revalidation required |
 | `docs/contracts/snowflake-snapshots/v1.schema.json` | versioned executable evidence contract | Validates reviewed snapshot fields; not database desired state |
-| `docs/generated/snowflake/dev-2026-10-02.snapshot.json` | dated partial DEV observed evidence | Check freshness/scope first; not normative current fact; role-filtered absence remains unknown |
+| `docs/generated/snowflake/dev-2026-10-02-current.snapshot.json` | dated partial DEV observed evidence | Check freshness/scope first; captured b765 workload, not normative current fact; role-filtered absence remains unknown |
 | `docs/adr/0030-snowflake-role-model-simplification.md` | accepted access-control decision | Identity/privilege questions |
 | `migrations/` and `src/lyme_gap_atlas_data/migrations.py` | executable migration/checksum truth | Migration dependencies |
 | `docs/contracts/semantic-release/` | executable release manifest contract | Semantic build/release |

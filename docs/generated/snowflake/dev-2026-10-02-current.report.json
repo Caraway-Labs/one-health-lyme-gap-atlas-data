@@ -1,23 +1,13 @@
 {
   "baseline_source": null,
-  "comparison_kind": "synthetic_fixture",
+  "comparison_kind": "live_observation",
   "consequential_use": "blocked",
   "environment": "dev",
   "findings": [
     {
       "category": "unknown",
       "reason": "not visible; empty role-filtered result cannot prove absence",
-      "subject": "GOVERNANCE.SCHEMA_MIGRATIONS"
-    },
-    {
-      "category": "unknown",
-      "reason": "reviewed column not visible or unsupported metadata",
-      "subject": "GOVERNANCE.SCHEMA_MIGRATIONS.VERSION"
-    },
-    {
-      "category": "unknown",
-      "reason": "reviewed column not visible or unsupported metadata",
-      "subject": "GOVERNANCE.SCHEMA_MIGRATIONS.SHA256"
+      "subject": "GOVERNANCE.INGESTION_RUNS"
     },
     {
       "category": "unknown",
@@ -28,6 +18,11 @@
       "category": "unknown",
       "reason": "reviewed column not visible or unsupported metadata",
       "subject": "GOVERNANCE.INGESTION_RUNS.RESOURCE_KEY"
+    },
+    {
+      "category": "unknown",
+      "reason": "reviewed column not visible or unsupported metadata",
+      "subject": "GOVERNANCE.INGESTION_RUNS.STATUS"
     },
     {
       "category": "unknown",
@@ -46,43 +41,13 @@
     },
     {
       "category": "unknown",
-      "reason": "ledger inspection incomplete",
-      "subject": "api_read:V072"
-    },
-    {
-      "category": "unknown",
       "reason": "direct/inherited evidence incomplete; no absence inference",
       "subject": "api_read:PRESENTATION.V_COUNTY_ATLAS_CURRENT:SELECT"
     },
     {
       "category": "unknown",
-      "reason": "ledger inspection incomplete",
-      "subject": "forward_migration:V071"
-    },
-    {
-      "category": "unknown",
       "reason": "direct/inherited evidence incomplete; no absence inference",
-      "subject": "forward_migration:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
-    },
-    {
-      "category": "unknown",
-      "reason": "ledger inspection incomplete",
-      "subject": "governed_source_run:V069"
-    },
-    {
-      "category": "unknown",
-      "reason": "ledger inspection incomplete",
-      "subject": "semantic_release:V071"
-    },
-    {
-      "category": "unknown",
-      "reason": "ledger inspection incomplete",
-      "subject": "semantic_release:V072"
-    },
-    {
-      "category": "unknown",
-      "reason": "ledger inspection incomplete",
-      "subject": "semantic_release:V073"
+      "subject": "governed_source_run:GOVERNANCE.INGESTION_RUNS:INSERT"
     },
     {
       "category": "unknown",
@@ -92,7 +57,27 @@
     {
       "category": "unexpected",
       "reason": "outside curated desired capabilities; not proof of unauthorized grant",
-      "subject": "owner:GOVERNANCE.INGESTION_RUNS:INSERT"
+      "subject": "owner:GOVERNANCE.SCHEMA_MIGRATIONS:INSERT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "owner:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "read:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "runtime:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
+    },
+    {
+      "category": "unknown",
+      "reason": "checksum differs; approved legacy reconciliation not inspected",
+      "subject": "V033"
     },
     {
       "category": "unknown",
@@ -107,6 +92,6 @@
   ],
   "mutation_started": false,
   "report_version": 1,
-  "semantic_hash": "46186fc1ea4fc871a113b03f1e7ba3ee9f4d3c71043f43220ce61d8b2de45b01",
-  "source": "synthetic"
+  "semantic_hash": "a0c46f9263a635d1d5565f541eb249325a06524c6c4fbfd376b2b50dead118e3",
+  "source": "live"
 }

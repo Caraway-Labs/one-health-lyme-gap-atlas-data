@@ -55,6 +55,11 @@ Reports distinguish `mismatched`, `unexpected`, `stale`, `unknown`, and
 required migration row. Role-filtered object/grant results cannot establish
 absence and produce `unknown`. Baseline removals similarly remain unknown.
 No snapshot can produce readiness PASS or authorize a consequential operation.
+Machine and human reports label the current and baseline `source` kinds:
+`synthetic` or `live`. `comparison_kind` distinguishes `synthetic_fixture`,
+`live_observation` and `mixed_source_non_live`. Mixed live/synthetic baselines
+produce UNKNOWN and skip row-drift comparisons; they cannot demonstrate live
+proof. A live label describes the captured source, not present-time authority.
 Ledger checks accept LF/CRLF-equivalent migration hashes. Other checksum changes
 are unknown until approved legacy reconciliation evidence is inspected; this
 export does not claim they are unauthorized historical edits. An old or
@@ -97,8 +102,12 @@ from the earlier contract/scope. Their archived schema and scope are
 `metadata-scope-2026-10-02.archived.json` in the same directory. Validate them only
 against those explicitly archived references. The current CLI rejects their old
 scope as UNKNOWN/incomparable; their original report does not reflect the updated
-desired contract. No live corrected-scope DEV or PROD capture is claimed. Refresh
-through the existing authorized read route before consequential use.
+desired contract. The distinct `dev-2026-10-02-current.*` artifacts capture the
+corrected scope at `2026-10-02T07:36:13.683767Z`, workload
+`b76566be81b40475e49727767443d16e9bfa321c`. Report v1 adds explicit source-kind
+labels without relabeling snapshot provenance. Visibility remains partial and
+consequential use blocked. PROD remains unverified. Refresh through the existing
+authorized read route and revalidate immediately before consequential use.
 
 Protected CI refresh proposal: manual dispatch at a reviewed exact SHA, using
 an existing separately approved least-privilege audit identity in protected DEV

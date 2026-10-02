@@ -1,22 +1,19 @@
 Metadata evidence: dev (blocked)
-Source kind: synthetic; baseline: none; comparison: synthetic_fixture
-UNKNOWN GOVERNANCE.SCHEMA_MIGRATIONS: not visible; empty role-filtered result cannot prove absence
-UNKNOWN GOVERNANCE.SCHEMA_MIGRATIONS.VERSION: reviewed column not visible or unsupported metadata
-UNKNOWN GOVERNANCE.SCHEMA_MIGRATIONS.SHA256: reviewed column not visible or unsupported metadata
+Source kind: live; baseline: none; comparison: live_observation
+UNKNOWN GOVERNANCE.INGESTION_RUNS: not visible; empty role-filtered result cannot prove absence
 UNKNOWN GOVERNANCE.INGESTION_RUNS.INGESTION_RUN_ID: reviewed column not visible or unsupported metadata
 UNKNOWN GOVERNANCE.INGESTION_RUNS.RESOURCE_KEY: reviewed column not visible or unsupported metadata
+UNKNOWN GOVERNANCE.INGESTION_RUNS.STATUS: reviewed column not visible or unsupported metadata
 UNKNOWN PRESENTATION.SEMANTIC_RELEASES: not visible; empty role-filtered result cannot prove absence
 UNKNOWN PRESENTATION.SEMANTIC_RELEASES.RELEASE_ID: reviewed column not visible or unsupported metadata
 UNKNOWN PRESENTATION.V_COUNTY_ATLAS_CURRENT: not visible; empty role-filtered result cannot prove absence
-UNKNOWN api_read:V072: ledger inspection incomplete
 UNKNOWN api_read:PRESENTATION.V_COUNTY_ATLAS_CURRENT:SELECT: direct/inherited evidence incomplete; no absence inference
-UNKNOWN forward_migration:V071: ledger inspection incomplete
-UNKNOWN forward_migration:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: direct/inherited evidence incomplete; no absence inference
-UNKNOWN governed_source_run:V069: ledger inspection incomplete
-UNKNOWN semantic_release:V071: ledger inspection incomplete
-UNKNOWN semantic_release:V072: ledger inspection incomplete
-UNKNOWN semantic_release:V073: ledger inspection incomplete
+UNKNOWN governed_source_run:GOVERNANCE.INGESTION_RUNS:INSERT: direct/inherited evidence incomplete; no absence inference
 UNKNOWN semantic_release:PRESENTATION.SEMANTIC_RELEASES:INSERT: direct/inherited evidence incomplete; no absence inference
-UNEXPECTED owner:GOVERNANCE.INGESTION_RUNS:INSERT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED owner:GOVERNANCE.SCHEMA_MIGRATIONS:INSERT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED owner:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED read:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED runtime:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: outside curated desired capabilities; not proof of unauthorized grant
+UNKNOWN V033: checksum differs; approved legacy reconciliation not inspected
 UNKNOWN desired_schema: contract v1 defines capabilities, not comprehensive columns/procedures
 UNKNOWN visibility: partial audit role; external inheritance/future scope omitted

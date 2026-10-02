@@ -1,0 +1,25 @@
+{
+  "code_commit": "b76566be81b40475e49727767443d16e9bfa321c",
+  "contract_hash": "310edc2031286ae371042431b2b20db50393a1278afdf630d773e42edbf03307",
+  "environment": "dev",
+  "generated_at": "2026-10-02T07:36:13.683767+00:00",
+  "normalized_counts": {
+    "columns": 2,
+    "future_grants": 0,
+    "grants": 22,
+    "migrations": 111,
+    "objects": 1,
+    "omissions": 9,
+    "procedures": 0,
+    "role_edges": 1
+  },
+  "prod_verification": "unverified",
+  "role": "OH_LYME_DEV_READ",
+  "scope_hash": "f3d4b2458b7fdb16d8aa7590c7f851e824c8815623a8551727d5fb1f66ac00e2",
+  "semantic_hash": "a0c46f9263a635d1d5565f541eb249325a06524c6c4fbfd376b2b50dead118e3",
+  "source_comparison": "objects, emitted columns, grants, future grants, role edges and ledger versions matched",
+  "source_query_count": 17,
+  "unavailable": [],
+  "verification_version": 1,
+  "visibility": "partial"
+}

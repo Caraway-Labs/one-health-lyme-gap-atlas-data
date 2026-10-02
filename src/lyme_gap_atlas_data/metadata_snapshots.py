@@ -723,7 +723,13 @@ def report(
             )
     if baseline is not None:
         baseline_age = now - datetime.fromisoformat(baseline["generated_at"])
-        if baseline["semantic_hash"] != evidence_hash(baseline):
+        if baseline["source"] != observed["source"]:
+            add(
+                "unknown",
+                "baseline_source",
+                "mixed live/synthetic observations cannot prove live drift; comparison skipped",
+            )
+        elif baseline["semantic_hash"] != evidence_hash(baseline):
             add("mismatched", "baseline", "baseline integrity failed; comparison skipped")
         elif baseline_age < timedelta(0) or baseline_age > timedelta(
             hours=scope["maximum_age_hours"]
@@ -767,6 +773,15 @@ def report(
         "report_version": 1,
         "environment": observed["environment"],
         "semantic_hash": evidence_hash(observed),
+        "source": observed["source"],
+        "baseline_source": baseline["source"] if baseline is not None else None,
+        "comparison_kind": (
+            "mixed_source_non_live"
+            if baseline is not None and baseline["source"] != observed["source"]
+            else "synthetic_fixture"
+            if observed["source"] == "synthetic"
+            else "live_observation"
+        ),
         "mutation_started": False,
         "consequential_use": "blocked" if findings else "eligible_evidence_only",
         "findings": findings,
@@ -778,6 +793,9 @@ def render_report(result: dict[str, Any]) -> str:
         "\n".join(
             [
                 f"Metadata evidence: {result['environment']} ({result['consequential_use']})",
+                f"Source kind: {result['source']}; "
+                f"baseline: {result['baseline_source'] or 'none'}; "
+                f"comparison: {result['comparison_kind']}",
                 *[
                     f"{x['category'].upper()} {x['subject']}: {x['reason']}"
                     for x in result["findings"]

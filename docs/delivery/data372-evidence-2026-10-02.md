@@ -32,7 +32,7 @@ four operation capabilities and role aliases, not comprehensive desired schema.
 | Partial visibility; empty metadata never absent | Strict live `partial`, unknown object/column/capability findings, observed alias-edge positives; missing category only complete ledger SELECT rows | Verified offline and DEV |
 | No public secrets, payloads, internal details | Allowlisted identifiers/enums, strict schema and hostile input tests, server-side safe DESCRIBE projection, private staging ignored by Git/Docker, full history scan | Verified offline |
 | Human/machine drift without remediation | JSON report and text renderer; missing/mismatched/unexpected/stale/unknown categories; mutation_started false; no readiness PASS | Verified offline |
-| Authorized DEV comparison; PROD separate | Existing ATLAS_DEV_READ identity probe and source comparison passed for archived workload/scope, 17 queries | Historical DEV verified; current corrected scope and PROD unverified |
+| Authorized DEV comparison; PROD separate | Existing ATLAS_DEV_READ source comparison passed for archived and corrected-scope workloads, 17 queries each | Corrected-scope DEV verified with partial visibility; PROD unverified |
 | Freshness before consequential use | Reviewed 24-hour TTL, future-time/integrity/current-contract checks; immediate live revalidation required despite TTL; stale/tampered baseline skipped | Verified offline |
 
 ## Checks
@@ -70,11 +70,30 @@ dependency reporting uses the existing environment-specific operation plan.
 The earlier DEV artifacts remain byte-immutable with their explicitly archived
 schema/scope. They validate under those archived references, while the current
 CLI rejects their old scope as UNKNOWN/incomparable. Their original report is a
-historical comparison, not a current-contract assessment. Corrected-scope live
-DEV and PROD evidence are unverified; the one authorized historical DEV source
-comparison remains valid only for its recorded workload, contract and scope.
+historical comparison, not a current-contract assessment. The one authorized
+historical DEV source comparison remains valid only for its recorded workload,
+contract and scope. A separate corrected-scope DEV capture completed at
+`2026-10-02T07:36:13.683767Z`, actual workload
+`b76566be81b40475e49727767443d16e9bfa321c`, using existing `ATLAS_DEV_READ` with
+secondary roles NONE. Seventeen fixed queries matched normalized source metadata:
+1 object, 2 columns, 22 grants, 1 role edge, 111 migration versions, no future-grant
+or procedure observations, unavailable categories empty, visibility still partial.
+The distinct `docs/generated/snowflake/dev-2026-10-02-current.*` files preserve this
+actual capture provenance. Report v1 adds explicit source-kind labels from the
+validated snapshot; mixed live/synthetic comparisons remain UNKNOWN/non-live proof.
+The root session separately checked source comparison, schema, redaction and
+unknown-visibility semantics before publication. PROD remains unverified.
 Corrected-scope checks: 24 focused tests passed (7.68s), full mypy passed for
 106 source files, Ruff lint/format passed for 429 files, and context checks passed.
+After explicit source labels and mixed-source regression: 25 focused tests passed
+(8.02s), full mypy and context checks passed. Exact b765 Quality passed 2,806
+tests with 19 dependency warnings; job 110748409382 in run 36978799880 tested
+checkout `08802614e690c501ebc842d18570f969fbae252d`, parents 9e236ef and b765,
+with the same source tree as b765. Final source-label/evidence-head CI is required
+before merge. Main subsequently advanced to
+`f28efd9d510ea117d774846292ead8f6bb3e8603`; the parent owns any final refresh and
+serialized release decisions. The initial archived capture's unobserved release
+object was `GOVERNED_RELEASES`; the current capture's is `SEMANTIC_RELEASES`.
 
 ## Live and visibility limits
 

@@ -202,6 +202,30 @@ def test_hash_changes_when_visibility_fails(facts):
     assert make(facts)["semantic_hash"] != first["semantic_hash"]
 
 
+def test_reports_label_source_and_block_mixed_source_proof(facts):
+    synthetic = make(facts)
+    fixture_report = report(synthetic, now=NOW)
+    assert fixture_report["source"] == "synthetic"
+    assert fixture_report["baseline_source"] is None
+    assert fixture_report["comparison_kind"] == "synthetic_fixture"
+    facts["source"] = "live"
+    live = make(facts)
+    live_report = report(live, now=NOW)
+    assert live_report["source"] == "live"
+    assert live_report["comparison_kind"] == "live_observation"
+    for current, prior in ((live, synthetic), (synthetic, live)):
+        mixed = report(current, now=NOW, baseline=prior)
+        assert mixed["source"] == current["source"]
+        assert mixed["baseline_source"] == prior["source"]
+        assert mixed["comparison_kind"] == "mixed_source_non_live"
+        assert mixed["consequential_use"] == "blocked"
+        assert any(
+            x["subject"] == "baseline_source" and x["category"] == "unknown"
+            for x in mixed["findings"]
+        )
+        assert "comparison: mixed_source_non_live" in render_report(mixed)
+
+
 def test_reordered_duplicate_rows_have_identical_hash(facts):
     first = make(facts)
     shuffled = copy.deepcopy(facts)
