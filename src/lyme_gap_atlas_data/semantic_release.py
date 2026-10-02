@@ -829,13 +829,20 @@ def _assemble_counties(
     rucc: dict[str, int] = {}
     rucc_rows: dict[str, dict[str, Any]] = {}
     rucc_source = manifest.source("context_rucc")
+    if rucc_source.vintage != "2023":
+        raise SemanticReleaseBlocked("RUCC requires the 2023 codebook vintage")
     for row in source_rows["context_rucc"]:
         record = _record(row.get("payload"))
         if str(_first(record, ("Attribute", "attribute")) or "") != "RUCC_2023":
             continue
         fips = _text_or(_first(record, ("FIPS", "fips")), "")
         value = _number(_first(record, ("Value", "value")))
-        if not _FIPS.fullmatch(fips) or value is None or int(value) != value:
+        if (
+            not _FIPS.fullmatch(fips)
+            or value is None
+            or isinstance(_first(record, ("Value", "value")), bool)
+            or value not in range(1, 10)
+        ):
             raise SemanticReleaseBlocked("RUCC contains an invalid 2023 county code")
         if fips in rucc:
             raise SemanticReleaseBlocked(f"RUCC contains duplicate county FIPS {fips}")

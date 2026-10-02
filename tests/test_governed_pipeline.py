@@ -1752,6 +1752,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V133",
         "V134",
         "V135",
+        "V136",
     ]
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
