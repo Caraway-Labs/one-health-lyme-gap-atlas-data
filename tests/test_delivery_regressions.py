@@ -4,6 +4,8 @@ import json
 import runpy
 from pathlib import Path
 
+import pytest
+
 from lyme_gap_atlas_data.operation_capabilities import assess_operation, load_contract
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,14 +58,74 @@ def test_missing_context_is_actionable(tmp_path: Path) -> None:
 
 
 def test_skills_resolve_required_reference_index() -> None:
-    skills = list((ROOT / ".agents/skills").glob("*/SKILL.md"))
-    assert len(skills) == 4
-    for skill in skills:
-        reference = skill.parent / "references/workflow.md"
-        assert reference.is_file()
-        for path in (
-            "config/operation-capabilities-v1.yml",
-            "docs/delivery/handoff-v1.schema.json",
-            "docs/delivery/data374-recipes.md",
-        ):
-            assert (ROOT / path).is_file()
+    check = runpy.run_path(str(ROOT / "scripts/check_agent_context.py"))
+    assert check["skill_reference_errors"](ROOT) == []
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "docs/missing.md",
+        "../outside.md",
+        "/outside.md",
+        "C:/outside.md",
+        "https://example.test/file.md",
+        "docs/file.md#fragment",
+        "docs//file.md",
+        "docs/./file.md",
+        "docs/file.md?query",
+        "docs\\file.md",
+    ],
+)
+def test_declared_skill_references_reject_missing_or_unsafe_paths(tmp_path: Path, reference: str):
+    check = runpy.run_path(str(ROOT / "scripts/check_agent_context.py"))
+    skill = tmp_path / ".agents/skills/example"
+    (skill / "references").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("[index](references/workflow.md)", encoding="utf-8")
+    (skill / "references/workflow.md").write_text(f"- `{reference}`\n", encoding="utf-8")
+    errors = check["skill_reference_errors"](tmp_path)
+    assert len(errors) == 1
+    assert "index line 1" in errors[0]
+
+
+@pytest.mark.parametrize("declaration", ["- docs/file.md", "- `docs/file.md", ""])
+def test_skill_reference_indexes_reject_malformed_or_empty_declarations(tmp_path, declaration):
+    check = runpy.run_path(str(ROOT / "scripts/check_agent_context.py"))
+    skill = tmp_path / ".agents/skills/example"
+    (skill / "references").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("[index](references/workflow.md)", encoding="utf-8")
+    (skill / "references/workflow.md").write_text(declaration, encoding="utf-8")
+    assert check["skill_reference_errors"](tmp_path)
+
+
+def test_skill_entrypoint_rejects_missing_index_and_unsupported_links(tmp_path):
+    check = runpy.run_path(str(ROOT / "scripts/check_agent_context.py"))
+    skill = tmp_path / ".agents/skills/example"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("[index](../other/index.md)", encoding="utf-8")
+    errors = check["skill_reference_errors"](tmp_path)
+    assert any("missing declared reference index" in error for error in errors)
+    assert any("unsupported or malformed reference" in error for error in errors)
+
+
+def test_existing_declared_paths_resolve_files_and_directories(tmp_path):
+    check = runpy.run_path(str(ROOT / "scripts/check_agent_context.py"))
+    (tmp_path / "docs").mkdir()
+    path = tmp_path / "docs/reference.md"
+    path.write_text("reference", encoding="utf-8")
+    assert check["resolve_reference"](tmp_path, tmp_path, "docs/reference.md") == path
+    assert check["resolve_reference"](tmp_path, tmp_path, "docs/") == tmp_path / "docs"
+
+
+def test_reference_symlink_cannot_escape_repository(tmp_path):
+    check = runpy.run_path(str(ROOT / "scripts/check_agent_context.py"))
+    root = tmp_path / "repo"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        (root / "link.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("Symlink creation unavailable; hosted Linux CI exercises this check")
+    with pytest.raises(ValueError, match="escapes repository"):
+        check["resolve_reference"](root, root, "link.md")

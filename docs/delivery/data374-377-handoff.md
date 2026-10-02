@@ -47,3 +47,20 @@ only as a PROD prerequisite. Frozen expectations are unchanged. DEV retains its
 shared migration dependencies; missing visibility stays UNKNOWN. This is a
 contract/readiness change requiring independent review and exact-head Quality CI,
 not a grant, historical migration or deployed permission change.
+
+## Enforced skill reference resolution
+
+`check_agent_context.py` now reads SKILL.md index links and every backtick-quoted
+path in each reference-index bullet. Entrypoint links resolve relative to the
+skill; index declarations resolve relative to the repository. Local file and
+trailing-slash directory references are supported. Missing paths, malformed or
+empty declarations, traversal, absolute paths, URLs, fragments/queries and
+symlink escapes are rejected; no reference is fetched or executed. The four
+required skill entrypoints are mandatory context paths. Commands outside index
+bullets remain prose examples.
+
+Current paths existed before the change: this closes an enforcement gap, not a
+broken-link repair. Negative fixtures exercise the parser and resolver. Local
+focused validation: 34 PASS, one Windows symlink-creation skip; Linux hosted CI
+must exercise the symlink escape test. Live recipes and DATA372/376 acceptance
+remain separate prerequisites.
