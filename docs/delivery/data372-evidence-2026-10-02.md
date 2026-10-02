@@ -60,7 +60,8 @@ with secondary roles NONE. Seventeen bounded queries matched normalized source
 metadata held in memory: 1 object, 2 columns, 22 grants, 1 role edge, 111 migration
 versions, 0 future-grant rows and 0 procedures; unavailable categories were empty.
 Empty unavailable categories mean queries completed, not complete visibility.
-The parent independently reviewed the strict sanitized artifacts before publication.
+The execution session separately checked strict schema, source comparison and
+privacy before publication; independent PR merge review remains pending.
 No raw source responses were persisted or published.
 
 `GOVERNANCE.INGESTION_RUNS`, `PRESENTATION.GOVERNED_RELEASES`, and
