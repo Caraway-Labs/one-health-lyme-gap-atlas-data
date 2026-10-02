@@ -28,7 +28,7 @@ session, the unchanged reviewed plan and matching approved plan hash, plus the
 expected configured user privately in memory. The hash pins scope; it is not a
 credential or substitute for owner approval. Absent or mismatched approval
 does not touch the session. This module creates/discovers no connection and
-copies no credential; the future launcher and its exact reviewed invocation
+copies no credential; the launcher and its exact reviewed invocation
 must remain within the existing named-connection policy. No interactive login,
 alternate role, connection repair or persistent configuration edit is included.
 
@@ -84,9 +84,15 @@ any query; unknown/unbounded clients are rejected without touching or closing
 them. It reserves 270 seconds for rollback, checks, drops and two closes. The
 monotonic budget refuses new normal/cleanup statements when their 30-second
 allowance would consume the reserve. These are statement-boundary controls,
-not process preemption: the future reviewed launcher must additionally enforce
-a 600-second outer process deadline because a misbehaving driver cannot be
-made interruptible by inspecting timeout attributes. On deadline/cancel,
+not process preemption. `failure_engine_launcher.launch_proof` now starts one
+spawned child with the fixed existing named connection and bounded login,
+network and socket timeouts. It signals cooperative cancellation at 300 seconds
+so normal statements stop and existing rollback/cleanup runs. At 590 seconds
+it terminates only its own child Process instance, escalating to kill within
+the 600-second envelope. No PID discovery, process-tree kill, role fallback
+or reconnect occurs. The plan includes the launcher file hash. The default
+plan CLI never imports or invokes the launcher. An explicit future invocation
+requires the same unchanged approved-plan hash and private expected user. On deadline/cancel,
 session-close verification can remain UNKNOWN; do not reconnect broadly or
 delete unknown shared objects to force a green receipt.
 
@@ -100,7 +106,9 @@ Read-only local named-connection settings observation on 2026-10-02 resolved:
 | Configured role/database | OH_LYME_DEV_READ / ONE_HEALTH_LYME_GAP_ATLAS_DEV |
 | Configured warehouse | OH_LYME_DEV_INGEST_XS_WH |
 | Configured default schema | Unset; all fixture destinations are fully qualified |
-| Current live size/generation/clusters | UNKNOWN; warehouse name is not size proof |
+| Read-only observed size/type | X-Small / STANDARD (2026-10-02); no size change |
+| Observed auto-suspend / auto-resume | 60 seconds / true |
+| Generation / clusters | UNKNOWN; missing cluster fields and no generation proof |
 | Account USD/credit, discounts, incremental shared cost | UNKNOWN; no price assumed |
 
 No credential values were emitted or stored. No live query was made for this
@@ -141,3 +149,17 @@ Parent owns independent candidate review and the existing Word owner checklist.
 The optional DEV engine decision in PR570 is not yet approved; no live probe
 was executed. No new credential/grant, DDL, scientific/product decision,
 deployment, collector activation or real approval/release transition occurred.
+
+Launcher offline tests use real spawned local children to check success, original
+FAIL receipt preservation, cooperative cleanup, stuck-child termination and an
+unrelated child surviving. OS process termination cannot prove server query
+cancellation or session disappearance: both remain UNKNOWN on forced stop.
+No broad cancellation query or guessed cleanup is issued. Runtime driver
+version must equal 4.3.0 and is recorded; mismatch rejects before SQL. Unchanged
+cursor query IDs are UNKNOWN, and unexpected negative-test success is explicitly
+NOT_REPRODUCED with a safe stopped whole run.
+
+Read-only post-commit metadata on 2026-10-02 reports the existing warehouse as
+X-Small, STANDARD, auto_resume true and auto_suspend 60 seconds. Generation,
+cluster count and account USD/credit remain UNKNOWN; this is not a cost cap.
+No live synthetic probe or warehouse setting change occurred.

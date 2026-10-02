@@ -248,6 +248,10 @@ def test_unexpected_negative_success_stops_before_positive_writes(negative):
     session = FixtureSession(negative_success=negative)
     receipt = approved(session)
     assert receipt["state"] == "FAIL"
+    assert (
+        next(item for item in receipt["operations"] if item["operation"] == negative)["state"]
+        == "NOT_REPRODUCED"
+    )
     assert not any(identifier.startswith("WRITE_") for identifier in session.calls)
     assert receipt["cleanup"]["rollback"] == "PASS"
 
@@ -373,3 +377,64 @@ def test_changed_contract_is_rejected_without_echo(tmp_path, monkeypatch, capsys
     with pytest.raises(proof.ProofRejected):
         proof.make_plan(COMMIT)
     assert capsys.readouterr() == ("", "")
+
+
+def test_prior_query_id_is_not_correlated_to_failed_submission():
+    class StaleCursor:
+        sfqid = None
+
+        def execute(self, sql, parameters):
+            if self.sfqid is not None:
+                raise PrivateFailure()
+            self.sfqid = "00000000-0000-0000-0000-000000000001"
+
+        def fetchone(self):
+            return (PRIVATE, proof.ROLE, proof.DATABASE, proof.WAREHOUSE, None)
+
+    runner = proof._Runner(StaleCursor(), Clock())
+    runner.execute("IDENTITY")
+    with pytest.raises(PrivateFailure):
+        runner.execute("TIMEOUTS")
+    assert runner.records[0]["query_id"] != "UNKNOWN"
+    assert runner.records[1]["query_id"] == "UNKNOWN"
+
+
+def test_cooperative_cancel_blocks_normal_work_but_allows_cleanup():
+    session = FixtureSession()
+    runner = proof._Runner(session.cursor(), Clock(), lambda: True)
+    with pytest.raises(proof.ProofRejected):
+        runner.execute("IDENTITY")
+    runner.execute("ROLLBACK", cleanup=True)
+    assert session.calls == ["ROLLBACK"]
+
+
+def test_actual_connector_mismatch_rejects_without_queries(monkeypatch):
+    import snowflake.connector
+
+    monkeypatch.setattr(snowflake.connector, "__version__", PRIVATE)
+    session = FixtureSession()
+    plan = proof.make_plan(COMMIT)
+    result = proof.run_proof(
+        session, plan, approved_plan_sha256=proof.plan_hash(plan), expected_user=PRIVATE
+    )
+    assert result["state"] == "CONNECTOR_VERSION_REJECTED"
+    assert result["connector_version"] == "UNKNOWN"
+    assert session.calls == []
+
+
+def test_cancelled_run_rolls_back_and_drops_only_owned_objects():
+    session = FixtureSession()
+    plan = proof.make_plan(COMMIT)
+    result = proof.run_proof(
+        session,
+        plan,
+        approved_plan_sha256=proof.plan_hash(plan),
+        expected_user=PRIVATE,
+        cancelled=lambda: "BEGIN" in session.calls,
+    )
+    assert result["state"] == "FAIL"
+    assert result["connector_version"] == "4.3.0"
+    assert not any(op.startswith("NEGATIVE_") for op in session.calls)
+    assert result["cleanup"]["rollback"] == "PASS"
+    assert result["cleanup"]["drops"] == "PASS"
+    assert result["cleanup"]["session_close"] == "PASS"

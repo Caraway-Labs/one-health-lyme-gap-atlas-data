@@ -276,6 +276,13 @@ def make_plan(code_commit: str) -> dict[str, Any]:
         "harness_sha256": hashlib.sha256(
             Path(__file__).read_bytes().replace(b"\r\n", b"\n")
         ).hexdigest(),
+        "launcher_sha256": hashlib.sha256(
+            Path(__file__)
+            .with_name("failure_engine_launcher.py")
+            .read_bytes()
+            .replace(b"\r\n", b"\n")
+        ).hexdigest(),
+        "connector_version_required": "4.3.0",
         "contract_sha256": CONTRACT_DIGEST,
         "helpers_sha256": _digest(
             [
@@ -332,8 +339,11 @@ def plan_hash(plan: dict[str, Any]) -> str:
 
 
 class _Runner:
-    def __init__(self, cursor: Any, clock: Callable[[], float]) -> None:
+    def __init__(
+        self, cursor: Any, clock: Callable[[], float], cancelled: Callable[[], bool] = lambda: False
+    ) -> None:
         self.cursor = cursor
+        self.cancelled = cancelled
         self.clock = clock
         self.deadline = clock() + MAX_SECONDS
         self.operations = _operations()
@@ -342,6 +352,8 @@ class _Runner:
         self.inserted_rows = 0
 
     def execute(self, identifier: str, *, cleanup: bool = False) -> tuple[Any, ...] | None:
+        if not cleanup and self.cancelled():
+            raise ProofRejected()
         operation = self.operations.get(identifier)
         if operation is None:
             raise ProofRejected()
@@ -354,9 +366,16 @@ class _Runner:
         record: dict[str, Any] = {"operation": identifier, "state": "FAIL", "query_id": "UNKNOWN"}
         self.records.append(record)
         try:
+            previous_query_id = self.cursor.sfqid
+            previous_query_id_known = True
+        except Exception:
+            previous_query_id = None
+            previous_query_id_known = False
+        try:
             self.cursor.execute(operation.sql, operation.parameters)
             self.inserted_rows += operation.rows
             if operation.negative_errno is not None:
+                record["state"] = "NOT_REPRODUCED"
                 raise ProofRejected()
             row = (
                 self.cursor.fetchone()
@@ -375,8 +394,13 @@ class _Runner:
         finally:
             try:
                 query_id = self.cursor.sfqid
-                if isinstance(query_id, str) and re.fullmatch(
-                    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", query_id
+                if (
+                    previous_query_id_known
+                    and query_id != previous_query_id
+                    and isinstance(query_id, str)
+                    and re.fullmatch(
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", query_id
+                    )
                 ):
                     record["query_id"] = query_id
             except Exception:
@@ -410,6 +434,7 @@ def run_proof(
     approved_plan_sha256: str | None = None,
     expected_user: str | None = None,
     clock: Callable[[], float] = monotonic,
+    cancelled: Callable[[], bool] = lambda: False,
 ) -> dict[str, Any]:
     """Future authorized invocation only; never create/discover a connection.
 
@@ -427,6 +452,7 @@ def run_proof(
         "repair": "UNKNOWN",
         "full_v092_v098_v099_proof": "UNKNOWN",
         "operations": [],
+        "connector_version": "UNKNOWN",
         "cleanup": {
             key: "UNKNOWN"
             for key in ("rollback", "zero_rows", "drops", "cursor_close", "session_close")
@@ -454,6 +480,13 @@ def run_proof(
     except Exception:
         receipt["state"] = "CLIENT_TIMEOUTS_UNKNOWN"
         return receipt
+    import snowflake.connector
+
+    version = snowflake.connector.__version__
+    receipt["connector_version"] = version if version == "4.3.0" else "UNKNOWN"
+    if version != "4.3.0":
+        receipt["state"] = "CONNECTOR_VERSION_REJECTED"
+        return receipt
     cursor = None
     runner = None
     created: list[int] = []
@@ -461,7 +494,7 @@ def run_proof(
     transaction = False
     try:
         cursor = connection.cursor()
-        runner = _Runner(cursor, clock)
+        runner = _Runner(cursor, clock, cancelled)
         identity = runner.execute("IDENTITY")
         if identity != (expected_user, ROLE, DATABASE, WAREHOUSE, None):
             receipt["context"] = "REJECTED"
