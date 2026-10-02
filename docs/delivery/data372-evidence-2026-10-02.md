@@ -2,7 +2,8 @@
 
 Draft PR: https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/564
 Implementation workload head: `2515a20099b60fab2ad6cb8ea8a4be4b6f83f83a`.
-Refreshed base/main: `c5a23105719ac77f8abbca9b613b661654e22845`.
+Refreshed review base/main: `69b38ff26cbf40a7900852ffba0ed14de0e0c642`.
+Initial implementation/DEV capture base: `c5a23105719ac77f8abbca9b613b661654e22845`.
 Branch: `feat/data372-sanitized-snapshots`.
 No schema/data migrations, checksum edits, credentials/grants, Web edits or deployment changes.
 
@@ -51,6 +52,14 @@ Actual tested checkout from checkout-step log:
 Merge parents are refreshed base and implementation head; tested merge tree
 `46ec1b57cb11e661169bee7c38e616fc23a085ab` equals the implementation-head tree.
 DEV deployment skipped as expected for the PR workflow.
+The later main refresh incorporated DATA429 (#562): four unrelated surveillance
+contract, decision-packet, source and test files. DATA372 rebased cleanly and
+preserved those changes; no migrations, role/capability contracts or snapshot
+scope changed. The published capture retains its actual historical workload
+SHA. Final review uses fresh hosted Quality on the rebased checkout, rather than
+claiming the original implementation run tested the later main changes.
+After rebase: 21 focused tests passed (6.97s), mypy passed for 105 source files,
+Ruff lint/format passed for 413 files, agent-context and diff checks passed.
 
 ## Live and visibility limits
 
