@@ -27,6 +27,17 @@ Present this exact set, reviewed head and passing checks to topology owner
 immediately before dispatch and retain its strict pending-set guard. This draft
 has not dispatched or executed DDL and adds no reader grants.
 
+Read-only replacement preflight on 2026-10-02 used ATLAS_DEV_OWNER. The successful
+identity query returned MATTHEWCARAWAY / OH_LYME_DEV_OWNER /
+ONE_HEALTH_LYME_GAP_ATLAS_DEV / OH_LYME_DEV_INGEST_XS_WH. Successful
+`SHOW VIEWS LIKE 'CURRENT_CLIMATE_%' IN SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.PRESENTATION`
+returned zero rows, covering both exact target names:
+`CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V` and
+`CURRENT_CLIMATE_MEASURE_METADATA_V`. There are no existing matching definitions
+or object grants to preserve in this inspected state. Repeat immediately before
+apply; if either object appears, inspect its DDL and grants and review an exact
+preservation plan before CREATE OR REPLACE. This is DEV evidence only.
+
 ## Prepared fixture-only live checks
 
 Explicit workflow mode `diagnose_climate_dev=true` runs
@@ -104,6 +115,8 @@ review a bounded solution. This draft grants nothing.
 Use the reviewed explicit-authority path only:
 `map_record` / `map_records` -> `validate_lineage` -> `project_consumer`, with
 authority issued after `verified_climate_metadata_revisions` succeeds.
-Broader #195 bulk revision/lineage/pagination wrappers do not propagate climate
-authority and still fail closed. API #84 remains with `01a0f63b`, feed release
+Broader #195 metadata/lineage validation wrappers do not propagate climate
+authority and still fail closed. `page_consumer` accepts already projected
+payloads and does not propagate or recheck approval authority.
+API #84 remains with `01a0f63b`, feed release
 with `01a0f5c6`, and topology with `01a0f0b0`. No Web work is included.
