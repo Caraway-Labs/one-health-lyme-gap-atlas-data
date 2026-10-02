@@ -29,6 +29,7 @@ from lyme_gap_atlas_data.semantic_lineage import (
     validate_lineage,
 )
 from lyme_gap_atlas_data.semantic_metadata import validate_metadata
+from lyme_gap_atlas_data.svi_context import numeric_value as svi_numeric_value
 from lyme_gap_atlas_data.tick_normalization import normalize_value
 
 CONTRACT_VERSION = "atlas-semantic-source-mappings-v1"
@@ -274,7 +275,13 @@ def _source_value(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tupl
     mapping_id = mapping["id"]
     value: Any
     state: str
-    if mapping_id in _MOD13_MEASURES:
+    if mapping_id == "svi" and raw is not None:
+        try:
+            value = svi_numeric_value("RPL_THEMES", raw)
+        except ValueError as error:
+            raise SemanticMappingError(str(error)) from error
+        state = "MISSING" if value is None else ("ZERO" if value == 0 else "OBSERVED")
+    elif mapping_id in _MOD13_MEASURES:
         coverage = output.get("coverage_status")
         if (
             coverage in {"COMPLETE", "PARTIAL_COVERAGE"}
