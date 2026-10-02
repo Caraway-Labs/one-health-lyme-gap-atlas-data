@@ -65,9 +65,16 @@ as machine-readable examples. [Audit inventory](provenance-readiness-v1.json)
 pins their paths and representative IDs. The reproducible demo is the existing
 fixture mapping/lineage/consumer tests, including rejected orphan/mismatched
 authority references; it proves reuse of canonical contracts, not a standards
-transport or source-backed clinical demonstration. Follow-up scopes are
-[real replay](followup-authority-replay.md) and
-[deferred human shapes](followup-human-shapes.md); #470 and #472 remain separate.
+transport or source-backed clinical demonstration. Real replay reuses existing
+#443/#496 ownership and requires reviewed #191 metadata and approved
+consumer-safe lineage, beyond real authority rows. The
+[ownership handoff](followup-authority-replay.md) and
+[bounded human proposal](followup-human-shapes.md) remain pending parent
+resolution. The human scope is existing fixed-release case-floor/SVI-denominator
+two-input lineage and native STATE unallocated semantics, with no historical
+denominator ingestion. DATA473 criterion 4 and DATA471 criterion 6 remain open
+until bounded follow-up ownership is accepted; drafts alone do not satisfy
+them. #470 and #472 remain separate.
 
 ## Standards positioning: future only
 
