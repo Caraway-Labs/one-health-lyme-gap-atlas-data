@@ -1,0 +1,210 @@
+{
+  "contract_version": "atlas-human-mmg-crosswalk-v1",
+  "crosswalk_version": "1.0.0",
+  "review_status": "draft_for_independent_review",
+  "reviewed_on": "2026-10-02",
+  "canonical_contract": "atlas-semantic-domain-v1",
+  "canonical_source_mapping_contract": "atlas-semantic-source-mappings-v1",
+  "scope": "Existing governed 2023 human_disease_burden county-release measures and their source context only; no new indicators or ingestion.",
+  "standards": {
+    "mmg": {
+      "version": "1.0.2",
+      "published_on": "2022-05-10",
+      "url": "https://ndc.services.cdc.gov/wp-content/uploads/Lyme_TBRD_v1_0_2_MMG-and-TS_F_20220510.xlsx",
+      "sha256": "acf7fa235ad672b9404687c14c74adb13a6e6508dfd8cf37d3b2fcee4a5d930d",
+      "catalog_url": "https://ndc.services.cdc.gov/mmgpage/lyme-and-tickborne-rickettsial-diseases-message-mapping-guide/"
+    },
+    "vads_view": {
+      "name": "Lyme and Tickborne Rickettsial Disease Case Notification",
+      "version": 6,
+      "published_on": "2026-07-16",
+      "url": "https://phinvads.cdc.gov/vads/ViewView.action?id=E700A51E-2B81-F111-BAF8-0050569763C5"
+    }
+  },
+  "context_fields": [
+    {
+      "id": "residence_county",
+      "source_field": "fips",
+      "conformed_field": "county_fips",
+      "match_type": "narrower",
+      "status": "reviewed",
+      "mmg": {
+        "name": "Subject Address County",
+        "identifier": "N/A: PID-11.9",
+        "code_system": "N/A",
+        "sheet": "Lyme TCSW",
+        "row": 14,
+        "component": "GenV2"
+      },
+      "value_set": {
+        "code": "PHVS_County_FIPS_6-4",
+        "oid": "2.16.840.1.114222.4.11.829",
+        "version": 7,
+        "url": "https://phinvads.cdc.gov/vads/ViewValueSet.action?id=87FD5AB0-2CA3-4070-9FA4-B92D5934E4E7",
+        "reviewed_on": "2026-10-02"
+      },
+      "transformation": "Use only valid county identities; retain unknown/suppressed/not reported separately.",
+      "limitations": "County-native aggregates retain residence meaning; this is not exposure or reporting county. No full VADS code-membership or county-vintage equivalence is asserted."
+    },
+    {
+      "id": "surveillance_year",
+      "source_field": "year",
+      "conformed_field": "report_year",
+      "match_type": "broader",
+      "status": "ambiguous",
+      "mmg": {
+        "name": "MMWR Year",
+        "identifier": "77992-6",
+        "code_system": "LN",
+        "sheet": "Lyme TCSW",
+        "row": 69,
+        "component": "GenV2"
+      },
+      "value_set": null,
+      "transformation": "Current release filters report_year=2023.",
+      "limitations": "Source is annual surveillance year; exact MMWR assignment is not established. Do not reinterpret as onset, diagnosis, retrieval or availability year."
+    },
+    {
+      "id": "case_category",
+      "source_field": "case_status",
+      "conformed_field": "case_status",
+      "match_type": "narrower",
+      "status": "unsupported",
+      "mmg": {
+        "name": "Case Class Status Code",
+        "identifier": "77990-0",
+        "code_system": "LN",
+        "sheet": "Lyme TCSW",
+        "row": 50,
+        "component": "GenV2"
+      },
+      "value_set": null,
+      "unresolved_value_set_code": "PHVS_CaseClassStatus_NND",
+      "transformation": "Release includes source labels Confirmed and Probable for county count floors.",
+      "limitations": "MMG names PHVS_CaseClassStatus_NND, but its version and code equivalence were not verified. No code translation is supplied; surveillance-era rules remain with the methodology contract."
+    }
+  ],
+  "mappings": [
+    {
+      "measure_id": "case_count_floor_2023",
+      "indicator_id": "human_disease_burden",
+      "dataset_id": "x5j9-wybp",
+      "source_id": "cdc_lyme",
+      "resource_key": "cdc_lyme_x5j9_wybp",
+      "source_definition_version": 2,
+      "source_vintage": "2023",
+      "source_fields": [
+        "fips",
+        "year",
+        "case_status",
+        "frequency"
+      ],
+      "match_type": "derived",
+      "mmg_context_refs": [
+        "residence_county",
+        "surveillance_year",
+        "case_category"
+      ],
+      "mmg_field": null,
+      "value_set": null,
+      "transformation": "Sum integer frequency for 2023 Confirmed/Probable rows with valid county FIPS across source sex/age strata; absent county-linked rows remain null.",
+      "geography_grain": "COUNTY",
+      "time_grain": "ANNUAL_SURVEILLANCE_YEAR",
+      "limitations": "Published aggregate privacy-protected floors are not raw case notifications, complete incidence, individual risk or an invertible case-level transformation."
+    },
+    {
+      "measure_id": "incidence_floor_2023",
+      "indicator_id": "human_disease_burden",
+      "dataset_id": "x5j9-wybp",
+      "source_id": "cdc_lyme",
+      "resource_key": "cdc_lyme_x5j9_wybp",
+      "source_definition_version": 2,
+      "source_vintage": "2023",
+      "source_fields": [
+        "fips",
+        "year",
+        "case_status",
+        "frequency"
+      ],
+      "match_type": "derived",
+      "mmg_context_refs": [
+        "residence_county",
+        "surveillance_year",
+        "case_category"
+      ],
+      "mmg_field": null,
+      "value_set": null,
+      "transformation": "round(case_count_floor_2023 / existing county population * 100000, 2); absent/zero denominator yields null. Denominator comes from existing county identity population, not MMG.",
+      "geography_grain": "COUNTY",
+      "time_grain": "ANNUAL_SURVEILLANCE_YEAR",
+      "limitations": "Published aggregate privacy-protected floors are not raw case notifications, complete incidence, individual risk or an invertible case-level transformation."
+    },
+    {
+      "measure_id": "human_status",
+      "indicator_id": "human_disease_burden",
+      "dataset_id": "x5j9-wybp",
+      "source_id": "cdc_lyme",
+      "resource_key": "cdc_lyme_x5j9_wybp",
+      "source_definition_version": 2,
+      "source_vintage": "2023",
+      "source_fields": [
+        "fips",
+        "year",
+        "case_status",
+        "frequency"
+      ],
+      "match_type": "not applicable",
+      "mmg_context_refs": [],
+      "mmg_field": null,
+      "value_set": null,
+      "transformation": "Existing release emits published_count_floor when count is present, otherwise no_county_linked_record.",
+      "geography_grain": "COUNTY",
+      "time_grain": "ANNUAL_SURVEILLANCE_YEAR",
+      "limitations": "Atlas publication/coverage status is not CDC case classification."
+    },
+    {
+      "measure_id": "state_unallocated_records_2023",
+      "indicator_id": "human_disease_burden",
+      "dataset_id": "x5j9-wybp",
+      "source_id": "cdc_lyme",
+      "resource_key": "cdc_lyme_x5j9_wybp",
+      "source_definition_version": 2,
+      "source_vintage": "2023",
+      "source_fields": [
+        "state",
+        "fips",
+        "year",
+        "frequency"
+      ],
+      "match_type": "not applicable",
+      "mmg_context_refs": [],
+      "mmg_field": null,
+      "value_set": null,
+      "transformation": "Sum 2023 frequency with unknown/suppressed/not reported county and resolvable state; no Confirmed/Probable filter in this branch. Repeat state total in county presentation; never allocate it to county counts.",
+      "geography_grain": "STATE",
+      "time_grain": "ANNUAL_SURVEILLANCE_YEAR",
+      "limitations": "State-level unallocated geography context is not a case-notification field; repeated county values must not be summed."
+    }
+  ],
+  "unsupported": [
+    "Person-level laboratory, clinical manifestations, treatment, onset, travel and exposure are absent from approved aggregate scope.",
+    "No TBRD human-surveillance measure is currently mapped.",
+    "Sex/age source strata are collapsed by the release; no demographic code equivalence is asserted."
+  ],
+  "non_applicable_domains": [
+    "county identity geometry",
+    "SVI and uninsured context",
+    "RUCC",
+    "county tick and pathogen status",
+    "NEON collection and pathogen testing",
+    "infected tick metrics",
+    "surveillance coverage and priority",
+    "climate",
+    "land cover",
+    "vegetation"
+  ],
+  "boundaries": [
+    "No HL7 case-notification ingestion, serializer, clinical interoperability certification or public API support is implemented.",
+    "This artifact annotates existing identities; it does not change observation meaning, versions, source records, releases or provenance."
+  ]
+}
