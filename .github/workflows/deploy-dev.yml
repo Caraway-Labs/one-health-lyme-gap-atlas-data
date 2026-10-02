@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_climate_dev:
+        description: Fixture-only numeric/large-manifest DEV validation; no migration apply or release writes
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -58,6 +63,16 @@ jobs:
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
+          if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ]; then
+            if [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ]; then
+              echo 'Choose one diagnostic mode.' >&2
+              exit 2
+            fi
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            uv run python scripts/verify_climate_dev.py
+            exit 0
+          fi
           if [ "$DIAGNOSE_V103_STATE" = "true" ]; then
             if [ -n "$DIAGNOSE_QUERY_ID" ]; then
               echo 'Choose one diagnostic mode.' >&2
@@ -87,6 +102,7 @@ jobs:
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
+          DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}

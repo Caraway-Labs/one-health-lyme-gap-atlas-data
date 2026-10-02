@@ -1,0 +1,666 @@
+{
+  "status": "REVIEW_PACKET_NOT_PUBLICATION_AUTHORITY",
+  "steward_approval": null,
+  "review_evidence": [],
+  "selected_run_id": "c2eb2146-005d-44d2-bac4-e2805ca42577",
+  "resource_key": "noaa_nclimgrid_daily_202501",
+  "candidate_sha256": "1e6b9809a5266d7cb3b4851f861835fdfddcf0d4f136a02d14e7e436806f5618",
+  "capture_evidence": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/36931053172",
+  "source_authority_evidence": {
+    "connection": "ATLAS_DEV_OWNER",
+    "role": "OH_LYME_DEV_OWNER",
+    "database": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "query_scope": "DATA_SOURCE_VERSIONS WHERE ingestion_run_id equals selected_run_id",
+    "query_succeeded": true,
+    "rows": [],
+    "scope_limitation": "No claim about other runs or PROD."
+  },
+  "retained_artifacts": [
+    {
+      "artifact_id": "noaa_nclimgrid_daily_202501:c2eb2146-005d-44d2-bac4-e2805ca42577:658d13370fbec2095b1d601473cc5ce3",
+      "sha256": "809a58714578ce654e61e094e5f7d0ee704d332f1ff6a86c644e56de4ee4da31",
+      "byte_count": 61013299
+    },
+    {
+      "artifact_id": "noaa_nclimgrid_daily_202501:c2eb2146-005d-44d2-bac4-e2805ca42577:510b7bc9e094d24e9094b19ba3b961ab",
+      "sha256": "9c6e9d9076abce2670d1de255de3710c35ecca00a7005d88e012dec52d95f763",
+      "byte_count": 83989800
+    }
+  ],
+  "tiger_governed_resource_key": {
+    "state": "UNKNOWN",
+    "value": null
+  },
+  "approved_source_versions": [],
+  "metadata_proposals": [
+    {
+      "contract_version": "atlas-semantic-metadata-v1",
+      "metadata_id": "metadata:nclimgrid_prcp_county_day:2.0.0",
+      "metadata_revision": 1,
+      "measure": {
+        "measure_id": "nclimgrid_prcp_county_day",
+        "indicator_id": "climate_precipitation",
+        "semantic_version": "2.0.0",
+        "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid precipitation amount for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+        "data_type": "NUMBER",
+        "unit": "mm",
+        "denominator": "NONE",
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "methodology_version": "atlas-nclimgrid-county-day/2",
+        "allowed_value_states": [
+          "OBSERVED",
+          "ZERO",
+          "MISSING",
+          "UNAVAILABLE"
+        ]
+      },
+      "label": "nclimgrid prcp county day",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid precipitation amount for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+      "short_description": {
+        "state": "KNOWN",
+        "value": "January 2025 descriptive county weather context for the labeled early-morning-ending 24-hour period."
+      },
+      "authority": {
+        "label": "GOVERNED_GENERATED",
+        "definition": "GOVERNED_GENERATED",
+        "short_description": "GOVERNED_GENERATED"
+      },
+      "steward_review": {
+        "state": "PENDING",
+        "reviewed_at": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "applicability": {
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "representativeness": "COUNTY_NATIVE_STATUS"
+      },
+      "unit": "mm",
+      "denominator": "NONE",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING",
+        "UNAVAILABLE"
+      ],
+      "provenance": {
+        "publisher": {
+          "state": "KNOWN",
+          "value": "NOAA NCEI"
+        },
+        "source_id": {
+          "state": "KNOWN",
+          "value": "noaa_nclimgrid_daily"
+        },
+        "dataset_id": {
+          "state": "KNOWN",
+          "value": "nclimgrid-daily-v1.0.0-scaled"
+        },
+        "source_version_id": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "method_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        },
+        "transformation_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        }
+      },
+      "freshness": {
+        "observation_period": {
+          "state": "KNOWN",
+          "value": "2025-01-01/2025-01-31"
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "retrieved_at": {
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "published_at": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "metadata_revised_at": {
+          "state": "KNOWN",
+          "value": "2026-10-01"
+        }
+      },
+      "quality_evidence": {
+        "quality_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "KNOWN",
+          "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"
+        }
+      },
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "JANUARY_DESCRIPTIVE_ONLY",
+          "text": "January 2025 descriptive weather context only; no Lyme causal, risk or ML claim."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "CANONICAL_IDENTITY_ANALYSIS_GEOMETRY",
+          "text": "Existing 2022 canonical county identities with 2025 TIGER analysis geometry; NOAA supports CONUS only, AK/HI are unavailable."
+        },
+        {
+          "category": "METHOD",
+          "code": "VALID_SUPPORTED_AREA_95PCT",
+          "text": "Daily completeness uses valid/source-supported area >= 0.95; monthly spatial support is separate from daily missingness."
+        },
+        {
+          "category": "SOURCE",
+          "code": "LABELED_DAY_PUBLICATION_UNKNOWN",
+          "text": "Labeled 24-hour period ending in the early morning, not a midnight calendar day or publication time. Historical first availability is unknown; upstream modification time is distinct."
+        }
+      ],
+      "visibility": "INTERNAL",
+      "meaning_signature": "3d0f27a484d98893f4c101944a055d6a25ecbb16f692b9c3ace2cd5bb26cd6b4",
+      "revision_id": "metadata-revision:v1:ed0be9096896cdc96fb6eb7cd96e94b5aaa68cd3a09665cbcdffe141f55b5bc1"
+    },
+    {
+      "contract_version": "atlas-semantic-metadata-v1",
+      "metadata_id": "metadata:nclimgrid_tmin_county_day:2.0.0",
+      "metadata_revision": 1,
+      "measure": {
+        "measure_id": "nclimgrid_tmin_county_day",
+        "indicator_id": "climate_temperature",
+        "semantic_version": "2.0.0",
+        "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid daily minimum temperature for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+        "data_type": "NUMBER",
+        "unit": "degree_Celsius",
+        "denominator": "NONE",
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "methodology_version": "atlas-nclimgrid-county-day/2",
+        "allowed_value_states": [
+          "OBSERVED",
+          "ZERO",
+          "MISSING",
+          "UNAVAILABLE"
+        ]
+      },
+      "label": "nclimgrid tmin county day",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid daily minimum temperature for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+      "short_description": {
+        "state": "KNOWN",
+        "value": "January 2025 descriptive county weather context for the labeled early-morning-ending 24-hour period."
+      },
+      "authority": {
+        "label": "GOVERNED_GENERATED",
+        "definition": "GOVERNED_GENERATED",
+        "short_description": "GOVERNED_GENERATED"
+      },
+      "steward_review": {
+        "state": "PENDING",
+        "reviewed_at": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "applicability": {
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "representativeness": "COUNTY_NATIVE_STATUS"
+      },
+      "unit": "degree_Celsius",
+      "denominator": "NONE",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING",
+        "UNAVAILABLE"
+      ],
+      "provenance": {
+        "publisher": {
+          "state": "KNOWN",
+          "value": "NOAA NCEI"
+        },
+        "source_id": {
+          "state": "KNOWN",
+          "value": "noaa_nclimgrid_daily"
+        },
+        "dataset_id": {
+          "state": "KNOWN",
+          "value": "nclimgrid-daily-v1.0.0-scaled"
+        },
+        "source_version_id": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "method_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        },
+        "transformation_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        }
+      },
+      "freshness": {
+        "observation_period": {
+          "state": "KNOWN",
+          "value": "2025-01-01/2025-01-31"
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "retrieved_at": {
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "published_at": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "metadata_revised_at": {
+          "state": "KNOWN",
+          "value": "2026-10-01"
+        }
+      },
+      "quality_evidence": {
+        "quality_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "KNOWN",
+          "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"
+        }
+      },
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "JANUARY_DESCRIPTIVE_ONLY",
+          "text": "January 2025 descriptive weather context only; no Lyme causal, risk or ML claim."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "CANONICAL_IDENTITY_ANALYSIS_GEOMETRY",
+          "text": "Existing 2022 canonical county identities with 2025 TIGER analysis geometry; NOAA supports CONUS only, AK/HI are unavailable."
+        },
+        {
+          "category": "METHOD",
+          "code": "VALID_SUPPORTED_AREA_95PCT",
+          "text": "Daily completeness uses valid/source-supported area >= 0.95; monthly spatial support is separate from daily missingness."
+        },
+        {
+          "category": "SOURCE",
+          "code": "LABELED_DAY_PUBLICATION_UNKNOWN",
+          "text": "Labeled 24-hour period ending in the early morning, not a midnight calendar day or publication time. Historical first availability is unknown; upstream modification time is distinct."
+        }
+      ],
+      "visibility": "INTERNAL",
+      "meaning_signature": "cfc6200b6221ef43a07d95df1b6fe3f120e8814e2f44529a6134a0e87028d8cc",
+      "revision_id": "metadata-revision:v1:451be4277a13388e095f025f2a2d0732077ea0709c0f17f24ebb6ff290b3b9c9"
+    },
+    {
+      "contract_version": "atlas-semantic-metadata-v1",
+      "metadata_id": "metadata:nclimgrid_tmax_county_day:2.0.0",
+      "metadata_revision": 1,
+      "measure": {
+        "measure_id": "nclimgrid_tmax_county_day",
+        "indicator_id": "climate_temperature",
+        "semantic_version": "2.0.0",
+        "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid daily maximum temperature for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+        "data_type": "NUMBER",
+        "unit": "degree_Celsius",
+        "denominator": "NONE",
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "methodology_version": "atlas-nclimgrid-county-day/2",
+        "allowed_value_states": [
+          "OBSERVED",
+          "ZERO",
+          "MISSING",
+          "UNAVAILABLE"
+        ]
+      },
+      "label": "nclimgrid tmax county day",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid daily maximum temperature for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+      "short_description": {
+        "state": "KNOWN",
+        "value": "January 2025 descriptive county weather context for the labeled early-morning-ending 24-hour period."
+      },
+      "authority": {
+        "label": "GOVERNED_GENERATED",
+        "definition": "GOVERNED_GENERATED",
+        "short_description": "GOVERNED_GENERATED"
+      },
+      "steward_review": {
+        "state": "PENDING",
+        "reviewed_at": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "applicability": {
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "representativeness": "COUNTY_NATIVE_STATUS"
+      },
+      "unit": "degree_Celsius",
+      "denominator": "NONE",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING",
+        "UNAVAILABLE"
+      ],
+      "provenance": {
+        "publisher": {
+          "state": "KNOWN",
+          "value": "NOAA NCEI"
+        },
+        "source_id": {
+          "state": "KNOWN",
+          "value": "noaa_nclimgrid_daily"
+        },
+        "dataset_id": {
+          "state": "KNOWN",
+          "value": "nclimgrid-daily-v1.0.0-scaled"
+        },
+        "source_version_id": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "method_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        },
+        "transformation_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        }
+      },
+      "freshness": {
+        "observation_period": {
+          "state": "KNOWN",
+          "value": "2025-01-01/2025-01-31"
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "retrieved_at": {
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "published_at": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "metadata_revised_at": {
+          "state": "KNOWN",
+          "value": "2026-10-01"
+        }
+      },
+      "quality_evidence": {
+        "quality_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "KNOWN",
+          "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"
+        }
+      },
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "JANUARY_DESCRIPTIVE_ONLY",
+          "text": "January 2025 descriptive weather context only; no Lyme causal, risk or ML claim."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "CANONICAL_IDENTITY_ANALYSIS_GEOMETRY",
+          "text": "Existing 2022 canonical county identities with 2025 TIGER analysis geometry; NOAA supports CONUS only, AK/HI are unavailable."
+        },
+        {
+          "category": "METHOD",
+          "code": "VALID_SUPPORTED_AREA_95PCT",
+          "text": "Daily completeness uses valid/source-supported area >= 0.95; monthly spatial support is separate from daily missingness."
+        },
+        {
+          "category": "SOURCE",
+          "code": "LABELED_DAY_PUBLICATION_UNKNOWN",
+          "text": "Labeled 24-hour period ending in the early morning, not a midnight calendar day or publication time. Historical first availability is unknown; upstream modification time is distinct."
+        }
+      ],
+      "visibility": "INTERNAL",
+      "meaning_signature": "4f17b5ff42d50d4ff4dba00364167f6e27b7c7e48d746edc9994f0449c1b362f",
+      "revision_id": "metadata-revision:v1:f9dc471c056a240e9e232ec9820aec2d46d83b972ead9c298ea0656ff1e54553"
+    },
+    {
+      "contract_version": "atlas-semantic-metadata-v1",
+      "metadata_id": "metadata:nclimgrid_tavg_county_day:2.0.0",
+      "metadata_revision": 1,
+      "measure": {
+        "measure_id": "nclimgrid_tavg_county_day",
+        "indicator_id": "climate_temperature",
+        "semantic_version": "2.0.0",
+        "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid NOAA-supplied daily average temperature for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+        "data_type": "NUMBER",
+        "unit": "degree_Celsius",
+        "denominator": "NONE",
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "methodology_version": "atlas-nclimgrid-county-day/2",
+        "allowed_value_states": [
+          "OBSERVED",
+          "ZERO",
+          "MISSING",
+          "UNAVAILABLE"
+        ]
+      },
+      "label": "nclimgrid tavg county day",
+      "definition": "Valid-area-weighted NOAA nClimGrid-Daily scaled grid NOAA-supplied daily average temperature for a canonical Atlas county using 2025 TIGER/Line geometry and a labeled 24-hour day in January 2025. Daily completeness requires valid area / monthly source-supported area >= 0.95; monthly source-supported / legal-county area is reported separately. CONUS descriptive weather context only; AK/HI are unavailable.",
+      "short_description": {
+        "state": "KNOWN",
+        "value": "January 2025 descriptive county weather context for the labeled early-morning-ending 24-hour period."
+      },
+      "authority": {
+        "label": "GOVERNED_GENERATED",
+        "definition": "GOVERNED_GENERATED",
+        "short_description": "GOVERNED_GENERATED"
+      },
+      "steward_review": {
+        "state": "PENDING",
+        "reviewed_at": {
+          "state": "UNKNOWN",
+          "value": null
+        }
+      },
+      "applicability": {
+        "geography_grain": "COUNTY",
+        "temporal_semantics": "PERIOD",
+        "allowed_strata": [],
+        "origin": "DERIVED",
+        "representativeness": "COUNTY_NATIVE_STATUS"
+      },
+      "unit": "degree_Celsius",
+      "denominator": "NONE",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING",
+        "UNAVAILABLE"
+      ],
+      "provenance": {
+        "publisher": {
+          "state": "KNOWN",
+          "value": "NOAA NCEI"
+        },
+        "source_id": {
+          "state": "KNOWN",
+          "value": "noaa_nclimgrid_daily"
+        },
+        "dataset_id": {
+          "state": "KNOWN",
+          "value": "nclimgrid-daily-v1.0.0-scaled"
+        },
+        "source_version_id": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "method_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        },
+        "transformation_version": {
+          "state": "KNOWN",
+          "value": "atlas-nclimgrid-county-day/2"
+        }
+      },
+      "freshness": {
+        "observation_period": {
+          "state": "KNOWN",
+          "value": "2025-01-01/2025-01-31"
+        },
+        "source_vintage": {
+          "state": "KNOWN",
+          "value": "v1.0.0-scaled-202501"
+        },
+        "retrieved_at": {
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "published_at": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "metadata_revised_at": {
+          "state": "KNOWN",
+          "value": "2026-10-01"
+        }
+      },
+      "quality_evidence": {
+        "quality_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "propagation_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "eligibility_contract": {
+          "state": "NOT_APPLICABLE",
+          "value": null
+        },
+        "uncertainty": {
+          "state": "UNKNOWN",
+          "value": null
+        },
+        "evidence_basis": {
+          "state": "KNOWN",
+          "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"
+        }
+      },
+      "limitations": [
+        {
+          "category": "INTERPRETATION",
+          "code": "JANUARY_DESCRIPTIVE_ONLY",
+          "text": "January 2025 descriptive weather context only; no Lyme causal, risk or ML claim."
+        },
+        {
+          "category": "REPRESENTATIVENESS",
+          "code": "CANONICAL_IDENTITY_ANALYSIS_GEOMETRY",
+          "text": "Existing 2022 canonical county identities with 2025 TIGER analysis geometry; NOAA supports CONUS only, AK/HI are unavailable."
+        },
+        {
+          "category": "METHOD",
+          "code": "VALID_SUPPORTED_AREA_95PCT",
+          "text": "Daily completeness uses valid/source-supported area >= 0.95; monthly spatial support is separate from daily missingness."
+        },
+        {
+          "category": "SOURCE",
+          "code": "LABELED_DAY_PUBLICATION_UNKNOWN",
+          "text": "Labeled 24-hour period ending in the early morning, not a midnight calendar day or publication time. Historical first availability is unknown; upstream modification time is distinct."
+        }
+      ],
+      "visibility": "INTERNAL",
+      "meaning_signature": "2460539209b109e5805bf9e80e8cd56e3203fe3c6cfee6145bbd48abda9a1539",
+      "revision_id": "metadata-revision:v1:eeca19e48561852fe1fc38184cc67fc89bbfdc0a896d8a1d489b0c003027a7ca"
+    }
+  ],
+  "metadata_validation_disposition": "BLOCKED_REAL_SOURCE_VERSION_AUTHORITY_AND_STEWARD_REVIEW"
+}
