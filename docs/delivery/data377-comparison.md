@@ -27,3 +27,43 @@ Local verification uses locked uv dependencies. Live database execution, deploym
 and live functional proof remain UNKNOWN. Documentation and fixtures require no DB
 migration or runtime release; parent coordinates independent review, refreshed main,
 exact Quality CI and serialized existing deployment if needed.
+
+## Current-contract diagnosis of #366
+
+This is a genuine missing/mismapped desired-state permission contract, not an
+expected-fail historical fixture. The fixed expectation remains BLOCKED for a
+known denied SEMANTIC_RELEASES INSERT; comparison remains UNKNOWN until the
+curated contract covers the actual boundary.
+
+Evidence at baseline c5a2310:
+- `src/lyme_gap_atlas_data/semantic_release.py`, `_insert_release`: current
+  candidate assembly executes INSERT INTO PRESENTATION.SEMANTIC_RELEASES.
+- `migrations/V099__semantic_release_protected_operator_grants.sql`: grants
+  SELECT/INSERT/UPDATE on that table to OH_LYME_{ENV}_MIGRATION_DEPLOYER,
+  plus only the other documented release-table actions.
+- `config/operation-capabilities-v1.yml`: semantic_release maps executor owner,
+  requirements V071/V072/V073 and GOVERNED_RELEASES:INSERT; it does not include
+  the actual #366 table or V099 requirement.
+- `.github/workflows/publish-semantic-release.yml`: protected workflow both
+  applies migrations and runs semantic-release-build/publish/rollback through
+  its configured identity. Its secret role value is not inspected or inferred.
+
+Contract-owner follow-up: reconcile curated operation identity/dependencies and
+bounded runtime table capabilities with V099 and current release commands; retain
+separate grant authority and bootstrap findings, review DEV/PROD applicability,
+and add behavioral comparisons against the frozen corpus. Do not add a grant or
+edit historical migration bytes. This contribution changes none of those surfaces.
+
+## Integration requirements for separate owners
+
+DATA372 must supply exact reviewed head, public-safe snapshot schema/version,
+normalization/hash and freshness rules, deterministic stale/hidden/inherited-grant
+fixtures, and callable validator/comparison entrypoints. Integrate stale-context
+against that interface; absent authorized observation stays UNKNOWN.
+
+DATA376 must supply exact reviewed head, failure-packet schema/version, separate
+workload/workflow/artifact identities, stable correlation rules, sanitized historical
+packets and redaction/incomplete-evidence fixtures. Validate packet-to-regression
+links without duplicating its collector. Keep offline, DEV execution, deployment,
+and live proof separate. Final outputs and independent frozen-rubric review are
+required before capstone acceptance.
