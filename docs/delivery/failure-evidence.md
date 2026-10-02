@@ -64,6 +64,15 @@ Add new codes/roles only in reviewed contract changes; do not broaden strings
 to work around a rejection. The role allowlist describes packet visibility,
 not authority to execute or grant anything.
 
+The role enum renders the five current stable-role identifiers in each of DEV
+and PROD from `docs/operations/snowflake-stable-role-model.md` and is checked
+against `config/operation-capabilities-v1.yml`. In particular, connection
+`ATLAS_PROD_MIGRATOR` observes `OH_LYME_PROD_MIGRATION_DEPLOYER`, as recorded in
+the connection inventory. Connection names and capability aliases are rejected,
+never substituted for `CURRENT_ROLE()` evidence. Record an unlisted role as
+UNKNOWN/REDACTION_REJECTED pending a reviewed allowlist extension; no role or
+grant changes are performed.
+
 Each missing observation includes a reason: NOT_COLLECTED, UNAVAILABLE,
 INCOMPLETE_LOGS, ROLE_NOT_VISIBLE, QUERY_ID_UNAVAILABLE, REDACTION_REJECTED, or
 NOT_APPLICABLE. Missing visibility is not confirmed absence. An empty query

@@ -2,9 +2,11 @@
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from lyme_gap_atlas_data.failure_evidence import (
     PACKET_SCHEMA,
@@ -196,3 +198,67 @@ def test_claimed_key_and_nested_references_cannot_bypass_validation():
         context = example()
         context["reproduction"] = {"state": "KNOWN", "value": value}
         assert collect_failure(context, lambda _: None) == "REDACTION_REJECTED"
+
+
+def test_observed_role_allowlist_matches_rendered_current_contracts():
+    model = (ROOT / "docs/operations/snowflake-stable-role-model.md").read_text()
+    current_table = model.split("Removed entirely", 1)[0]
+    templates = set(re.findall(r"`(OH_LYME_\{ENV\}_[A-Z_]+)`", current_table))
+    expected = {role.replace("{ENV}", env) for role in templates for env in ("DEV", "PROD")}
+    observed_roles = PACKET_SCHEMA["properties"]["effective_role"]["oneOf"][0]["properties"][
+        "value"
+    ]["enum"]
+    assert len(expected) == 10
+    assert set(observed_roles) == expected
+    capabilities = yaml.safe_load((ROOT / "config/operation-capabilities-v1.yml").read_text())
+    for role in capabilities["role_aliases"].values():
+        for env in ("DEV", "PROD"):
+            assert role.replace("{ENV}", env) in observed_roles
+    inventory = (ROOT / "docs/operations/connection-inventory.md").read_text()
+    connections = dict(
+        re.findall(
+            r"^\| `(ATLAS_[A-Z_]+)` \| `(OH_LYME_[A-Z_]+)`",
+            inventory,
+            re.MULTILINE,
+        )
+    )
+    assert connections["ATLAS_PROD_MIGRATOR"] == "OH_LYME_PROD_MIGRATION_DEPLOYER"
+    assert set(connections.values()) <= set(observed_roles)
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        "OH_LYME_DEV_READ",
+        "OH_LYME_DEV_OWNER",
+        "OH_LYME_DEV_RUNTIME",
+        "OH_LYME_DEV_MIGRATION_DEPLOYER",
+        "OH_LYME_DEV_STREAMLIT_OWNER",
+        "OH_LYME_PROD_READ",
+        "OH_LYME_PROD_OWNER",
+        "OH_LYME_PROD_RUNTIME",
+        "OH_LYME_PROD_MIGRATION_DEPLOYER",
+        "OH_LYME_PROD_STREAMLIT_OWNER",
+    ],
+)
+def test_documented_observed_roles_retained_without_alias_substitution(role):
+    context = example()
+    context["effective_role"] = {"state": "KNOWN", "value": role}
+    assert build_packet(context)["effective_role"] == context["effective_role"]
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "ATLAS_PROD_MIGRATOR",
+        "ATLAS_DEV_READ",
+        "ATLAS_PROD_RUNTIME_AUDIT",
+        "OH_LYME_PROD_MIGRATOR",
+        "OH_LYME_DEV_MIGRATOR",
+        "migration_deployer",
+    ],
+)
+def test_connection_names_and_capability_aliases_are_not_observed_roles(alias):
+    context = example()
+    context["effective_role"] = {"state": "KNOWN", "value": alias}
+    assert collect_failure(context, lambda _: None) == "REDACTION_REJECTED"

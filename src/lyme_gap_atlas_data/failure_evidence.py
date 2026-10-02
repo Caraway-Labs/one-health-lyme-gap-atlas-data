@@ -99,9 +99,13 @@ FIELDS = {
                 "OH_LYME_DEV_READ",
                 "OH_LYME_DEV_OWNER",
                 "OH_LYME_DEV_RUNTIME",
+                "OH_LYME_DEV_MIGRATION_DEPLOYER",
+                "OH_LYME_DEV_STREAMLIT_OWNER",
+                "OH_LYME_PROD_READ",
                 "OH_LYME_PROD_OWNER",
                 "OH_LYME_PROD_RUNTIME",
-                "OH_LYME_PROD_MIGRATOR",
+                "OH_LYME_PROD_MIGRATION_DEPLOYER",
+                "OH_LYME_PROD_STREAMLIT_OWNER",
             ]
         }
     ),
