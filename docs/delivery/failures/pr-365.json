@@ -1,0 +1,104 @@
+{
+  "schema_version": "1",
+  "repository": "Caraway-Labs/one-health-lyme-gap-atlas-data",
+  "recorded_at": "2026-10-02T06:28:47Z",
+  "identity": {
+    "requested_sha": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "workload_sha": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "workflow_head_sha": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "workflow_id": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "run_id": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "job_id": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "attempt": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    }
+  },
+  "environment": "PROD",
+  "effective_role": {
+    "state": "UNKNOWN",
+    "reason": "ROLE_NOT_VISIBLE"
+  },
+  "boundary": "CANONICAL_COVERAGE",
+  "operation": "SEMANTIC_RELEASE",
+  "migration": {
+    "state": "UNKNOWN",
+    "reason": "NOT_COLLECTED"
+  },
+  "artifacts": {
+    "tested_artifact": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "deployed_artifact": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "semantic_bundle": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "api_contract": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    }
+  },
+  "failure_class": "SOFTWARE_DEFECT",
+  "operational_category": "QUALITY",
+  "diagnostic_code": "COVERAGE_CHECK_FAILED",
+  "query_ids": {
+    "state": "UNKNOWN",
+    "reason": "QUERY_ID_UNAVAILABLE"
+  },
+  "verified_facts": [
+    "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/365"
+  ],
+  "unknowns": [
+    "NOT_COLLECTED",
+    "INCOMPLETE_LOGS",
+    "ROLE_NOT_VISIBLE",
+    "QUERY_ID_UNAVAILABLE"
+  ],
+  "missing_check": "CANONICAL_FIXTURE_EXECUTION",
+  "reproduction": {
+    "state": "UNKNOWN",
+    "reason": "NOT_COLLECTED"
+  },
+  "regression": {
+    "state": "PASS",
+    "kind": "STATIC",
+    "reference": {
+      "state": "KNOWN",
+      "value": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/365"
+    }
+  },
+  "repair": {
+    "state": "UNKNOWN",
+    "kind": "UNKNOWN",
+    "reference": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    }
+  },
+  "risk": "CONTRACT",
+  "next_action": "REQUEST_BOUNDED_INTEGRATION_AUTHORIZATION",
+  "correlation_key": "sha256:a5b8e8b3f8fe88254e23e4efc199d3ba5533aab46e4964eadc28d04162fc82f3"
+}

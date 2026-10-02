@@ -1,0 +1,1153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas sanitized failure packet v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "repository",
+    "recorded_at",
+    "identity",
+    "environment",
+    "effective_role",
+    "boundary",
+    "operation",
+    "migration",
+    "artifacts",
+    "failure_class",
+    "operational_category",
+    "diagnostic_code",
+    "query_ids",
+    "verified_facts",
+    "unknowns",
+    "missing_check",
+    "reproduction",
+    "regression",
+    "repair",
+    "risk",
+    "next_action",
+    "correlation_key"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "repository": {
+      "const": "Caraway-Labs/one-health-lyme-gap-atlas-data"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 35
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "requested_sha",
+        "workload_sha",
+        "workflow_head_sha",
+        "workflow_id",
+        "run_id",
+        "job_id",
+        "attempt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requested_sha": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "workload_sha": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "workflow_head_sha": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "workflow_id": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "run_id": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "job_id": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "attempt": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "environment": {
+      "enum": [
+        "LOCAL",
+        "DEV",
+        "PROD",
+        "UNKNOWN"
+      ]
+    },
+    "effective_role": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "KNOWN"
+            },
+            "value": {
+              "enum": [
+                "OH_LYME_DEV_READ",
+                "OH_LYME_DEV_OWNER",
+                "OH_LYME_DEV_RUNTIME",
+                "OH_LYME_PROD_OWNER",
+                "OH_LYME_PROD_RUNTIME",
+                "OH_LYME_PROD_MIGRATOR"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "UNKNOWN"
+            },
+            "reason": {
+              "enum": [
+                "NOT_COLLECTED",
+                "UNAVAILABLE",
+                "INCOMPLETE_LOGS",
+                "ROLE_NOT_VISIBLE",
+                "QUERY_ID_UNAVAILABLE",
+                "REDACTION_REJECTED",
+                "NOT_APPLICABLE"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "boundary": {
+      "enum": [
+        "CONNECTOR_WRITE",
+        "PROCEDURE_BINDING",
+        "CANONICAL_COVERAGE",
+        "RELEASE_AUTHORITY",
+        "ACQUIRE",
+        "VALIDATE",
+        "NORMALIZE",
+        "LOAD",
+        "QUALITY",
+        "PUBLISH_STAGE",
+        "MIGRATION",
+        "DEPLOYMENT",
+        "UNKNOWN"
+      ]
+    },
+    "operation": {
+      "enum": [
+        "SOURCE_RUN",
+        "MIGRATION",
+        "SEMANTIC_RELEASE",
+        "DEPLOYMENT",
+        "UNKNOWN"
+      ]
+    },
+    "migration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "KNOWN"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^V[0-9]{3}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "UNKNOWN"
+            },
+            "reason": {
+              "enum": [
+                "NOT_COLLECTED",
+                "UNAVAILABLE",
+                "INCOMPLETE_LOGS",
+                "ROLE_NOT_VISIBLE",
+                "QUERY_ID_UNAVAILABLE",
+                "REDACTION_REJECTED",
+                "NOT_APPLICABLE"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "tested_artifact",
+        "deployed_artifact",
+        "semantic_bundle",
+        "api_contract"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tested_artifact": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "deployed_artifact": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "semantic_bundle": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "api_contract": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "failure_class": {
+      "enum": [
+        "SOFTWARE_DEFECT",
+        "PERMISSION_CONFIGURATION",
+        "GOVERNANCE_BLOCK",
+        "UPSTREAM_OUTAGE",
+        "INTENTIONAL_NEGATIVE_TEST",
+        "UNKNOWN"
+      ]
+    },
+    "operational_category": {
+      "enum": [
+        "CONFIGURATION",
+        "ACQUISITION",
+        "POLICY_LICENSE",
+        "SCHEMA",
+        "NORMALIZATION",
+        "WAREHOUSE",
+        "QUALITY",
+        "PROVIDER_MODEL",
+        "GRAPH",
+        "DEPLOYMENT",
+        "PERMISSION",
+        "PROCESS",
+        "UNKNOWN"
+      ]
+    },
+    "diagnostic_code": {
+      "enum": [
+        "BATCH_WRITE_FAILED",
+        "VARIANT_BIND_FAILED",
+        "COVERAGE_CHECK_FAILED",
+        "RELEASE_PRIVILEGE_FAILED",
+        "OPERATION_FAILED",
+        "UNKNOWN"
+      ]
+    },
+    "query_ids": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "KNOWN"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "UNKNOWN"
+            },
+            "reason": {
+              "enum": [
+                "NOT_COLLECTED",
+                "UNAVAILABLE",
+                "INCOMPLETE_LOGS",
+                "ROLE_NOT_VISIBLE",
+                "QUERY_ID_UNAVAILABLE",
+                "REDACTION_REJECTED",
+                "NOT_APPLICABLE"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "verified_facts": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "maxLength": 220,
+        "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "NOT_COLLECTED",
+          "UNAVAILABLE",
+          "INCOMPLETE_LOGS",
+          "ROLE_NOT_VISIBLE",
+          "QUERY_ID_UNAVAILABLE",
+          "REDACTION_REJECTED",
+          "NOT_APPLICABLE"
+        ]
+      }
+    },
+    "missing_check": {
+      "enum": [
+        "DRIVER_BATCH_EXECUTION",
+        "DRIVER_VARIANT_EXECUTION",
+        "CANONICAL_FIXTURE_EXECUTION",
+        "INTENDED_ROLE_EXECUTION",
+        "UNKNOWN"
+      ]
+    },
+    "reproduction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "KNOWN"
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 220,
+              "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "UNKNOWN"
+            },
+            "reason": {
+              "enum": [
+                "NOT_COLLECTED",
+                "UNAVAILABLE",
+                "INCOMPLETE_LOGS",
+                "ROLE_NOT_VISIBLE",
+                "QUERY_ID_UNAVAILABLE",
+                "REDACTION_REJECTED",
+                "NOT_APPLICABLE"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "regression": {
+      "type": "object",
+      "required": [
+        "state",
+        "kind",
+        "reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "STATIC",
+            "BEHAVIORAL",
+            "UNKNOWN"
+          ]
+        },
+        "reference": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 220,
+                  "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reference": {
+                "properties": {
+                  "state": {
+                    "const": "KNOWN"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "STATIC",
+                  "BEHAVIORAL"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repair": {
+      "type": "object",
+      "required": [
+        "state",
+        "kind",
+        "reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "STATIC",
+            "BEHAVIORAL",
+            "UNKNOWN"
+          ]
+        },
+        "reference": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "KNOWN"
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 220,
+                  "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "state",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "UNKNOWN"
+                },
+                "reason": {
+                  "enum": [
+                    "NOT_COLLECTED",
+                    "UNAVAILABLE",
+                    "INCOMPLETE_LOGS",
+                    "ROLE_NOT_VISIBLE",
+                    "QUERY_ID_UNAVAILABLE",
+                    "REDACTION_REJECTED",
+                    "NOT_APPLICABLE"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reference": {
+                "properties": {
+                  "state": {
+                    "const": "KNOWN"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "STATIC",
+                  "BEHAVIORAL"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "risk": {
+      "enum": [
+        "PROSE_ONLY",
+        "DB",
+        "PERMISSIONS",
+        "DEPLOYMENT",
+        "CONTRACT",
+        "UNKNOWN"
+      ]
+    },
+    "next_action": {
+      "enum": [
+        "INVESTIGATE_READ_ONLY",
+        "RUN_LOCAL_REGRESSION",
+        "REQUEST_BOUNDED_INTEGRATION_AUTHORIZATION",
+        "REQUEST_MISSING_EVIDENCE",
+        "INDEPENDENT_REVIEW"
+      ]
+    },
+    "correlation_key": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "repair": {
+            "properties": {
+              "state": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "repair": {
+            "properties": {
+              "kind": {
+                "const": "BEHAVIORAL"
+              }
+            }
+          },
+          "regression": {
+            "properties": {
+              "state": {
+                "const": "PASS"
+              },
+              "kind": {
+                "const": "BEHAVIORAL"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
