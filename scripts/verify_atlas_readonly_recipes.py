@@ -145,7 +145,8 @@ def verify_dev() -> dict[str, Any]:
         with (
             snowflake.connector.connect(
                 connection_name=CONNECTION,
-                authenticator="PROGRAMMATIC_ACCESS_TOKEN",  # never trigger external-browser fallback
+                # Never trigger external-browser fallback.
+                authenticator="PROGRAMMATIC_ACCESS_TOKEN",
                 paramstyle="pyformat",
                 login_timeout=15,
                 network_timeout=15,
