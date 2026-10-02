@@ -4,7 +4,11 @@ PR #551 merged at `4b2fb225d7c8ca1e005b60d93301f46ad3c410a8` after exact-head
 Quality passed all 1,901 tests. PR #550 is closed as superseded. DATA #443 / #496
 and API #84 remain open for separate live publication gates.
 
-## Exact pending migration and authority
+## Historical pre-apply preparation
+
+The pending set and access questions here describe preparation before V136 was
+applied. Completed application and service verification are recorded below;
+V136 is no longer pending in DEV.
 
 Reserved `V136__dev_january_climate_consumer_views.sql`. Main/open PRs showed no
 collision at preparation. DEV-only registration excludes V136 from PROD plans.
@@ -19,24 +23,45 @@ A successful read-only DEV ledger query through V135 yields exactly:
 
 SHOW GRANTS reports that the existing DEV migration role owns PRESENTATION and
 inherits DEV OWNER. V099/V103 define release-table/revision SELECT dependencies;
-effective service-session access still needs proof. Missing visibility never
+effective service-session access was unproved at preparation. Missing visibility never
 authorizes grants or proves missing data.
 
-Present this exact set, reviewed head and passing checks to topology owner
-`01a0f0b0` before the protected `deploy-dev.yml` dispatch. Refresh the ledger
-immediately before dispatch and retain its strict pending-set guard. This draft
-has not dispatched or executed DDL and adds no reader grants.
+This exact set, reviewed head and passing checks were presented before the
+protected `deploy-dev.yml` dispatch coordinated with topology owner `01a0f0b0`.
+The refreshed ledger and strict pending-set guard permitted only V136. It has
+since been applied; no reader grants were added.
 
 Read-only replacement preflight on 2026-10-02 used ATLAS_DEV_OWNER. The successful
 identity query returned MATTHEWCARAWAY / OH_LYME_DEV_OWNER /
 ONE_HEALTH_LYME_GAP_ATLAS_DEV / OH_LYME_DEV_INGEST_XS_WH. Successful
 `SHOW VIEWS LIKE 'CURRENT_CLIMATE_%' IN SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.PRESENTATION`
-returned zero rows, covering both exact target names:
+returned zero visible rows for both exact target names:
 `CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V` and
-`CURRENT_CLIMATE_MEASURE_METADATA_V`. There are no existing matching definitions
-or object grants to preserve in this inspected state. Repeat immediately before
-apply; if either object appears, inspect its DDL and grants and review an exact
-preservation plan before CREATE OR REPLACE. This is DEV evidence only.
+`CURRENT_CLIMATE_MEASURE_METADATA_V`. Postapply evidence established that this
+OWNER role cannot inspect the migration-owned views: its SHOW remained empty
+and GET_DDL returned 002003. The original observation was privilege-filtered,
+not catalog-complete absence proof. Future replacement preflight must use the
+effective protected service/view-owner identity; inspect existing DDL and grants
+and review an exact preservation plan before CREATE OR REPLACE.
+
+V136 was applied alone by protected run `36946561555`, with checksum
+`f3a33d21cba33f27a4e1683b65f9295f33c796f445c8c9ed82c84bd16948b2c2`.
+Read-only protected service run `36948833775` then verified the ledger checksum,
+GET_DDL and DESCRIBE for both views, both complete AS bodies against the reviewed
+SQL (preserving string literals), and successful COUNT(*) = 0 for each.
+Observations has 45 columns; metadata has 14. Existing grants show OWNERSHIP
+only, with no SELECT grant on either view. API reader proof remains unresolved;
+this diagnostic grants nothing and does not establish PROD availability.
+
+Bounded service-user history returned just the two successful V136 CREATE_VIEW
+statements, at 00:35:08.625 and 00:35:09.140 UTC on 2026-10-02. Current catalog
+creation times agree. There is no evidence of earlier definitions or grants in
+that scope, but CREATE OR REPLACE resets creation metadata and can drop grants.
+The current user's latest 10,000 queries over seven days (up to 100 returned
+matching statements) are not account-complete history. Earlier objects/grants
+outside that scope cannot be ruled out; no restoration is proposed without real
+prior definitions/grants. No validation tables were visible in the diagnostic
+session; fixture run `36946156651` separately confirmed successful DROP cleanup.
 
 ## Prepared fixture-only live checks
 
