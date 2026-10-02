@@ -1,0 +1,53 @@
+# DATA377 final owner-contract integration
+
+Base: DATA372 merge `b7493e1aaef9c4f8107a9439a757dc3c23e83cb4`.
+DATA376 final consumer tests merged through PR565 at
+`f28efd9d510ea117d774846292ead8f6bb3e8603`.
+Historical expected outcomes remain byte-unchanged from the pre-implementation
+freeze `3c81b471c802b1ad7e9361740319bd7cbeb50b4b`.
+
+`tests/test_delivery_snapshot_integration.py` consumes the final published current
+DEV snapshot through `validate_snapshot` and `report`, plus all four historical
+packets through mandatory `validate_packet` and `review_context`. Fixed capture
+times make these offline regressions repeatable. Expiry, tampering and mixed-source
+comparisons use in-memory copies; no destructive live failure is induced.
+The independently merged DATA376 offline companion receipt at
+`581ea524f223c468422716d1cc368158aa59b45d` is also consumed through mandatory
+packet validation. Its behavioral client proof remains distinct from UNKNOWN
+engine/repair, identity and role evidence; original historical packets are intact.
+
+The opt-in runtime adapter contract in draft PR568 at
+`88c2d28259334f2ef24073715b33da1fbd526920` was read for integration planning.
+Its default-disabled collection, bounded exclusive private sink and preserved
+original rollback/exception behavior require final independent review before
+capstone integration. It is not merged or claimed deployed by this consumer PR.
+The DATA376 owner is preparing the existing-DEV replay scope packet; this work
+does not duplicate that request or attempt negative grant/write proofs.
+
+| Capstone boundary | Final consumer result |
+| --- | --- |
+| #336 connector batch / #353 procedure binding | Historical repair UNKNOWN; metadata cannot supply absent behavior |
+| #365 canonical coverage | Frozen county fixture unchanged; metadata cannot supply parity semantics |
+| #366 runtime authority | Frozen sanitized denial BLOCKED; invisible authority remains UNKNOWN |
+| Missing mandatory context | Existing path regression remains BLOCKED |
+| Stale context | Final DATA372 observation expires after reviewed TTL; refresh required |
+| Tampered and mixed-source evidence | Integrity mismatch or non-live comparison; consequential use blocked |
+| Final DATA372/DATA376 integration | Both reviewed APIs and published artifacts consumed without owner implementation edits |
+
+DATA372's actual DEV capture remains partial, with PROD unverified and no selected
+procedures. Empty grants are not absence proof. Metadata is not row lineage and
+never becomes observed functional capability or runtime authority. Its original
+capture workload and UTC provenance remain intact; the capstone does not relabel
+the observation with its own commit. See
+[DATA372 acceptance handoff](data372-evidence-2026-10-02.md).
+
+DATA374 runtime evidence was independently reviewed in PR567 at
+`c48d26c9661c2324f45074dfa15f004dd7ed2aa1` and merged at
+`ae974e5cdae3dc3935b9804714d94de0a812c533`: installed root/nested discovery,
+bounded metadata routing and actual DEV SELECT/anonymous scripting/CTE recipes.
+Exact CI36983907479 passed before its authorized normal merge.
+End-to-end skill execution, interactive/assembled-workspace discovery, bulk INSERT,
+exact procedure caller/owner binding, role allow/deny, replacement grants/bootstrap
+and V098 procedure execution remain unverified. These gaps prevent a claim of
+complete capstone acceptance. No new credentials, grants, migrations, deployment
+or snapshot/evidence-owner implementation changes are introduced.

@@ -34,6 +34,7 @@ from .database import provision as provision_database
 from .database import status as database_status
 from .database import validate_loaded
 from .discovery import initial_requests, load_search_configuration
+from .failure_runtime import collect_runtime_failure
 from .ingestion import (
     AdapterKind,
     FileCheckpointStore,
@@ -335,9 +336,21 @@ def settings_check() -> None:
 @pipeline_app.command("semantic-release-build")
 def semantic_release_build_command(
     manifest: Path = typer.Option(..., "--manifest", exists=True, dir_okay=False),  # noqa: B008
+    failure_context: Path | None = typer.Option(None, "--failure-context"),  # noqa: B008
+    failure_packet: Path | None = typer.Option(None, "--failure-packet"),  # noqa: B008
 ) -> None:
     """Build one source-pinned semantic release candidate."""
-    typer.echo(json.dumps(build_semantic_release(_settings(), manifest), default=str))
+    try:
+        result = build_semantic_release(_settings(), manifest)
+    except Exception:
+        # The builder has already handled its transaction. Optional collection
+        # must not render the exception or replace its original traceback.
+        with suppress(Exception):
+            outcome = collect_runtime_failure(failure_context, failure_packet)
+            if outcome != "DISABLED":
+                typer.echo(f"Failure evidence: {outcome}", err=True)
+        raise
+    typer.echo(json.dumps(result, default=str))
 
 
 @pipeline_app.command("semantic-release-publish")
