@@ -237,6 +237,29 @@ def test_wrong_open_descriptor_rejected_before_read(tmp_path, monkeypatch):
     context = context_file(tmp_path)
     other = tmp_path / "other"
     other.write_bytes(context.read_bytes())
+    original = failure_runtime.os.fdopen
+    reads = []
+
+    class TrackedReader:
+        def __init__(self, descriptor):
+            self.stream = original(descriptor, "rb")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def read(self, limit):
+            reads.append(limit)
+            return self.stream.read(limit)
+
+    monkeypatch.setattr(
+        failure_runtime.os, "fdopen", lambda descriptor, mode: TrackedReader(descriptor)
+    )
     monkeypatch.setattr(
         failure_runtime, "_open_no_follow", lambda path: os.open(other, os.O_RDONLY)
     )
@@ -245,6 +268,7 @@ def test_wrong_open_descriptor_rejected_before_read(tmp_path, monkeypatch):
         == "COLLECTION_UNAVAILABLE"
     )
     assert not (tmp_path / "out").exists()
+    assert reads == []
 
 
 def test_failed_writer_never_deletes_replacement(tmp_path, monkeypatch):

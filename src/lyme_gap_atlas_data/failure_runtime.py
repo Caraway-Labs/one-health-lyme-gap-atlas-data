@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,58 +14,63 @@ from .failure_evidence import collect_failure, validate_packet
 MAX_PACKET_BYTES = 32_768
 
 
+if sys.platform == "win32":
+
+    def _open_windows_no_follow(path: Path) -> int:
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        class AttributeTag(ctypes.Structure):
+            _fields_ = [("attributes", wintypes.DWORD), ("tag", wintypes.DWORD)]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.GetFileInformationByHandleEx.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        kernel.GetFileInformationByHandleEx.restype = wintypes.BOOL
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        # GENERIC_READ, FILE_SHARE_READ (deny rename/write while open),
+        # OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT. No privileges are adjusted.
+        handle = kernel.CreateFileW(str(path), 0x80000000, 1, None, 3, 0x00200000, None)
+        if handle == ctypes.c_void_p(-1).value or handle is None:
+            raise ValueError("failure collection unavailable")
+        try:
+            info = AttributeTag()
+            # FileAttributeTagInfo = 9; reject every reparse point before reading.
+            if not kernel.GetFileInformationByHandleEx(
+                handle, 9, ctypes.byref(info), ctypes.sizeof(info)
+            ):
+                raise ValueError("failure collection unavailable")
+            if info.attributes & 0x00000400:
+                raise ValueError("failure collection unavailable")
+            return msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        except BaseException:
+            kernel.CloseHandle(handle)
+            raise
+
+
 def _open_no_follow(path: Path) -> int:
     """Open the final path component without following links on Windows/POSIX."""
-    if os.name != "nt":
-        if not hasattr(os, "O_NOFOLLOW"):
-            raise ValueError("failure collection unavailable")
-        return os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
-
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    class AttributeTag(ctypes.Structure):
-        _fields_ = [("attributes", wintypes.DWORD), ("tag", wintypes.DWORD)]
-
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.CreateFileW.argtypes = [
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        wintypes.LPVOID,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        wintypes.HANDLE,
-    ]
-    kernel.CreateFileW.restype = wintypes.HANDLE
-    kernel.GetFileInformationByHandleEx.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        wintypes.LPVOID,
-        wintypes.DWORD,
-    ]
-    kernel.GetFileInformationByHandleEx.restype = wintypes.BOOL
-    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel.CloseHandle.restype = wintypes.BOOL
-    # GENERIC_READ, FILE_SHARE_READ (deny rename/write while open),
-    # OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT. No privileges are adjusted.
-    handle = kernel.CreateFileW(str(path), 0x80000000, 1, None, 3, 0x00200000, None)
-    if handle == ctypes.c_void_p(-1).value or handle is None:
+    if sys.platform == "win32":
+        return _open_windows_no_follow(path)
+    if not hasattr(os, "O_NOFOLLOW"):
         raise ValueError("failure collection unavailable")
-    try:
-        info = AttributeTag()
-        # FileAttributeTagInfo = 9; reject every reparse point before reading.
-        if not kernel.GetFileInformationByHandleEx(
-            handle, 9, ctypes.byref(info), ctypes.sizeof(info)
-        ):
-            raise ValueError("failure collection unavailable")
-        if info.attributes & 0x00000400:
-            raise ValueError("failure collection unavailable")
-        return msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
-    except BaseException:
-        kernel.CloseHandle(handle)
-        raise
+    return os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
 
 
 def _regular_with_identity(info: os.stat_result) -> bool:
