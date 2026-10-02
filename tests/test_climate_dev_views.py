@@ -36,6 +36,19 @@ def test_comparison_preserves_variant_keys_and_quoted_identifiers() -> None:
     )
 
 
+def test_comparison_preserves_token_separators_including_comments() -> None:
+    body = MODULE["body"]
+    assert body("CREATE VIEW V AS SELECT record:value AS value FROM t") != body(
+        "CREATE VIEW V AS SELECT record:valueASvalue FROM t"
+    )
+    assert body("CREATE VIEW V AS SELECT a/* separator */AS value FROM t") == body(
+        "CREATE VIEW V AS SELECT a AS value FROM t"
+    )
+    assert body("CREATE VIEW V AS SELECT a/* separator */AS value FROM t") != body(
+        "CREATE VIEW V AS SELECT aASvalue FROM t"
+    )
+
+
 def test_reviewed_view_split_keeps_literal_and_comment_semicolons() -> None:
     sql = (ROOT / "sql/january_climate_consumer_views.sql").read_text()
     reviewed = MODULE["proposals"](sql)

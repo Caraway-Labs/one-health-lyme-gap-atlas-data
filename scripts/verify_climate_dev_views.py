@@ -22,14 +22,14 @@ CHECKSUM = "f3a33d21cba33f27a4e1683b65f9295f33c796f445c8c9ed82c84bd16948b2c2"
 def body(sql: str) -> str:
     token_pattern = r"('(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*.*?\*/)"
     tokens = re.split(token_pattern, sql, flags=re.S)
-    sql = "".join(part for part in tokens if not part.startswith(("--", "/*")))
+    sql = "".join(" " if part.startswith(("--", "/*")) else part for part in tokens)
     match = re.search(r"\bAS\s+((?:WITH|SELECT)\b.*)", sql, re.I | re.S)
     if not match:
         raise ValueError("CLIMATE_VIEW_BODY")
     parts = re.split(token_pattern, match[1].rstrip().rstrip(";"), flags=re.S)
     return "".join(
-        part if index % 2 else re.sub(r"\s+", "", part) for index, part in enumerate(parts)
-    )
+        part if index % 2 else re.sub(r"\s+", " ", part) for index, part in enumerate(parts)
+    ).strip()
 
 
 def proposals(sql: str) -> list[str]:
