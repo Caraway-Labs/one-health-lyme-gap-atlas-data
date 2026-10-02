@@ -312,7 +312,11 @@ def test_schema_file_matches_runtime_and_tamper_report(facts):
     path = Path("docs/contracts/snowflake-snapshots/v1.schema.json")
     assert json.loads(path.read_text()) == snapshot_schema()
     value = make(facts)
-    value["semantic_hash"] = "0" * 64
-    assert any(x["subject"] == "semantic_hash" for x in report(value, now=NOW)["findings"])
+    forged_token = "a1" * 32
+    value["semantic_hash"] = forged_token
+    result = report(value, now=NOW)
+    assert any(x["subject"] == "semantic_hash" for x in result["findings"])
+    assert forged_token not in json.dumps(result)
+    assert result["semantic_hash"] == evidence_hash(value)
     value["semantic_hash"] = evidence_hash(value)
     assert digest(value["scope"]) == value["scope_hash"]

@@ -763,7 +763,7 @@ def report(
     return {
         "report_version": 1,
         "environment": observed["environment"],
-        "semantic_hash": observed["semantic_hash"],
+        "semantic_hash": evidence_hash(observed),
         "mutation_started": False,
         "consequential_use": "blocked" if findings else "eligible_evidence_only",
         "findings": findings,
