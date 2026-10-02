@@ -13,7 +13,7 @@ import yaml  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
-from .migrations import load_migrations
+from .migrations import DEV_ONLY_MIGRATION_VERSIONS, PROD_ONLY_MIGRATION_VERSIONS, load_migrations
 
 Status = Literal["PASS", "BLOCKED", "UNKNOWN"]
 ENVIRONMENTS = {"dev", "prod"}
@@ -65,6 +65,22 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
             or not set(item["required_migrations"]) <= known_migrations
         ):
             raise ValueError(f"Operation {name} references a missing migration")
+        scoped = item.get("required_migrations_by_environment", {})
+        if not isinstance(scoped, dict) or not set(scoped) <= ENVIRONMENTS:
+            raise ValueError(f"Operation {name} has invalid migration environments")
+        for environment in ENVIRONMENTS:
+            extra = scoped.get(environment, [])
+            if not isinstance(extra, list) or not all(isinstance(v, str) for v in extra):
+                raise ValueError(f"Operation {name} requires a scoped migration list")
+            if not set(extra) <= known_migrations:
+                raise ValueError(f"Operation {name} references a missing scoped migration")
+            excluded = (
+                PROD_ONLY_MIGRATION_VERSIONS
+                if environment == "dev"
+                else DEV_ONLY_MIGRATION_VERSIONS
+            )
+            if excluded.intersection(item["required_migrations"] + extra):
+                raise ValueError(f"Operation {name} has a migration outside {environment} scope")
         if not isinstance(item["object_capabilities"], list) or not item["object_capabilities"]:
             raise ValueError(f"Operation {name} requires bounded object capabilities")
         if name == "governed_source_run" and item["authority"] == item["executor"]:
@@ -90,7 +106,12 @@ def operation_plan(contract: dict[str, Any], *, operation: str, environment: str
         "expected_executor_role": aliases[item["executor"]].replace("{ENV}", env),
         "expected_inspector_role": aliases["read"].replace("{ENV}", env),
         "grant_authority_role": aliases[item["authority"]].replace("{ENV}", env),
-        "required_migrations": item["required_migrations"],
+        "required_migrations": list(
+            dict.fromkeys(
+                item["required_migrations"]
+                + item.get("required_migrations_by_environment", {}).get(environment, [])
+            )
+        ),
         "object_capabilities": item["object_capabilities"],
         "approval": item["approval"],
     }

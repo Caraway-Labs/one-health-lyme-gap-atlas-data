@@ -24,11 +24,11 @@ def test_missing_runtime_insert_and_grant_authority_are_not_conflated() -> None:
         environment="prod",
         observed={
             "identity": {
-                "role": "OH_LYME_PROD_OWNER",
+                "role": "OH_LYME_PROD_MIGRATION_DEPLOYER",
                 "database": "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
             },
-            "applied_migrations": ["V071", "V072", "V073"],
-            "capabilities": {"PRESENTATION.GOVERNED_RELEASES:INSERT": False},
+            "applied_migrations": ["V071", "V072", "V073", "V099"],
+            "capabilities": {"PRESENTATION.SEMANTIC_RELEASES:INSERT": False},
             "approval": True,
         },
     )
@@ -43,6 +43,55 @@ def test_uninspected_facts_are_unknown_and_block_consequential_operation() -> No
     report = assess_operation(load_contract(), operation="api_read", environment="prod")
     assert report["status"] == "UNKNOWN"
     assert report["mutation_started"] is False
+
+
+def test_semantic_release_plan_keeps_v099_prod_only() -> None:
+    contract = load_contract()
+    for environment in ("dev", "prod"):
+        plan = operation_plan(contract, operation="semantic_release", environment=environment)
+        assert plan["expected_executor_role"] == (
+            f"OH_LYME_{environment.upper()}_MIGRATION_DEPLOYER"
+        )
+        assert plan["object_capabilities"] == ["PRESENTATION.SEMANTIC_RELEASES:INSERT"]
+        expected = ["V071", "V072", "V073"] + (["V099"] if environment == "prod" else [])
+        assert plan["required_migrations"] == expected
+        report = assess_operation(
+            contract,
+            operation="semantic_release",
+            environment=environment,
+            observed={"applied_migrations": ["V071", "V072", "V073"]},
+        )
+        findings = {item["check"]: item["status"] for item in report["findings"]}
+        assert findings["migration_dependencies"] == ("PASS" if environment == "dev" else "BLOCKED")
+        assert findings["effective_identity"] == "UNKNOWN"
+        assert findings["runtime_capability:PRESENTATION.SEMANTIC_RELEASES:INSERT"] == "UNKNOWN"
+        assert report["mutation_started"] is False
+
+
+@pytest.mark.parametrize(
+    "scoped",
+    [{"staging": ["V099"]}, {"dev": ["V099"]}, {"prod": ["V999"]}, {"prod": "V099"}],
+)
+def test_contract_rejects_invalid_environment_migration_dependencies(tmp_path, scoped) -> None:
+    import yaml
+
+    contract = deepcopy(load_contract())
+    contract["operations"]["semantic_release"]["required_migrations_by_environment"] = scoped
+    path = tmp_path / "contract.yml"
+    path.write_text(yaml.safe_dump(contract), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_contract(path)
+
+
+def test_shared_prod_only_migration_is_rejected(tmp_path) -> None:
+    import yaml
+
+    contract = deepcopy(load_contract())
+    contract["operations"]["semantic_release"]["required_migrations"].append("V099")
+    path = tmp_path / "contract.yml"
+    path.write_text(yaml.safe_dump(contract), encoding="utf-8")
+    with pytest.raises(ValueError, match="outside dev scope"):
+        load_contract(path)
 
 
 def test_read_only_inspector_does_not_claim_to_be_the_runtime_executor() -> None:

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "frozen_before_comparison": true,
+  "baseline": "c5a2310",
+  "evidence_class": "offline_fixture",
+  "cases": [
+    {"id": "336", "boundary": "connector executemany JSON/VARIANT and timestamps", "expected": "UNKNOWN", "reason": "Metadata preflight cannot prove real connector bulk binding; require pinned driver and engine execution."},
+    {"id": "353", "boundary": "SQL Scripting procedure parameter binding", "expected": "UNKNOWN", "reason": "Caller/owner rights and procedure invocation require distinct engine tests; connector evidence does not transfer."},
+    {"id": "365", "boundary": "canonical coverage", "expected": "UNKNOWN", "canonical": ["01001", "01003", "01005"], "source": ["01001", "01003", "01999"], "matches": ["01001", "01003"], "missing_unknown": ["01005"], "source_only": ["01999"], "reason": "Two of three canonical counties; source-only geography cannot satisfy the missing county. Metadata preflight cannot prove parity semantics."},
+    {"id": "366", "boundary": "runtime privilege versus grant authority", "expected": "BLOCKED", "runtime_object": "PRESENTATION.SEMANTIC_RELEASES:INSERT", "grant_authority": "UNKNOWN", "reason": "Observed denied runtime INSERT blocks assembly; invisible grant authority remains independently UNKNOWN."},
+    {"id": "missing-context", "boundary": "mandatory context reference", "expected": "BLOCKED", "reason": "Missing mandatory path must be actionable before consequential work."},
+    {"id": "stale-context", "boundary": "dated evidence freshness", "expected": "UNKNOWN", "reason": "Historical or stale observations cannot prove current readiness."}
+  ],
+  "integration_dependencies": {"372": "pending separate owner final snapshot interface", "376": "pending separate owner final failure packet interface"},
+  "review": "pending independent review; freeze commit is not reviewed acceptance"
+}

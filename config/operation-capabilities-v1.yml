@@ -21,9 +21,13 @@ operations:
     approval: tier_policy
   semantic_release:
     execution_mode: protected_workflow
-    executor: owner
+    # V071 defines protected assembly; V099 backs this mapping, not live identity proof.
+    executor: migration_deployer
     required_migrations: [V071, V072, V073]
-    object_capabilities: [PRESENTATION.GOVERNED_RELEASES:INSERT]
+    # V099 is production-only in the checksum-locked migration runner.
+    required_migrations_by_environment:
+      prod: [V099]
+    object_capabilities: [PRESENTATION.SEMANTIC_RELEASES:INSERT]
     authority: migration_deployer
     approval: protected_publication
   api_read:

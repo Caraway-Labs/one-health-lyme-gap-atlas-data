@@ -36,3 +36,11 @@ migration, and approval requirements; it never authorizes a mutation.
 This repository cannot prove current live grants, protected-workflow approval,
 or deployed artifact state from static files. Those facts require bounded,
 authorized observation and remain `UNKNOWN` until observed.
+
+Repository skills use a bounded declaration format: SKILL.md links its local
+`references/workflow.md`; index bullets declare repository-relative paths in
+backticks. The context checker reads every declaration and verifies local files
+or trailing-slash directories. It rejects missing paths, malformed/empty indexes,
+traversal, absolute paths, external URLs, fragments/queries and symlink escapes.
+It never executes commands or fetches references. This extends the existing
+credential-free check without implying live readiness.
