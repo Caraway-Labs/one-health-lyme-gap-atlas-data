@@ -2,7 +2,8 @@
 
 Draft PR: https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/564
 Implementation workload head: `2515a20099b60fab2ad6cb8ea8a4be4b6f83f83a`.
-Refreshed review base/main: `69b38ff26cbf40a7900852ffba0ed14de0e0c642`.
+Final observed review base/main: `9e236ef78d9559ed3918dcbeeaa4874d1033bba2`.
+First review refresh: `69b38ff26cbf40a7900852ffba0ed14de0e0c642`.
 Initial implementation/DEV capture base: `c5a23105719ac77f8abbca9b613b661654e22845`.
 Branch: `feat/data372-sanitized-snapshots`.
 No schema/data migrations, checksum edits, credentials/grants, Web edits or deployment changes.
@@ -31,7 +32,7 @@ four operation capabilities and role aliases, not comprehensive desired schema.
 | Partial visibility; empty metadata never absent | Strict live `partial`, unknown object/column/capability findings, observed alias-edge positives; missing category only complete ledger SELECT rows | Verified offline and DEV |
 | No public secrets, payloads, internal details | Allowlisted identifiers/enums, strict schema and hostile input tests, server-side safe DESCRIBE projection, private staging ignored by Git/Docker, full history scan | Verified offline |
 | Human/machine drift without remediation | JSON report and text renderer; missing/mismatched/unexpected/stale/unknown categories; mutation_started false; no readiness PASS | Verified offline |
-| Authorized DEV comparison; PROD separate | Existing ATLAS_DEV_READ identity probe and reproducible in-memory source comparison passed, 17 bounded queries | Verified DEV; PROD unverified |
+| Authorized DEV comparison; PROD separate | Existing ATLAS_DEV_READ identity probe and source comparison passed for archived workload/scope, 17 queries | Historical DEV verified; current corrected scope and PROD unverified |
 | Freshness before consequential use | Reviewed 24-hour TTL, future-time/integrity/current-contract checks; immediate live revalidation required despite TTL; stale/tampered baseline skipped | Verified offline |
 
 ## Checks
@@ -60,6 +61,20 @@ SHA. Final review uses fresh hosted Quality on the rebased checkout, rather than
 claiming the original implementation run tested the later main changes.
 After rebase: 21 focused tests passed (6.97s), mypy passed for 105 source files,
 Ruff lint/format passed for 413 files, agent-context and diff checks passed.
+
+The final refresh includes DATA376 (#563) and DATA374/377 (#561), preserved during
+a clean rebase. The latter corrects semantic assembly to
+`PRESENTATION.SEMANTIC_RELEASES:INSERT` by `migration_deployer` and adds PROD-only
+V099. Reviewed scope/schema and synthetic examples follow that current contract;
+dependency reporting uses the existing environment-specific operation plan.
+The earlier DEV artifacts remain byte-immutable with their explicitly archived
+schema/scope. They validate under those archived references, while the current
+CLI rejects their old scope as UNKNOWN/incomparable. Their original report is a
+historical comparison, not a current-contract assessment. Corrected-scope live
+DEV and PROD evidence are unverified; the one authorized historical DEV source
+comparison remains valid only for its recorded workload, contract and scope.
+Corrected-scope checks: 24 focused tests passed (7.68s), full mypy passed for
+106 source files, Ruff lint/format passed for 429 files, and context checks passed.
 
 ## Live and visibility limits
 

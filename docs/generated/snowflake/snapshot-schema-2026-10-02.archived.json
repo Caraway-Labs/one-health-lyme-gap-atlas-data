@@ -45,7 +45,7 @@
                 "enum": [
                   "GOVERNANCE.SCHEMA_MIGRATIONS",
                   "GOVERNANCE.INGESTION_RUNS",
-                  "PRESENTATION.SEMANTIC_RELEASES",
+                  "PRESENTATION.GOVERNED_RELEASES",
                   "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
                 ]
               },
@@ -185,7 +185,7 @@
                 "enum": [
                   "GOVERNANCE.SCHEMA_MIGRATIONS",
                   "GOVERNANCE.INGESTION_RUNS",
-                  "PRESENTATION.SEMANTIC_RELEASES",
+                  "PRESENTATION.GOVERNED_RELEASES",
                   "PRESENTATION.V_COUNTY_ATLAS_CURRENT",
                   "GOVERNANCE",
                   "PRESENTATION",
@@ -401,7 +401,7 @@
                 "enum": [
                   "GOVERNANCE.SCHEMA_MIGRATIONS",
                   "GOVERNANCE.INGESTION_RUNS",
-                  "PRESENTATION.SEMANTIC_RELEASES",
+                  "PRESENTATION.GOVERNED_RELEASES",
                   "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
                 ]
               },
@@ -580,7 +580,7 @@
             ],
             "kind": "BASE TABLE"
           },
-          "PRESENTATION.SEMANTIC_RELEASES": {
+          "PRESENTATION.GOVERNED_RELEASES": {
             "columns": [
               "RELEASE_ID"
             ],

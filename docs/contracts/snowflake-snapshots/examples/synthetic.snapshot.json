@@ -56,7 +56,7 @@
       }
     ]
   },
-  "contract_hash": "c1a5e62ea8844fc7474d667e36655f8d5c434fbcb708813c15cd14c74dde9a78",
+  "contract_hash": "310edc2031286ae371042431b2b20db50393a1278afdf630d773e42edbf03307",
   "contract_version": 1,
   "environment": "dev",
   "exporter_version": 1,
@@ -81,7 +81,7 @@
         ],
         "kind": "BASE TABLE"
       },
-      "PRESENTATION.GOVERNED_RELEASES": {
+      "PRESENTATION.SEMANTIC_RELEASES": {
         "columns": [
           "RELEASE_ID"
         ],
@@ -95,8 +95,8 @@
     "procedures": {},
     "version": 1
   },
-  "scope_hash": "581d8b002340e76b10ba945952bddada01f849b99599dd872e027d355b63d6ca",
-  "semantic_hash": "8ae891cb7a3bff27c890b469358a140e5054f440d7ab0d6a38f66d0f5d9ea97a",
+  "scope_hash": "f3d4b2458b7fdb16d8aa7590c7f851e824c8815623a8551727d5fb1f66ac00e2",
+  "semantic_hash": "46186fc1ea4fc871a113b03f1e7ba3ee9f4d3c71043f43220ce61d8b2de45b01",
   "snapshot_version": 1,
   "source": "synthetic",
   "unavailable": [],

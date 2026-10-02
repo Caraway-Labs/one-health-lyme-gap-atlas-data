@@ -9,6 +9,10 @@ Dependencies #370/#371 closed through #379. Their actual desired contract is
 role aliases. It is not a comprehensive desired schema. This exporter compares
 those capabilities; column/procedure observations and baseline changes are
 separate evidence, not invented desired scientific or product requirements.
+The integrated DATA374/377 correction maps semantic assembly to
+`PRESENTATION.SEMANTIC_RELEASES:INSERT` by `migration_deployer`, with PROD-only
+V099. The reviewed scope follows that current object, and dependency checks use
+the existing environment-specific operation plan.
 
 The initial scope covers the four operation objects and explicitly listed key
 columns. The county view's presence/kind is its safe signature; its definition
@@ -87,6 +91,14 @@ into proposed `docs/generated/snowflake/`. Restricted identifiers stay in an
 approved private artifact, referenced by a safe opaque evidence ID in review
 notes; do not commit internal paths or raw source responses. Fixture examples
 are labeled synthetic and are not live DEV/PROD evidence.
+The published `dev-2026-10-02.*` artifacts are immutable historical observations
+from the earlier contract/scope. Their archived schema and scope are
+`docs/generated/snowflake/snapshot-schema-2026-10-02.archived.json` and
+`metadata-scope-2026-10-02.archived.json` in the same directory. Validate them only
+against those explicitly archived references. The current CLI rejects their old
+scope as UNKNOWN/incomparable; their original report does not reflect the updated
+desired contract. No live corrected-scope DEV or PROD capture is claimed. Refresh
+through the existing authorized read route before consequential use.
 
 Protected CI refresh proposal: manual dispatch at a reviewed exact SHA, using
 an existing separately approved least-privilege audit identity in protected DEV

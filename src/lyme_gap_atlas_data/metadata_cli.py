@@ -82,6 +82,6 @@ def metadata_report(
         prior = json.loads(baseline.read_text(encoding="utf-8")) if baseline else None
         result = report(value, now=datetime.now(UTC), baseline=prior)
     except Exception:
-        typer.echo("Metadata report rejected; invalid or unreviewed evidence.", err=True)
+        typer.echo("UNKNOWN: metadata report rejected; invalid or incomparable evidence.", err=True)
         raise typer.Exit(1) from None
     typer.echo(render_report(result), nl=False)

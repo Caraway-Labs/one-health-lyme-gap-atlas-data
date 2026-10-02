@@ -233,6 +233,44 @@ def test_missing_migration_only_complete_ledger(facts):
     )
 
 
+def test_current_semantic_assembly_contract_and_prod_only_dependency(facts):
+    from lyme_gap_atlas_data.operation_capabilities import load_contract
+
+    contract = load_contract()
+    assert "PRESENTATION.SEMANTIC_RELEASES" in load_scope()["objects"]
+    assert contract["operations"]["semantic_release"]["executor"] == "migration_deployer"
+    facts["identity"]["environment"] = "prod"
+    facts["ledger_complete"] = True
+    value = snapshot(facts, environment="prod", code_commit=HEAD, generated_at=NOW)
+    result = report(value, now=NOW)
+    assert any(
+        x["category"] == "missing" and x["subject"] == "semantic_release:V099"
+        for x in result["findings"]
+    )
+    facts["identity"]["environment"] = "dev"
+    assert not any(
+        x["subject"] == "semantic_release:V099" for x in report(make(facts), now=NOW)["findings"]
+    )
+
+
+def test_historical_dev_scope_is_archived_and_incomparable():
+    import jsonschema
+
+    folder = Path("docs/generated/snowflake")
+    value = json.loads((folder / "dev-2026-10-02.snapshot.json").read_text())
+    archived_scope = json.loads((folder / "metadata-scope-2026-10-02.archived.json").read_text())
+    archived_schema = json.loads((folder / "snapshot-schema-2026-10-02.archived.json").read_text())
+    jsonschema.Draft202012Validator(archived_schema).validate(value)
+    validate_snapshot(value, scope=archived_scope)
+    with pytest.raises(ValueError, match="public contract"):
+        validate_snapshot(value)
+    result = report(value, now=NOW + timedelta(hours=7), scope=archived_scope)
+    assert any(
+        x["subject"] == "contract_or_scope" and x["category"] == "mismatched"
+        for x in result["findings"]
+    )
+
+
 @pytest.mark.parametrize("key", ["scope", "content", "unavailable", "generated_at"])
 def test_untrusted_snapshot_cannot_leak_values(facts, key):
     value = make(facts)

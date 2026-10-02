@@ -677,7 +677,10 @@ def report(
             add("mismatched", signature, "execution mode or return type differs")
     for operation in sorted(contract["operations"]):
         item = contract["operations"][operation]
-        for version in item["required_migrations"]:
+        dependencies = operation_plan(
+            contract, operation=operation, environment=observed["environment"]
+        )["required_migrations"]
+        for version in dependencies:
             if not any(x["version"] == version for x in content["migrations"]):
                 add(
                     "missing" if observed["ledger_complete"] else "unknown",

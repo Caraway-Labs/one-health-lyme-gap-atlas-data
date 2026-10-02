@@ -30,12 +30,12 @@
     {
       "category": "unknown",
       "reason": "not visible; empty role-filtered result cannot prove absence",
-      "subject": "PRESENTATION.GOVERNED_RELEASES"
+      "subject": "PRESENTATION.SEMANTIC_RELEASES"
     },
     {
       "category": "unknown",
       "reason": "reviewed column not visible or unsupported metadata",
-      "subject": "PRESENTATION.GOVERNED_RELEASES.RELEASE_ID"
+      "subject": "PRESENTATION.SEMANTIC_RELEASES.RELEASE_ID"
     },
     {
       "category": "unknown",
@@ -85,7 +85,7 @@
     {
       "category": "unknown",
       "reason": "direct/inherited evidence incomplete; no absence inference",
-      "subject": "semantic_release:PRESENTATION.GOVERNED_RELEASES:INSERT"
+      "subject": "semantic_release:PRESENTATION.SEMANTIC_RELEASES:INSERT"
     },
     {
       "category": "unexpected",
@@ -105,5 +105,5 @@
   ],
   "mutation_started": false,
   "report_version": 1,
-  "semantic_hash": "8ae891cb7a3bff27c890b469358a140e5054f440d7ab0d6a38f66d0f5d9ea97a"
+  "semantic_hash": "46186fc1ea4fc871a113b03f1e7ba3ee9f4d3c71043f43220ce61d8b2de45b01"
 }
