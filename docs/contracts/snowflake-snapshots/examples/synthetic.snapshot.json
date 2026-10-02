@@ -1,0 +1,104 @@
+{
+  "code_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "content": {
+    "columns": [
+      {
+        "character_maximum_length": 16777216,
+        "name": "STATUS",
+        "nullable": false,
+        "object": "GOVERNANCE.INGESTION_RUNS",
+        "ordinal_position": 6,
+        "type": "TEXT"
+      }
+    ],
+    "future_grants": [
+      {
+        "grant_option": false,
+        "kind": "TABLE",
+        "object": "GOVERNANCE.<TABLE>",
+        "privilege": "INSERT",
+        "role": "runtime"
+      }
+    ],
+    "grants": [
+      {
+        "grant_option": false,
+        "kind": "TABLE",
+        "object": "GOVERNANCE.INGESTION_RUNS",
+        "privilege": "INSERT",
+        "role": "owner"
+      }
+    ],
+    "migrations": [],
+    "objects": [
+      {
+        "kind": "BASE TABLE",
+        "name": "GOVERNANCE.INGESTION_RUNS",
+        "owner": "owner"
+      }
+    ],
+    "omissions": [
+      "account_database_roles",
+      "data_rows",
+      "external_role_hierarchy",
+      "procedure_bodies",
+      "secondary_roles",
+      "unreviewed_columns",
+      "unreviewed_identifiers",
+      "unreviewed_procedures",
+      "view_bodies"
+    ],
+    "procedures": [],
+    "role_edges": [
+      {
+        "child": "owner",
+        "parent": "runtime"
+      }
+    ]
+  },
+  "contract_hash": "c1a5e62ea8844fc7474d667e36655f8d5c434fbcb708813c15cd14c74dde9a78",
+  "contract_version": 1,
+  "environment": "dev",
+  "exporter_version": 1,
+  "generated_at": "2026-10-02T00:00:00+00:00",
+  "inspected_role": "read",
+  "ledger_complete": false,
+  "scope": {
+    "maximum_age_hours": 24,
+    "objects": {
+      "GOVERNANCE.INGESTION_RUNS": {
+        "columns": [
+          "INGESTION_RUN_ID",
+          "RESOURCE_KEY",
+          "STATUS"
+        ],
+        "kind": "BASE TABLE"
+      },
+      "GOVERNANCE.SCHEMA_MIGRATIONS": {
+        "columns": [
+          "VERSION",
+          "SHA256"
+        ],
+        "kind": "BASE TABLE"
+      },
+      "PRESENTATION.GOVERNED_RELEASES": {
+        "columns": [
+          "RELEASE_ID"
+        ],
+        "kind": "BASE TABLE"
+      },
+      "PRESENTATION.V_COUNTY_ATLAS_CURRENT": {
+        "columns": [],
+        "kind": "VIEW"
+      }
+    },
+    "procedures": {},
+    "version": 1
+  },
+  "scope_hash": "581d8b002340e76b10ba945952bddada01f849b99599dd872e027d355b63d6ca",
+  "semantic_hash": "8ae891cb7a3bff27c890b469358a140e5054f440d7ab0d6a38f66d0f5d9ea97a",
+  "snapshot_version": 1,
+  "source": "synthetic",
+  "unavailable": [],
+  "visibility": "partial"
+}
