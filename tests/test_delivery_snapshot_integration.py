@@ -99,3 +99,23 @@ def test_synthetic_baseline_does_not_upgrade_final_live_observation():
     assert result["baseline_source"] == "synthetic"
     assert result["comparison_kind"] == "mixed_source_non_live"
     assert result["consequential_use"] == "blocked"
+
+
+def test_reviewed_offline_driver_receipt_does_not_upgrade_engine_repair():
+    original = json.loads((ROOT / "docs/delivery/failures/pr-336.json").read_text(encoding="utf-8"))
+    companion = json.loads(
+        (
+            ROOT / "docs/delivery/failure-reproduction-receipts/pr-336-client-binding-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    for packet in (original, companion):
+        validate_packet(packet)
+        assert packet["repair"]["state"] == CASES["336"]["expected"]
+        assert packet["identity"]["workload_sha"]["state"] == "UNKNOWN"
+        assert packet["effective_role"]["state"] == "UNKNOWN"
+        assert review_context(packet)["missing_check"] == "DRIVER_BATCH_EXECUTION"
+    assert original["regression"]["kind"] == "STATIC"
+    assert companion["regression"]["kind"] == "BEHAVIORAL"
+    assert companion["regression"]["state"] == "PASS"
+    value = observed()
+    assert report(value, now=capture_time(value))["consequential_use"] == "blocked"

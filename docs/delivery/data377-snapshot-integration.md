@@ -11,6 +11,18 @@ DEV snapshot through `validate_snapshot` and `report`, plus all four historical
 packets through mandatory `validate_packet` and `review_context`. Fixed capture
 times make these offline regressions repeatable. Expiry, tampering and mixed-source
 comparisons use in-memory copies; no destructive live failure is induced.
+The independently merged DATA376 offline companion receipt at
+`581ea524f223c468422716d1cc368158aa59b45d` is also consumed through mandatory
+packet validation. Its behavioral client proof remains distinct from UNKNOWN
+engine/repair, identity and role evidence; original historical packets are intact.
+
+The opt-in runtime adapter contract in draft PR568 at
+`88c2d28259334f2ef24073715b33da1fbd526920` was read for integration planning.
+Its default-disabled collection, bounded exclusive private sink and preserved
+original rollback/exception behavior require final independent review before
+capstone integration. It is not merged or claimed deployed by this consumer PR.
+The DATA376 owner is preparing the existing-DEV replay scope packet; this work
+does not duplicate that request or attempt negative grant/write proofs.
 
 | Capstone boundary | Final consumer result |
 | --- | --- |
