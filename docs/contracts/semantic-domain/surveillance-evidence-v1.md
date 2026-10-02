@@ -30,7 +30,8 @@ period; no freshness threshold or current-status inference is introduced.
 
 ## Executable review boundary
 
-All calls without `fixture_mode=True` fail. Fixture mode also requires a
+All calls without literal boolean `fixture_mode=True` fail; truthy strings,
+numbers and containers do not enable fixture mode. Fixture mode also requires a
 validated reported observation with a `fixture-` source-version identity and an
 explicit canonical tick taxon. Stronger states require an assertion bound to the
 exact observation key/revision plus definition, eligibility-rule and criteria

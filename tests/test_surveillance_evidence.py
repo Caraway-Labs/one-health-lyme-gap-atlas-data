@@ -118,6 +118,16 @@ def test_unreviewed_scientific_use_is_disabled_and_real_source_cannot_use_fixtur
         evidence_fixture(o, m, fixture_mode=True)
 
 
+@pytest.mark.parametrize("mode", [False, None, 0, 1, "true", "false", [], [True], {}, {"on": True}])
+@pytest.mark.parametrize("boundary", [evidence_fixture, project_evidence_fixture])
+def test_fixture_mode_requires_literal_true_at_both_boundaries(mode, boundary):
+    o, m = fixture()
+    before = copy.deepcopy(o)
+    with pytest.raises(ValueError, match="scientific review pending"):
+        boundary(o, m, fixture_mode=mode)
+    assert o == before
+
+
 def test_companion_projection_excludes_private_proof_and_keeps_no_records_literal():
     o, m = fixture(value="No records", state="NO_RECORDS")
     o["temporal"]["warehouse_path"] = "private-temporal-fixture"

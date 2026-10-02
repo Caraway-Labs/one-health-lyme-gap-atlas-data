@@ -45,7 +45,7 @@ def evidence_fixture(
     This does not infer states from a value and cannot run against real sources.
     Missing/incomplete assertions abstain. Conflicting scope fails closed.
     """
-    if not fixture_mode:
+    if fixture_mode is not True:
         raise ValueError("DATA429 scientific review pending; production classification disabled")
     validate_observation(observation, measure)
     provenance = observation["provenance"]
