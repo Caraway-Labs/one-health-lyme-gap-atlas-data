@@ -20,6 +20,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_climate_views:
+        description: Read-only DEV postapply view definitions, grants, counts and bounded history
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -63,6 +68,16 @@ jobs:
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
+          if [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ]; then
+            if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ]; then
+              echo 'Choose one diagnostic mode.' >&2
+              exit 2
+            fi
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            uv run python scripts/verify_climate_dev_views.py
+            exit 0
+          fi
           if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ]; then
             if [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ]; then
               echo 'Choose one diagnostic mode.' >&2
@@ -103,6 +118,7 @@ jobs:
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
+          DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
