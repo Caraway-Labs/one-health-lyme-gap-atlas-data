@@ -6,8 +6,10 @@ role, environment validation, snapshot exporter or failure collector is changed.
 These skills route to existing implementations; they do not install a second
 SQL executor or deployment engine. Repository discovery follows
 https://developers.openai.com/codex/skills/ (`.agents/skills` from launch directory
-through repository ancestors). Installed launch-mode discovery and prompt selection
-remain unverified in this execution session; Codex CLI is not on PATH.
+through repository ancestors). Subsequent installed discovery, metadata routing
+and bounded DEV reads are recorded in
+[runtime verification](data374-readonly-verification.md). End-to-end skill execution
+and interactive/assembled-workspace discovery remain unverified.
 
 | Recipe | Existing implementation / regression context | Required proof |
 | --- | --- | --- |
@@ -17,8 +19,10 @@ remain unverified in this execution session; Codex CLI is not on PATH.
 | Canonical county coverage | V098; #365 | Fixture canonical 01001/01003/01005, source 01001/01003/01999: two of three, missing 01005 UNKNOWN, 01999 source-only/unallocated. |
 | Rerun / partial failure | existing migration runner and ledger tests | Preserve checksum-locked bytes, reject changed checksums, retain append-only evidence and use protected forward recovery. Never induce live destructive failure. |
 
-Live driver/engine/role verification: **UNKNOWN / unverified**. This packet does
-not claim tested Snowflake recipes merely because offline CI passes. No scratch
+Actual driver SELECT, anonymous scripting binding and canonical CTE checks passed
+under the existing DEV read role. Bulk INSERT, exact stored-procedure execution,
+role allow/deny and parity procedure evidence remain **UNKNOWN / unverified**.
+This packet does not promote offline or read-only proof to repair acceptance. No scratch
 database allowlist, credential, grant, or environment bypass is introduced.
 
 Use `uv run pytest tests/test_delivery_regressions.py tests/test_operation_capabilities.py
