@@ -10,13 +10,14 @@ of snapshot or failure-evidence implementations are introduced.
 | #336 connector bulk writes | UNKNOWN without engine proof | Preflight without observed facts UNKNOWN | Engine semantics unverified; no preventive claim |
 | #353 procedure binding | UNKNOWN without separate procedure proof | Preflight without observed facts UNKNOWN | Caller/owner invocation unverified |
 | #365 canonical coverage | 2/3; one explicitly unknown, source-only unallocated | Deterministic set fixture preserves expected membership | Fixture arithmetic only; V098 engine behavior unverified |
-| #366 runtime INSERT | BLOCKED runtime; separate UNKNOWN authority | Contract checks GOVERNED_RELEASES, not historical SEMANTIC_RELEASES; UNKNOWN | Coverage gap; capstone not accepted |
+| #366 runtime INSERT | BLOCKED runtime; separate UNKNOWN authority | Corrected contract checks SEMANTIC_RELEASES; denied fixture BLOCKED, authority UNKNOWN | Frozen expectation met offline; no live proof |
 | Missing context | BLOCKED with missing path | Existing helper returns AGENTS.md for empty fixture | Offline reference helper proof |
 | Stale context | UNKNOWN current readiness | No observed facts gives UNKNOWN | Actual stale-snapshot integration awaits DATA372 |
 
-The tests intentionally preserve the #366 gap rather than alter the curated contract
-without its owner. Passing these tests validates comparison honesty, not complete
-historical prevention. No performance percentage or deterministic agent behavior claim.
+The authorized narrow contract correction now compares the denied #366 fixture
+against its unchanged frozen BLOCKED expectation. Passing this offline comparison
+does not establish historical prevention or actual protected-workflow identity.
+No performance percentage or deterministic agent behavior claim.
 
 DATA372 final snapshot schema/freshness/drift fixtures and DATA376 final sanitized
 failure packet/correlation/redaction outputs must be integrated before capstone
@@ -30,10 +31,10 @@ exact Quality CI and serialized existing deployment if needed.
 
 ## Current-contract diagnosis of #366
 
-This is a genuine missing/mismapped desired-state permission contract, not an
-expected-fail historical fixture. The fixed expectation remains BLOCKED for a
-known denied SEMANTIC_RELEASES INSERT; comparison remains UNKNOWN until the
-curated contract covers the actual boundary.
+The inspected baseline had a genuine missing/mismapped desired-state permission
+contract, not an expected-fail historical fixture. The fixed expectation remains
+BLOCKED for a known denied SEMANTIC_RELEASES INSERT; the corrected contract returns
+BLOCKED for that supplied fixture while invisible authority and identity stay UNKNOWN.
 
 Evidence at baseline c5a2310:
 - `src/lyme_gap_atlas_data/semantic_release.py`, `_insert_release`: current
@@ -48,11 +49,16 @@ Evidence at baseline c5a2310:
   applies migrations and runs semantic-release-build/publish/rollback through
   its configured identity. Its secret role value is not inspected or inferred.
 
-Contract-owner follow-up: reconcile curated operation identity/dependencies and
-bounded runtime table capabilities with V099 and current release commands; retain
-separate grant authority and bootstrap findings, review DEV/PROD applicability,
-and add behavioral comparisons against the frozen corpus. Do not add a grant or
-edit historical migration bytes. This contribution changes none of those surfaces.
+Authorized correction: semantic_release now requires SEMANTIC_RELEASES:INSERT and
+maps its desired protected executor to migration_deployer, supported by V071's
+protected release-builder boundary, V099 and the protected migration/build workflow.
+V099 is listed only under required_migrations_by_environment.prod, consistent with
+PROD_ONLY_MIGRATION_VERSIONS and the production-only #366 correction. DEV retains
+V071/V072/V073; no DEV V099 application is requested. Validation rejects a shared
+or DEV-scoped PROD-only prerequisite. Desired mapping is not observed identity;
+missing inspection or capability evidence remains UNKNOWN and cannot authorize work.
+No grants, credentials, execution permissions or migration bytes changed. The
+required_migrations plan output remains a resolved list for its explicit environment.
 
 ## Integration requirements for separate owners
 

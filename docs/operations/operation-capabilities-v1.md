@@ -33,3 +33,22 @@ The read-only inspector is not the operation executor. Its successful identity
 observation proves that the preflight ran in the intended environment; the
 executor identity remains `UNKNOWN` until it is revalidated immediately before
 the separately authorized consequential operation.
+
+## Environment-scoped semantic assembly correction (DATA377)
+
+Semantic assembly checks `PRESENTATION.SEMANTIC_RELEASES:INSERT`, the actual
+`semantic_release._insert_release` boundary. The desired protected executor is
+`migration_deployer`, supported by V071's protected-builder design, V099 and the
+protected workflow. Workflow secret role values remain unobserved.
+
+`required_migrations` contains shared dependencies. Optional
+`required_migrations_by_environment` adds dependencies only for an explicit `dev`
+or `prod` plan. V099 is PROD-only in the migration runner, so only the PROD
+semantic plan adds it. DEV retains V071/V072/V073 without V099. Contract validation
+rejects unknown environments, missing migrations and dependencies outside the
+runner's environment scope. No grants or migration history are changed.
+
+Grant authority, effective executor, runtime capability and approval findings
+remain separate even when desired executor and authority aliases match. No
+observation is fabricated from policy: absent identity/privilege evidence stays
+UNKNOWN; a supplied denied INSERT produces BLOCKED without self-grant or repair.

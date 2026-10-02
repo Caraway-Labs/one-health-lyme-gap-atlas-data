@@ -30,21 +30,20 @@ def test_canonical_fixture_does_not_count_source_only_geography() -> None:
     assert len(canonical) == 3
 
 
-def test_historical_runtime_table_is_not_silently_covered_by_another_table() -> None:
+def test_historical_denied_runtime_insert_matches_frozen_blocked_expectation() -> None:
     case = next(case for case in CORPUS["cases"] if case["id"] == "366")
     contract = load_contract()
-    # This assertion records a coverage gap, not successful incident prevention.
-    assert (
-        case["runtime_object"]
-        not in contract["operations"]["semantic_release"]["object_capabilities"]
-    )
     report = assess_operation(
         contract,
         operation="semantic_release",
         environment="prod",
         observed={"capabilities": {case["runtime_object"]: False}},
     )
-    assert report["status"] == "UNKNOWN"
+    assert report["status"] == case["expected"]
+    findings = {f["check"]: f["status"] for f in report["findings"]}
+    assert findings[f"runtime_capability:{case['runtime_object']}"] == case["expected"]
+    assert findings["effective_identity"] == "UNKNOWN"
+    assert report["mutation_started"] is False
     assert (
         next(f for f in report["findings"] if f["check"] == "grant_authority")["status"]
         == case["grant_authority"]

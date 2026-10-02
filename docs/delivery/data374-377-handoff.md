@@ -38,3 +38,12 @@ No deployment performed. No DB migrations or runtime changes require deployment.
 Parent owns independent review, main refresh, exact CI rerun and serialized release.
 Existing approved DEV infrastructure must be identified for behavioral recipe tests;
 do not create credentials/grants or bypass environment restrictions.
+
+## Narrow correction for independent review
+
+The independently confirmed #366 contract gap is corrected in desired metadata:
+actual SEMANTIC_RELEASES:INSERT, protected migration_deployer executor, and V099
+only as a PROD prerequisite. Frozen expectations are unchanged. DEV retains its
+shared migration dependencies; missing visibility stays UNKNOWN. This is a
+contract/readiness change requiring independent review and exact-head Quality CI,
+not a grant, historical migration or deployed permission change.
