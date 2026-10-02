@@ -1,0 +1,24 @@
+{
+  "audit_version": "atlas-provenance-readiness-audit-v1",
+  "audited_commit": "4b2fb225d7c8ca1e005b60d93301f46ad3c410a8",
+  "evidence_basis": "REPOSITORY_CONTRACT_AUDIT_NOT_RUNTIME",
+  "contracts": [
+    {"version": "atlas-semantic-domain-v1", "evidence": "src/lyme_gap_atlas_data/semantic_domain.py"},
+    {"version": "atlas-semantic-metadata-v1", "evidence": "src/lyme_gap_atlas_data/semantic_metadata.py"},
+    {"version": "atlas-semantic-source-mappings-v1", "evidence": "docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1.json"},
+    {"version": "atlas-semantic-lineage-v1", "evidence": "src/lyme_gap_atlas_data/semantic_lineage.py"},
+    {"version": "atlas-semantic-consumer-v1", "evidence": "docs/contracts/semantic-domain/atlas-semantic-consumer-v1.schema.json"}
+  ],
+  "representatives": [
+    {"family": "human", "mapping_ids": ["human_surveillance"], "evidence": ["migrations/V128__current_source_methodology_metadata.sql", "docs/contracts/semantic-release/current-source-methodology-v1.md"], "tests": ["tests/test_semantic_source_mappings.py", "tests/test_current_semantic_metadata_views.py", "tests/test_current_source_methodology_projection.py"]},
+    {"family": "tick_pathogen", "mapping_ids": ["county_tick_status", "county_pathogen_status", "neon_collection", "neon_pathogen_test"], "tests": ["tests/test_semantic_source_mappings.py", "tests/test_semantic_lineage.py"]},
+    {"family": "svi_rucc", "mapping_ids": ["svi", "rucc"], "tests": ["tests/test_semantic_source_mappings.py"]},
+    {"family": "environmental", "mapping_ids": ["nclimgrid_prcp", "nlcd_forest", "mod13q1_ndvi"], "tests": ["tests/test_climate_semantics.py", "tests/test_semantic_source_mappings.py"]}
+  ],
+  "gaps": [
+    {"id": "terminology", "owner_issue": 470, "scope": "CDC MMG/PHIN VADS crosswalk without changing canonical identities"},
+    {"id": "future_clinical", "owner_issue": 472, "scope": "Authorized aggregate laboratory contract, privacy and reviewed semantics"},
+    {"id": "authority_replay", "owner_issues": [443, 496], "scope": "Existing-owner real authority replay with reviewed #191 metadata and approved consumer-safe lineage; ownership acceptance pending"},
+    {"id": "human_deferred_shapes", "scope": "Existing fixed-release case-floor/SVI-denominator two-input lineage and native STATE unallocated semantic adapters; ownership acceptance pending; no historical denominator ingestion"}
+  ]
+}
