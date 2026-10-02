@@ -17,3 +17,4 @@ dbt/target/
 .worktrees/
 streamlit_approval/output/
 .atlas-ingestion-runs/
+.atlas-metadata-private/

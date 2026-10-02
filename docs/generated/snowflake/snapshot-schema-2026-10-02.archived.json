@@ -1,0 +1,652 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code_commit": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "content": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "character_maximum_length": {
+                "maximum": 16777216,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "enum": [
+                  "INGESTION_RUN_ID",
+                  "RELEASE_ID",
+                  "RESOURCE_KEY",
+                  "SHA256",
+                  "STATUS",
+                  "VERSION"
+                ]
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "numeric_precision": {
+                "maximum": 16777216,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "numeric_scale": {
+                "maximum": 16777216,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "object": {
+                "enum": [
+                  "GOVERNANCE.SCHEMA_MIGRATIONS",
+                  "GOVERNANCE.INGESTION_RUNS",
+                  "PRESENTATION.GOVERNED_RELEASES",
+                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
+                ]
+              },
+              "ordinal_position": {
+                "maximum": 16777216,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": {
+                "enum": [
+                  "ARRAY",
+                  "BINARY",
+                  "BOOLEAN",
+                  "DATE",
+                  "FLOAT",
+                  "NUMBER",
+                  "OBJECT",
+                  "TEXT",
+                  "TIME",
+                  "TIMESTAMP_LTZ",
+                  "TIMESTAMP_NTZ",
+                  "TIMESTAMP_TZ",
+                  "VARIANT"
+                ]
+              }
+            },
+            "required": [
+              "object",
+              "name",
+              "type",
+              "nullable"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "future_grants": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "grant_option": {
+                "enum": [
+                  true,
+                  false,
+                  "unknown"
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "BASE TABLE",
+                  "DATABASE",
+                  "PROCEDURE",
+                  "ROLE",
+                  "SCHEMA",
+                  "TABLE",
+                  "VIEW"
+                ]
+              },
+              "object": {
+                "enum": [
+                  "GOVERNANCE.<BASE TABLE>",
+                  "GOVERNANCE.<DATABASE>",
+                  "GOVERNANCE.<PROCEDURE>",
+                  "GOVERNANCE.<ROLE>",
+                  "GOVERNANCE.<SCHEMA>",
+                  "GOVERNANCE.<TABLE>",
+                  "GOVERNANCE.<VIEW>",
+                  "PRESENTATION.<BASE TABLE>",
+                  "PRESENTATION.<DATABASE>",
+                  "PRESENTATION.<PROCEDURE>",
+                  "PRESENTATION.<ROLE>",
+                  "PRESENTATION.<SCHEMA>",
+                  "PRESENTATION.<TABLE>",
+                  "PRESENTATION.<VIEW>"
+                ]
+              },
+              "privilege": {
+                "enum": [
+                  "CREATE PROCEDURE",
+                  "CREATE TABLE",
+                  "CREATE VIEW",
+                  "DELETE",
+                  "INSERT",
+                  "OWNERSHIP",
+                  "REFERENCES",
+                  "SELECT",
+                  "TRUNCATE",
+                  "UPDATE",
+                  "USAGE"
+                ]
+              },
+              "role": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              }
+            },
+            "required": [
+              "role",
+              "object",
+              "kind",
+              "privilege",
+              "grant_option"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "grants": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "grant_option": {
+                "enum": [
+                  true,
+                  false,
+                  "unknown"
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "BASE TABLE",
+                  "DATABASE",
+                  "PROCEDURE",
+                  "ROLE",
+                  "SCHEMA",
+                  "TABLE",
+                  "VIEW"
+                ]
+              },
+              "object": {
+                "enum": [
+                  "GOVERNANCE.SCHEMA_MIGRATIONS",
+                  "GOVERNANCE.INGESTION_RUNS",
+                  "PRESENTATION.GOVERNED_RELEASES",
+                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT",
+                  "GOVERNANCE",
+                  "PRESENTATION",
+                  "database"
+                ]
+              },
+              "privilege": {
+                "enum": [
+                  "CREATE PROCEDURE",
+                  "CREATE TABLE",
+                  "CREATE VIEW",
+                  "DELETE",
+                  "INSERT",
+                  "OWNERSHIP",
+                  "REFERENCES",
+                  "SELECT",
+                  "TRUNCATE",
+                  "UPDATE",
+                  "USAGE"
+                ]
+              },
+              "role": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              }
+            },
+            "required": [
+              "role",
+              "object",
+              "kind",
+              "privilege",
+              "grant_option"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "migrations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "checksum": {
+                "enum": [
+                  "match",
+                  "unverified_mismatch"
+                ]
+              },
+              "version": {
+                "enum": [
+                  "V001",
+                  "V002",
+                  "V003",
+                  "V004",
+                  "V005",
+                  "V006",
+                  "V007",
+                  "V008",
+                  "V009",
+                  "V010",
+                  "V011",
+                  "V012",
+                  "V013",
+                  "V014",
+                  "V015",
+                  "V016",
+                  "V017",
+                  "V018",
+                  "V019",
+                  "V020",
+                  "V021",
+                  "V022",
+                  "V023",
+                  "V024",
+                  "V025",
+                  "V026",
+                  "V027",
+                  "V028",
+                  "V029",
+                  "V030",
+                  "V031",
+                  "V032",
+                  "V033",
+                  "V034",
+                  "V035",
+                  "V036",
+                  "V037",
+                  "V038",
+                  "V039",
+                  "V040",
+                  "V041",
+                  "V042",
+                  "V043",
+                  "V044",
+                  "V045",
+                  "V046",
+                  "V047",
+                  "V048",
+                  "V049",
+                  "V050",
+                  "V051",
+                  "V052",
+                  "V053",
+                  "V054",
+                  "V055",
+                  "V056",
+                  "V057",
+                  "V058",
+                  "V059",
+                  "V060",
+                  "V061",
+                  "V062",
+                  "V063",
+                  "V064",
+                  "V065",
+                  "V066",
+                  "V067",
+                  "V068",
+                  "V069",
+                  "V070",
+                  "V071",
+                  "V072",
+                  "V073",
+                  "V074",
+                  "V075",
+                  "V076",
+                  "V077",
+                  "V078",
+                  "V079",
+                  "V080",
+                  "V081",
+                  "V082",
+                  "V083",
+                  "V084",
+                  "V085",
+                  "V086",
+                  "V087",
+                  "V088",
+                  "V089",
+                  "V090",
+                  "V091",
+                  "V092",
+                  "V093",
+                  "V094",
+                  "V095",
+                  "V096",
+                  "V097",
+                  "V098",
+                  "V099",
+                  "V100",
+                  "V101",
+                  "V102",
+                  "V103",
+                  "V104",
+                  "V105",
+                  "V106",
+                  "V107",
+                  "V108",
+                  "V109",
+                  "V110",
+                  "V111",
+                  "V112",
+                  "V113",
+                  "V114",
+                  "V115",
+                  "V116",
+                  "V117",
+                  "V119",
+                  "V120",
+                  "V121",
+                  "V122",
+                  "V123",
+                  "V124",
+                  "V125",
+                  "V126",
+                  "V127",
+                  "V128",
+                  "V129",
+                  "V130",
+                  "V131",
+                  "V132",
+                  "V133",
+                  "V134",
+                  "V135",
+                  "V136"
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "checksum"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "objects": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "BASE TABLE",
+                  "VIEW"
+                ]
+              },
+              "name": {
+                "enum": [
+                  "GOVERNANCE.SCHEMA_MIGRATIONS",
+                  "GOVERNANCE.INGESTION_RUNS",
+                  "PRESENTATION.GOVERNED_RELEASES",
+                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
+                ]
+              },
+              "owner": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "owner"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "omissions": {
+          "items": {
+            "enum": [
+              "unreviewed_identifiers",
+              "unreviewed_columns",
+              "view_bodies",
+              "procedure_bodies",
+              "unreviewed_procedures",
+              "external_role_hierarchy",
+              "account_database_roles",
+              "secondary_roles",
+              "data_rows"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "procedures": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "execute_as": {
+                "enum": [
+                  "OWNER",
+                  "CALLER",
+                  "RESTRICTED CALLER"
+                ]
+              },
+              "owner": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner",
+                  "unknown"
+                ]
+              },
+              "returns": {
+                "enum": [
+                  "ARRAY",
+                  "BINARY",
+                  "BOOLEAN",
+                  "DATE",
+                  "FLOAT",
+                  "NUMBER",
+                  "OBJECT",
+                  "TEXT",
+                  "TIME",
+                  "TIMESTAMP_LTZ",
+                  "TIMESTAMP_NTZ",
+                  "TIMESTAMP_TZ",
+                  "VARIANT"
+                ]
+              },
+              "signature": false
+            },
+            "required": [
+              "signature",
+              "returns",
+              "execute_as",
+              "owner"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "role_edges": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "child": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              },
+              "parent": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              }
+            },
+            "required": [
+              "parent",
+              "child"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "objects",
+        "columns",
+        "grants",
+        "future_grants",
+        "role_edges",
+        "procedures",
+        "migrations",
+        "omissions"
+      ],
+      "type": "object"
+    },
+    "contract_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": 1
+    },
+    "environment": {
+      "enum": [
+        "dev",
+        "prod"
+      ]
+    },
+    "exporter_version": {
+      "const": 1
+    },
+    "generated_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "inspected_role": {
+      "const": "read"
+    },
+    "ledger_complete": {
+      "type": "boolean"
+    },
+    "scope": {
+      "const": {
+        "maximum_age_hours": 24,
+        "objects": {
+          "GOVERNANCE.INGESTION_RUNS": {
+            "columns": [
+              "INGESTION_RUN_ID",
+              "RESOURCE_KEY",
+              "STATUS"
+            ],
+            "kind": "BASE TABLE"
+          },
+          "GOVERNANCE.SCHEMA_MIGRATIONS": {
+            "columns": [
+              "VERSION",
+              "SHA256"
+            ],
+            "kind": "BASE TABLE"
+          },
+          "PRESENTATION.GOVERNED_RELEASES": {
+            "columns": [
+              "RELEASE_ID"
+            ],
+            "kind": "BASE TABLE"
+          },
+          "PRESENTATION.V_COUNTY_ATLAS_CURRENT": {
+            "columns": [],
+            "kind": "VIEW"
+          }
+        },
+        "procedures": {},
+        "version": 1
+      }
+    },
+    "scope_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "semantic_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "snapshot_version": {
+      "const": 1
+    },
+    "source": {
+      "enum": [
+        "live",
+        "synthetic"
+      ]
+    },
+    "unavailable": {
+      "items": {
+        "enum": [
+          "objects",
+          "columns",
+          "grants",
+          "future_grants",
+          "migrations",
+          "procedures"
+        ]
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "visibility": {
+      "const": "partial"
+    }
+  },
+  "required": [
+    "snapshot_version",
+    "exporter_version",
+    "environment",
+    "inspected_role",
+    "source",
+    "ledger_complete",
+    "generated_at",
+    "code_commit",
+    "contract_version",
+    "contract_hash",
+    "scope_hash",
+    "scope",
+    "visibility",
+    "unavailable",
+    "content",
+    "semantic_hash"
+  ],
+  "type": "object"
+}
