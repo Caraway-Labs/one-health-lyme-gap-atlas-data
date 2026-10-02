@@ -13,6 +13,8 @@ from test_semantic_source_mappings import REGISTRY, _case
 from lyme_gap_atlas_data import semantic_release
 from lyme_gap_atlas_data.ingestion.adapters import HttpJsonAdapter
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
+from lyme_gap_atlas_data.semantic_domain import SemanticDomainError, meaning_signature
+from lyme_gap_atlas_data.semantic_metadata import metadata_revision_id
 from lyme_gap_atlas_data.semantic_release import SemanticReleaseBlocked, SourceGate
 from lyme_gap_atlas_data.semantic_source_mappings import (
     SemanticMappingError,
@@ -193,3 +195,75 @@ def test_svi_mapping_rejects_differing_valid_county_fips(source_fips: str) -> No
     record["source_output"]["county_fips"] = source_fips
     with pytest.raises(SemanticMappingError, match="county source output/FIPS mismatch"):
         map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+
+
+def _svi_state_case(raw: Any, value: Any, state: str) -> tuple[dict, dict, dict]:
+    record, metadata, authority = _case("svi")
+    record["source_output"].update(RPL_THEMES=raw, value_state=state)
+    record.update(value=value, value_state=state)
+    return record, metadata, authority
+
+
+def _synthetic_state_metadata(metadata: dict) -> dict:
+    """New synthetic candidate version; never rewrite reviewed/live metadata."""
+    candidate = copy.deepcopy(metadata)
+    candidate["measure"]["semantic_version"] = "1.1.0"
+    candidate["measure"]["allowed_value_states"] = [
+        "OBSERVED",
+        "ZERO",
+        "MISSING",
+        "UNKNOWN",
+        "UNAVAILABLE",
+    ]
+    candidate["allowed_value_states"] = candidate["measure"]["allowed_value_states"]
+    candidate["metadata_id"] = "metadata:svi_percentile_2022:1.1.0"
+    candidate["meaning_signature"] = meaning_signature(candidate["measure"])
+    candidate["revision_id"] = metadata_revision_id(candidate)
+    assert candidate["steward_review"]["state"] == "PENDING"
+    return candidate
+
+
+@pytest.mark.parametrize(
+    "raw,value,state",
+    [
+        (-999, None, "MISSING"),
+        ("-999", None, "MISSING"),
+        (None, None, "MISSING"),
+        ("", None, "MISSING"),
+        (0, 0, "ZERO"),
+        (0.5, 0.5, "OBSERVED"),
+        (1, 1, "OBSERVED"),
+        (None, None, "UNKNOWN"),
+        (None, None, "UNAVAILABLE"),
+    ],
+)
+def test_full_svi_mapping_preserves_supported_states_and_lineage(
+    raw: Any, value: Any, state: str
+) -> None:
+    record, metadata, authority = _svi_state_case(raw, value, state)
+    original = copy.deepcopy(metadata)
+    candidate = _synthetic_state_metadata(metadata)
+    mapped = map_record(record, candidate, authority, REGISTRY, fixture_mode=True)
+    assert mapped["observation"]["value"] == value
+    assert mapped["observation"]["value_state"] == state
+    assert mapped["observation"]["measure_version"] == "1.1.0"
+    assert mapped["lineage"]["edges"] == record["edges"]
+    assert mapped["metadata_revision_id"] == candidate["revision_id"]
+    assert metadata == original
+
+
+@pytest.mark.parametrize("raw,value,state", [(-999, None, "MISSING"), (0, 0, "ZERO")])
+def test_full_svi_mapping_does_not_widen_existing_metadata_policy(
+    raw: Any, value: Any, state: str
+) -> None:
+    record, metadata, authority = _svi_state_case(raw, value, state)
+    assert state not in metadata["allowed_value_states"]
+    with pytest.raises(SemanticDomainError, match="value state not allowed for measure"):
+        map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+
+
+def test_synthetic_svi_state_metadata_cannot_authorize_live_mapping() -> None:
+    record, metadata, authority = _svi_state_case(-999, None, "MISSING")
+    candidate = _synthetic_state_metadata(metadata)
+    with pytest.raises(SemanticMappingError, match="unreviewed semantic metadata"):
+        map_record(record, candidate, authority, REGISTRY)

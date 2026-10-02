@@ -72,6 +72,23 @@ shared authority. The consumer SQL observation view admits human measures only;
 SVI remains available through the county atlas and measure metadata views.
 This story does not expand that approved API observation allowlist.
 
+### Full-path metadata state boundary
+
+The checked-in #191 generic synthetic SVI example admits only `OBSERVED`,
+`UNKNOWN` and `UNAVAILABLE`. Its lack of `ZERO`/`MISSING` is a fixture coverage
+gap; it is not evidence about unread reviewed metadata. #190 defines both states,
+and the existing county release already emits them. Full `map_record` tests now
+exercise sentinel, null, empty, zero, observed and explicit unknown/unavailable
+values with a **new synthetic candidate metadata/measure version 1.1.0**, updating
+its meaning signature and revision identity. This is test-only, remains `PENDING`,
+and cannot authorize live mapping. No registry or live definition is versioned by
+this fixture. The original example remains unchanged. Additional negative tests
+prove that mapping still rejects `MISSING`/`ZERO` under metadata that excludes
+them and that pending candidate metadata fails outside fixture mode. Actual
+reviewed SVI metadata state compatibility must be audited before full governed
+#192 sentinel/zero runtime acceptance can be claimed; no automatic widening or
+unversioned meaning change is introduced.
+
 ## Authorized DEV evidence (2026-10-02)
 
 Read-only `snow sql -c ATLAS_DEV_READ`: effective role `OH_LYME_DEV_READ`,
