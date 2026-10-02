@@ -94,6 +94,9 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
     if mapping_id == "source_only":
         temporal = {"semantics": "CUMULATIVE_THROUGH_DATE", "date": "2025-12-31"}
     value = trace["observation"]["value"]
+    if mapping_id == "svi":
+        value = 0.5
+        temporal = {"semantics": "PERIOD", "start": "2018-01-01", "end": "2022-12-31"}
     if mapping_id == "neon_pathogen_test":
         value = 1
     if mapping_id == "coverage_result":

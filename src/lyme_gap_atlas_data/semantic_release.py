@@ -21,6 +21,8 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from .climate_release import validate_extension, verify_extension, verify_persisted_extension
+from .svi_context import TRANSFORMATION_VERSION as SVI_TRANSFORMATION
+from .svi_context import numeric_value as svi_numeric_value
 
 SEMANTIC_SCHEMA = "atlas-governed-semantic-release/v1"
 SEMANTIC_SCHEMA_VERSION = "1.0.0"
@@ -814,10 +816,10 @@ def _assemble_counties(
             "county": _text_or(record.get("COUNTY"), fips),
             "state": state,
             "state_name": state_name,
-            "population": _number(record.get("E_TOTPOP")),
-            "svi_percentile": _number(record.get("RPL_THEMES")),
-            "uninsured_percentile": _number(record.get("EPL_UNINSUR")),
-            "uninsured_percent": _number(record.get("EP_UNINSUR")),
+            "population": _svi_number("E_TOTPOP", record.get("E_TOTPOP")),
+            "svi_percentile": _svi_number("RPL_THEMES", record.get("RPL_THEMES")),
+            "uninsured_percentile": _svi_number("EPL_UNINSUR", record.get("EPL_UNINSUR")),
+            "uninsured_percent": _svi_number("EP_UNINSUR", record.get("EP_UNINSUR")),
             "geometry": geometry,
             "identity_row": row,
         }
@@ -829,13 +831,20 @@ def _assemble_counties(
     rucc: dict[str, int] = {}
     rucc_rows: dict[str, dict[str, Any]] = {}
     rucc_source = manifest.source("context_rucc")
+    if rucc_source.vintage != "2023":
+        raise SemanticReleaseBlocked("RUCC requires the 2023 codebook vintage")
     for row in source_rows["context_rucc"]:
         record = _record(row.get("payload"))
         if str(_first(record, ("Attribute", "attribute")) or "") != "RUCC_2023":
             continue
         fips = _text_or(_first(record, ("FIPS", "fips")), "")
         value = _number(_first(record, ("Value", "value")))
-        if not _FIPS.fullmatch(fips) or value is None or int(value) != value:
+        if (
+            not _FIPS.fullmatch(fips)
+            or value is None
+            or isinstance(_first(record, ("Value", "value")), bool)
+            or value not in range(1, 10)
+        ):
             raise SemanticReleaseBlocked("RUCC contains an invalid 2023 county code")
         if fips in rucc:
             raise SemanticReleaseBlocked(f"RUCC contains duplicate county FIPS {fips}")
@@ -1230,7 +1239,7 @@ def _county_observations(
                 _row_retrieved_at(source_row, gate.retrieved_at),
                 "COUNTY_FIPS_5",
                 "2023" if source_key == "human" else source.vintage,
-                SEMANTIC_TRANSFORMATION,
+                SVI_TRANSFORMATION if source_key == "context_svi" else SEMANTIC_TRANSFORMATION,
                 "PASSED",
                 _measure_limitation(measure_id),
             )
@@ -1643,6 +1652,13 @@ def _first(record: Mapping[str, Any], names: Iterable[str]) -> Any:
         if name in record and record[name] not in (None, ""):
             return record[name]
     return None
+
+
+def _svi_number(field: str, value: Any) -> float | None:
+    try:
+        return svi_numeric_value(field, value)
+    except ValueError as error:
+        raise SemanticReleaseBlocked(str(error)) from error
 
 
 def _number(value: Any) -> float | None:
