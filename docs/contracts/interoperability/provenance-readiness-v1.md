@@ -6,6 +6,12 @@ certification, or source-backed clinical integration. The accompanying
 `provenance-readiness-v1.json` indexes existing machine-readable contracts and
 executable evidence. It is an audit inventory, not another provenance model.
 
+Review refresh: main `a46339b` was merged without conflicts. V128 publisher,
+NULL source timestamps and method identity evidence is specifically
+`migrations/V128__current_source_methodology_metadata.sql` and
+`tests/test_current_source_methodology_projection.py`; the older
+`test_current_semantic_metadata_views.py` covers V123/V124 instead.
+
 ## Criterion to evidence
 
 | Required fact | Delivered contract and evidence | Remaining boundary |
@@ -34,18 +40,23 @@ has been projected through them. Each family reuses the criteria above.
 | County tick/pathogen | `county_tick_status`, `county_pathogen_status`; cumulative status and separate source/proof identities | Exact-source admission remains governed; no county absence claim from missing records. |
 | Native tick/pathogen | `neon_collection`, `neon_pathogen_test`; site/event identity, canonical strata, normalization proofs | Site/event evidence is NOT_COUNTY_REPRESENTATIVE; no automatic county aggregation or release membership. |
 | SVI/RUCC | `svi`, `rucc`; RPL_THEMES and RUCC_2023 preserve context vintage and native county grain | Context is not a clinical observation or laboratory signal; publication timestamps are not invented. |
-| Environmental | `nclimgrid_prcp/tmin/tmax/tavg`, NLCD and MOD13Q1 registry entries; versioned measure JSON and dedicated tests | Definitions are candidates; DEV validation/public exposure remain separate (including open DATA443 PR #552). Never imply county-release publication from registry membership. |
+| Environmental | `nclimgrid_prcp/tmin/tmax/tavg`, NLCD and MOD13Q1 registry entries; versioned measure JSON and dedicated tests | Definitions are candidates; DEV validation/public exposure remain separate (DATA443 PR #552 is now merged on refreshed main). Never imply county-release publication from registry membership. |
 
 ## Residual work and acceptance limits
 
-Source-agnostic: demonstrate an authorized real authority-snapshot projection
-through #192/#193/#194 with reproducible, redacted receipts, pinned revisions,
-negative join tests and existing safe projection. Do not create another ledger.
-Source-specific: complete the two deferred human adapter shapes with native
-state grain/multi-source inputs and compatibility tests; preserve historical
-release rows. These are follow-up scopes, not implemented in this audit.
+Reuse #443/#496 ownership for representative real authority-snapshot replay
+through #192/#193/#194 with reviewed #191 metadata, approved consumer-safe
+lineage, reproducible redacted receipts, pinned revisions and negative join
+tests. Real run/artifact rows alone do not meet these gates. Do not propose
+another generic replay issue or ledger; ownership acceptance remains pending.
+Source-specific: the proposed human follow-up covers only existing fixed-release
+case-floor/SVI-denominator two-input lineage and native STATE unallocated
+semantics with compatibility tests; preserve historical release rows and add
+no historical denominator ingestion. These scopes are not implemented here.
 #470 owns standards terminology; #472 owns future clinical aggregation,
 denominator, effective-time, deduplication, privacy and authorization design.
+DATA473 criterion 4 and DATA471 criterion 6 remain open until bounded follow-up
+ownership is accepted. Checked-in drafts alone do not satisfy those criteria.
 
 Current open-data output compatibility is preserved: no runtime code, source
 configuration, SQL, grants, scoring, release pointer or public fields change.
@@ -55,5 +66,5 @@ MMG/FHIR interoperability, runtime acceptance or access to clinical data.
 Reproduce the existing evidence with:
 
 ```powershell
-uv run pytest tests/test_semantic_domain.py tests/test_semantic_metadata.py tests/test_semantic_source_mappings.py tests/test_semantic_lineage.py tests/test_semantic_consumer.py tests/test_current_semantic_metadata_views.py tests/test_climate_semantics.py tests/test_interoperability_audit.py
+uv run pytest tests/test_semantic_domain.py tests/test_semantic_metadata.py tests/test_semantic_source_mappings.py tests/test_semantic_lineage.py tests/test_semantic_consumer.py tests/test_current_semantic_metadata_views.py tests/test_current_source_methodology_projection.py tests/test_climate_semantics.py tests/test_interoperability_audit.py
 ```
