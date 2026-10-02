@@ -164,3 +164,14 @@ def test_svi_mapping_rejects_cross_vintage_authority() -> None:
     authority["source_versions"][record["edges"][0]["source_version_id"]]["source_vintage"] = "2020"
     with pytest.raises(SemanticMappingError):
         map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+
+
+def test_svi_mapping_rejects_observation_period_coercion() -> None:
+    record, metadata, authority = _case("svi")
+    record["value"] = record["source_output"]["RPL_THEMES"] = 0.5
+    record["temporal"] = {"semantics": "PERIOD", "start": "2018-01-01", "end": "2022-12-31"}
+    mapped = map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+    assert mapped["observation"]["temporal"] == record["temporal"]
+    record["temporal"] = {"semantics": "PERIOD", "start": "2023-01-01", "end": "2023-12-31"}
+    with pytest.raises(SemanticMappingError, match="ACS observation period"):
+        map_record(record, metadata, authority, REGISTRY, fixture_mode=True)

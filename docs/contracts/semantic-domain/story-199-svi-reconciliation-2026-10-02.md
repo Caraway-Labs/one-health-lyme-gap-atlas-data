@@ -42,6 +42,8 @@ Other negative values, nonnumeric/boolean values, NaN/infinity and invalid
 percentage/percentile ranges fail closed. Generic ingestion normalization and
 RAW bytes are unchanged. The existing #192 SVI mapper uses the same boundary;
 explicit null source states continue through the existing state handling.
+The SVI mapper also requires the exact ACS 2018–2022 observation period;
+a correct 2022 source-vintage label cannot authorize a 2023 observation period.
 
 New candidate SVI observations record `svi_numeric_projection_v2`; other county
 observations retain `semantic_county_assembly_v1`. No meaning, unit, denominator,
@@ -97,7 +99,9 @@ acceptance or a live REST/UI check. PROD and publication evidence remain separat
 ## DATA202 handoff
 
 SVI tests above contribute source-domain, missingness, FIPS/duplicate and
-cross-vintage coverage. Parent assigned this lane the eventual coherent #202 PR
+cross-vintage and observation-period coverage. The shared #192 SVI fixture uses
+an invalid percentile of 3 and a generic 2023 period; its SVI-only correction to
+0.5 and ACS 2018–2022 awaits parent coordination. Parent assigned this lane the eventual coherent #202 PR
 after SVI/RUCC contract review. Collect RUCC findings through parent before
 editing shared tests; do not create a competing validation owner. Remaining
 cross-source freshness, availability-time and blocking-release cases should

@@ -384,7 +384,10 @@ def _check_output_scope(
     output = record["source_output"]
     geography = record["geography"]
     temporal = record["temporal"]
-    if mapping["id"] in _MOD13_MEASURES:
+    if mapping["id"] == "svi":
+        if temporal != {"semantics": "PERIOD", "start": "2018-01-01", "end": "2022-12-31"}:
+            raise SemanticMappingError("SVI requires the 2018-2022 ACS observation period")
+    elif mapping["id"] in _MOD13_MEASURES:
         measure, source_variable = _MOD13_MEASURES[mapping["id"]]
         hashes = output.get("artifact_sha256_by_member")
         artifact_ids = output.get("artifact_id_by_member")
