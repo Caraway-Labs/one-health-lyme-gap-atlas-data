@@ -3,10 +3,22 @@
 Audited 2026-10-02 at data main
 `50809e2c56450863a7e680716ab4a482b427aa7a`, after the independently reviewed
 failure-packet v1 merge. This follow-up owns this document,
-`tests/test_failure_reproductions.py`, its new fixture directory, and narrow
-historical packet reference updates. DATA374/377 retain their entry-point and
+`tests/test_failure_reproductions.py`, its new fixture directory, and append-only
+companion receipts. DATA374/377 retain their entry-point and
 capstone files. The merged validator/schema and pipeline implementation are
 unchanged.
+
+Main subsequently incorporated DATA374/377 at
+`f28efd9d510ea117d774846292ead8f6bb3e8603`. The failure-investigation skill and
+its reference index were read; credential-free context/preflight and capstone
+compatibility checks are part of this follow-up. Their four original packets,
+frozen expected outcomes and integration tests are not modified.
+
+Credential-free context check: PASS. Explicit DEV `semantic_release` preflight:
+UNKNOWN for effective identity, migration ledger, SEMANTIC_RELEASES INSERT,
+grant authority and approval; `mutation_started: false`. No live inspection was
+requested. These unknowns do not block the credential-free client tests, and no
+consequential semantic release operation is attempted from that result.
 
 ## Historical repair chain, not an invented execution mapping
 
@@ -75,12 +87,17 @@ procedure or a new scientific interpretation.
 ## Packet evidence updates and DATA374/377 contract
 
 Packet schema stays version `1`; no added fields or relaxed privacy rules.
-The reproduction reference for PR336 may point to the follow-up PR containing
-these executable tests. Its regression may point to a passing CI run with kind
-BEHAVIORAL for the client boundary. The historical repair state remains UNKNOWN:
-that local proof cannot close the follow-on Snowflake engine/persistence gap.
-PR353's repair-source reference adds PR354, preserving UNKNOWN runtime proof.
-PR365 consumer proof stays separate from V098 procedure verification.
+Original `docs/delivery/failures/pr-*.json` packets remain unchanged. DATA377
+intentionally consumes their STATIC evidence state. A separate append-only
+`docs/delivery/failure-reproduction-receipts/pr-336-client-binding-v1.json`
+uses the same correlation identity, points reproduction to PR566 and regression
+to passing CI `36979643177` at `101309bd2dc7141048cc703eaec5823619171197`, and
+declares BEHAVIORAL proof only for the local client boundary. Its repair remains
+UNKNOWN, with PR337 as the known candidate repair source: the local proof cannot
+close Snowflake engine/persistence or historical execution-mapping gaps. Its
+historical run/workload fields are not replaced by the new CI identity. This
+document links PR354 as the candidate procedure correction after PR353 without
+altering historical packets. PR365 consumer proof stays separate from V098.
 
 DATA374/377 can invoke the new test module and fixture directly and reuse
 `failure_evidence.validate_packet` unchanged. Do not convert a consumer-only or

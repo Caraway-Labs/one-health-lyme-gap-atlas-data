@@ -16,6 +16,7 @@ from snowflake.connector.errorcode import ER_FAILED_TO_REWRITE_MULTI_ROW_INSERT
 from snowflake.connector.errors import InterfaceError
 
 from lyme_gap_atlas_data import semantic_release
+from lyme_gap_atlas_data.failure_evidence import review_context, validate_packet
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/failure_reproductions/semantic-batch-binding-v1.json"
@@ -186,3 +187,24 @@ def test_current_batch_guard_rejects_bad_width_before_any_driver_boundary():
             batch_size=50,
         )
     assert cursor.boundaries == []
+
+
+def test_companion_receipt_adds_scoped_client_proof_without_rewriting_historical_identity():
+    original = json.loads((ROOT / "docs/delivery/failures/pr-336.json").read_text())
+    receipt = json.loads(
+        (
+            ROOT / ("docs/delivery/failure-reproduction-receipts/pr-336-client-binding-v1.json")
+        ).read_text()
+    )
+    validate_packet(receipt)
+    assert original["regression"]["kind"] == "STATIC"
+    assert receipt["regression"]["kind"] == "BEHAVIORAL"
+    assert receipt["regression"]["state"] == "PASS"
+    assert receipt["identity"] == original["identity"]
+    assert receipt["artifacts"] == original["artifacts"]
+    assert receipt["effective_role"] == original["effective_role"]
+    assert receipt["correlation_key"] == original["correlation_key"]
+    assert receipt["repair"]["state"] == "UNKNOWN"
+    assert receipt["repair"]["reference"]["state"] == "KNOWN"
+    assert receipt["reproduction"]["state"] == "KNOWN"
+    assert review_context(receipt)["independent_behavioral_evidence_required"]
