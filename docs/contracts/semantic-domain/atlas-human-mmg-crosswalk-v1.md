@@ -4,6 +4,9 @@ Status: draft for independent scientific/steward review. Owner: Atlas data
 stewardship. [Machine-readable crosswalk](atlas-human-mmg-crosswalk-v1.json),
 version 1.0.0, reviewed October 2, 2026. This is a bounded metadata annotation of
 the existing #188 identities, not a second semantic layer or an adapter runtime.
+Here `reviewed_on` and context status `reviewed` record source research only;
+they do not record scientific/steward approval. DATA #470 remains open until
+that human approval is recorded.
 
 The [CDC catalog](https://ndc.services.cdc.gov/mmgpage/lyme-and-tickborne-rickettsial-diseases-message-mapping-guide/)
 identifies Lyme/TBRD MMG v1.0.2, May 10, 2022, as current. Its workbook requires
@@ -36,16 +39,22 @@ source-mapping registry retains its existing REPORTED classification. Crosswalk
 canonical origin or a claim that Atlas computed counts from individual messages.
 
 Residence county has a narrower relationship to Subject Address County
-(`PID-11.9`), preserving only county geography. Annual surveillance year has a
-broader, ambiguous relationship to MMWR Year (`77992-6`): exact assignment is not
-established. Source Confirmed/Probable labels are a narrower conceptual subset
+(`PID-11.9`), with narrower coverage limited to supported Atlas county
+identities. This does not mean dropping address components: Subject Address
+County is already a county field. Annual surveillance year's relationship to
+MMWR Year (`77992-6`) remains unresolved; `broader` is a candidate description,
+not a proven equivalence or conversion. Exact assignment is not established.
+Source Confirmed/Probable labels are a narrower conceptual subset
 of Case Class Status Code (`77990-0`); no code translation is authorized. These
 are context references attached to existing measures, not new measure IDs.
 Unsupported context prevents any claim of a fully verified executable mapping.
 
 Published floors are not complete incidence. Missing county-linked records do
 not mean zero or disease absence. Unknown, suppressed and not-reported geography
-stay distinct; state-unallocated totals cannot restore hidden counties. The
+remain distinct in retained source records. Current presentation combines rows
+with these states and a resolvable state into one state-unallocated total; it
+does not expose separate totals for those categories. That combined total cannot
+restore hidden counties. The
 state-unallocated implementation does not apply the Confirmed/Probable filter
 used for county counts. Repeated state totals must not be summed across counties.
 The existing [methodology contract](lyme-surveillance-methodology-v1.md) governs

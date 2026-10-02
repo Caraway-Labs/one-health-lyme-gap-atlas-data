@@ -43,8 +43,8 @@
         "url": "https://phinvads.cdc.gov/vads/ViewValueSet.action?id=87FD5AB0-2CA3-4070-9FA4-B92D5934E4E7",
         "reviewed_on": "2026-10-02"
       },
-      "transformation": "Use only valid county identities; retain unknown/suppressed/not reported separately.",
-      "limitations": "County-native aggregates retain residence meaning; this is not exposure or reporting county. No full VADS code-membership or county-vintage equivalence is asserted."
+      "transformation": "Use only supported valid Atlas county identities. Unknown/suppressed/not reported remain distinct in retained source records; presentation combines resolvable-state rows into one state-unallocated total.",
+      "limitations": "Narrower refers to coverage of supported Atlas county identities, not removal of address components: the MMG target is already Subject Address County. Residence meaning is retained; this is not exposure or reporting county. No full VADS code-membership or county-vintage equivalence is asserted."
     },
     {
       "id": "surveillance_year",
@@ -52,6 +52,7 @@
       "conformed_field": "report_year",
       "match_type": "broader",
       "status": "ambiguous",
+      "relationship_status": "unresolved_candidate",
       "mmg": {
         "name": "MMWR Year",
         "identifier": "77992-6",
@@ -62,7 +63,7 @@
       },
       "value_set": null,
       "transformation": "Current release filters report_year=2023.",
-      "limitations": "Source is annual surveillance year; exact MMWR assignment is not established. Do not reinterpret as onset, diagnosis, retrieval or availability year."
+      "limitations": "Broader is a candidate relationship only: annual surveillance year to MMWR Year remains unresolved, with no proven equivalence or conversion. Exact MMWR assignment is not established. Do not reinterpret as onset, diagnosis, retrieval or availability year."
     },
     {
       "id": "case_category",
