@@ -1,0 +1,48 @@
+{
+  "evidence_version": "1",
+  "observed_date": "2026-10-02",
+  "baseline_commit": "f28efd9d510ea117d774846292ead8f6bb3e8603",
+  "frozen_expectations_commit": "3c81b471c802b1ad7e9361740319bd7cbeb50b4b",
+  "discovery": {
+    "codex_version": "0.159.2",
+    "root": "PASS",
+    "nested_tests": "PASS",
+    "enabled_skill_count_each": 4,
+    "errors": 0,
+    "agent_turn_started": false
+  },
+  "routing": {
+    "evidence_class": "observed_metadata_routing_probe",
+    "model": "gpt-6.1-sol",
+    "reasoning": "low",
+    "positive_cases_matched": 4,
+    "negative_cases_matched": 4,
+    "near_miss_cases_matched": 4,
+    "observed_tool_calls": 0,
+    "status": "PASS"
+  },
+  "dev_read": {
+    "connection": "ATLAS_DEV_READ",
+    "connector_version": "4.3.0",
+    "engine_version": "10.35.101",
+    "role": "OH_LYME_DEV_READ",
+    "database": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "user_observed": true,
+    "warehouse_expected": true,
+    "driver_executemany_select": "PASS",
+    "anonymous_scripting_bind": "PASS",
+    "canonical_select_fixture": "PASS",
+    "mutation_started": false,
+    "bulk_insert_engine_proof": "UNVERIFIED",
+    "caller_owner_procedure_proof": "UNVERIFIED",
+    "role_allow_deny_proof": "UNVERIFIED",
+    "parity_procedure_proof": "UNVERIFIED"
+  },
+  "capstone_acceptance": "PENDING",
+  "limitations": [
+    "One observed metadata selection run; no deterministic-agent or end-to-end workflow proof.",
+    "No interactive or assembled-workspace discovery proof.",
+    "Read-only recipes do not exercise bulk INSERT, stored procedures, role behavior or parity procedure.",
+    "Final independently reviewed DATA372 output integration is pending."
+  ]
+}
