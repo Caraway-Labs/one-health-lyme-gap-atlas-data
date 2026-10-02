@@ -1,0 +1,27 @@
+{
+  "fixture_schema": "atlas-failure-reproduction/v1",
+  "incident": "PR336",
+  "follow_on_repair": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/337",
+  "repair_source_commit": "650371245d938dc426f787c76cae5521abac7857",
+  "proof_scope": "CURRENT_LOCKED_CLIENT_BINDING_ONLY",
+  "historical_driver_version": "UNKNOWN",
+  "server_execution": "UNKNOWN",
+  "cases": [
+    {
+      "stage": "BEFORE_PR336",
+      "source_commit": "5f880f3497bc8454383e5234e65e356cca21ebd5",
+      "statements": {
+        "_insert_counties": "INSERT INTO PRESENTATION.SEMANTIC_COUNTY_ATLAS\n        (release_id, fips, county, state, state_name, population, in_contiguous_tick_scope,\n         human_status, case_count_floor_2023, incidence_floor_2023,\n         state_unallocated_records_2023, tick_status, scapularis_status, pacificus_status,\n         burgdorferi_status, svi_percentile, uninsured_percentile, uninsured_percent,\n         rucc_2023, evidence_completeness, geometry_json, lineage)\n        SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\n               PARSE_JSON(%s),PARSE_JSON(%s)",
+        "_insert_observations": "INSERT INTO PRESENTATION.SEMANTIC_OBSERVATIONS\n        (observation_id, release_id, measure_id, fips, source_key, source_version_id,\n         ingestion_run_id, artifact_id, source_record_id, source_row_hash, value, value_state,\n         retrieved_at, geography_semantics, temporal_window, transformation_version,\n         quality_state, limitations)\n        SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s"
+      }
+    },
+    {
+      "stage": "PR336_FIRST_REPAIR",
+      "source_commit": "71314065f0cee0203e5acf60135b0b42b67de2e7",
+      "statements": {
+        "_insert_counties": "INSERT INTO PRESENTATION.SEMANTIC_COUNTY_ATLAS\n        (release_id, fips, county, state, state_name, population, in_contiguous_tick_scope,\n         human_status, case_count_floor_2023, incidence_floor_2023,\n         state_unallocated_records_2023, tick_status, scapularis_status, pacificus_status,\n         burgdorferi_status, svi_percentile, uninsured_percentile, uninsured_percent,\n         rucc_2023, evidence_completeness, geometry_json, lineage)\n        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\n                PARSE_JSON(%s),PARSE_JSON(%s))",
+        "_insert_observations": "INSERT INTO PRESENTATION.SEMANTIC_OBSERVATIONS\n        (observation_id, release_id, measure_id, fips, source_key, source_version_id,\n         ingestion_run_id, artifact_id, source_record_id, source_row_hash, value, value_state,\n         retrieved_at, geography_semantics, temporal_window, transformation_version,\n         quality_state, limitations)\n        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,PARSE_JSON(%s),%s,%s,%s,%s,%s,%s,%s)"
+      }
+    }
+  ]
+}
