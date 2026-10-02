@@ -31,6 +31,17 @@ def vanished(channel, cancel):
     channel.close()
 
 
+def private_failure(channel, cancel):
+    import snowflake.connector
+
+    def denied(**kwargs):
+        print("private-driver-diagnostic")
+        raise RuntimeError("private-error-never-publish")
+
+    snowflake.connector.connect = denied
+    launcher._child(channel, cancel, {}, "approved", "private-user")
+
+
 def test_no_approval_or_bad_plan_never_spawns(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("spawn forbidden")
@@ -79,3 +90,9 @@ def test_child_disappearing_preserves_unknown_cleanup():
         "state": "CHILD_FAILURE",
         "cleanup": "UNKNOWN",
     }
+
+
+def test_child_driver_output_and_exception_are_not_published(capfd):
+    result = launcher._supervise(private_failure, (), seconds=10)
+    assert result["receipt"] == {"state": "CHILD_FAILURE", "cleanup": "UNKNOWN"}
+    assert capfd.readouterr() == ("", "")

@@ -15,6 +15,9 @@ from .failure_engine_proof import CONNECTION, make_plan, plan_hash, run_proof
 def _child(channel: Any, cancel: Any, plan: dict[str, Any], approved: str, user: str) -> None:
     # No private driver diagnostics reach the parent's stdout/stderr or receipt.
     with open(os.devnull, "w") as sink, redirect_stdout(sink), redirect_stderr(sink):
+        # Keep native output and post-target multiprocessing tracebacks private too.
+        os.dup2(sink.fileno(), 1)
+        os.dup2(sink.fileno(), 2)
         logging.disable(logging.CRITICAL)
         try:
             import snowflake.connector
