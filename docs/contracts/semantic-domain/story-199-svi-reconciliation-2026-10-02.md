@@ -99,9 +99,10 @@ acceptance or a live REST/UI check. PROD and publication evidence remain separat
 ## DATA202 handoff
 
 SVI tests above contribute source-domain, missingness, FIPS/duplicate and
-cross-vintage and observation-period coverage. The shared #192 SVI fixture uses
-an invalid percentile of 3 and a generic 2023 period; its SVI-only correction to
-0.5 and ACS 2018–2022 awaits parent coordination. Parent assigned this lane the eventual coherent #202 PR
+cross-vintage and observation-period coverage. Parent coordinated the shared
+#192 SVI fixture correction to a valid percentile of 0.5 and ACS 2018–2022;
+the negative tests retain invalid-range and incompatible-period assertions.
+Parent assigned this lane the eventual coherent #202 PR
 after SVI/RUCC contract review. Collect RUCC findings through parent before
 editing shared tests; do not create a competing validation owner. Remaining
 cross-source freshness, availability-time and blocking-release cases should
