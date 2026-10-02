@@ -246,6 +246,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "expected_pending_json",
         "diagnose_v103_state",
         "diagnose_query_id",
+        "diagnose_climate_dev",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
