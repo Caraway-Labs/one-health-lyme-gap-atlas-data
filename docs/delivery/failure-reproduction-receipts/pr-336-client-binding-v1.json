@@ -1,0 +1,107 @@
+{
+  "schema_version": "1",
+  "repository": "Caraway-Labs/one-health-lyme-gap-atlas-data",
+  "recorded_at": "2026-10-02T07:45:14Z",
+  "identity": {
+    "requested_sha": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "workload_sha": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "workflow_head_sha": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "workflow_id": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "run_id": {
+      "state": "KNOWN",
+      "value": 35273891419
+    },
+    "job_id": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "attempt": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    }
+  },
+  "environment": "DEV",
+  "effective_role": {
+    "state": "UNKNOWN",
+    "reason": "ROLE_NOT_VISIBLE"
+  },
+  "boundary": "CONNECTOR_WRITE",
+  "operation": "SEMANTIC_RELEASE",
+  "migration": {
+    "state": "UNKNOWN",
+    "reason": "NOT_COLLECTED"
+  },
+  "artifacts": {
+    "tested_artifact": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "deployed_artifact": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "semantic_bundle": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    },
+    "api_contract": {
+      "state": "UNKNOWN",
+      "reason": "NOT_COLLECTED"
+    }
+  },
+  "failure_class": "SOFTWARE_DEFECT",
+  "operational_category": "WAREHOUSE",
+  "diagnostic_code": "BATCH_WRITE_FAILED",
+  "query_ids": {
+    "state": "UNKNOWN",
+    "reason": "QUERY_ID_UNAVAILABLE"
+  },
+  "verified_facts": [
+    "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/336",
+    "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/337",
+    "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/commit/650371245d938dc426f787c76cae5521abac7857",
+    "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/566"
+  ],
+  "unknowns": [
+    "NOT_COLLECTED",
+    "INCOMPLETE_LOGS",
+    "ROLE_NOT_VISIBLE",
+    "QUERY_ID_UNAVAILABLE"
+  ],
+  "missing_check": "DRIVER_BATCH_EXECUTION",
+  "reproduction": {
+    "state": "KNOWN",
+    "value": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/566"
+  },
+  "regression": {
+    "state": "PASS",
+    "kind": "BEHAVIORAL",
+    "reference": {
+      "state": "KNOWN",
+      "value": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/36979643177"
+    }
+  },
+  "repair": {
+    "state": "UNKNOWN",
+    "kind": "UNKNOWN",
+    "reference": {
+      "state": "KNOWN",
+      "value": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/337"
+    }
+  },
+  "risk": "DB",
+  "next_action": "REQUEST_BOUNDED_INTEGRATION_AUTHORIZATION",
+  "correlation_key": "sha256:4360d6ac9f17282e2b1e4b76398a6273f0365e081c4e68db19219259d87184da"
+}
