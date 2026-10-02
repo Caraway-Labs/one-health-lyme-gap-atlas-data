@@ -68,11 +68,12 @@ an explicitly approved existing isolated DEV target and role scope; routine read
 authority does not authorize writes or grants.
 
 DATA376 packet validation is integrated in merged PR565
-(`f28efd9d510ea117d774846292ead8f6bb3e8603`). DATA372 draft final interface at
-`7bd6886e32b2cb279836db947804d82c91cf3c95` was audited: v1 schema, reviewed
+(`f28efd9d510ea117d774846292ead8f6bb3e8603`). DATA372 final interface merged at
+`b7493e1aaef9c4f8107a9439a757dc3c23e83cb4` was audited: v1 schema, reviewed
 metadata scope, partial visibility, source-kind labels, mixed-source UNKNOWN,
-scope/hash integrity and default 24-hour TTL. Its final reviewed output must be
-integrated before capstone acceptance. Metadata is not row lineage, absent grants
+scope/hash integrity and default 24-hour TTL. Final consumer integration is proposed
+separately in PR569; independent review is required before capstone acceptance.
+Metadata is not row lineage, absent grants
 are not deny proof, and snapshots never authorize consequential readiness.
 No snapshot implementation or evidence-owner files are changed here.
 
