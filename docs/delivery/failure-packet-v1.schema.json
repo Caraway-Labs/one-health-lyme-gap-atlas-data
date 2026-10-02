@@ -38,7 +38,9 @@
     "recorded_at": {
       "type": "string",
       "format": "date-time",
-      "maxLength": 35
+      "minLength": 20,
+      "maxLength": 20,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },
     "identity": {
       "type": "object",
@@ -68,6 +70,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 40,
+                  "maxLength": 40,
                   "pattern": "^[0-9a-f]{40}$"
                 }
               }
@@ -113,6 +117,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 40,
+                  "maxLength": 40,
                   "pattern": "^[0-9a-f]{40}$"
                 }
               }
@@ -158,6 +164,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 40,
+                  "maxLength": 40,
                   "pattern": "^[0-9a-f]{40}$"
                 }
               }
@@ -474,6 +482,8 @@
             },
             "value": {
               "type": "string",
+              "minLength": 4,
+              "maxLength": 4,
               "pattern": "^V[0-9]{3}$"
             }
           }
@@ -529,6 +539,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
                   "pattern": "^sha256:[0-9a-f]{64}$"
                 }
               }
@@ -574,6 +586,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
                   "pattern": "^sha256:[0-9a-f]{64}$"
                 }
               }
@@ -619,6 +633,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
                   "pattern": "^sha256:[0-9a-f]{64}$"
                 }
               }
@@ -664,6 +680,8 @@
                 },
                 "value": {
                   "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
                   "pattern": "^sha256:[0-9a-f]{64}$"
                 }
               }
@@ -753,6 +771,8 @@
               "uniqueItems": true,
               "items": {
                 "type": "string",
+                "minLength": 36,
+                "maxLength": 36,
                 "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
               }
             }
@@ -790,7 +810,10 @@
       "items": {
         "type": "string",
         "maxLength": 220,
-        "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+        "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$",
+        "not": {
+          "pattern": "[\\x00-\\x1f\\x7f]"
+        }
       }
     },
     "unknowns": {
@@ -834,7 +857,10 @@
             "value": {
               "type": "string",
               "maxLength": 220,
-              "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+              "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$",
+              "not": {
+                "pattern": "[\\x00-\\x1f\\x7f]"
+              }
             }
           }
         },
@@ -903,7 +929,10 @@
                 "value": {
                   "type": "string",
                   "maxLength": 220,
-                  "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+                  "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$",
+                  "not": {
+                    "pattern": "[\\x00-\\x1f\\x7f]"
+                  }
                 }
               }
             },
@@ -1018,7 +1047,10 @@
                 "value": {
                   "type": "string",
                   "maxLength": 220,
-                  "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$"
+                  "pattern": "^https://github\\.com/Caraway-Labs/one-health-lyme-gap-atlas-data/(?:pull/[1-9][0-9]*|issues/[1-9][0-9]*|commit/[0-9a-f]{40}|actions/runs/[1-9][0-9]*(?:/job/[1-9][0-9]*)?)$",
+                  "not": {
+                    "pattern": "[\\x00-\\x1f\\x7f]"
+                  }
                 }
               }
             },
@@ -1115,6 +1147,8 @@
     },
     "correlation_key": {
       "type": "string",
+      "minLength": 71,
+      "maxLength": 71,
       "pattern": "^sha256:[0-9a-f]{64}$"
     }
   },

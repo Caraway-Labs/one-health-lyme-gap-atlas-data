@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 from collections.abc import Callable, Mapping
+from datetime import datetime
 from typing import Any
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
@@ -55,9 +56,19 @@ def _observed(value: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-SHA = {"type": "string", "pattern": "^[0-9a-f]{40}$"}
-DIGEST = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
-REFERENCE = {"type": "string", "maxLength": 220, "pattern": REFERENCE_PATTERN}
+SHA = {"type": "string", "minLength": 40, "maxLength": 40, "pattern": "^[0-9a-f]{40}$"}
+DIGEST = {
+    "type": "string",
+    "minLength": 71,
+    "maxLength": 71,
+    "pattern": "^sha256:[0-9a-f]{64}$",
+}
+REFERENCE = {
+    "type": "string",
+    "maxLength": 220,
+    "pattern": REFERENCE_PATTERN,
+    "not": {"pattern": r"[\x00-\x1f\x7f]"},
+}
 PROOF = _object(
     {
         "state": {"enum": ["PASS", "FAIL", "UNKNOWN"]},
@@ -80,7 +91,13 @@ PROOF["allOf"].append(
 FIELDS = {
     "schema_version": {"const": "1"},
     "repository": {"const": REPOSITORY},
-    "recorded_at": {"type": "string", "format": "date-time", "maxLength": 35},
+    "recorded_at": {
+        "type": "string",
+        "format": "date-time",
+        "minLength": 20,
+        "maxLength": 20,
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+    },
     "identity": _object(
         {
             "requested_sha": _observed(SHA),
@@ -127,7 +144,14 @@ FIELDS = {
         ]
     },
     "operation": {"enum": ["SOURCE_RUN", "MIGRATION", "SEMANTIC_RELEASE", "DEPLOYMENT", "UNKNOWN"]},
-    "migration": _observed({"type": "string", "pattern": "^V[0-9]{3}$"}),
+    "migration": _observed(
+        {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 4,
+            "pattern": "^V[0-9]{3}$",
+        }
+    ),
     "artifacts": _object(
         {
             name: _observed(DIGEST)
@@ -159,6 +183,8 @@ FIELDS = {
             "uniqueItems": True,
             "items": {
                 "type": "string",
+                "minLength": 36,
+                "maxLength": 36,
                 "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
             },
         }
@@ -192,7 +218,7 @@ FIELDS = {
             "INDEPENDENT_REVIEW",
         ]
     },
-    "correlation_key": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "correlation_key": DIGEST,
 }
 PACKET_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -228,6 +254,12 @@ def validate_packet(packet: object) -> None:
     if not VALIDATOR.is_valid(packet):
         raise ValueError("failure evidence rejected")
     assert isinstance(packet, dict)
+    # jsonschema's RFC3339 format checker is an optional extra. Calendar
+    # validity must be checked even when it is absent in the locked environment.
+    try:
+        datetime.strptime(packet["recorded_at"], "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        raise ValueError("failure evidence rejected") from None
     if packet["correlation_key"] != correlation_key(packet):
         raise ValueError("failure evidence rejected")
 

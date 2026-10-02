@@ -54,6 +54,13 @@ and approved role identifiers are closed enums; hashes have exact formats;
 query IDs are bounded UUIDs; public references are limited to this repository's
 PRs/issues/commits/Actions IDs without fragments, query strings or credentials.
 All rejected values and sink errors produce constant status codes without echo.
+`recorded_at` must be exactly UTC `YYYY-MM-DDTHH:MM:SSZ`: a mandatory schema
+pattern and exact length constrain its syntax, and standard-library calendar
+validation rejects impossible dates/times independently of jsonschema's optional
+RFC3339 checker. Hashes, query IDs and migration IDs have exact lengths; public
+references reject control characters, including a trailing newline. The privacy
+suite injects hostile content at every string leaf of both incomplete and fully
+known nested packets while checking that rejected evidence never reaches a sink.
 Public references must themselves point to reviewed safe evidence. Syntactic
 validation does not prove that a supplied reference or hash is truthful.
 

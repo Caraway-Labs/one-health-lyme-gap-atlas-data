@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 
 from lyme_gap_atlas_data.failure_evidence import (
     PACKET_SCHEMA,
+    VALIDATOR,
     build_packet,
     collect_failure,
     review_context,
@@ -262,3 +264,143 @@ def test_connection_names_and_capability_aliases_are_not_observed_roles(alias):
     context = example()
     context["effective_role"] = {"state": "KNOWN", "value": alias}
     assert collect_failure(context, lambda _: None) == "REDACTION_REJECTED"
+
+
+def privacy_context(known):
+    context = example()
+    context.pop("correlation_key")  # This is derived output, not caller evidence.
+    if known:
+        for name in context["identity"]:
+            context["identity"][name] = {
+                "state": "KNOWN",
+                "value": "a" * 40 if name.endswith("sha") else 1,
+            }
+        for name in context["artifacts"]:
+            context["artifacts"][name] = {"state": "KNOWN", "value": "sha256:" + "a" * 64}
+        context["effective_role"] = {"state": "KNOWN", "value": "OH_LYME_PROD_MIGRATION_DEPLOYER"}
+        context["migration"] = {"state": "KNOWN", "value": "V091"}
+        context["query_ids"] = {"state": "KNOWN", "value": ["00000000-0000-0000-0000-000000000001"]}
+        reference = {"state": "KNOWN", "value": context["verified_facts"][0]}
+        context["reproduction"] = copy.deepcopy(reference)
+        for name in ("regression", "repair"):
+            context[name] = {
+                "state": "PASS",
+                "kind": "BEHAVIORAL",
+                "reference": copy.deepcopy(reference),
+            }
+    return context
+
+
+def string_paths(value, path=()):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from string_paths(child, (*path, key))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from string_paths(child, (*path, index))
+    elif isinstance(value, str):
+        yield path
+
+
+@pytest.mark.parametrize(
+    "known,path",
+    [(known, path) for known in (False, True) for path in string_paths(privacy_context(known))],
+)
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "password=fake-sensitive-value",
+        "SELECT private WHERE name='private'",
+        "C:\\Users\\PrivatePerson\\workbook.xlsx",
+        "private@example.test",
+        "private prompt\nprivate payload",
+    ],
+)
+def test_every_input_string_leaf_rejects_hostile_content_without_sink(known, path, hostile, capsys):
+    context = privacy_context(known)
+    target = context
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = hostile
+    captured = []
+    assert collect_failure(context, captured.append) == "REDACTION_REJECTED"
+    assert captured == []
+    assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize(
+    "bad_timestamp",
+    [
+        "password=fake-sensitive-value",
+        "2026-02-29T00:00:00Z",
+        "2026-10-02T24:00:00Z",
+        "2026-10-02T00:00:60Z",
+        "0000-10-02T00:00:00Z",
+        "2026-10-02T00:00:00Z\n",
+        "2026-10-02T00:00:00+00:00",
+        "2026-10-02T00:00:00Zprivate",
+    ],
+)
+def test_timestamps_fail_closed_without_optional_format_checker(bad_timestamp, monkeypatch):
+    monkeypatch.setattr(VALIDATOR, "format_checker", None)
+    context = privacy_context(False)
+    context["recorded_at"] = bad_timestamp
+    captured = []
+    assert collect_failure(context, captured.append) == "REDACTION_REJECTED"
+    assert captured == []
+
+
+def test_schema_pattern_blocks_reported_bypass_without_format_checker():
+    packet = example()
+    packet["recorded_at"] = "password=fake-sensitive-value"
+    assert not Draft202012Validator(PACKET_SCHEMA).is_valid(packet)
+
+
+def test_valid_calendar_timestamp_and_complete_nested_evidence_collect_without_format_checker(
+    monkeypatch,
+):
+    monkeypatch.setattr(VALIDATOR, "format_checker", None)
+    for known in (False, True):
+        context = privacy_context(known)
+        context["recorded_at"] = "2024-02-29T23:59:59Z"
+        captured = []
+        assert collect_failure(context, captured.append) == "COLLECTED"
+        assert captured[0]["recorded_at"] == "2024-02-29T23:59:59Z"
+
+
+@pytest.mark.parametrize("field", ["reproduction", "regression", "repair", "verified_facts"])
+def test_public_reference_control_suffix_is_rejected(field):
+    context = privacy_context(True)
+    if field == "verified_facts":
+        context[field][0] += "\n"
+    elif field == "reproduction":
+        context[field]["value"] += "\n"
+    else:
+        context[field]["reference"]["value"] += "\n"
+    assert collect_failure(context, lambda _: None) == "REDACTION_REJECTED"
+
+
+@pytest.mark.parametrize("field", ["migration", "query_ids", "requested_sha", "tested_artifact"])
+def test_bounded_identifier_control_suffix_is_rejected(field):
+    context = privacy_context(True)
+    if field == "migration":
+        context[field]["value"] += "\n"
+    elif field == "query_ids":
+        context[field]["value"][0] += "\n"
+    elif field == "requested_sha":
+        context["identity"][field]["value"] += "\n"
+    else:
+        context["artifacts"][field]["value"] += "\n"
+    assert collect_failure(context, lambda _: None) == "REDACTION_REJECTED"
+
+
+def test_derived_correlation_never_publishes_supplied_private_text():
+    context = privacy_context(False)
+    context["correlation_key"] = "password=fake-sensitive-value"
+    captured = []
+    assert collect_failure(context, captured.append) == "COLLECTED"
+    assert "fake-sensitive-value" not in json.dumps(captured)
+    invalid_packet = example()
+    invalid_packet["correlation_key"] = context["correlation_key"]
+    with pytest.raises(ValueError, match="failure evidence rejected"):
+        validate_packet(invalid_packet)
