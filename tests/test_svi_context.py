@@ -175,3 +175,21 @@ def test_svi_mapping_rejects_observation_period_coercion() -> None:
     record["temporal"] = {"semantics": "PERIOD", "start": "2023-01-01", "end": "2023-12-31"}
     with pytest.raises(SemanticMappingError, match="ACS observation period"):
         map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+
+
+def test_svi_mapping_preserves_matching_county_fips() -> None:
+    record, metadata, authority = _case("svi")
+    assert record["source_output"]["county_fips"] == record["geography"]["county_fips"]
+    mapped = map_record(record, metadata, authority, REGISTRY, fixture_mode=True)
+    assert (
+        mapped["observation"]["geography"]["county_fips"] == record["source_output"]["county_fips"]
+    )
+
+
+@pytest.mark.parametrize("source_fips", ["08001", "01001"])
+def test_svi_mapping_rejects_differing_valid_county_fips(source_fips: str) -> None:
+    record, metadata, authority = _case("svi")
+    assert record["geography"]["county_fips"] == "08013"
+    record["source_output"]["county_fips"] = source_fips
+    with pytest.raises(SemanticMappingError, match="county source output/FIPS mismatch"):
+        map_record(record, metadata, authority, REGISTRY, fixture_mode=True)

@@ -387,6 +387,8 @@ def _check_output_scope(
     if mapping["id"] == "svi":
         if temporal != {"semantics": "PERIOD", "start": "2018-01-01", "end": "2022-12-31"}:
             raise SemanticMappingError("SVI requires the 2018-2022 ACS observation period")
+        if output.get("county_fips") != geography.get("county_fips"):
+            raise SemanticMappingError("county source output/FIPS mismatch")
     elif mapping["id"] in _MOD13_MEASURES:
         measure, source_variable = _MOD13_MEASURES[mapping["id"]]
         hashes = output.get("artifact_sha256_by_member")
