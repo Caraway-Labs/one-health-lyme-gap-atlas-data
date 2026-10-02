@@ -4,7 +4,11 @@ PR #551 merged at `4b2fb225d7c8ca1e005b60d93301f46ad3c410a8` after exact-head
 Quality passed all 1,901 tests. PR #550 is closed as superseded. DATA #443 / #496
 and API #84 remain open for separate live publication gates.
 
-## Exact pending migration and authority
+## Historical pre-apply preparation
+
+The pending set and access questions here describe preparation before V136 was
+applied. Completed application and service verification are recorded below;
+V136 is no longer pending in DEV.
 
 Reserved `V136__dev_january_climate_consumer_views.sql`. Main/open PRs showed no
 collision at preparation. DEV-only registration excludes V136 from PROD plans.
@@ -19,13 +23,13 @@ A successful read-only DEV ledger query through V135 yields exactly:
 
 SHOW GRANTS reports that the existing DEV migration role owns PRESENTATION and
 inherits DEV OWNER. V099/V103 define release-table/revision SELECT dependencies;
-effective service-session access still needs proof. Missing visibility never
+effective service-session access was unproved at preparation. Missing visibility never
 authorizes grants or proves missing data.
 
-Present this exact set, reviewed head and passing checks to topology owner
-`01a0f0b0` before the protected `deploy-dev.yml` dispatch. Refresh the ledger
-immediately before dispatch and retain its strict pending-set guard. This draft
-has not dispatched or executed DDL and adds no reader grants.
+This exact set, reviewed head and passing checks were presented before the
+protected `deploy-dev.yml` dispatch coordinated with topology owner `01a0f0b0`.
+The refreshed ledger and strict pending-set guard permitted only V136. It has
+since been applied; no reader grants were added.
 
 Read-only replacement preflight on 2026-10-02 used ATLAS_DEV_OWNER. The successful
 identity query returned MATTHEWCARAWAY / OH_LYME_DEV_OWNER /

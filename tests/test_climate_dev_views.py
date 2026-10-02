@@ -12,11 +12,27 @@ MODULE = runpy.run_path(str(SCRIPT))
 def test_compiled_body_comparison_preserves_projection_changes() -> None:
     body = MODULE["body"]
     assert body('CREATE VIEW "V" ("A") AS SELECT "A" FROM "T";') == body(
-        "CREATE OR REPLACE VIEW V AS select a from t"
+        'CREATE OR REPLACE VIEW V AS SELECT  "A"  FROM  "T"'
     )
     assert body("CREATE VIEW V AS SELECT a FROM t") != body("CREATE VIEW V AS SELECT b FROM t")
     assert body("CREATE VIEW V AS SELECT 'DAY' FROM t") != body(
         "CREATE VIEW V AS SELECT 'day' FROM t"
+    )
+
+
+def test_comparison_preserves_variant_keys_and_quoted_identifiers() -> None:
+    body = MODULE["body"]
+    assert body("CREATE VIEW V AS SELECT payload:record FROM t") != body(
+        "CREATE VIEW V AS SELECT payload:Record FROM t"
+    )
+    assert body('CREATE VIEW V AS SELECT "county" FROM t') != body(
+        'CREATE VIEW V AS SELECT "COUNTY" FROM t'
+    )
+    assert body('CREATE VIEW V AS SELECT "a b" FROM t') != body(
+        'CREATE VIEW V AS SELECT "ab" FROM t'
+    )
+    assert body("CREATE VIEW V AS SELECT '--keep' FROM t --remove") == body(
+        "CREATE VIEW V AS SELECT '--keep' FROM t"
     )
 
 
