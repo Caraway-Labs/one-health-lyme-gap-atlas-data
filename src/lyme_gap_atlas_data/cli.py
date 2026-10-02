@@ -48,6 +48,7 @@ from .ingestion import (
 from .literature_preflight import literature_preflight
 from .literature_status import literature_status
 from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
+from .metadata_cli import app as metadata_app
 from .migrations import (
     apply_migrations,
     migration_authority_preflight,
@@ -222,6 +223,7 @@ runs_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(source_app, name="source")
 app.add_typer(runs_app, name="runs")
+app.add_typer(metadata_app, name="metadata")
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUN_STORE = Path(".atlas-ingestion-runs")

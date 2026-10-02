@@ -1,0 +1,19 @@
+Metadata evidence: dev (blocked)
+Source kind: live; baseline: none; comparison: live_observation
+UNKNOWN GOVERNANCE.INGESTION_RUNS: not visible; empty role-filtered result cannot prove absence
+UNKNOWN GOVERNANCE.INGESTION_RUNS.INGESTION_RUN_ID: reviewed column not visible or unsupported metadata
+UNKNOWN GOVERNANCE.INGESTION_RUNS.RESOURCE_KEY: reviewed column not visible or unsupported metadata
+UNKNOWN GOVERNANCE.INGESTION_RUNS.STATUS: reviewed column not visible or unsupported metadata
+UNKNOWN PRESENTATION.SEMANTIC_RELEASES: not visible; empty role-filtered result cannot prove absence
+UNKNOWN PRESENTATION.SEMANTIC_RELEASES.RELEASE_ID: reviewed column not visible or unsupported metadata
+UNKNOWN PRESENTATION.V_COUNTY_ATLAS_CURRENT: not visible; empty role-filtered result cannot prove absence
+UNKNOWN api_read:PRESENTATION.V_COUNTY_ATLAS_CURRENT:SELECT: direct/inherited evidence incomplete; no absence inference
+UNKNOWN governed_source_run:GOVERNANCE.INGESTION_RUNS:INSERT: direct/inherited evidence incomplete; no absence inference
+UNKNOWN semantic_release:PRESENTATION.SEMANTIC_RELEASES:INSERT: direct/inherited evidence incomplete; no absence inference
+UNEXPECTED owner:GOVERNANCE.SCHEMA_MIGRATIONS:INSERT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED owner:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED read:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: outside curated desired capabilities; not proof of unauthorized grant
+UNEXPECTED runtime:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT: outside curated desired capabilities; not proof of unauthorized grant
+UNKNOWN V033: checksum differs; approved legacy reconciliation not inspected
+UNKNOWN desired_schema: contract v1 defines capabilities, not comprehensive columns/procedures
+UNKNOWN visibility: partial audit role; external inheritance/future scope omitted
