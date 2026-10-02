@@ -1,6 +1,7 @@
 """Exercise the actual builder/CLI failure boundary without network or credentials."""
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -168,7 +169,8 @@ def test_cli_opt_in_help():
 
     result = CliRunner().invoke(cli.app, ["pipeline", "semantic-release-build", "--help"])
     assert result.exit_code == 0
-    assert "--failure-context" in result.stdout and "--failure-packet" in result.stdout
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "--failure-context" in plain and "--failure-packet" in plain
 
 
 def test_interrupted_output_removes_only_new_partial_file(tmp_path, monkeypatch):
