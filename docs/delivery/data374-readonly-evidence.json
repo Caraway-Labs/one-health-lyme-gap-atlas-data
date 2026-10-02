@@ -1,5 +1,5 @@
 {
-  "evidence_version": "1",
+  "evidence_version": "2",
   "observed_date": "2026-10-02",
   "baseline_commit": "f28efd9d510ea117d774846292ead8f6bb3e8603",
   "frozen_expectations_commit": "3c81b471c802b1ad7e9361740319bd7cbeb50b4b",
@@ -8,6 +8,7 @@
     "root": "PASS",
     "nested_tests": "PASS",
     "enabled_skill_count_each": 4,
+    "repository_paths_verified_each": true,
     "errors": 0,
     "agent_turn_started": false
   },
@@ -19,6 +20,8 @@
     "negative_cases_matched": 4,
     "near_miss_cases_matched": 4,
     "observed_tool_calls": 0,
+    "completed_response_verified": true,
+    "model_evidence": "explicit_cli_request; no independent server model attestation",
     "status": "PASS"
   },
   "dev_read": {

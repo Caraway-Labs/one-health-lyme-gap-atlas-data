@@ -20,6 +20,10 @@ python scripts/verify_atlas_readonly_recipes.py --inspect-dev
 Discovery uses app-server `skills/list`, without agent turns, at the repository
 root and nested tests directory. Codex CLI 0.159.2 discovered all four enabled
 skills at both locations, with zero discovery errors. This agrees with the
+documented discovery scope. The corrected probe additionally verifies every
+skill's exact resolved repository `SKILL.md` path; same-named user/system skills
+cannot satisfy discovery. The actual probe was refreshed after this review fix.
+See the
 documented [.agents/skills discovery scope](https://learn.chatgpt.com/docs/build-skills).
 Interactive UI and assembled workspace discovery remain unverified.
 
@@ -30,6 +34,12 @@ negative and four near-miss cases matched; zero tool calls were observed. This
 is one observed classification run, not deterministic-agent or end-to-end
 workflow proof. Raw startup/account diagnostics are captured privately in memory
 and never emitted or committed. Only fixed case IDs and skill enums are retained.
+The corrected actual run verifies a substantive completed response matching the
+output file and a complete, ordered turn trace. Empty/malformed/incomplete traces
+fail closed. Started, updated and completed tool events count once per item ID,
+including completed-only tools. The model is the explicit CLI request; the trace
+does not independently attest the server model. Negative fixtures cover both
+reviewed false-pass gaps. All 12 cases matched again with zero tool calls.
 
 ## Actual DEV read scope
 

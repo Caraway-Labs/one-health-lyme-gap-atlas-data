@@ -20,6 +20,32 @@ SKILLS = {
 }
 
 
+def verify_entry(entry: dict[str, Any], root: Path) -> dict[str, Any]:
+    selected = [skill for skill in entry.get("skills", []) if skill.get("name") in SKILLS]
+    valid = len(selected) == len(SKILLS) and {skill["name"] for skill in selected} == SKILLS
+    for skill in selected:
+        expected = root / ".agents/skills" / skill["name"] / "SKILL.md"
+        path = skill.get("path")
+        try:
+            valid = valid and skill.get("enabled") is True and isinstance(path, str)
+            valid = (
+                valid
+                and Path(path).is_absolute()
+                and (Path(path).resolve(strict=True) == expected.resolve(strict=True))
+            )
+            valid = valid and expected.resolve(strict=True).is_relative_to(
+                root.resolve(strict=True)
+            )
+        except (OSError, TypeError, ValueError):
+            valid = False
+    return {
+        "skills": sorted(skill["name"] for skill in selected),
+        "repository_paths_verified": valid,
+        "error_count": len(entry.get("errors", [])),
+        "status": "PASS" if valid and not entry.get("errors") else "UNKNOWN",
+    }
+
+
 def discover(binary: Path, root: Path) -> dict[str, Any]:
     if binary.name not in {"codex", "codex.exe"} or not binary.is_file():
         raise ValueError("Expected an installed Codex executable")
@@ -91,19 +117,10 @@ def discover(binary: Path, root: Path) -> dict[str, Any]:
         for label, cwd in (("repo_root", root), ("nested_tests", root / "tests")):
             matches = [item for item in entries if Path(item["cwd"]) == cwd]
             entry = matches[0] if len(matches) == 1 else {}
-            names = sorted(
-                skill["name"]
-                for skill in entry.get("skills", [])
-                if skill.get("name") in SKILLS and skill.get("enabled") is True
-            )
             launches.append(
                 {
                     "launch": label,
-                    "skills": names,
-                    "error_count": len(entry.get("errors", [])),
-                    "status": "PASS"
-                    if set(names) == SKILLS and not entry.get("errors")
-                    else "UNKNOWN",
+                    **verify_entry(entry, root),
                 }
             )
         return {
