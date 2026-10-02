@@ -1,0 +1,97 @@
+{
+  "baseline_source": null,
+  "comparison_kind": "live_observation",
+  "consequential_use": "blocked",
+  "environment": "dev",
+  "findings": [
+    {
+      "category": "unknown",
+      "reason": "not visible; empty role-filtered result cannot prove absence",
+      "subject": "GOVERNANCE.INGESTION_RUNS"
+    },
+    {
+      "category": "unknown",
+      "reason": "reviewed column not visible or unsupported metadata",
+      "subject": "GOVERNANCE.INGESTION_RUNS.INGESTION_RUN_ID"
+    },
+    {
+      "category": "unknown",
+      "reason": "reviewed column not visible or unsupported metadata",
+      "subject": "GOVERNANCE.INGESTION_RUNS.RESOURCE_KEY"
+    },
+    {
+      "category": "unknown",
+      "reason": "reviewed column not visible or unsupported metadata",
+      "subject": "GOVERNANCE.INGESTION_RUNS.STATUS"
+    },
+    {
+      "category": "unknown",
+      "reason": "not visible; empty role-filtered result cannot prove absence",
+      "subject": "PRESENTATION.SEMANTIC_RELEASES"
+    },
+    {
+      "category": "unknown",
+      "reason": "reviewed column not visible or unsupported metadata",
+      "subject": "PRESENTATION.SEMANTIC_RELEASES.RELEASE_ID"
+    },
+    {
+      "category": "unknown",
+      "reason": "not visible; empty role-filtered result cannot prove absence",
+      "subject": "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
+    },
+    {
+      "category": "unknown",
+      "reason": "direct/inherited evidence incomplete; no absence inference",
+      "subject": "api_read:PRESENTATION.V_COUNTY_ATLAS_CURRENT:SELECT"
+    },
+    {
+      "category": "unknown",
+      "reason": "direct/inherited evidence incomplete; no absence inference",
+      "subject": "governed_source_run:GOVERNANCE.INGESTION_RUNS:INSERT"
+    },
+    {
+      "category": "unknown",
+      "reason": "direct/inherited evidence incomplete; no absence inference",
+      "subject": "semantic_release:PRESENTATION.SEMANTIC_RELEASES:INSERT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "owner:GOVERNANCE.SCHEMA_MIGRATIONS:INSERT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "owner:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "read:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
+    },
+    {
+      "category": "unexpected",
+      "reason": "outside curated desired capabilities; not proof of unauthorized grant",
+      "subject": "runtime:GOVERNANCE.SCHEMA_MIGRATIONS:SELECT"
+    },
+    {
+      "category": "unknown",
+      "reason": "checksum differs; approved legacy reconciliation not inspected",
+      "subject": "V033"
+    },
+    {
+      "category": "unknown",
+      "reason": "contract v1 defines capabilities, not comprehensive columns/procedures",
+      "subject": "desired_schema"
+    },
+    {
+      "category": "unknown",
+      "reason": "partial audit role; external inheritance/future scope omitted",
+      "subject": "visibility"
+    }
+  ],
+  "mutation_started": false,
+  "report_version": 1,
+  "semantic_hash": "a0c46f9263a635d1d5565f541eb249325a06524c6c4fbfd376b2b50dead118e3",
+  "source": "live"
+}
