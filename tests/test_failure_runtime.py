@@ -1,6 +1,7 @@
 """Exercise the actual builder/CLI failure boundary without network or credentials."""
 
 import json
+import os
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -173,7 +174,7 @@ def test_cli_opt_in_help():
     assert "--failure-context" in plain and "--failure-packet" in plain
 
 
-def test_interrupted_output_removes_only_new_partial_file(tmp_path, monkeypatch):
+def test_interrupted_output_retains_uncertain_partial_file(tmp_path, monkeypatch):
     packet = json.loads(context_file(tmp_path).read_text())
     original = failure_runtime.os.fdopen
 
@@ -197,4 +198,82 @@ def test_interrupted_output_removes_only_new_partial_file(tmp_path, monkeypatch)
     output = tmp_path / "packet"
     with pytest.raises(OSError):
         failure_runtime.write_packet(output, packet)
+    assert (
+        output.read_bytes()
+        == (json.dumps(packet, sort_keys=True, separators=(",", ":")) + "\n").encode()[:8]
+    )
+
+
+@pytest.mark.parametrize("replacement_kind", ["regular", "symlink"])
+def test_input_swap_between_lstat_and_open_rejected(replacement_kind, tmp_path, monkeypatch):
+    context = context_file(tmp_path)
+    target = tmp_path / "other-reviewed-content"
+    target.write_bytes(context.read_bytes())
+    replacement = tmp_path / "replacement"
+    if replacement_kind == "symlink":
+        try:
+            replacement.symlink_to(target)
+        except OSError:
+            pytest.skip("Windows host does not permit test symlink creation")
+    else:
+        replacement.write_bytes(target.read_bytes())
+    original = failure_runtime._open_no_follow
+    calls = []
+
+    def swap_then_open(path):
+        calls.append("open")
+        context.rename(tmp_path / "original")
+        replacement.rename(context)
+        return original(path)
+
+    monkeypatch.setattr(failure_runtime, "_open_no_follow", swap_then_open)
+    output = tmp_path / "out"
+    assert failure_runtime.collect_runtime_failure(context, output) == "COLLECTION_UNAVAILABLE"
+    assert calls == ["open"]
     assert not output.exists()
+
+
+def test_wrong_open_descriptor_rejected_before_read(tmp_path, monkeypatch):
+    context = context_file(tmp_path)
+    other = tmp_path / "other"
+    other.write_bytes(context.read_bytes())
+    monkeypatch.setattr(
+        failure_runtime, "_open_no_follow", lambda path: os.open(other, os.O_RDONLY)
+    )
+    assert (
+        failure_runtime.collect_runtime_failure(context, tmp_path / "out")
+        == "COLLECTION_UNAVAILABLE"
+    )
+    assert not (tmp_path / "out").exists()
+
+
+def test_failed_writer_never_deletes_replacement(tmp_path, monkeypatch):
+    packet = json.loads(context_file(tmp_path).read_text())
+    original = failure_runtime.os.fdopen
+    output = tmp_path / "packet"
+    displaced = tmp_path / "displaced-partial"
+
+    class SwappingWriter:
+        def __init__(self, descriptor):
+            self.stream = original(descriptor, "wb")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def write(self, payload):
+            self.stream.write(payload[:8])
+            self.stream.close()
+            output.rename(displaced)
+            output.write_bytes(b"another writer's replacement")
+            raise OSError("synthetic write failure")
+
+    monkeypatch.setattr(
+        failure_runtime.os, "fdopen", lambda descriptor, mode: SwappingWriter(descriptor)
+    )
+    with pytest.raises(OSError):
+        failure_runtime.write_packet(output, packet)
+    assert output.read_bytes() == b"another writer's replacement"
+    assert len(displaced.read_bytes()) == 8

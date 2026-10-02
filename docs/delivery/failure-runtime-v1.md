@@ -25,12 +25,18 @@ metadata or create a packet. No retry, commit, approval, query, publication or
 release-pointer change is introduced. Output-rendering failures after a
 successful builder are not represented as failed build transactions.
 
-Metadata must be a regular file, read at most 32,769 bytes. Packet input/output
+Metadata must be a regular file with a usable file identity, read at most 32,769
+bytes. The opened descriptor must match both the initial and current no-follow
+path identity before any read. POSIX uses O_NOFOLLOW; Windows opens the reparse
+point itself with CreateFileW, rejects reparse attributes, and denies sharing for
+write/delete while reading. Unsupported no-follow/identity surfaces fail closed.
+Packet input/output
 is capped at 32,768 bytes; validation precedes publication. Exclusive creation
 refuses an existing file or symlink and never overwrites another attempt.
-An interrupted write removes its newly created partial file where possible;
-an OS failure during cleanup can leave a partial file, which is not a valid
-receipt and must not be treated as collected. Each invocation owns a separate
+An interrupted write retains its uncertain partial file. The adapter never
+unlinks by pathname after failure because a replacement may now occupy it.
+A partial file is not a valid receipt and must not be treated as collected;
+collection reports COLLECTION_UNAVAILABLE. Each invocation owns a separate
 output filename. There is no directory-wide artifact upload.
 
 Only constant collection status is written to stderr: COLLECTED,
