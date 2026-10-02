@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "objects": {
+    "GOVERNANCE.SCHEMA_MIGRATIONS": {"kind": "BASE TABLE", "columns": ["VERSION", "SHA256"]},
+    "GOVERNANCE.INGESTION_RUNS": {"kind": "BASE TABLE", "columns": ["INGESTION_RUN_ID", "RESOURCE_KEY", "STATUS"]},
+    "PRESENTATION.GOVERNED_RELEASES": {"kind": "BASE TABLE", "columns": ["RELEASE_ID"]},
+    "PRESENTATION.V_COUNTY_ATLAS_CURRENT": {"kind": "VIEW", "columns": []}
+  },
+  "procedures": {},
+  "maximum_age_hours": 24
+}
