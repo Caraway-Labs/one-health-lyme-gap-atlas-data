@@ -250,6 +250,17 @@ def test_cli_rejects_untrusted_input_without_echo(tmp_path):
     assert "PRIVATE_SENTINEL" not in result.output
 
 
+def test_export_rejects_another_checkout_before_any_live_query(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+    with patch("lyme_gap_atlas_data.metadata_cli.collect_dev") as collect:
+        result = CliRunner().invoke(app, ["snapshot", "--code-commit", HEAD])
+    assert result.exit_code == 1
+    assert "Metadata export blocked" in result.output
+    collect.assert_not_called()
+    assert not (tmp_path / ".atlas-metadata-private").exists()
+
+
 def test_stale_and_tampered_baseline_skips_comparison(facts):
     prior = make(facts)
     prior["semantic_hash"] = "0" * 64

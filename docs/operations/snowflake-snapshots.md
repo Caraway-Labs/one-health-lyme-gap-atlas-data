@@ -76,7 +76,8 @@ uv run python scripts/verify_metadata_snapshot_dev.py
 ```
 
 Supply the exact Git head executing the exporter. The CLI verifies HEAD and a
-clean tracked checkout before collection. Live export requires a local Git
+clean tracked checkout before collection. Live export requires running from the
+source checkout root of a local Git
 checkout; an image without Git provenance can still validate/report snapshots.
 The snapshot command stages sanitized JSON and machine/human reports under the
 ignored `.atlas-metadata-private/` directory. It never publishes. Inspect source

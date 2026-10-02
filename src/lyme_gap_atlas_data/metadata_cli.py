@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 
 from .metadata_snapshots import (
+    ROOT,
     collect_dev,
     load_scope,
     render_report,
@@ -18,22 +19,28 @@ from .metadata_snapshots import (
 )
 
 app = typer.Typer(no_args_is_help=True)
-PRIVATE = Path(".atlas-metadata-private")
+PRIVATE = ROOT / ".atlas-metadata-private"
 
 
 @app.command("snapshot")
 def export_snapshot(code_commit: str = typer.Option(...)) -> None:
     """Inspect existing DEV audit authority and stage sanitized evidence privately."""
     try:
+        if Path.cwd().resolve() != ROOT:
+            raise ValueError
         scope = load_scope()
         # Validate caller-supplied provenance before opening the audit session.
         if len(code_commit) != 40 or any(x not in "0123456789abcdef" for x in code_commit):
             raise ValueError
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True, timeout=10
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
             check=True,
             capture_output=True,
             text=True,
