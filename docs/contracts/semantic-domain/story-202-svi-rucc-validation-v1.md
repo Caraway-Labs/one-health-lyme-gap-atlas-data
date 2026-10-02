@@ -1,7 +1,8 @@
 # DATA202: SVI/RUCC validation contribution
 
-This bounded contribution reuses #188 compatibility governance, #190 value states,
-#191 metadata, #192 lineage, #193 mappings and the existing semantic release gates.
+This bounded contribution reuses #188 baseline contracts, #190 value states,
+#191 metadata, #192 mappings, #193 lineage, #195 compatibility governance and the
+existing semantic release gates.
 It adds fixtures, not a source, monitoring system, migration or deployment. It depends
 on DATA199 reconciliation and merged DATA200. It does not close all of DATA202.
 
@@ -12,12 +13,12 @@ on DATA199 reconciliation and merged DATA200. It does not close all of DATA202.
 | Selected vintage | 2022, ACS 2018–2022 | 2023 | Retain both; no silent vintage substitution |
 | County identity | Five-digit FIPS, unique county | Five-digit FIPS, unique county | Match identities, not row counts |
 | Observation time | PERIOD, 2018-01-01 through 2022-12-31 | POINT_IN_TIME, 2023 | Descriptive mixed-vintage context; contemporaneity is not established |
-| Meaning | Overall SVI percentile; uninsured percentage/percentile; population count | Classification codes 1–9 | Percent, percentile, people and code remain distinct |
-| Denominator/reference | Population count is the explicit incidence denominator; percentile has its source reference population | No numeric population denominator | No pooling ranks or treating RUCC as a continuous quantity |
+| Meaning | Overall SVI percentile; uninsured percentage/percentile; E_TOTPOP population estimate | Classification codes 1–9 | Percent, percentile, people and code remain distinct |
+| Denominator/reference | E_TOTPOP is a population estimate used by legacy incidence as its denominator; EP_UNINSUR uses the civilian noninstitutionalized population; percentile has its source reference population | No numeric population denominator | Preserve each denominator; no pooling ranks or treating RUCC as a continuous quantity |
 | Geography | Source county polygon displayed in EPSG:4326 with existing 0.01 simplification | County identity classification | Display geometry does not establish TIGER 2025 analytical equivalence |
 | Availability/retrieval | Publisher publication may remain UNKNOWN; retrieval is a timestamp | Same distinction | Neither vintage nor retrieval proves publisher availability |
 | Provenance | Its own exact version/run/artifact/record/proof | Its own exact version/run/artifact/record/proof | Cross-source borrowing is rejected |
-| Value states | Sentinel/null → MISSING, zero retained; per-measure reviewed policy required | Valid ordinal code retained; unavailable values retain explicit states | Partial missingness does not erase other-source values/lineage |
+| Value states | Sentinel/null → MISSING, zero retained; per-measure reviewed policy required | County release requires a valid ordinal code 1–9 for every SVI county; missing/null/suppressed RUCC blocks release | Generic semantic state policies do not relax county-release coverage; SVI partial missingness does not erase valid RUCC values/lineage |
 
 SVI is area-level context, not individual vulnerability, causation, exposure or
 diagnosis. RUCC is a county classification, not an exposure or individual risk
