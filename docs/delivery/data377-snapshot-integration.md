@@ -41,10 +41,11 @@ capture workload and UTC provenance remain intact; the capstone does not relabel
 the observation with its own commit. See
 [DATA372 acceptance handoff](data372-evidence-2026-10-02.md).
 
-DATA374 runtime evidence is proposed separately in PR567 at
-`9560ceffd2bc0bba50a502a153bd409334960132`: installed root/nested discovery,
+DATA374 runtime evidence was independently reviewed in PR567 at
+`c48d26c9661c2324f45074dfa15f004dd7ed2aa1` and merged at
+`ae974e5cdae3dc3935b9804714d94de0a812c533`: installed root/nested discovery,
 bounded metadata routing and actual DEV SELECT/anonymous scripting/CTE recipes.
-That PR requires independent review and fresh-main exact CI before merge.
+Exact CI36983907479 passed before its authorized normal merge.
 End-to-end skill execution, interactive/assembled-workspace discovery, bulk INSERT,
 exact procedure caller/owner binding, role allow/deny, replacement grants/bootstrap
 and V098 procedure execution remain unverified. These gaps prevent a claim of
