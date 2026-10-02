@@ -24,7 +24,17 @@ def body(sql: str) -> str:
     match = re.search(r"\bAS\s+((?:WITH|SELECT)\b.*)", sql, re.I | re.S)
     if not match:
         raise ValueError("CLIMATE_VIEW_BODY")
-    return re.sub(r"\s+", "", match[1].rstrip().rstrip(";")).replace('"', "").lower()
+    parts = re.split(r"('(?:''|[^'])*')", match[1].rstrip().rstrip(";"))
+    return "".join(
+        part if index % 2 else re.sub(r"\s+", "", part).replace('"', "").lower()
+        for index, part in enumerate(parts)
+    )
+
+
+def proposals(sql: str) -> list[str]:
+    # The reviewed day-convention string and comments contain semicolons.
+    # Split only at the two explicit view-definition boundaries.
+    return re.split(r"(?=CREATE OR REPLACE VIEW\b)", sql, flags=re.I)[1:]
 
 
 def rows(cursor: Any) -> list[dict[str, Any]]:
@@ -39,9 +49,9 @@ def verify(cursor: Any, sql: str) -> dict[str, Any]:
     cursor.execute("SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version='V136'")
     if cursor.fetchall() != [("V136__dev_january_climate_consumer_views.sql", CHECKSUM)]:
         raise ValueError("CLIMATE_VIEW_LEDGER")
-    proposals = [item for item in sql.split(";") if "CREATE OR REPLACE VIEW" in item]
+    reviewed = proposals(sql)
     views = []
-    for name, proposal in zip(NAMES, proposals, strict=True):
+    for name, proposal in zip(NAMES, reviewed, strict=True):
         qualified = f"{DEV}.PRESENTATION.{name}"
         cursor.execute(f"SELECT GET_DDL('VIEW','{qualified}')")
         ddl = cursor.fetchone()[0]

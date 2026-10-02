@@ -15,6 +15,18 @@ def test_compiled_body_comparison_preserves_projection_changes() -> None:
         "CREATE OR REPLACE VIEW V AS select a from t"
     )
     assert body("CREATE VIEW V AS SELECT a FROM t") != body("CREATE VIEW V AS SELECT b FROM t")
+    assert body("CREATE VIEW V AS SELECT 'DAY' FROM t") != body(
+        "CREATE VIEW V AS SELECT 'day' FROM t"
+    )
+
+
+def test_reviewed_view_split_keeps_literal_and_comment_semicolons() -> None:
+    sql = (ROOT / "sql/january_climate_consumer_views.sql").read_text()
+    reviewed = MODULE["proposals"](sql)
+    assert len(reviewed) == 2
+    assert "not a midnight calendar day" in reviewed[0]
+    assert "FROM records;" in reviewed[0]
+    assert "CURRENT_CLIMATE_MEASURE_METADATA_V" in reviewed[1]
 
 
 def test_diagnostic_execute_surface_is_read_only() -> None:
