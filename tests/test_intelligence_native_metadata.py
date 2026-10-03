@@ -195,6 +195,8 @@ def test_writer_rejects_invented_normalized_date_and_required_guid_removal() -> 
     "url",
     [
         "https://localhost./x",
+        "https://foo.localhost/x",
+        "https://deep.foo.LOCALHOST/x",
         "https://127.1/x",
         "https://2130706433/x",
         "https://0x7f000001/x",
