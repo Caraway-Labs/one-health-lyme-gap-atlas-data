@@ -60,14 +60,19 @@ def canonical_timestamp(value: str) -> str:
     return match[1] + (f".{fraction}" if fraction else "") + "Z"
 
 
-@lru_cache(maxsize=3)
-def _validator(kind: str) -> Draft202012Validator:
+@lru_cache(maxsize=4)
+def _validator(kind: str, version: str = "v1") -> Draft202012Validator:
     if kind not in {"source", "item", "health"}:
         raise ValueError("INVALID_INTELLIGENCE_SCHEMA")
-    schema_path = Path(__file__).with_name("intelligence_schemas") / "v1" / f"{kind}.schema.json"
+    if version not in {"v1", "v2"} or (version == "v2" and kind != "item"):
+        raise ValueError("INVALID_INTELLIGENCE_SCHEMA")
+    schema_path = Path(__file__).with_name("intelligence_schemas") / version / f"{kind}.schema.json"
     if not schema_path.exists():
         schema_path = (
-            Path(__file__).parents[2] / "docs/contracts/intelligence/v1" / f"{kind}.schema.json"
+            Path(__file__).parents[2]
+            / "docs/contracts/intelligence"
+            / version
+            / f"{kind}.schema.json"
         )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     formats = FormatChecker()
@@ -83,7 +88,8 @@ def _validator(kind: str) -> Draft202012Validator:
 
 def validate_record(kind: str, value: dict[str, Any]) -> None:
     """Apply accepted schemas without printing source values on validation failure."""
-    if not _validator(kind).is_valid(value):
+    version = "v2" if kind == "item" and value.get("contract_version") == "2.0.0" else "v1"
+    if not _validator(kind, version).is_valid(value):
         raise ValueError("INVALID_INTELLIGENCE_RECORD")
 
 
@@ -148,6 +154,7 @@ def permitted_text(value: str | None, limit: int) -> str | None:
         return None
     parser = _PlainText()
     parser.feed(value)
+    parser.close()
     text = re.sub(r"[<>\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", "".join(parser.parts))
     text = " ".join(text.split())[:limit].strip()
     return text or None
@@ -165,6 +172,14 @@ def item_identities(item: dict[str, Any]) -> tuple[str, str, str]:
         }
     )
     item_id = identity_hash(identity)
+    content = revision_content(item)
+    content_hash = identity_hash(content)
+    revision_id = identity_hash({"item_id": item_id, "content_sha256": content_hash})
+    return item_id, content_hash, revision_id
+
+
+def revision_content(item: dict[str, Any]) -> dict[str, Any]:
+    """One versioned content basis shared by identity and immutable storage."""
     content = {
         field: item[field]
         for field in ("title", "excerpt", "published_at", "updated_at", "event_at")
@@ -172,9 +187,19 @@ def item_identities(item: dict[str, Any]) -> tuple[str, str, str]:
     for field in ("published_at", "updated_at", "event_at"):
         if content[field] is not None:
             content[field] = canonical_timestamp(content[field])
-    content_hash = identity_hash(content)
-    revision_id = identity_hash({"item_id": item_id, "content_sha256": content_hash})
-    return item_id, content_hash, revision_id
+    if item.get("contract_version") == "2.0.0":
+        native = item["native_metadata"]
+        content.update(
+            contract_version="2.0.0",
+            publisher_metadata=item["publisher_metadata"],
+            native_metadata={
+                "inventory": [path for path in native["inventory"] if path.startswith("item/")],
+                "item": native["item"],
+                "item_attributes": native["item_attributes"],
+                "publisher_dates": native["publisher_dates"],
+            },
+        )
+    return content
 
 
 def normalize_item(

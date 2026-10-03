@@ -22,9 +22,11 @@ from .intelligence_items import (
     identity_hash,
     item_identities,
     permitted_text,
+    revision_content,
     validate_acquisition_context,
     validate_record,
 )
+from .intelligence_metadata import VERSION, NativeMetadataPolicy, verify_native_item
 from .settings import PipelineSettings
 
 
@@ -58,6 +60,8 @@ SAFE_PERMISSIONS = {
     "INTELLIGENCE_SOURCE_RIGHTS_REQUIRED",
     "INTELLIGENCE_EXCERPT_NOT_PERMITTED",
     "INTELLIGENCE_INFERENCE_REVIEW_REQUIRED",
+    "INTELLIGENCE_NATIVE_RIGHTS_REQUIRED",
+    "INTELLIGENCE_NATIVE_MAPPING_INVALID",
 }
 
 
@@ -121,10 +125,12 @@ class IntelligenceStore:
         *,
         connection_factory: Callable[[], Any],
         retention_allowed: Callable[[str], bool],
+        native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
         settings: PipelineSettings | None = None,
     ) -> None:
         self.factory = connection_factory
         self.retention_allowed = retention_allowed
+        self.native_policy_lookup = native_policy_lookup
         self.settings = settings or PipelineSettings()
 
     @contextmanager
@@ -199,7 +205,8 @@ class IntelligenceStore:
             or item["provenance"]["run_id"] != run_id
         ):
             raise IntelligenceStorageError("INTELLIGENCE_ITEM_CONTEXT_MISMATCH")
-        if item["provenance"]["normalization_version"] != IDENTITY_VERSION:
+        expected = VERSION if item["contract_version"] == "2.0.0" else IDENTITY_VERSION
+        if item["provenance"]["normalization_version"] != expected:
             raise IntelligenceStorageError("INTELLIGENCE_NORMALIZATION_VERSION_UNSUPPORTED")
         item_id, content_hash, revision = item_identities(item)
         if (
@@ -323,7 +330,7 @@ class IntelligenceStore:
         # Freeze caller documents, bound the entire unit and reject malformed data
         # before opening a write transaction. One run/source is one atomic unit.
         serialized = canonical_json(items)
-        if len(items) > 1000 or len(serialized.encode("utf-8")) > 10_000_000:
+        if len(items) > 5000 or len(serialized.encode("utf-8")) > 10_000_000:
             raise IntelligenceStorageError("INTELLIGENCE_WRITE_LIMIT")
         frozen: list[dict[str, Any]] = json.loads(serialized)
         for item in frozen:
@@ -333,6 +340,8 @@ class IntelligenceStore:
             try:
                 self._begin(cursor)
                 source = self._source(cursor, source_id, registry_version)
+                if len(frozen) > source["limits"]["maximum_items"]:
+                    raise IntelligenceStorageError("INTELLIGENCE_WRITE_LIMIT")
                 run = _one(
                     cursor,
                     """SELECT resource_key FROM GOVERNANCE.INGESTION_RUNS
@@ -345,6 +354,11 @@ class IntelligenceStore:
                 seen: dict[str, str] = {}
                 for item in frozen:
                     self._validate(item, source, run_id)
+                    if item["contract_version"] == "2.0.0":
+                        if self.native_policy_lookup is None:
+                            raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
+                        policy = self.native_policy_lookup(source_id, registry_version)
+                        verify_native_item(item, policy, source)
                     provenance = item["provenance"]
                     artifact = _one(
                         cursor,
@@ -383,10 +397,7 @@ class IntelligenceStore:
                         replays += 1
                         continue
                     seen[key] = item_hash
-                    content = {
-                        field: item[field]
-                        for field in ("title", "excerpt", "published_at", "updated_at", "event_at")
-                    }
+                    content = revision_content(item)
                     row = _one(
                         cursor,
                         """SELECT content_sha256, TO_JSON(content_document)
