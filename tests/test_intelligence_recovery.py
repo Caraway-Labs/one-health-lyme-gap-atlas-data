@@ -13,10 +13,11 @@ from test_intelligence_feed import FIXTURES, definition, fetch_adapter
 from test_intelligence_storage import Connection, Cursor, Ledger
 
 from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, Tier
-from lyme_gap_atlas_data.ingestion.checkpoints import FileCheckpointStore
+from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import IntelligenceFileCheckpoints
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse
 from lyme_gap_atlas_data.ingestion.types import RunState, Stage, StageStatus
+from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SQLiteRawLedger
 
 
 class AcquisitionLedger(Ledger):
@@ -99,9 +100,17 @@ class Objects:
         assert prior == Body  # Identical raw bytes can share content-addressed storage.
 
 
-class FailingCheckpoints(FileCheckpointStore):
+class FailingCheckpoints(IntelligenceFileCheckpoints):
     def __init__(self, root: Path, database: AcquisitionLedger, failure: str) -> None:
-        super().__init__(root)
+        source = database.sources[0]
+        retention = FeedRawRetention(
+            SQLiteRawLedger(root / "retention.sqlite"),
+            environment="DEV",
+            source_lookup=lambda sid, version: source,
+            policy_lookup=lambda selected: "fixture-raw30-reviewed",
+            clock=lambda: datetime(2026, 10, 1, tzinfo=UTC).isoformat(),
+        )
+        super().__init__(root, retention)
         self.database, self.failure = database, failure
 
     def save_payload(self, run_id: str, payload: object) -> None:
@@ -134,26 +143,25 @@ def test_fresh_process_resume_reacquires_without_conflicting_with_committed_rece
     adapter, calls = fetch_adapter(source, [FeedResponse(200, {}, raw), FeedResponse(200, {}, raw)])
     original_acquire = adapter.acquire
     adapter.acquire = lambda selected, **kwargs: original_acquire(selected)
-    times = iter(
-        [
-            datetime(2026, 10, 1, tzinfo=UTC),
-            datetime(2026, 10, 1, 0, second_minute, tzinfo=UTC),
-        ]
-    )
 
     class Clock(datetime):
+        value = datetime(2026, 10, 1, tzinfo=UTC)
+
         @classmethod
         def now(cls, tz: Any = None) -> datetime:
-            return next(times)
+            return cls.value
 
     monkeypatch.setattr("lyme_gap_atlas_data.ingestion.intelligence_feed.datetime", Clock)
     database.fail_after_receipt_commit = failure == "cleanup"
     checkpoints = FailingCheckpoints(tmp_path, database, failure)
+    checkpoints.feed_retention.clock = lambda: Clock.now().isoformat()
+    adapter.feed_retention = checkpoints.feed_retention
     effects = IntelligenceStageEffects(
         connection_factory=database.connect,
         spaces_client=Objects(),
         retention_allowed=lambda ref: True,
         artifact_policy_allowed=lambda ref, policy: True,
+        feed_retention=checkpoints.feed_retention,
     )
     # Real orchestrator + real effects (including generic RAW registration) + real
     # store. Only HTTP, object store and warehouse are offline test seams.
@@ -169,8 +177,9 @@ def test_fresh_process_resume_reacquires_without_conflicting_with_committed_rece
     assert not database.captures
     if failure in {"cleanup", "payload"}:
         assert checkpoints.load_payload(first.ingestion_run_id) is None
+    Clock.value = datetime(2026, 10, 1, 0, second_minute, tzinfo=UTC)
     resumed = IngestionOrchestrator(
-        store=FileCheckpointStore(tmp_path),
+        store=IntelligenceFileCheckpoints(tmp_path, checkpoints.feed_retention),
         adapter=adapter,
         fixture_dir=FIXTURES / "rss",
         effects=effects,
@@ -188,7 +197,9 @@ def test_fresh_process_resume_reacquires_without_conflicting_with_committed_rece
     )
     # A second resume sees durable stage completion and performs no extra fetch/write.
     IngestionOrchestrator(
-        store=FileCheckpointStore(tmp_path), adapter=adapter, effects=effects
+        store=IntelligenceFileCheckpoints(tmp_path, checkpoints.feed_retention),
+        adapter=adapter,
+        effects=effects,
     ).resume(
         first.ingestion_run_id,
         definition=definition(source),

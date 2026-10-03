@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from test_intelligence_feed import FIXTURES, approved, definition, fetch_adapter
 
-from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, InMemoryCheckpointStore, Tier
+from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, Tier
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, acquisition_context
 from lyme_gap_atlas_data.intelligence_items import identity_hash, normalize_item
@@ -454,8 +454,17 @@ def test_source_limit_still_fails_atomically_below_global_limit() -> None:
     assert "commit" not in database.events
 
 
-def test_offline_transport_to_storage_to_public_contract_fields() -> None:
+def test_offline_transport_to_storage_to_public_contract_fields(tmp_path: Path) -> None:
     database = Ledger()
+    from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import IntelligenceMemoryCheckpoints
+    from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SQLiteRawLedger
+
+    raw_retention = FeedRawRetention(
+        SQLiteRawLedger(tmp_path / "raw-ledger.sqlite"),
+        environment="DEV",
+        source_lookup=lambda source_id, version: database.sources[0],
+        policy_lookup=lambda source: "synthetic-raw30-approved",
+    )
 
     class FixtureEffects(IntelligenceStageEffects):
         def _register_artifact(
@@ -465,6 +474,7 @@ def test_offline_transport_to_storage_to_public_contract_fields() -> None:
             acquired: Any,
             *,
             capture_identity: str | None = None,
+            raw_artifact_guard: Any = None,
         ) -> dict[str, Any]:
             database.runs[state.ingestion_run_id] = definition.resource_key
             artifact_id = "fixture-" + state.ingestion_run_id
@@ -478,13 +488,15 @@ def test_offline_transport_to_storage_to_public_contract_fields() -> None:
         connection_factory=database.connect,
         retention_allowed=lambda ref: True,
         artifact_policy_allowed=lambda ref, policy: True,
+        feed_retention=raw_retention,
     )
-    checkpoints = InMemoryCheckpointStore()
+    checkpoints = IntelligenceMemoryCheckpoints(raw_retention)
     # Test-only transport: identical local bytes through the injected HTTP seam.
     # No live provider or warehouse, and no fixture-mode bypass in the writer.
     adapter, _ = fetch_adapter(
         database.sources[0], [FeedResponse(200, {}, (FIXTURES / "rss/sample.xml").read_bytes())]
     )
+    adapter.feed_retention = raw_retention
     original_acquire = adapter.acquire
     adapter.acquire = lambda selected, **kwargs: original_acquire(selected)
     orchestrator = IngestionOrchestrator(

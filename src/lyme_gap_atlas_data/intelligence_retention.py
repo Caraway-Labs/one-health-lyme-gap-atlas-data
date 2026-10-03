@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
+from urllib.parse import unquote, urlsplit
 
 from .intelligence_items import TOKEN, canonical_timestamp, identity_hash
 
@@ -35,6 +36,27 @@ KINDS = frozenset(
         "process_payload",
     }
 )
+
+
+def canonical_object_uri(value: str) -> bool:
+    """Canonical Atlas S3 locator: no alternate spelling of one physical key."""
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return bool(
+        value.startswith("s3://")
+        and parts.geturl() == value
+        and parts.netloc
+        and parts.hostname == parts.netloc
+        and parts.netloc == parts.netloc.lower()
+        and not parts.netloc.endswith(".")
+        and parts.path.startswith("/")
+        and all(part not in {"", ".", ".."} for part in parts.path[1:].split("/"))
+        and unquote(parts.path) == parts.path
+        and not parts.query
+        and not parts.fragment
+    )
 
 
 def _time(value: str) -> datetime:
@@ -120,6 +142,12 @@ class RawCopy:
     lease_sha256: str
 
     def validate(self) -> None:
+        try:
+            scheme = urlsplit(self.locator).scheme
+        except ValueError:
+            raise ValueError("INTELLIGENCE_RAW_COPY_INVALID") from None
+        if scheme == "s3" and not canonical_object_uri(self.locator):
+            raise ValueError("INTELLIGENCE_RAW_COPY_INVALID")
         if (
             self.environment not in {"DEV", "PROD"}
             or self.kind not in KINDS

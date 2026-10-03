@@ -5,9 +5,12 @@ long term and raw feed copies for 30 days. Excerpts/full article text require
 separate rights. The old 7/90/365 proposal is superseded. Neither metadata nor
 publisher dates are silently deleted/refreshed by this policy.
 
-`intelligence_retention.py` is an inactive, feed-only control library. It has no
-CLI, scheduled task, warehouse DDL, credentials, object deletion adapter, or
-default approval. It is **not complete enforcement of DATA #135**.
+`intelligence_retention.py` defines feed-only leases and exact-plan cleanup.
+The durable runtime integration is described in
+[intelligence-raw-runtime.md](intelligence-raw-runtime.md). Concrete checkpoint,
+cache, object and resume gates are implemented, with offline restart/crash tests.
+No CLI, scheduled task, credentials, source activation or default cleanup
+approval is added. Production enforcement remains a release gate.
 
 The private authoritative ledger must create an immutable successful-200 capture
 lease and source/version/rights binding. Raw copies reference the lease hash.
@@ -37,14 +40,12 @@ Still required before activation:
 
 - Implement/review the private durable lease/claim/audit schema and intended
   roles with the parent; reserve a migration number and shared deployment slot.
-- Bind the authoritative capture authority to actual successful fetch receipts;
-  do not let a payload or source YAML issue leases or reset their timestamps.
-- Register and guard **all** copy paths above, including checkpoint reads before
-  loading VARIANT/XML and every orchestrator resume fallback; add actual restart
-  integration tests. The current library's fake ledger tests are not that proof.
-- Supply scoped concrete purge adapters for checkpoint payload removal, local
-  copies, caches, objects and replay members while retaining structured metadata,
-  hashes, source context and append-only audit. No scientific lifecycle changes.
+- Review the implemented capture authority, committed copy registration and
+  actual checkpoint/cache/object/resume boundaries using the offline tests and
+  the proposed `raw-runtime-schema-review.sql`. The earlier fielded-ledger
+  template is superseded by this implementation's document schema.
+- Prove the intended runtime role and dedicated purge owner against DEV. Scoped
+  adapters exist but no warehouse procedure, role or grant has been applied.
 - Validate inventory completeness, serialization/races, crash-after-delete
   recovery and intended-role DEV readback; review an exact cleanup plan before
   any irreversible real deletion. Deploy/schedule only with parent coordination.
