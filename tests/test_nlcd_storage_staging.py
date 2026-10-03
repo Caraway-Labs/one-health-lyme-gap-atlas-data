@@ -43,7 +43,7 @@ class Destination:
         return {"ContentLength": len(body), "Metadata": meta}
 
     def put_object(self, **kwargs: Any) -> None:
-        assert kwargs["IfNoneMatch"] == "*" and kwargs["ACL"] == "private"
+        assert "IfNoneMatch" not in kwargs and kwargs["ACL"] == "private"
         assert kwargs["Key"] not in self.objects
         value = kwargs["Body"]
         body = value if isinstance(value, bytes) else value.read()
@@ -73,6 +73,11 @@ def case(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Any, ...]:
     ).hexdigest()
     monkeypatch.setattr(staging, "MANIFEST_SHA256", digest)
     monkeypatch.setattr(staging, "SOURCE_BYTES", 24)
+    (tmp_path / "nlcd-staging-session.json").write_text(
+        json.dumps(
+            {"manifest_sha256": digest, "session_id": "12345678-1234-1234-1234-123456789abc"}
+        )
+    )
     return members, Source(members), Destination(), tmp_path
 
 
@@ -104,7 +109,7 @@ def test_staging_verifies_all_bytes_and_resume_avoids_source_download(
 
 
 def test_existing_mismatch_never_overwrites_or_downloads(case: tuple[Any, ...]) -> None:
-    key = staging.PREFIX + "product0.tif"
+    key = staging.PREFIX + "12345678-1234-1234-1234-123456789abc/product0.tif"
     case[2].objects[key] = (b"data", {})
     with pytest.raises(ValueError, match="Existing destination"):
         run(case)
@@ -116,7 +121,9 @@ def test_destination_checksum_failure_never_publishes_manifest(case: tuple[Any, 
     with pytest.raises(ValueError, match="SHA-256"):
         run(case)
     assert len(case[2].objects) == 1
-    assert staging.PREFIX + "manifest.json" not in case[2].objects
+    assert (
+        staging.PREFIX + "12345678-1234-1234-1234-123456789abc/manifest.json" not in case[2].objects
+    )
 
 
 def test_manifest_drift_stops_before_requests(case: tuple[Any, ...]) -> None:

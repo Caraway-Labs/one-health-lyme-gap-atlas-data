@@ -8,8 +8,11 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+import uuid
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -93,7 +96,7 @@ def _stream_hash(
     return digest.hexdigest()
 
 
-def stage_members(
+def _stage_members(
     members: Sequence[Mapping[str, Any]],
     *,
     settings: PipelineSettings,
@@ -102,6 +105,7 @@ def stage_members(
     scratch: Path,
     non_transfer_cost_bound_usd: float,
     limits: Limits | None = None,
+    session_prefix: str,
 ) -> dict[str, Any]:
     """One sequential attempt, no multipart/retries, full destination readback.
 
@@ -126,7 +130,7 @@ def stage_members(
     targets = []
     # Check every source/target identity before downloading any source bodies.
     for member in members:
-        key = PREFIX + Path(str(member["key"])).name
+        key = session_prefix + Path(str(member["key"])).name
         budget.request()
         head = source.head_object(
             Bucket=member["bucket"],
@@ -182,16 +186,17 @@ def stage_members(
                 digest = _stream_hash(
                     response["Body"], length, budget, source=True, output=cast(BinaryIO, temporary)
                 )
+                if response.get("CaptureSHA256") and response["CaptureSHA256"] != digest:
+                    raise ValueError("Relay bytes changed after verification")
                 temporary.seek(0)
                 budget.request()
-                # Conditional create prevents replacing another capture. If the
-                # provider rejects this feature, stop; never retry without it.
+                # Writes are restricted to this exclusively locked private
+                # session namespace; provider conditional PUT is not assumed.
                 destination.put_object(
                     Bucket=BUCKET,
                     Key=key,
                     Body=temporary,
                     ContentLength=length,
-                    IfNoneMatch="*",
                     ACL="private",
                     Metadata={
                         "sha256": digest,
@@ -223,7 +228,10 @@ def stage_members(
         "members": receipts,
         "manifest_sha256": MANIFEST_SHA256,
         "requests": budget.requests,
-        "source_download_bytes": budget.source_bytes,
+        "source_read_bytes": budget.source_bytes,
+        "source_download_bytes": (
+            0 if getattr(source, "is_private_relay", False) else budget.source_bytes
+        ),
         "destination_verification_bytes": budget.destination_bytes,
         "forecast_bound_usd": transfer_bound + non_transfer_cost_bound_usd,
         "measured_bill_usd": None,
@@ -242,7 +250,7 @@ def stage_members(
     ).encode()
     if len(immutable) > 65_536:
         raise ValueError("Receipt exceeds bound")
-    receipt_key = PREFIX + "manifest.json"
+    receipt_key = session_prefix + "manifest.json"
     budget.request()
     try:
         destination.head_object(Bucket=BUCKET, Key=receipt_key)
@@ -255,7 +263,6 @@ def stage_members(
             Key=receipt_key,
             Body=immutable,
             ContentLength=len(immutable),
-            IfNoneMatch="*",
             ACL="private",
         )
     budget.request()
@@ -276,31 +283,113 @@ def stage_members(
     return report
 
 
+@contextmanager
+def _capture_session(scratch: Path) -> Iterator[str]:
+    if scratch.is_symlink() or not scratch.is_dir():
+        raise ValueError("Private existing scratch directory required")
+    lock = scratch / "nlcd-staging.lock"
+    state = scratch / "nlcd-staging-session.json"
+    # Exclusive creation refuses concurrent/stale sessions; only the process
+    # that created this lock may remove it. No remote object is deleted.
+    with lock.open("x") as owned_lock:
+        try:
+            if state.is_symlink():
+                raise ValueError("Unsafe session state")
+            if state.exists():
+                session = json.loads(state.read_text())
+                if session.get("manifest_sha256") != MANIFEST_SHA256:
+                    raise ValueError("Wrong existing session manifest")
+                identifier = str(uuid.UUID(session["session_id"]))
+                if identifier != session["session_id"]:
+                    raise ValueError("Invalid session identity")
+            else:
+                identifier = str(uuid.uuid4())
+                with state.open("x") as output:
+                    json.dump(
+                        {"manifest_sha256": MANIFEST_SHA256, "session_id": identifier}, output
+                    )
+            yield PREFIX + identifier + "/"
+        finally:
+            owned_lock.close()
+            lock.unlink()
+
+
+def stage_members(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    settings: PipelineSettings,
+    source: Any,
+    destination: Any,
+    scratch: Path,
+    non_transfer_cost_bound_usd: float,
+    limits: Limits | None = None,
+) -> dict[str, Any]:
+    with _capture_session(scratch) as prefix:
+        return _stage_members(
+            members,
+            settings=settings,
+            source=source,
+            destination=destination,
+            scratch=scratch,
+            non_transfer_cost_bound_usd=non_transfer_cost_bound_usd,
+            limits=limits,
+            session_prefix=prefix,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--non-transfer-cost-bound-usd", type=float, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--capture-only", action="store_true")
+    parser.add_argument("--relay-directory", type=Path)
+    parser.add_argument("--existing-dev-worker-env", action="store_true")
     args = parser.parse_args()
+    # Hard process stop also covers a blocked upload; between-chunk clock checks
+    # alone cannot enforce that. No subprocesses are launched by this module.
+    watchdog = threading.Timer(MAX_SECONDS, lambda: os._exit(124))
+    watchdog.daemon = True
+    watchdog.start()
     try:
         if not args.execute:
             raise ValueError("Explicit reviewed execution required")
-        settings = PipelineSettings()
-        _validate(settings, ())
         members = load_manifest(args.manifest)
-        session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE"))
-        if session.get_credentials() is None:
-            raise ValueError("Existing AWS identity unavailable")
-        if settings.spaces_access_key_id is None or settings.spaces_secret_access_key is None:
-            raise ValueError("Existing Spaces runtime identity unavailable")
         config = Config(
             connect_timeout=5,
             read_timeout=30,
             retries={"total_max_attempts": 1},
             s3={"addressing_style": "virtual"},
         )
-        source = session.client("s3", region_name="us-west-2", config=config)
+        if args.capture_only and (args.relay_directory or args.existing_dev_worker_env):
+            raise ValueError("Capture and upload identities must remain separate")
+        source: Any
+        if args.relay_directory:
+            from .nlcd_capture_relay import VerifiedDirectorySource
+
+            source = VerifiedDirectorySource(members, args.relay_directory)
+        else:
+            session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE"))
+            if session.get_credentials() is None:
+                raise ValueError("Existing AWS identity unavailable")
+            source = session.client("s3", region_name="us-west-2", config=config)
+        if args.capture_only:
+            from .nlcd_capture_relay import capture_members
+
+            if not 0 <= args.non_transfer_cost_bound_usd <= 9:
+                raise ValueError("Invalid cost bound")
+            report = capture_members(members, source=source, directory=args.scratch)
+            print(json.dumps(report, sort_keys=True))
+            return 0
+        settings = (
+            PipelineSettings(_env_file="/opt/oh-lyme/pmc-runtime.env")  # type: ignore[call-arg]
+            if args.existing_dev_worker_env
+            else PipelineSettings()
+        )
+        _validate(settings, ())
+        if settings.spaces_access_key_id is None or settings.spaces_secret_access_key is None:
+            raise ValueError("Existing Spaces runtime identity unavailable")
         destination = boto3.client(
             "s3",
             endpoint_url=ENDPOINT,
@@ -317,6 +406,9 @@ def main() -> int:
             scratch=args.scratch,
             non_transfer_cost_bound_usd=args.non_transfer_cost_bound_usd,
         )
+        if args.relay_directory:
+            report["source_read_mode"] = "VERIFIED_PRIVATE_FILE_RELAY"
+            report["upstream_download_bytes_this_upload_attempt"] = 0
         print(json.dumps(report, sort_keys=True))
         return 0
     except Exception:
@@ -326,6 +418,8 @@ def main() -> int:
             )
         )
         return 1
+    finally:
+        watchdog.cancel()
 
 
 if __name__ == "__main__":
