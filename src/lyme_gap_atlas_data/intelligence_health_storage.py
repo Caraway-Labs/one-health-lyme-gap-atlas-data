@@ -10,11 +10,11 @@ import json
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from .ingestion.types import RunState, Stage
+from .ingestion.types import RunState, Stage, StageStatus
 from .intelligence_health import (
     AcquisitionFailure,
     HealthHistory,
@@ -213,6 +213,7 @@ class IntelligenceHealthPersistence:
         *,
         source_lookup: Callable[[str, int], dict[str, Any]],
         context_lookup: Callable[[RunState], dict[str, Any] | None],
+        run_binding_lookup: Callable[[str], dict[str, Any] | None] | None = None,
         environment: Literal["DEV", "PROD"] = "DEV",
     ) -> None:
         if environment not in {"DEV", "PROD"}:
@@ -226,6 +227,7 @@ class IntelligenceHealthPersistence:
             source_lookup,
             context_lookup,
         )
+        self.run_binding_lookup = run_binding_lookup
 
     def _source(self, source: dict[str, Any]) -> dict[str, Any]:
         validate_record("source", source)
@@ -249,10 +251,27 @@ class IntelligenceHealthPersistence:
         # Independent structured acquisition receipt, never raw payload/XML.
         context = self.context_lookup(state)
         records = checkpoints.load_normalized(run_id) or []
-        result = self.journal.transact(
-            source["source_id"],
-            source["registry_version"],
-            lambda previous: health_from_run(
+        binding = self.run_binding_lookup(run_id) if self.run_binding_lookup else None
+        load = state.checkpoint(Stage.LOAD)
+        accepted = bool(load and load.status is StageStatus.COMPLETED and context is not None)
+        if binding is None and not accepted:
+            raise PermissionError("INTELLIGENCE_HEALTH_RUN_BINDING_REQUIRED")
+        if binding is not None:
+            expected = {
+                "source_id": source["source_id"],
+                "registry_version": source["registry_version"],
+                "source_sha256": identity_hash(source),
+                "parser_version": binding.get("parser_version"),
+                "fetch_version": "pinned-https-v1",
+            }
+            if binding != expected or binding.get("parser_version") not in {
+                "rss-atom-v1",
+                "rss-atom-native-v2",
+            }:
+                raise PermissionError("INTELLIGENCE_HEALTH_RUN_BINDING_MISMATCH")
+
+        def transform(previous: HealthHistory | None) -> HealthResult:
+            result = health_from_run(
                 source,
                 state,
                 observed_at=observed_at,
@@ -260,7 +279,29 @@ class IntelligenceHealthPersistence:
                 items=tuple(records),
                 previous=previous,
                 policy=None,
-            ),
+            )
+            if binding is not None:
+                if (
+                    accepted
+                    and records
+                    and any(
+                        item["provenance"]["parser_version"] != binding["parser_version"]
+                        or item["provenance"]["fetch_version"] != binding["fetch_version"]
+                        for item in records
+                    )
+                ):
+                    raise PermissionError("INTELLIGENCE_HEALTH_RUN_BINDING_MISMATCH")
+                document = dict(result.history.document)
+                document["parser_version"] = binding["parser_version"]
+                document["fetch_version"] = binding["fetch_version"]
+                validate_record("health", document)
+                result = replace(result, history=replace(result.history, document=document))
+            return result
+
+        result = self.journal.transact(
+            source["source_id"],
+            source["registry_version"],
+            transform,
         )
         if emit is not None:
             record_health(result, emit)

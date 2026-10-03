@@ -26,10 +26,20 @@ def fixture(tmp_path, *, failed=False):
     checkpoints.save(state)
     checkpoints.save_normalized(state.ingestion_run_id, list(rows))
     journal = SQLiteHealthJournal(tmp_path / "health.sqlite")
+    from test_intelligence_raw_runtime import setup
+
+    _, retention, _ = setup(tmp_path)
+    retention.bind_source(
+        state.ingestion_run_id,
+        source,
+        parser_version="rss-atom-v1",
+        fetch_version="pinned-https-v1",
+    )
     service = IntelligenceHealthPersistence(
         journal,
         source_lookup=lambda sid, version: source,
         context_lookup=lambda selected: context,
+        run_binding_lookup=retention.source_binding,
     )
     return source, state, checkpoints, service
 
@@ -51,6 +61,7 @@ def test_actual_checkpoint_restart_replay_and_telemetry_outage_preserve_health(
         journal,
         source_lookup=service.source_lookup,
         context_lookup=service.context_lookup,
+        run_binding_lookup=service.run_binding_lookup,
     )
     emitted = []
 
@@ -77,6 +88,60 @@ def test_failed_attempt_is_not_double_counted_after_restart(tmp_path):
     assert second.history.document["consecutive_failures"] == 1
     assert len(events(service.journal)) == 1
     assert not second.incident_key
+
+
+def test_reconfigured_preload_failure_cannot_enter_new_registry_history(tmp_path):
+    source, state, checkpoints, service = fixture(tmp_path, failed=True)
+    changed = dict(source, registry_version=source["registry_version"] + 1)
+    service.source_lookup = lambda *args: changed
+    with pytest.raises(PermissionError, match="RUN_BINDING_MISMATCH"):
+        service.record_checkpoint(changed, checkpoints, state.ingestion_run_id, observed_at=NOW)
+    assert events(service.journal) == []
+
+
+def test_unbound_legacy_preload_failure_is_rejected(tmp_path):
+    source, state, checkpoints, service = fixture(tmp_path, failed=True)
+    service.run_binding_lookup = None
+    with pytest.raises(PermissionError, match="RUN_BINDING_REQUIRED"):
+        service.record_checkpoint(source, checkpoints, state.ingestion_run_id, observed_at=NOW)
+    assert events(service.journal) == []
+
+
+def test_native_parser_survives_accepted_load_then_quality_failure_and_restart(tmp_path):
+    from test_intelligence_native_metadata import records
+
+    from lyme_gap_atlas_data.ingestion.types import (
+        FailureCategory,
+        RunStatus,
+        Stage,
+        StageCheckpoint,
+        StageStatus,
+    )
+
+    source, state, checkpoints, service = fixture(tmp_path)
+    rows = records()
+    state.checkpoint(Stage.ACQUIRE).artifact_id = rows[0]["provenance"]["artifact_id"]
+    state.checkpoint(Stage.LOAD).detail.update(record_count=len(rows), captures_inserted=len(rows))
+    state.status = RunStatus.FAILED
+    state.stages.append(
+        StageCheckpoint(
+            stage=Stage.QUALITY,
+            status=StageStatus.FAILED,
+            attempt_count=1,
+            started_at=NOW,
+            failure_category=FailureCategory.QUALITY,
+            redacted_diagnostic_code="INJECTED_FAILURE",
+        )
+    )
+    checkpoints.save(state)
+    checkpoints.save_normalized(state.ingestion_run_id, rows)
+    # Legacy accepted LOAD still has independently verified immutable capture evidence.
+    service.run_binding_lookup = None
+    result = service.record_checkpoint(source, checkpoints, state.ingestion_run_id, observed_at=NOW)
+    assert result.history.document["parser_version"] == "rss-atom-native-v2"
+    assert result.history.document["last_fetch_success_at"] == NOW
+    reopened = SQLiteHealthJournal(service.journal.path)
+    assert json.loads(events(reopened)[0][0])["document"]["parser_version"] == "rss-atom-native-v2"
 
 
 def test_concurrent_duplicate_attempts_serialize_without_lost_history(tmp_path):

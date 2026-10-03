@@ -541,6 +541,8 @@ def health_from_run(
         document = dict(result.history.document)
         for field in (
             "last_fetch_success_at",
+            "parser_version",
+            "fetch_version",
             "last_item_observed_at",
             "coverage_start_at",
             "coverage_end_at",
