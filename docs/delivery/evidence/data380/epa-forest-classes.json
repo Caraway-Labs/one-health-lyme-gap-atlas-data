@@ -1,0 +1,65 @@
+{
+ "features": [
+  {"attributes": {
+   "Value": 0,
+   "OID": 0,
+   "Count": 6423760059
+  }},
+  {"attributes": {
+   "Value": 1,
+   "OID": 1,
+   "Count": 121738467
+  }},
+  {"attributes": {
+   "Value": 3,
+   "OID": 2,
+   "Count": 376907776
+  }},
+  {"attributes": {
+   "Value": 5,
+   "OID": 3,
+   "Count": 79446764
+  }},
+  {"attributes": {
+   "Value": 9,
+   "OID": 4,
+   "Count": 42225442
+  }},
+  {"attributes": {
+   "Value": 17,
+   "OID": 5,
+   "Count": 1853854270
+  }},
+  {"attributes": {
+   "Value": 100,
+   "OID": 6,
+   "Count": 80308553
+  }},
+  {"attributes": {
+   "Value": 129,
+   "OID": 7,
+   "Count": 7821758669
+  }}
+ ],
+ "objectIdFieldName": "",
+ "fields": [
+  {
+   "domain": null,
+   "name": "OID",
+   "alias": "OID",
+   "type": "esriFieldTypeOID"
+  },
+  {
+   "domain": null,
+   "name": "Value",
+   "alias": "Value",
+   "type": "esriFieldTypeInteger"
+  },
+  {
+   "domain": null,
+   "name": "Count",
+   "alias": "Count",
+   "type": "esriFieldTypeDouble"
+  }
+ ]
+}
