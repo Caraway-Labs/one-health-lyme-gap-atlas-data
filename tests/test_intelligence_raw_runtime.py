@@ -21,6 +21,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, Intell
 from lyme_gap_atlas_data.ingestion.orchestrator import IngestionOrchestrator
 from lyme_gap_atlas_data.ingestion.runtime import NoopStageEffects
 from lyme_gap_atlas_data.ingestion.types import Stage, Tier
+from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SQLiteRawLedger
 from lyme_gap_atlas_data.settings import PipelineSettings
 
@@ -49,6 +50,28 @@ def setup(tmp_path, clock=None):
     return source, gate, clock
 
 
+def test_source_binding_is_durable_before_fetch_and_cannot_be_reconfigured(tmp_path):
+    source, gate, clock = setup(tmp_path)
+    feed, _ = adapter(source, gate)
+    feed.bind_run_source(definition(source), "fixture-run")
+    binding = gate.source_binding("fixture-run")
+    assert binding["source_sha256"] == identity_hash(source)
+    assert binding["parser_version"] == "rss-atom-v1"
+    assert gate.ledger.documents("lease") == ()
+    _, reopened, _ = setup(tmp_path)
+    assert reopened.source_binding("fixture-run") == binding
+    changed = dict(source, registry_version=source["registry_version"] + 1)
+    reopened.source_lookup = lambda *args: changed
+    with pytest.raises(PermissionError, match="LEDGER_CONFLICT"):
+        reopened.bind_source(
+            "fixture-run",
+            changed,
+            parser_version="rss-atom-native-v2",
+            fetch_version="pinned-https-v1",
+        )
+    assert reopened.source_binding("fixture-run") == binding
+
+
 def adapter(source, gate, responses=None):
     replies = iter(responses or [FeedResponse(200, {"etag": '"fixture"'}, RAW)])
     requests = []
@@ -67,6 +90,35 @@ def adapter(source, gate, responses=None):
     ), requests
 
 
+def test_failed_first_acquisition_keeps_original_binding_on_reconfigured_resume(
+    tmp_path, monkeypatch
+):
+    from lyme_gap_atlas_data.ingestion.orchestrator import StageFailure
+    from lyme_gap_atlas_data.ingestion.types import FailureCategory
+
+    source, gate, clock = setup(tmp_path)
+    feed, requests = adapter(source, gate)
+    store = IntelligenceFileCheckpoints(tmp_path / "checkpoints", gate)
+    calls = []
+
+    def failed(definition, **kwargs):
+        bindings = gate.ledger.documents("run_source")
+        assert bindings and bindings[0]["source_sha256"] == identity_hash(source)
+        calls.append("acquire")
+        raise StageFailure(FailureCategory.ACQUISITION, "FEED_ACCESS_FAILED", "retry")
+
+    monkeypatch.setattr(feed, "acquire", failed)
+    runner = IngestionOrchestrator(store, adapter=feed, effects=NoopStageEffects())
+    state = runner.run(definition(source), tier=Tier.B)
+    assert state.status.value == "FAILED" and calls == ["acquire"]
+    original = gate.source_binding(state.ingestion_run_id)
+    changed = dict(source, registry_version=source["registry_version"] + 1)
+    gate.source_lookup = lambda *args: changed
+    resumed = runner.resume(state.ingestion_run_id, definition=definition(changed))
+    assert resumed.status.value == "FAILED" and calls == ["acquire"]
+    assert gate.source_binding(state.ingestion_run_id) == original
+
+
 @pytest.mark.parametrize("memory", [False, True])
 def test_expired_in_process_resume_refuses_before_raw_read(tmp_path, monkeypatch, memory):
     source, gate, clock = setup(tmp_path)
@@ -79,6 +131,7 @@ def test_expired_in_process_resume_refuses_before_raw_read(tmp_path, monkeypatch
     orchestrator = IngestionOrchestrator(store, adapter=feed, effects=NoopStageEffects())
     state = orchestrator.run(definition(source), tier=Tier.B, fail_after_stage="ACQUIRE")
     assert state.checkpoint(Stage.ACQUIRE).status.value == "COMPLETED"
+    assert gate.source_binding(state.ingestion_run_id)["source_sha256"] == identity_hash(source)
     clock.value = END
     monkeypatch.setattr(store, "load_payload", lambda run: pytest.fail("expired payload read"))
     monkeypatch.setattr(
@@ -206,6 +259,35 @@ def test_expired_cache_unconditional_304_fails_not_quiet(tmp_path):
     stale.cache, stale.cache_allowed = cache, lambda saved: True
     with pytest.raises(Exception, match="304"):
         stale.acquire(definition(source))
+
+
+def test_cache_expiring_during_304_request_is_dropped_before_parser_reads(tmp_path, monkeypatch):
+    import lyme_gap_atlas_data.ingestion.intelligence_feed as feed_module
+
+    source, gate, clock = setup(tmp_path)
+    feed, _ = adapter(source, gate)
+    capture = feed.acquire(definition(source))
+    cache = feed.retained_cache(capture.payload, "fixture-artifact")
+    clock.value = "2026-10-30T23:59:59.999999Z"
+    repoll, _ = adapter(source, gate)
+    repoll.cache, repoll.cache_allowed = cache, lambda saved: True
+
+    def request(*args):
+        clock.value = END
+        return FeedResponse(304, {}, b"")
+
+    original_parse = feed_module.parse_feed
+
+    def parse(*args, **kwargs):
+        if clock.value == END:
+            pytest.fail("expired cache parsed after conditional request")
+        return original_parse(*args, **kwargs)
+
+    repoll.request = request
+    monkeypatch.setattr(feed_module, "parse_feed", parse)
+    with pytest.raises(PermissionError, match="RAW_EXPIRED"):
+        repoll.acquire(definition(source))
+    assert repoll.cache is None and cache.body == b""
 
 
 def test_expired_warehouse_payload_and_object_paths_do_no_sql_or_object_read(tmp_path):

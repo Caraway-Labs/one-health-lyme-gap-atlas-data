@@ -10,6 +10,7 @@ from test_intelligence_feed import definition
 from test_intelligence_raw_runtime import END, adapter, setup
 
 from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import IntelligenceFileCheckpoints
+from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.intelligence_raw_cleanup import FileRawDelete, ObjectRawDelete, cleanup
 from lyme_gap_atlas_data.intelligence_retention import RawCopy, plan_cleanup
 
@@ -194,9 +195,43 @@ def test_object_driver_requires_exact_approved_source_and_artifact_key(tmp_path)
         url.replace("/dev/", "/prod/"),
         url.replace(source["source_id"], "scientific-source"),
         url.replace("fixture-run", "../escape"),
+        url.replace("fixture-bucket/", "fixture-bucket//"),
     ):
         with pytest.raises(PermissionError, match="SCOPE_INVALID"):
             driver(replace(copy, locator=unsafe))
     assert events == []
     assert driver(copy)
     assert [event[0] for event in events] == ["head", "delete"]
+
+
+def test_independent_expired_alias_cannot_delete_canonical_live_object(tmp_path):
+    source, gate, clock = setup(tmp_path)
+    feed, _ = adapter(source, gate)
+    first = feed.acquire(definition(source))
+    gate.bind("old-run", first.payload)
+    old = gate.require_run("old-run")
+    clock.value = "2026-10-02T00:00:00Z"
+    fresh, _ = adapter(source, gate)
+    second = fresh.acquire(definition(source))
+    gate.bind("fresh-run", second.payload)
+    live = gate.require_run("fresh-run")
+    uri = f"s3://fixture-bucket/fixture-prefix/dev/{source['source_id']}/fresh-run/{live.artifact_sha256}.bin"
+    canonical = RawCopy("DEV", source["source_id"], "raw_object", uri, live.sha256)
+    aliased = replace(
+        canonical,
+        locator=uri.replace("fixture-bucket/", "fixture-bucket//"),
+        lease_sha256=old.sha256,
+    )
+    # A separately recorded claim, bypassing the built-in writer, still fails closed.
+    with gate.ledger.guard():
+        gate.ledger.put("copy", canonical.sha256, canonical.__dict__)
+        gate.ledger.put("copy", identity_hash(aliased.__dict__), aliased.__dict__)
+    clock.value = END
+    with pytest.raises(ValueError, match="COPY_INVALID"):
+        plan_cleanup(
+            gate,
+            environment="DEV",
+            source_ids=(source["source_id"],),
+            now=clock(),
+            scope=lambda copy: True,
+        )

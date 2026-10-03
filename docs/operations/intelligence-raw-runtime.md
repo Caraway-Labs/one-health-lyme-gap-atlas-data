@@ -15,6 +15,11 @@ to `IntelligenceFeedAdapter`, `IntelligenceStageEffects`, and a corresponding
 without this controller and refuses an incompatible checkpoint store. Generic
 scientific checkpoint stores preserve their existing behavior.
 
+Before acquisition, the orchestrator durably binds the run to the approved
+source ID, registry version/hash, configured parser, and fetch version. This
+metadata survives a first-fetch failure. Resume cannot replace it with a newer
+registry configuration; a changed configuration requires a new approved run.
+
 The controller receives independent current registry and reviewed retention
 policy lookups. Neither source YAML nor payload dates confer authority. The
 adapter creates an immutable lease and issued validation receipt only after a
@@ -22,6 +27,8 @@ bounded successful acquisition. Payload verification checks that issued receipt
 before base64 decoding. A 304 records revalidation against the same original
 lease; retries, checkpoint resaves and resume cannot change its deadline. A
 fresh successful 200 creates a new capture, even when its bytes match.
+A conditional request that crosses the expiry boundary discards cached bytes
+before body access or parsing, even if the server returns 304.
 
 `SQLiteRawLedger` is a caller-owned durable local metadata store for DEV/offline
 integration. Its separate audit database commits pending cleanup intent even
@@ -29,6 +36,12 @@ if physical deletion crashes and the main guard rolls back. PROD requires the
 shared `SnowflakeRawLedger`, whose exact runtime role, suffixed database and
 transaction context are checked before private ledger SQL. Both implementations
 use an immutable checksum-verified document ledger and bounded inventories.
+Warehouse deletion outcomes are appended only after the enclosing transaction
+commits. Failed commit leaves independently durable pending intent, never a
+false deleted receipt. Audit outage after commit also leaves pending intent for
+readback/retry. File/object outcomes describe nontransactional physical deletion.
+Independent object claims and deletion reject noncanonical S3 paths, including
+double slashes, so a live canonical object cannot be reached via an expired alias.
 Do not hand untrusted code either ledger's writable connection or authority
 callbacks: these are trusted runtime components, not an authorization service.
 

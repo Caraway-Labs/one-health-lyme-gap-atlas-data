@@ -387,6 +387,16 @@ class IntelligenceFeedAdapter:
             raise _failure("INTELLIGENCE_SOURCE_MISMATCH")
         return source
 
+    def bind_run_source(self, definition: SourceDefinition, run_id: str) -> None:
+        if self.feed_retention is None:
+            raise PermissionError("INTELLIGENCE_RAW_RETENTION_REQUIRED")
+        self.feed_retention.bind_source(
+            run_id,
+            self._source(definition),
+            parser_version="rss-atom-native-v2" if self.native_policy_lookup else PARSER_VERSION,
+            fetch_version=FETCH_VERSION,
+        )
+
     def acquire(
         self, definition: SourceDefinition, *, fixture_dir: Path | None = None
     ) -> AcquireResult:
@@ -566,6 +576,19 @@ class IntelligenceFeedAdapter:
             if response.status == 304:
                 if cache is None or url != source["fetch_location"]:
                     raise _failure("FEED_304_WITHOUT_CAPTURE")
+                if self.feed_retention is not None:
+                    try:
+                        with self.feed_retention.lease_access(
+                            cache.raw_lease_sha256 or "",
+                            "conditional_cache",
+                            cache.retention_locator,
+                        ):
+                            body = cache.body
+                    except PermissionError:
+                        cache.discard_raw()
+                        self.cache = None
+                        raise
+                    return FeedResponse(304, response.headers, body, url)
                 return FeedResponse(304, response.headers, cache.body, url)
             if response.status == 200:
                 if redirects:

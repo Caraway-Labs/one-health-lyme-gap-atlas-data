@@ -219,6 +219,7 @@ class IngestionOrchestrator:
                 if isinstance(retention, FeedRawRetention):
                     if id(getattr(self.store, "feed_retention", None)) != id(retention):
                         raise PermissionError("INTELLIGENCE_RAW_CHECKPOINTS_REQUIRED")
+                    adapter.bind_run_source(definition, state.ingestion_run_id)  # type: ignore[attr-defined]
                     if restore_feed:
                         retention.require_run(state.ingestion_run_id)
         except PermissionError as error:

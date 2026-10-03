@@ -12,7 +12,14 @@ from urllib.request import url2pathname
 
 from .intelligence_items import TOKEN
 from .intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
-from .intelligence_retention import CleanupPlan, CleanupReceipt, CopyKind, RawCopy, execute_cleanup
+from .intelligence_retention import (
+    CleanupPlan,
+    CleanupReceipt,
+    CopyKind,
+    RawCopy,
+    canonical_object_uri,
+    execute_cleanup,
+)
 
 
 class FileRawDelete:
@@ -75,6 +82,8 @@ class ObjectRawDelete:
             raise ValueError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
 
     def key(self, copy: RawCopy) -> str:
+        if not canonical_object_uri(copy.locator):
+            raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
         parsed = urlsplit(copy.locator)
         lease = self.gate.lease(copy.lease_sha256)
         if (
@@ -164,12 +173,30 @@ def cleanup(
     """Hold the same durable guard as claim registration and all raw I/O."""
     if plan.environment != gate.environment:
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+    warehouse = {
+        copy.sha256
+        for copy in plan.copies
+        if isinstance(gate.ledger, SnowflakeRawLedger)
+        and copy.kind == "checkpoint_payload"
+        and copy.locator.startswith("snowflake://")
+    }
+    deferred: list[CleanupReceipt] = []
 
     def audit(receipt: CleanupReceipt) -> None:
-        document = asdict(receipt)
-        gate.ledger.append_audit(document)
+        if receipt.copy_sha256 in warehouse and receipt.outcome != "pending":
+            deferred.append(receipt)
+            if receipt.outcome == "failed":
+                raise PermissionError("INTELLIGENCE_RAW_WAREHOUSE_DELETE_ABORTED")
+            return
+        gate.ledger.append_audit(asdict(receipt))
 
     with gate.ledger.guard():
-        return execute_cleanup(
+        receipts = execute_cleanup(
             plan, gate, now=gate.clock(), approved=approved, scope=scope, delete=delete, audit=audit
         )
+    # Warehouse DELETE is durable only after the outer transaction commits.
+    # Commit failure/uncertainty leaves independently committed pending intent.
+    # Post-commit audit failure also leaves pending intent for safe readback/retry.
+    for receipt in deferred:
+        gate.ledger.append_audit(asdict(receipt))
+    return receipts

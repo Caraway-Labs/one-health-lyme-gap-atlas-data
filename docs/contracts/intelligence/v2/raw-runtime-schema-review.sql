@@ -11,7 +11,7 @@ CREATE TABLE GOVERNANCE.INTELLIGENCE_RAW_RETENTION_DOCUMENTS (
     DOCUMENT VARIANT NOT NULL,
     REGISTERED_AT TIMESTAMP_TZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
 );
--- lease/capture/validation/run/copy/write_complete/buffer_release only:
+-- lease/capture/validation/run/run_source/copy/write_complete/buffer_release only:
 -- bounded structured metadata, never XML,
 -- base64 or raw feed body. Standard-table uniqueness is enforced under V135's
 -- existing write guard by the runtime, not assumed from unenforced constraints.
@@ -44,6 +44,8 @@ $$
 DECLARE
     denied EXCEPTION (-20001, 'INTELLIGENCE_RAW_DELETE_SCOPE_INVALID');
     approval_count INTEGER;
+    approved_plan VARCHAR;
+    copy_count INTEGER;
     lease_count INTEGER;
     active_claims INTEGER;
     payload_count INTEGER;
@@ -67,21 +69,22 @@ BEGIN
     checkpoint_uri := 'snowflake://' || CURRENT_DATABASE()
       || '/GOVERNANCE/INGESTION_RUN_PAYLOADS/' || P_RUN_ID;
 
-    SELECT COUNT(*) INTO :approval_count
+    SELECT COUNT(*),MAX(a.PLAN_CANONICAL_JSON) INTO :approval_count,:approved_plan
     FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_APPROVALS a
     WHERE a.PLAN_SHA256=:P_PLAN_SHA256
       AND SHA2(a.PLAN_CANONICAL_JSON,256)=a.PLAN_SHA256
       AND PARSE_JSON(a.PLAN_CANONICAL_JSON):environment::VARCHAR
         = IFF(CURRENT_DATABASE()='ONE_HEALTH_LYME_GAP_ATLAS_DEV','DEV','PROD')
       AND CURRENT_DATABASE() IN
-        ('ONE_HEALTH_LYME_GAP_ATLAS_DEV','ONE_HEALTH_LYME_GAP_ATLAS_PROD')
-      AND EXISTS (
-        SELECT 1 FROM TABLE(FLATTEN(INPUT=>PARSE_JSON(a.PLAN_CANONICAL_JSON):copies)) c
-        WHERE c.value:kind::VARCHAR='checkpoint_payload'
-          AND c.value:locator::VARCHAR=:checkpoint_uri
-          AND c.value:lease_sha256::VARCHAR=:P_LEASE_SHA256
-      );
+        ('ONE_HEALTH_LYME_GAP_ATLAS_DEV','ONE_HEALTH_LYME_GAP_ATLAS_PROD');
     IF (approval_count <> 1) THEN RAISE denied; END IF;
+    -- One preselected bound plan; no correlated outer table alias in FLATTEN.
+    SELECT COUNT(*) INTO :copy_count
+    FROM TABLE(FLATTEN(INPUT=>PARSE_JSON(:approved_plan):copies)) c
+    WHERE c.value:kind::VARCHAR='checkpoint_payload'
+      AND c.value:locator::VARCHAR=:checkpoint_uri
+      AND c.value:lease_sha256::VARCHAR=:P_LEASE_SHA256;
+    IF (copy_count <> 1) THEN RAISE denied; END IF;
 
     SELECT COUNT(DISTINCT l.DOCUMENT_KEY) INTO :lease_count
     FROM GOVERNANCE.INTELLIGENCE_RAW_RETENTION_DOCUMENTS l
@@ -131,3 +134,5 @@ $$;
 -- Snowflake scripting references:
 -- https://docs.snowflake.com/en/developer-guide/snowflake-scripting/dml-status
 -- https://docs.snowflake.com/en/developer-guide/snowflake-scripting/exceptions
+-- https://docs.snowflake.com/en/sql-reference/functions/flatten
+-- https://docs.snowflake.com/en/sql-reference/bind-variables

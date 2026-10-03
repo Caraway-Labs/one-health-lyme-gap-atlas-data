@@ -278,6 +278,31 @@ class FeedRawRetention:
             raise PermissionError("INTELLIGENCE_RAW_LEDGER_LIMIT")
         self.buffers[locator] = discard
 
+    def bind_source(
+        self, run_id: str, source: dict[str, Any], *, parser_version: str, fetch_version: str
+    ) -> None:
+        """Pin approved metadata before acquisition, including failed first attempts."""
+        if (
+            not TOKEN.fullmatch(run_id)
+            or parser_version not in {"rss-atom-v1", "rss-atom-native-v2"}
+            or fetch_version != "pinned-https-v1"
+        ):
+            raise PermissionError("INTELLIGENCE_RUN_BINDING_INVALID")
+        if self.source_lookup(source["source_id"], source["registry_version"]) != source:
+            raise PermissionError("INTELLIGENCE_RAW_RIGHTS_REQUIRED")
+        document = {
+            "source_id": source["source_id"],
+            "registry_version": source["registry_version"],
+            "source_sha256": identity_hash(source),
+            "parser_version": parser_version,
+            "fetch_version": fetch_version,
+        }
+        with self.ledger.guard():
+            self.ledger.put("run_source", run_id, document)
+
+    def source_binding(self, run_id: str) -> dict[str, Any] | None:
+        return self.ledger.get("run_source", run_id)
+
     def discard_buffer(self, copy: RawCopy) -> bool:
         if self.ledger.get("buffer_release", copy.sha256) is not None:
             return False
