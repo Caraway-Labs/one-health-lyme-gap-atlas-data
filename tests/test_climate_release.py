@@ -43,9 +43,9 @@ def extension() -> dict:
             },
             "tiger": {
                 "source_version_id": "fixture-tiger-version",
-                "artifact_id": "fixture-tiger-artifact",
+                "artifact_id": climate.TIGER_ARTIFACT_ID,
                 "sha256": climate.TIGER_SHA,
-                "resource_key": "fixture-tiger-resource-2025",
+                "resource_key": climate.INPUTS[1]["resource_key"],
             },
         },
         "review_evidence": {
@@ -127,7 +127,7 @@ def test_membership_is_recomputed_from_retained_revision_tuples(monkeypatch) -> 
             assert "source_noaa_nclimgrid_daily" not in query
             if "v.status" in query:
                 assert "v.resource_key=%s" in query
-                assert parameters[-1] in {climate.RESOURCE_KEY, "fixture-tiger-resource-2025"}
+                assert parameters[-1] in {climate.RESOURCE_KEY, climate.INPUTS[1]["resource_key"]}
 
         def fetchall(self):
             return next(self.results)
