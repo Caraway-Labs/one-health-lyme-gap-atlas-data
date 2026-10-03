@@ -141,8 +141,10 @@ class RawCopy:
         return identity_hash(asdict(self))
 
     @property
-    def physical_key(self) -> tuple[str, str, str]:
-        return self.environment, self.kind, self.locator
+    def physical_key(self) -> tuple[str, str]:
+        # Locator includes its backend namespace. Logical copy roles can alias
+        # the same bytes: a replay member must protect a raw object's live claim.
+        return self.environment, self.locator
 
 
 class RawLedger(Protocol):
@@ -203,7 +205,7 @@ def plan_cleanup(
         raise ValueError("INTELLIGENCE_RAW_SCOPE_INVALID")
     instant = _time(now)
     inventory = tuple(sorted(ledger.copies(), key=lambda copy: copy.sha256))
-    selected: dict[tuple[str, str, str], RawCopy] = {}
+    selected: dict[tuple[str, str], RawCopy] = {}
     for copy in inventory:
         copy.validate()
         if copy.environment != environment or copy.source_id not in source_ids:
@@ -225,7 +227,7 @@ def plan_cleanup(
             if instant < _time(lease.expires_at):
                 expired = False
         if expired:
-            if not scope(copy) or any(claim.source_id not in source_ids for claim in claims):
+            if any(not scope(claim) or claim.source_id not in source_ids for claim in claims):
                 raise PermissionError("INTELLIGENCE_RAW_SCOPE_INVALID")
             selected[copy.physical_key] = copy
     return CleanupPlan(

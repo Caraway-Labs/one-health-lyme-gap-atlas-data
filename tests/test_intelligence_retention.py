@@ -114,6 +114,23 @@ def test_live_claim_protects_shared_object_without_renewing_old_lease():
         require_read(copy, ledger, now="2026-10-01T00:00:00Z", permitted=lambda _: True)
 
 
+def test_replay_alias_of_raw_object_also_protects_live_claim():
+    copy, ledger = fixture("raw_object")
+    fresh = lease("fresh-200", "2026-09-30T00:00:00Z")
+    ledger.leases[fresh.sha256] = fresh
+    ledger.inventory += (replace(copy, kind="artifact_member", lease_sha256=fresh.sha256),)
+    assert (
+        plan_cleanup(
+            ledger,
+            environment="DEV",
+            source_ids=("cdc-mmwr",),
+            now="2026-10-01T00:00:00Z",
+            scope=lambda _: True,
+        ).copies
+        == ()
+    )
+
+
 def test_exact_approval_and_current_inventory_required_before_any_delete():
     copy, ledger = fixture()
     plan = plan_cleanup(
