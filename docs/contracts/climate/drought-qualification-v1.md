@@ -7,7 +7,7 @@ Status: engineering qualification, pending scientific/source review. Baseline:
 
 | Product | Decision | Reason and remaining evidence |
 | --- | --- | --- |
-| USDM native categorical county percent-area statistics | DEFER canonical ingestion; retain bounded qualification | Native semantics and transport are defensible. County boundary vintage and area denominator reconciliation with Atlas 2025 TIGER have not been established. Matching FIPS does not establish identical polygons. |
+| USDM native categorical county percent-area statistics | DEFER canonical mapping; bounded native tabular option is defensible for review | Native semantics and transport are defensible independently of the inspected vector. See the [minimal native option](usdm-native-tabular-option-v1.md). County boundary vintage and area denominator equivalence to Atlas 2025 TIGER remain unestablished; matching FIPS does not establish identical polygons. |
 | USDM cumulative statistics, population, DSCI | DEFER | Separate products or formats outside this bounded evaluation; never reinterpret them as categorical shares. |
 | USDM weekly vector alternative | DEFER | The inspected 2025-01-07 D0 geometry is invalid, and no approved repair or explicit nondrought support mask is established. |
 | SPEI | DEFER | No artifact/version, accumulation timescale, calibration/reference period, PET method, geography mapping and revision policy have yet been frozen together. No SPEI values or timescales are admitted. |
@@ -16,6 +16,16 @@ Status: engineering qualification, pending scientific/source review. Baseline:
 The current nClimGrid decision is in `nclimgrid-daily-v1.md`, its longitudinal
 extension and `january-2025-source-reconciliation.md`. Its run and approval state
 are independent of this decision. DATA197 and DATA202 remain open.
+
+Follow-up qualification corrects the scope of the blocker: the inspected vector's
+invalid geometry and absent nondrought support domain do **not** block acquisition
+of the publisher's native tabular statistics. The official table reports its own
+None category. Preserving those reported county shares is within DATA197's original
+county-share-by-class target; it must be explicitly identified as REPORTED native
+AOI percentages, rather than Atlas-derived percentages over frozen TIGER polygons.
+The current code remains inactive and its canonical gate remains closed. This
+follow-up proposes a minimal contract and implementation boundary, not activation
+or approval of a new semantic source tuple.
 
 The SPEI database documentation was reachable with HTTP 200 on the laptop after
 the browser-tool fetch timed out. It describes monthly 0.5-degree SPEIbase grids,
@@ -124,18 +134,25 @@ credentials/grants, paid run, Alpha POC, Web or deployed resources were changed.
 
 - Repository agent-context check: PASS.
 - Ruff check and format: PASS; mypy: PASS, 113 source files.
-- Final drought-only suite: 17 passed. The full Windows suite collected the initial
+- Initial PR head b997707 drought-only suite: 17 passed. The full Windows suite collected the initial
   15 drought tests and finished with 3,017 passed, 2 skipped, 4 failed in unchanged
   `test_failure_engine_launcher.py` subprocess timeout expectations. The two later
   drought tests cover byte bounds/duplicate headers and empty/dry capture behavior.
   A detached clean aab1041 baseline reproduced the same four failures (2 passed)
   with baseline `src` first on PYTHONPATH. They are not introduced by drought code.
+- Review follow-up drought-only suite: 22 passed, adding a successful reversed-input
+  five-week capture and both inclusive/exclusive sides of the rounding boundary.
+  Ruff check/format also passed. Runtime source code is unchanged by that follow-up.
 - Offline dbt parse: PASS. Local Docker build: PASS,
   image `sha256:b48b83750f7da4d4085c5b5636e02e5336bfdfbebd108a080e2d7d5777d65814`.
   These are local checks, not hosted CI, deployment or source acceptance.
 - Fresh origin/main reconciliation: aab1041, no competing open drought/generic202
   PR found during the repository inspection. Other agents' worktrees were read
   for inspection only; all changes reside in this ticket's isolated worktree.
+- Hosted exact-head Quality for b997707 completed successfully:
+  [run 37100039527](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37100039527).
+  All quality steps passed and the DEV deployment job was skipped. Follow-up
+  documentation has its own head/check state; prior success is not relabeled.
 
 ## Authoritative references reviewed
 

@@ -3,7 +3,7 @@
 import csv
 import hashlib
 import io
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -116,3 +116,40 @@ def test_complete_dry_week_is_valid_but_empty_capture_is_missing():
     assert week.shares_percent[0] == Decimal(100)
     with pytest.raises(ValueError, match="MISSING_WEEK"):
         qualify(FIXTURE.read_bytes().splitlines(keepends=True)[0])
+
+
+def test_complete_five_week_capture_is_sorted_and_keeps_week_identity():
+    # Synthetic multiweek copies exercise bounds/order; they are not real source captures.
+    output = io.StringIO()
+    reader = csv.DictReader(io.StringIO(FIXTURE.read_text(encoding="utf-8-sig")))
+    original = next(reader)
+    writer = csv.DictWriter(output, fieldnames=reader.fieldnames)
+    writer.writeheader()
+    expected = [DAY + timedelta(weeks=offset) for offset in range(5)]
+    for observed in reversed(expected):
+        writer.writerow(
+            original
+            | {
+                "MapDate": observed.strftime("%Y%m%d"),
+                "ValidStart": observed.isoformat(),
+                "ValidEnd": (observed + timedelta(days=6)).isoformat(),
+            }
+        )
+    weeks = qualify_native_county_weeks(
+        output.getvalue().encode(), county_fips="48081", start=DAY, end=expected[-1]
+    )
+    assert [week.map_date for week in weeks] == expected
+    assert len({week.record_id for week in weeks}) == 5
+    assert len({week.artifact_sha256 for week in weeks}) == 1
+
+
+@pytest.mark.parametrize(
+    "d0,accepted", [("50.03", True), ("49.97", True), ("50.04", False), ("49.96", False)]
+)
+def test_categorical_total_rounding_boundaries(d0, accepted):
+    raw = altered(**{"None": "50", "D0": d0, "D1": "0", "D2": "0", "D3": "0", "D4": "0"})
+    if accepted:
+        assert qualify(raw)[0].shares_percent[1] == Decimal(d0)
+    else:
+        with pytest.raises(ValueError, match="CATEGORICAL_TOTAL_INVALID"):
+            qualify(raw)
