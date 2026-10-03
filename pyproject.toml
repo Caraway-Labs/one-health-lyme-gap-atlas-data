@@ -45,6 +45,7 @@ packages = ["src/lyme_gap_atlas_data"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "docs/contracts/intelligence/v1" = "lyme_gap_atlas_data/intelligence_schemas/v1"
+"docs/contracts/intelligence/v2" = "lyme_gap_atlas_data/intelligence_schemas/v2"
 
 [tool.hatch.metadata]
 allow-direct-references = true

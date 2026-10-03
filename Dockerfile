@@ -6,6 +6,7 @@ RUN apt-get update \
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY docs/contracts/intelligence/v1 ./docs/contracts/intelligence/v1
+COPY docs/contracts/intelligence/v2 ./docs/contracts/intelligence/v2
 RUN pip install --no-cache-dir uv && uv sync --frozen --no-dev --extra pipeline
 COPY config ./config
 COPY dbt ./dbt

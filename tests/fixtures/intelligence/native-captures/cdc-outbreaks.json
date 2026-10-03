@@ -1,0 +1,423 @@
+{
+  "evidence": {
+    "source_id": "cdc-outbreaks",
+    "endpoint": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
+    "captured_at": "2026-10-03T03:06:53.206777Z",
+    "mode": "metadata_fixture_only",
+    "status": 200,
+    "transport_bytes": 7386,
+    "transport_sha256": "b09cc3eca245c6d9a53a9ca2db2d878ea23b5d44e173647060821de548e50259",
+    "item_count": 11,
+    "sample_count": 1,
+    "observed_inventory": {
+      "feed/category": 1,
+      "feed/description": 1,
+      "feed/language": 1,
+      "feed/lastBuildDate": 1,
+      "feed/link": 1,
+      "feed/pubDate": 1,
+      "feed/title": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}description": 1,
+      "feed/{http://www.w3.org/2005/Atom}link": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@href": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@rel": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@type": 1,
+      "item/category": 29,
+      "item/description": 11,
+      "item/guid": 11,
+      "item/guid/@isPermaLink": 11,
+      "item/link": 11,
+      "item/pubDate": 11,
+      "item/title": 11
+    },
+    "uncovered_paths": [],
+    "raw_transport_retained": false
+  },
+  "source_candidate": {
+    "contract_version": "1.0.0",
+    "source_id": "cdc-outbreaks",
+    "registry_version": 1,
+    "organization": "CDC",
+    "family": "cdc_other",
+    "source_type": "publication",
+    "geographies": [],
+    "topics": [
+      "tick-borne"
+    ],
+    "trust_review": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "trust_classification": "unreviewed",
+    "transport": "rss",
+    "canonical_location": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
+    "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
+    "approved_hosts": [
+      "tools.cdc.gov"
+    ],
+    "state": "candidate",
+    "cadence": {
+      "poll_seconds": null,
+      "expected_item_seconds": null,
+      "basis": "unknown"
+    },
+    "access_use": {
+      "terms_location": "https://www.cdc.gov/other/agencymaterials.html",
+      "conditions": [
+        "Metadata-fixture review only; no endorsement by CDC; source material is available free at the canonical CDC link",
+        "No article descriptions/content or image bytes retained; source rights and live policy remain unresolved"
+      ],
+      "availability_verified_at": null,
+      "excerpt_max_chars": 0,
+      "content_retention_policy_ref": null,
+      "public_excerpt_permitted": false
+    },
+    "approval": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "change_review_policy": "new_version_requires_review",
+    "fallback_reason": null,
+    "limits": {
+      "maximum_bytes": 2000000,
+      "timeout_seconds": 20,
+      "maximum_items": 5000,
+      "maximum_redirects": 0,
+      "maximum_attempts": 1
+    }
+  },
+  "mapping_policy_candidate": {
+    "policy_ref": "cdc-metadata-fixture-review-v1",
+    "source_sha256": "52dc023392a0683656cf6f7b1a0687286cc8cf591d8cc47cd87c3ddc134dc831",
+    "inventory": [
+      "feed/category",
+      "feed/description",
+      "feed/language",
+      "feed/lastBuildDate",
+      "feed/link",
+      "feed/pubDate",
+      "feed/title",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+      "feed/{http://www.w3.org/2005/Atom}link",
+      "feed/{http://www.w3.org/2005/Atom}link/@href",
+      "feed/{http://www.w3.org/2005/Atom}link/@rel",
+      "feed/{http://www.w3.org/2005/Atom}link/@type",
+      "item/category",
+      "item/description",
+      "item/guid",
+      "item/guid/@isPermaLink",
+      "item/link",
+      "item/pubDate",
+      "item/title"
+    ],
+    "permitted_paths": [
+      "feed/category",
+      "feed/language",
+      "feed/lastBuildDate",
+      "feed/link",
+      "feed/pubDate",
+      "feed/title",
+      "feed/{http://www.w3.org/2005/Atom}link",
+      "feed/{http://www.w3.org/2005/Atom}link/@type",
+      "item/category",
+      "item/guid",
+      "item/guid/@isPermaLink",
+      "item/link",
+      "item/pubDate",
+      "item/title"
+    ],
+    "published_path": "item/pubDate",
+    "published_format": "rfc822",
+    "updated_path": null,
+    "updated_format": "iso8601",
+    "required_paths": []
+  },
+  "samples": [
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_other",
+        "source_item_id": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=281321&c=766541&_=343106C5460CC05AB87C1C9B326CF1A1715E9490DA44E55CFB4047D45F54B603",
+        "authors": [],
+        "categories": [
+          "E. coli Infection",
+          "Outbreaks",
+          "MobileApp Outbreaks"
+        ],
+        "language": "en",
+        "media": [],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "1226bf46c394c148b377480f388e7b5174af48d8e151a019401b4e0c3ebafe66",
+        "inventory": [
+          "feed/category",
+          "feed/description",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "Outbreaks",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "language",
+            "value": "en",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Fri, 21 Feb 2020 16:50:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "lastBuildDate",
+            "value": "Fri, 21 Feb 2020 16:50:42 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://www.cdc.gov/outbreaks/",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.w3.org/2005/Atom}link",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "href",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "rel",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "type",
+                "value": "application/rss+xml",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Outbreaks",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "E. coli Outbreak linked to Raw Milk Cheese",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=281321&c=766541",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "guid",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=281321&c=766541&_=343106C5460CC05AB87C1C9B326CF1A1715E9490DA44E55CFB4047D45F54B603",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "isPermaLink",
+                "value": "true",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Mon, 28 Sep 2026 15:14:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "E. coli Infection",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Outbreaks",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "MobileApp Outbreaks",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Mon, 28 Sep 2026 15:14:00 GMT",
+            "raw_state": "present",
+            "normalized": "2026-09-28T15:14:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=281321&c=766541&_=343106C5460CC05AB87C1C9B326CF1A1715E9490DA44E55CFB4047D45F54B603",
+        "url": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=281321&c=766541",
+        "title": "E. coli Outbreak linked to Raw Milk Cheese",
+        "published_at": "2026-09-28T15:14:00Z",
+        "updated_at": null
+      }
+    }
+  ]
+}

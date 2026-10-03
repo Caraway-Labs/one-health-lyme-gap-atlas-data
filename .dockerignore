@@ -12,5 +12,6 @@ docs/contracts/*
 !docs/contracts/intelligence
 docs/contracts/intelligence/*
 !docs/contracts/intelligence/v1
+!docs/contracts/intelligence/v2
 dbt/target
 dbt/logs
