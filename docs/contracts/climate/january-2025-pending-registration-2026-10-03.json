@@ -1,0 +1,41 @@
+{
+  "proof": "PROTECTED_DEV_PENDING_BINDINGS_WITH_INDEPENDENT_OWNER_READBACK",
+  "recorded_on": "2026-10-03",
+  "reviewed_code_sha": "f531911e6f0167ff79f388f34e88fbd177f90976",
+  "inspection_run": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37091068514",
+  "registration_run": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37091193988",
+  "conclusion": "success",
+  "selected_run_id": "c2eb2146-005d-44d2-bac4-e2805ca42577",
+  "before": {"matching_resources": 0, "matching_source_versions": 0},
+  "after": {"matching_resources": 2, "matching_source_versions": 2, "linked_dataset_keys": 2},
+  "sources": [
+    {
+      "resource_key": "noaa_nclimgrid_daily_202501",
+      "dataset_key": "nclimgrid-daily-v1.0.0-scaled",
+      "data_source_version_id": "8b4faec1cd66c426e386cf8298c14900a00d1cb05aed6650f76ce1c0619b73c8",
+      "status": "PENDING",
+      "approved_decision_id": null,
+      "resource_active": false
+    },
+    {
+      "resource_key": "census_tiger_2025_us_county_analysis",
+      "dataset_key": "census-tiger-line-2025-us-county",
+      "data_source_version_id": "a6838b9c6fd4bddacd0591c8873023270189dc117fdff785ab7e6a7af469d4d6",
+      "status": "PENDING",
+      "approved_decision_id": null,
+      "resource_active": false
+    }
+  ],
+  "independent_readback": {
+    "connection": "ATLAS_DEV_OWNER",
+    "role": "OH_LYME_DEV_OWNER",
+    "database": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "catalog_dataset_resource_version_join_succeeded": true,
+    "rows": 2
+  },
+  "source_activation": false,
+  "owner_decision_written": false,
+  "grants_changed": false,
+  "release_publication": false,
+  "scope_limitation": "Factual selected-run DEV bindings only. Existing source/metadata acceptance is not repeated; no approval ledger, reviewed metadata, published climate, actual API reader or PROD acceptance is asserted."
+}
