@@ -38,6 +38,7 @@ from ..intelligence_items import (
     validate_acquisition_context,
     validate_record,
 )
+from ..intelligence_metadata import NativeMetadataPolicy, normalize_native_item, parse_native_feed
 from .adapters import AcquireResult, AcquisitionArtifact, AcquisitionError, NormalizeResult
 from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIssue, ValidationResult
 
@@ -346,6 +347,7 @@ class IntelligenceFeedAdapter:
         sleep: Callable[[float], None] = time.sleep,
         cache: FeedCache | None = None,
         cache_allowed: Callable[[FeedCache], bool] | None = None,
+        native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
     ) -> None:
         self.lookup = registry_lookup
         self.retention_allowed = retention_allowed
@@ -354,6 +356,7 @@ class IntelligenceFeedAdapter:
         self.sleep = sleep
         self.cache = cache
         self.cache_allowed = cache_allowed
+        self.native_policy_lookup = native_policy_lookup
 
     @staticmethod
     def _source(definition: SourceDefinition) -> dict[str, Any]:
@@ -581,6 +584,9 @@ class IntelligenceFeedAdapter:
             or context["fetched_at"] != payload["fetched_at"]
         ):
             raise _failure("FEED_SOURCE_CONTEXT_MISMATCH")
+        if self.native_policy_lookup is not None:
+            policy = self.native_policy_lookup(source["source_id"], source["registry_version"])
+            return parse_native_feed(raw, source, policy, base_url=context["effective_url"])
         return parse_feed(raw, source, base_url=context["effective_url"])
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
@@ -590,7 +596,9 @@ class IntelligenceFeedAdapter:
             raise _failure("FEED_ACQUISITION_LINEAGE_REQUIRED")
         records: dict[tuple[str, str], dict[str, Any]] = {}
         for entry in entries:
-            item = normalize_item(
+            native = self.native_policy_lookup is not None
+            normalizer = normalize_native_item if native else normalize_item
+            item = normalizer(
                 source=self._source(definition),
                 transport=self._source(definition)["transport"],
                 fetched_at=payload["fetched_at"],
@@ -598,7 +606,7 @@ class IntelligenceFeedAdapter:
                     "run_id": lineage["ingestion_run_id"],
                     "artifact_id": lineage["artifact_id"],
                     "artifact_sha256": payload["artifact_sha256"],
-                    "parser_version": PARSER_VERSION,
+                    "parser_version": "rss-atom-native-v2" if native else PARSER_VERSION,
                     "fetch_version": FETCH_VERSION,
                 },
                 **entry,
@@ -606,7 +614,9 @@ class IntelligenceFeedAdapter:
             records.setdefault((item["item_id"], item["revision_id"]), item)
         return NormalizeResult(
             records=list(records.values()),
-            transformation_version=PARSER_VERSION,
+            transformation_version="rss-atom-native-v2"
+            if self.native_policy_lookup
+            else PARSER_VERSION,
             detail={
                 "duplicate_items": len(entries) - len(records),
                 "outcome": "quiet" if not records else "normalized",

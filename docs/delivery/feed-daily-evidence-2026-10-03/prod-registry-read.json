@@ -1,0 +1,11 @@
+[
+  [
+    {
+      "AUDIT_TIME"  :   "2026-10-02T18:46:58.003000-07:00"  ,
+      "AUDIT_USER"  :   "MATTHEWCARAWAY"  ,
+      "AUDIT_ROLE"  :   "OH_LYME_PROD_RUNTIME"  ,
+      "AUDIT_DATABASE"  :   "ONE_HEALTH_LYME_GAP_ATLAS_PROD"  ,
+      "AUDIT_WAREHOUSE"  :   "OH_LYME_PROD_INGEST_XS_WH"
+    }
+  ],
+  []
