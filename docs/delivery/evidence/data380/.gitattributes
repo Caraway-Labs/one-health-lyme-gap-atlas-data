@@ -1,0 +1,4 @@
+# Retain the exact public metadata response bytes; XML publisher whitespace is evidence.
+epa-forest-*.json -text
+epa-forest-metadata.xml -text -diff
+epa-forest-metadata-manifest.json text eol=lf
