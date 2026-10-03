@@ -1,6 +1,8 @@
 """Authority, idempotence and transaction boundaries, not live Snowflake proof."""
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +11,7 @@ from lyme_gap_atlas_data.climate_source_review import (
     INPUTS,
     RESOURCE_KEY,
     inspect_retained_inputs,
+    prepare_recorded_acceptance,
     reconcile,
     record_steward_decision,
     register_pending_inputs,
@@ -110,6 +113,57 @@ def decision():
         "conditions.",
         "accepted_metadata_revisions": sorted(DRAFT_METADATA_REVISIONS),
     }
+
+
+def accepted_record():
+    root = Path(__file__).resolve().parents[1] / "docs/contracts/climate"
+    packet = json.loads((root / "january-2025-metadata-source-review-packet.json").read_text())
+    acceptance = json.loads((root / "january-2025-product-approval.json").read_text())
+    return packet, acceptance
+
+
+def test_recording_preserves_unknown_original_time_and_exact_content():
+    packet, acceptance = accepted_record()
+    stamp = datetime.now(UTC).isoformat()
+    record = prepare_recorded_acceptance(packet, acceptance, recorded_at=stamp)
+    cursor = Cursor("OH_LYME_DEV_OWNER", registered=True)
+    record_steward_decision(cursor, record)
+    writes = [
+        params
+        for sql, params in cursor.statements
+        if sql.startswith("INSERT INTO GOVERNANCE.MANUAL")
+    ]
+    assert len(writes) == 2
+    for params in writes:
+        conditions = json.loads(params[3])
+        assert conditions["acceptance_provenance"]["original_decision_at"] == {
+            "state": "UNKNOWN",
+            "value": None,
+        }
+        assert conditions["acceptance_provenance"]["ledger_recorded_at"] == stamp
+        assert params[5] == stamp
+
+
+def test_changed_definition_cannot_reuse_accepted_revision_id():
+    packet, acceptance = accepted_record()
+    packet["metadata_proposals"][0]["definition"] += " changed"
+    with pytest.raises(ValueError, match="ACCEPTANCE_CONTENT_HASHES"):
+        prepare_recorded_acceptance(packet, acceptance, recorded_at=datetime.now(UTC).isoformat())
+
+
+def test_recording_rejects_invented_original_time_before_any_write():
+    packet, acceptance = accepted_record()
+    record = prepare_recorded_acceptance(
+        packet, acceptance, recorded_at=datetime.now(UTC).isoformat()
+    )
+    record["acceptance_provenance"]["original_decision_at"] = {
+        "state": "KNOWN",
+        "value": record["reviewed_at"],
+    }
+    cursor = Cursor("OH_LYME_DEV_OWNER", registered=True)
+    with pytest.raises(ValueError, match="ACCEPTANCE_PROVENANCE"):
+        record_steward_decision(cursor, record)
+    assert not any(sql.startswith("INSERT") for sql, _ in cursor.statements)
 
 
 def test_inspection_is_read_only_and_retained_corruption_blocks_registration():
