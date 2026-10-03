@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable, Iterable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -180,6 +181,7 @@ class SnowflakeStageEffects:
         acquired: AcquireResult,
         *,
         capture_identity: str | None = None,
+        raw_artifact_guard: Callable[[str], Any] | None = None,
     ) -> dict[str, Any]:
         """Explicit intelligence composition calls only after source/retention checks."""
         artifacts = _acquisition_artifacts(acquired, definition.endpoint_template)
@@ -203,12 +205,14 @@ class SnowflakeStageEffects:
                         run_id=state.ingestion_run_id,
                     )
                     key = f"{self.settings.spaces_prefix}/{artifact.object_key}"
-                    self._spaces().put_object(
-                        Bucket=self.settings.spaces_bucket,
-                        Key=key,
-                        Body=source_artifact.payload,
-                        ContentType=source_artifact.media_type,
-                    )
+                    uri = f"s3://{self.settings.spaces_bucket}/{key}"
+                    with raw_artifact_guard(uri) if raw_artifact_guard else nullcontext():
+                        self._spaces().put_object(
+                            Bucket=self.settings.spaces_bucket,
+                            Key=key,
+                            Body=source_artifact.payload,
+                            ContentType=source_artifact.media_type,
+                        )
                     request_id = (
                         f"{state.ingestion_run_id}:ACQUIRE:{sequence}"
                         if len(artifacts) == 1

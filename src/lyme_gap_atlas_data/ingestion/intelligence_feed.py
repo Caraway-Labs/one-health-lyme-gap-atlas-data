@@ -19,8 +19,8 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping
-from contextlib import suppress
-from dataclasses import dataclass
+from contextlib import nullcontext, suppress
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -39,6 +39,7 @@ from ..intelligence_items import (
     validate_record,
 )
 from ..intelligence_metadata import NativeMetadataPolicy, normalize_native_item, parse_native_feed
+from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from .adapters import AcquireResult, AcquisitionArtifact, AcquisitionError, NormalizeResult
 from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIssue, ValidationResult
 
@@ -211,6 +212,17 @@ class FeedCache:
     etag: str | None = None
     last_modified: str | None = None
     source_context: dict[str, Any] | None = None
+    raw_lease_sha256: str | None = None
+    cache_id: str = field(default_factory=lambda: buffer_namespace("cache").split("://", 1)[1])
+
+    @property
+    def retention_locator(self) -> str:
+        return f"cache://{self.cache_id}/{self.raw_lease_sha256}/{self.artifact_id}"
+
+    def discard_raw(self) -> bool:
+        existed = bool(self.body)
+        object.__setattr__(self, "body", b"")
+        return existed
 
 
 def acquisition_context(
@@ -348,6 +360,7 @@ class IntelligenceFeedAdapter:
         cache: FeedCache | None = None,
         cache_allowed: Callable[[FeedCache], bool] | None = None,
         native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
+        feed_retention: FeedRawRetention | None = None,
     ) -> None:
         self.lookup = registry_lookup
         self.retention_allowed = retention_allowed
@@ -357,6 +370,7 @@ class IntelligenceFeedAdapter:
         self.cache = cache
         self.cache_allowed = cache_allowed
         self.native_policy_lookup = native_policy_lookup
+        self.feed_retention = feed_retention
 
     @staticmethod
     def _source(definition: SourceDefinition) -> dict[str, Any]:
@@ -374,6 +388,12 @@ class IntelligenceFeedAdapter:
         return source
 
     def acquire(
+        self, definition: SourceDefinition, *, fixture_dir: Path | None = None
+    ) -> AcquireResult:
+        with self.feed_retention.ledger.guard() if self.feed_retention else nullcontext():
+            return self._acquire(definition, fixture_dir=fixture_dir)
+
+    def _acquire(
         self, definition: SourceDefinition, *, fixture_dir: Path | None = None
     ) -> AcquireResult:
         source = self._source(definition)
@@ -395,7 +415,11 @@ class IntelligenceFeedAdapter:
                 raise PermissionError("INTELLIGENCE_ENDPOINT_MISMATCH")
             response = self._fetch(definition, source)
             raw = response.body
-        fetched_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        fetched_at = (
+            self.feed_retention.clock()
+            if self.feed_retention
+            else datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        )
         effective_url = response.effective_url or definition.endpoint_template
         entries = parse_feed(raw, source, base_url=effective_url)
         digest = hashlib.sha256(raw).hexdigest()
@@ -413,6 +437,14 @@ class IntelligenceFeedAdapter:
                 fetch_status=response.status,
             ),
         }
+        if self.feed_retention is not None:
+            payload["raw_lease_sha256"] = self.feed_retention.capture(
+                source,
+                payload["source_context"],
+                previous=self.cache.raw_lease_sha256
+                if response.status == 304 and self.cache
+                else None,
+            )
         # Private replay manifest only; never part of an intelligence item or log.
         for key in ("etag", "last-modified"):
             value = response.headers.get(key)
@@ -445,6 +477,8 @@ class IntelligenceFeedAdapter:
         )
 
     def _fetch(self, definition: SourceDefinition, source: dict[str, Any]) -> FeedResponse:
+        if self.feed_retention is None and self.request is _request:
+            raise _failure("INTELLIGENCE_RAW_RETENTION_REQUIRED")
         limits = source["limits"]
         deadline = time.monotonic() + limits["timeout_seconds"]
         url = source["fetch_location"]
@@ -454,6 +488,18 @@ class IntelligenceFeedAdapter:
             "User-Agent": "AtlasIntelligence/1",
         }
         cache = self.cache
+        if cache is not None and self.feed_retention is not None:
+            try:
+                with self.feed_retention.lease_access(
+                    cache.raw_lease_sha256 or "", "conditional_cache", cache.retention_locator
+                ):
+                    pass
+            except PermissionError as error:
+                if str(error) != "INTELLIGENCE_RAW_EXPIRED":
+                    raise _failure("FEED_RETAINED_CACHE_REQUIRED") from None
+                # Never send validators or accept 304 for expired bytes.
+                cache.discard_raw()
+                self.cache = cache = None
         if cache is not None:
             if self.cache_allowed is None or not self.cache_allowed(cache):
                 raise _failure("FEED_RETAINED_CACHE_REQUIRED")
@@ -561,8 +607,14 @@ class IntelligenceFeedAdapter:
         return ValidationResult(ok=True, issues=[])
 
     def _entries(self, definition: SourceDefinition, payload: Any) -> list[dict[str, Any]]:
+        with self.feed_retention.ledger.guard() if self.feed_retention else nullcontext():
+            return self._retained_entries(definition, payload)
+
+    def _retained_entries(self, definition: SourceDefinition, payload: Any) -> list[dict[str, Any]]:
         if not isinstance(payload, dict):
             raise _failure("FEED_CAPTURE_REQUIRED")
+        if self.feed_retention is not None:
+            self.feed_retention.verify_payload(payload)
         raw = base64.b64decode(payload["xml_base64"], validate=True)
         if hashlib.sha256(raw).hexdigest() != payload["artifact_sha256"]:
             raise _failure("FEED_CAPTURE_HASH_MISMATCH")
@@ -588,6 +640,40 @@ class IntelligenceFeedAdapter:
             policy = self.native_policy_lookup(source["source_id"], source["registry_version"])
             return parse_native_feed(raw, source, policy, base_url=context["effective_url"])
         return parse_feed(raw, source, base_url=context["effective_url"])
+
+    def retained_cache(self, payload: dict[str, Any], artifact_id: str) -> FeedCache:
+        if self.feed_retention is None:
+            raise PermissionError("INTELLIGENCE_RAW_RETENTION_REQUIRED")
+        self.feed_retention.verify_payload(payload)
+        source = payload["source_context"]
+        cache = FeedCache(
+            source["registry_sha256"],
+            b"",
+            artifact_id,
+            payload.get("etag"),
+            payload.get("last-modified"),
+            source,
+            payload["raw_lease_sha256"],
+        )
+        self.feed_retention.register_buffer(cache.retention_locator, cache.discard_raw)
+        with self.feed_retention.lease_access(
+            cache.raw_lease_sha256 or "", "conditional_cache", cache.retention_locator, write=True
+        ):
+            raw = base64.b64decode(payload["xml_base64"], validate=True)
+            if hashlib.sha256(raw).hexdigest() != source["artifact_sha256"]:
+                raise _failure("FEED_CAPTURE_HASH_MISMATCH")
+            retained = FeedCache(
+                cache.source_sha256,
+                raw,
+                artifact_id,
+                cache.etag,
+                cache.last_modified,
+                source,
+                cache.raw_lease_sha256,
+                cache.cache_id,
+            )
+            self.feed_retention.register_buffer(retained.retention_locator, retained.discard_raw)
+            return retained
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
         entries = self._entries(definition, payload)

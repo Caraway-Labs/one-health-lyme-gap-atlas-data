@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
+from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..settings import PipelineSettings
 from .adapters import AcquisitionError, SourceAdapter, StreamingSourceAdapter, get_adapter
 from .artifact_replay import ArtifactMember, validate_members
@@ -35,6 +36,7 @@ from .runtime import (
 )
 from .source_definition import validate_source_definition
 from .types import (
+    AdapterKind,
     FailureCategory,
     RunState,
     RunStatus,
@@ -73,6 +75,32 @@ class IngestionOrchestrator:
         self._effects_override = effects
         self._payloads: dict[str, Any] = {}
         self._normalized: dict[str, Any] = {}
+        self._raw_namespace = buffer_namespace("process")
+
+    def _raw_failure(self, state: RunState, error: PermissionError) -> RunState:
+        self._payloads.pop(state.ingestion_run_id, None)
+        state.status = RunStatus.FAILED
+        state.next_action = "new-approved-feed-run"
+        checkpoint = next(
+            (
+                stage
+                for stage in state.stages
+                if stage.status not in {StageStatus.COMPLETED, StageStatus.SKIPPED}
+            ),
+            None,
+        )
+        if checkpoint is not None:
+            checkpoint.status = StageStatus.FAILED
+            checkpoint.failure_category = FailureCategory.POLICY_LICENSE
+            code = str(error)
+            checkpoint.redacted_diagnostic_code = (
+                code
+                if code.startswith("INTELLIGENCE_RAW_") and code.replace("_", "").isalnum()
+                else "INTELLIGENCE_RAW_RETENTION_REQUIRED"
+            )
+            checkpoint.next_action = state.next_action
+        self.store.save(state)
+        return state
 
     def validate(self, definition: SourceDefinition) -> ValidationResult:
         return validate_source_definition(definition)
@@ -158,15 +186,60 @@ class IngestionOrchestrator:
         *,
         fail_after_stage: str | None,
     ) -> RunState:
+        try:
+            return self._execute_retained(definition, state, fail_after_stage=fail_after_stage)
+        except PermissionError as error:
+            if str(error).startswith("INTELLIGENCE_RAW_"):
+                return self._raw_failure(state, error)
+            raise
+        finally:
+            retention = getattr(self._adapter(definition), "feed_retention", None)
+            if isinstance(retention, FeedRawRetention):
+                retention.release_buffer(self._raw_namespace + "/" + state.ingestion_run_id)
+
+    def _execute_retained(
+        self,
+        definition: SourceDefinition,
+        state: RunState,
+        *,
+        fail_after_stage: str | None,
+    ) -> RunState:
         adapter = self._adapter(definition)
         effects = self._effects(state)
+        retention: FeedRawRetention | None = getattr(adapter, "feed_retention", None)
+        acquired_checkpoint = state.checkpoint(Stage.ACQUIRE)
+        retained_feed = definition.adapter_kind is AdapterKind.RSS_ATOM
+        restore_feed = bool(
+            acquired_checkpoint and acquired_checkpoint.status is StageStatus.COMPLETED
+        )
+        try:
+            if retained_feed and not state.dry_run:
+                if retention is None and self.fixture_dir is None:
+                    raise PermissionError("INTELLIGENCE_RAW_RETENTION_REQUIRED")
+                if isinstance(retention, FeedRawRetention):
+                    if id(getattr(self.store, "feed_retention", None)) != id(retention):
+                        raise PermissionError("INTELLIGENCE_RAW_CHECKPOINTS_REQUIRED")
+                    if restore_feed:
+                        retention.require_run(state.ingestion_run_id)
+        except PermissionError as error:
+            return self._raw_failure(state, error)
         streaming = isinstance(adapter, StreamingSourceAdapter)
         if streaming and not isinstance(self.store, PartitionStore):
             raise TypeError("Streaming adapter requires a partition checkpoint store")
-        payload = self._payloads.get(state.ingestion_run_id)
+        if retention is not None and state.ingestion_run_id in self._payloads:
+            try:
+                with retention.copy_access(
+                    state.ingestion_run_id,
+                    "process_payload",
+                    self._raw_namespace + "/" + state.ingestion_run_id,
+                ):
+                    payload = self._payloads[state.ingestion_run_id]
+            except PermissionError as error:
+                return self._raw_failure(state, error)
+        else:
+            payload = self._payloads.get(state.ingestion_run_id)
         normalized = self._normalized.get(state.ingestion_run_id)
         member_adapter = isinstance(adapter, RetainedArtifactSourceAdapter)
-        acquired_checkpoint = state.checkpoint(Stage.ACQUIRE)
         has_members = bool(
             acquired_checkpoint is not None
             and isinstance(acquired_checkpoint.detail.get("artifacts"), list)
@@ -174,12 +247,14 @@ class IngestionOrchestrator:
         )
         if (
             payload is None
+            and (not retained_feed or restore_feed)
             and not (member_adapter and has_members)
             and isinstance(self.store, PayloadStore)
         ):
             payload = self.store.load_payload(state.ingestion_run_id)
         if (
             payload is None
+            and (not retained_feed or restore_feed)
             and not (member_adapter and has_members)
             and isinstance(self.store, BinaryArtifactStore)
         ):
@@ -188,6 +263,7 @@ class IngestionOrchestrator:
                 payload = adapter.restore_raw_payload(definition, raw_binary)
         if (
             payload is None
+            and (not retained_feed or restore_feed)
             and not (member_adapter and has_members)
             and isinstance(self.store, RawArtifactStore)
         ):
@@ -215,6 +291,8 @@ class IngestionOrchestrator:
             self.store.save(state)
 
             try:
+                if retention is not None and checkpoint.stage is not Stage.ACQUIRE and restore_feed:
+                    retention.require_run(state.ingestion_run_id)
                 # fail_after_stage=X means X completed durably; failure is injected
                 # when entering the following stage so resume does not replay X.
                 if (
@@ -246,7 +324,24 @@ class IngestionOrchestrator:
                                 "artifact_id": artifact["artifact_id"],
                                 "retrieved_at": datetime.now(UTC).isoformat(),
                             }
-                        self._payloads[state.ingestion_run_id] = payload
+                        if retention is not None:
+                            retention.bind(state.ingestion_run_id, payload)
+                            retention.register_buffer(
+                                self._raw_namespace + "/" + state.ingestion_run_id,
+                                lambda: (
+                                    self._payloads.pop(state.ingestion_run_id, None) is not None
+                                ),
+                            )
+                            with retention.copy_access(
+                                state.ingestion_run_id,
+                                "process_payload",
+                                self._raw_namespace + "/" + state.ingestion_run_id,
+                                write=True,
+                            ):
+                                self._payloads[state.ingestion_run_id] = payload
+                            restore_feed = True
+                        else:
+                            self._payloads[state.ingestion_run_id] = payload
                         if len(source_members) > 1 and isinstance(self.store, ArtifactMemberWriter):
                             metadata = validate_members(
                                 ArtifactMember.from_dict(item) for item in artifact["artifacts"]
@@ -439,6 +534,10 @@ class IngestionOrchestrator:
                 self.store.save(state)
                 return state
             except Exception as error:
+                if isinstance(error, PermissionError) and str(error).startswith(
+                    "INTELLIGENCE_RAW_"
+                ):
+                    return self._raw_failure(state, error)
                 checkpoint.status = StageStatus.FAILED
                 checkpoint.failure_category = _failure_category(error)
                 checkpoint.redacted_diagnostic_code = _diagnostic_code(error)
