@@ -1,0 +1,26 @@
+[
+  {
+    "name": "service",
+    "url": "https://enviroatlas.epa.gov/arcgis/rest/services/Rasters/Forest_connectivity_CONUS_2024/ImageServer?f=pjson",
+    "byte_count": 8907,
+    "sha256": "2ac27cce208263875bd0dbf4f816d8d680678b293e610e42f5130533fcd9b97a"
+  },
+  {
+    "name": "metadata",
+    "url": "https://enviroatlas.epa.gov/arcgis/rest/services/Rasters/Forest_connectivity_CONUS_2024/ImageServer/info/metadata",
+    "byte_count": 39339,
+    "sha256": "dad3d51c5322f9089d5bcf3b7f38e619370f3f7ec022ca72ee2c74e5236f6c65"
+  },
+  {
+    "name": "classes",
+    "url": "https://enviroatlas.epa.gov/arcgis/rest/services/Rasters/Forest_connectivity_CONUS_2024/ImageServer/rasterAttributeTable?f=pjson",
+    "byte_count": 967,
+    "sha256": "38980408a0235ec2ad8cd35aa5be84e77f8cf0ec5cc9bd281b5f12d537eece0c"
+  },
+  {
+    "name": "properties",
+    "url": "https://enviroatlas.epa.gov/arcgis/rest/services/Rasters/Forest_connectivity_CONUS_2024/ImageServer/keyProperties?f=pjson",
+    "byte_count": 995,
+    "sha256": "c256db6b28ae181baa4d7a6310bfb4b4622b2e01bb85b32bf2716ac135b68458"
+  }
+]
