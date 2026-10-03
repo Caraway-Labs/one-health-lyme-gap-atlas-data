@@ -1,5 +1,5 @@
 {
-  "recorded_at_utc": "2026-10-03T06:00:22.621327+00:00",
+  "recorded_at_utc": "2026-10-03T00:00:22.621327-06:00",
   "source": "CDC/NCEZID Tick Bite Data Tracker public Power BI report",
   "report_url": "https://app.powerbigov.us/view?r=eyJrIjoiMjljNzRkMTYtZWY4Ni00YzVlLTgyNDgtMjQ4NzFjOWVkNDY4IiwidCI6IjljZTcwODY5LTYwZGItNDRmZC1hYmU4LWQyNzY3MDc3ZmM4ZiJ9",
   "inspection": "Anonymous headless browser; no existing browser sessions or NSSP credentials; page navigation only; no export or ingestion",
@@ -66,5 +66,10 @@
   "suppression_missingness_policy_verified": false,
   "historical_availability_and_revision_policy_verified": false,
   "decision": "DEFER",
-  "governed_artifact_registration": false
+  "governed_artifact_registration": false,
+  "retained_repository_screenshots": [
+    "cdc384-page-6.png",
+    "cdc384-explained.png",
+    "cdc384-page-3.png"
+  ]
 }

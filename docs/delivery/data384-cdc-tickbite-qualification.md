@@ -129,8 +129,13 @@ No threshold, lag or scientific effect is invented by this qualification.
 The [region-panel screenshot](evidence/data384/cdc384-page-6.png) and
 [public inspection manifest](evidence/data384/public-report-inspection.json)
 retain bounded evidence of the displayed native regions, unit and refresh date.
-The manifest gives byte counts/SHA-256 receipts for six local screenshots;
-only the region panel is committed. Other screenshot captures remain local
+The [Data Explained screenshot](evidence/data384/cdc384-explained.png) supports
+the December 2025 quality-filter and detection-method statements; the
+[monthly screenshot](evidence/data384/cdc384-page-3.png) retains the latest-month
+preliminary/incomplete-data footnote. These anonymous public report captures
+contain no browser address bar, session identifiers or private account details.
+The manifest gives byte counts/SHA-256 receipts for six screenshots; these
+three supporting panels are committed. Other captures remain local
 qualification evidence. No raw browser DOM, session material or source dataset
 is included. These are inspection receipts, not governed artifact registration,
 source-version approval or historical availability evidence.
