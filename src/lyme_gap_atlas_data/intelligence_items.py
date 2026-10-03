@@ -113,7 +113,7 @@ def canonical_url(value: str | None) -> str | None:
             or not host
             or not re.fullmatch(r"[a-zA-Z0-9.-]+", host)
             or host.lower() == "localhost"
-            or host.lower().endswith((".local", ".internal"))
+            or host.lower().endswith((".localhost", ".local", ".internal"))
             or host.endswith(".")
             or ".." in host
         ):
