@@ -32,6 +32,19 @@ on:
           - inspect
           - nclimgrid-pilot-measurement
           - bulk-transport-canary
+          - january-source-registration
+      reviewed_commit:
+        description: Exact reviewed main SHA for bounded January registration only
+        required: false
+        type: string
+      registration_phase:
+        description: Factual January bindings only; never approve or publish
+        required: false
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - register-pending
       tier:
         description: Risk tier (A local/fixture via job, B DEV, C PROD protected)
         required: true
@@ -71,6 +84,7 @@ on:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: run-ingestion-${{ inputs.environment_name }}-${{ inputs.source_definition }}
@@ -80,7 +94,8 @@ jobs:
   ingest:
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.environment_name }}
+    timeout-minutes: ${{ inputs.operation == 'january-source-registration' && 15 || 360 }}
+    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -94,14 +109,30 @@ jobs:
       SNOWFLAKE_AUTH_METHOD: key_pair
       SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
       SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
-      SPACES_REGION: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_REGION || '' }}
-      SPACES_ENDPOINT: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_ENDPOINT || '' }}
-      SPACES_BUCKET: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_BUCKET || '' }}
-      SPACES_PREFIX: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_PREFIX || '' }}
-      SPACES_ACCESS_KEY_ID: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_ACCESS_KEY_ID || '' }}
-      SPACES_SECRET_ACCESS_KEY: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_SECRET_ACCESS_KEY || '' }}
+      SPACES_REGION: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_REGION || '' }}
+      SPACES_ENDPOINT: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_ENDPOINT || '' }}
+      SPACES_BUCKET: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_BUCKET || '' }}
+      SPACES_PREFIX: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_PREFIX || '' }}
+      SPACES_ACCESS_KEY_ID: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_ACCESS_KEY_ID || '' }}
+      SPACES_SECRET_ACCESS_KEY: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_SECRET_ACCESS_KEY || '' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Verify reviewed main for January registration
+        if: inputs.operation == 'january-source-registration'
+        env:
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          PHASE: ${{ inputs.registration_phase }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          case "$PHASE" in inspect|register-pending) ;; *) exit 1 ;; esac
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" \
+            --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed_checks" -gt 0
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -113,7 +144,7 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
         run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'january-source-registration'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           MEASUREMENT_RUN_ID: ${{ inputs.run_id }}
@@ -148,12 +179,21 @@ jobs:
             test "${{ inputs.publish }}" = "false"
             test -z "$MEASUREMENT_RUN_ID"
           fi
+          if [ "${{ inputs.operation }}" = "january-source-registration" ]; then
+            test "${{ inputs.environment_name }}" = "dev"
+            test "${{ inputs.tier }}" = "B"
+            test "$SOURCE_DEFINITION" = "config/sources/noaa_nclimgrid_daily_202501.yml"
+            test "$MEASUREMENT_RUN_ID" = "c2eb2146-005d-44d2-bac4-e2805ca42577"
+            test "${{ inputs.recapture }}" = "false"
+            test "${{ inputs.publish }}" = "false"
+          fi
       - name: Execute orchestrator operation with ephemeral Snowflake key
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'january-source-registration'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
           MEASUREMENT_ACTION: ${{ inputs.measurement_action }}
+          REGISTRATION_PHASE: ${{ inputs.registration_phase }}
         run: |
           set -euo pipefail
           for required_var in \
@@ -167,7 +207,7 @@ jobs:
               exit 1
             fi
           done
-          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ] && [ "${{ inputs.operation }}" != "bulk-transport-canary" ]; then
+          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ] && [ "${{ inputs.operation }}" != "bulk-transport-canary" ] && [ "${{ inputs.operation }}" != "january-source-registration" ]; then
             for required_var in \
               SPACES_ENDPOINT \
               SPACES_BUCKET \
@@ -240,6 +280,12 @@ jobs:
             else
               uv run atlas-data source nclimgrid-pilot-measure --action "$MEASUREMENT_ACTION"
             fi
+          elif [ "${{ inputs.operation }}" = "january-source-registration" ]; then
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            uv run pytest tests/test_climate_source_review.py -q
+            uv run python scripts/reconcile_january_climate_inputs.py --phase "$REGISTRATION_PHASE"
+            uv run python scripts/reconcile_january_climate_inputs.py --phase inspect
           elif [ "${{ inputs.operation }}" = "run" ]; then
             uv run atlas-data source run \
               --definition "$SOURCE_DEFINITION" \
