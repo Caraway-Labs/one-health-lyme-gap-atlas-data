@@ -1,0 +1,20 @@
+{
+  "proof": "READ_ONLY_RETAINED_CANDIDATE_REPEAT_EXPORT",
+  "workflow_run": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37086005256",
+  "conclusion": "success",
+  "reported_at": "2026-10-03T01:52:25Z",
+  "code_sha": "830b06f6db1ec7d4521d6c4e418531cc589ecd30",
+  "capture_run_id": "c2eb2146-005d-44d2-bac4-e2805ca42577",
+  "contract_version": "atlas-nclimgrid-county-day-candidate-v1",
+  "rows": 389856,
+  "projection_sha256": "1e6b9809a5266d7cb3b4851f861835fdfddcf0d4f136a02d14e7e436806f5618",
+  "repeat_projection_sha256": "1e6b9809a5266d7cb3b4851f861835fdfddcf0d4f136a02d14e7e436806f5618",
+  "coverage_value_state_counts": {
+    "COMPLETE:OBSERVED": 321313,
+    "COMPLETE:ZERO": 64203,
+    "OUT_OF_SOURCE_COVERAGE:UNAVAILABLE": 4340
+  },
+  "writes_performed": false,
+  "publication_status": "CANDIDATE_NOT_RELEASED",
+  "scope_limitation": "Selected retained DEV run only. No source registry, metadata approval ledger, canonical publication, actual API reader or PROD acceptance is proved by this export."
+}
