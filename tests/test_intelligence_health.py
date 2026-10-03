@@ -305,6 +305,17 @@ def test_real_orchestrator_effects_store_receipt_health_and_resume_are_consisten
     rows = tuple(checkpoints.load_normalized(state.ingestion_run_id))
     context = checkpoints.load_payload(state.ingestion_run_id)["source_context"]
     first = health_from_run(source, state, observed_at=NOW, items=rows, source_context=context)
+    from lyme_gap_atlas_data.intelligence_health_storage import (
+        IntelligenceHealthPersistence,
+        SQLiteHealthJournal,
+    )
+
+    durable = IntelligenceHealthPersistence(
+        SQLiteHealthJournal(tmp_path / "health.sqlite"),
+        source_lookup=lambda sid, version: source,
+        context_lookup=lambda selected: context,
+    ).record_checkpoint(source, checkpoints, state.ingestion_run_id, observed_at=NOW)
+    assert durable.history == first.history
     assert first.history.document["state"] == "healthy"
     assert first.history.document["accepted_items"] == len(rows)
     resumed = orchestrator.resume(state.ingestion_run_id, definition=definition(source))
