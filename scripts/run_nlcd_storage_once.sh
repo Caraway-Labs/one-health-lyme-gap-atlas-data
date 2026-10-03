@@ -7,7 +7,10 @@ mode="${2:?canary or stage required}"
 [[ "$relay_dir" =~ ^/var/tmp/atlas-nlcd-relay/[a-f0-9-]{36}$ ]]
 test "$(stat -c %a "$relay_dir")" = 700
 test "$(stat -c %u "$relay_dir")" = "$(id -u)"
-test "$(systemctl is-active oh-lyme-pmc-extraction.service || true)" != active
+load_state="$(systemctl show oh-lyme-pmc-extraction.service --property=LoadState --value)"
+test "$load_state" = loaded
+service_state="$(systemctl show oh-lyme-pmc-extraction.service --property=ActiveState --value)"
+test "$service_state" = inactive
 name="atlas-nlcd-$(cat /proc/sys/kernel/random/uuid)"
 image='registry.digitalocean.com/oh-lyme-data/pipeline@sha256:6726f2afcb62e05d745f55a40b55d4257b4c513dea9a3d7ae578a26bcd22ba3c'
 mkdir -p "$relay_dir/scratch"

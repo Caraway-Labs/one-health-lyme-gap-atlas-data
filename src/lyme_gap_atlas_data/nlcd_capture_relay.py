@@ -25,7 +25,7 @@ def _path(directory: Path, member: Mapping[str, Any]) -> Path:
     return path
 
 
-def capture_members(
+def _capture_members_locked(
     members: Sequence[Mapping[str, Any]],
     *,
     source: Any,
@@ -45,7 +45,6 @@ def capture_members(
         raise ValueError("Existing capture manifest mismatch")
     receipts = dict(previous.get("members", {}))
     for member in members:
-        path = _path(directory, member)
         budget.request()
         head = source.head_object(
             Bucket=member["bucket"],
@@ -59,6 +58,9 @@ def capture_members(
             member["etag"],
         ):
             raise ValueError("Capture source identity drift")
+    missing = []
+    for member in members:
+        path = _path(directory, member)
         if path.exists():
             existing = receipts.get(member["key"])
             if not existing or existing.get("source") != dict(member):
@@ -68,6 +70,13 @@ def capture_members(
             if digest != existing.get("sha256"):
                 raise ValueError("Existing capture digest mismatch")
             continue
+        missing.append(member)
+        if path.with_suffix(path.suffix + ".part").is_symlink():
+            raise ValueError("Unsafe partial capture")
+    if (directory / "capture-receipt.json.part").is_symlink():
+        raise ValueError("Unsafe partial receipt")
+    for member in missing:
+        path = _path(directory, member)
         if shutil.disk_usage(directory).free < int(member["bytes"]) + 256_000_000:
             raise ValueError("Capture disk reserve insufficient")
         partial = path.with_suffix(path.suffix + ".part")
@@ -116,6 +125,29 @@ def capture_members(
         "requests_this_attempt": budget.requests,
         "source_download_bytes_this_attempt": budget.source_bytes,
     }
+
+
+def capture_members(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    source: Any,
+    directory: Path,
+    limits: Limits | None = None,
+) -> dict[str, Any]:
+    _validate_members(members)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("Private existing capture directory required")
+    lock = directory / "nlcd-capture.lock"
+    # Acquire before network calls or capture/receipt accesses. Stale or
+    # concurrent locks block; only the creator may remove its own lock.
+    with lock.open("x") as owned_lock:
+        try:
+            return _capture_members_locked(
+                members, source=source, directory=directory, limits=limits
+            )
+        finally:
+            owned_lock.close()
+            lock.unlink()
 
 
 class VerifiedDirectorySource:

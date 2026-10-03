@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -90,3 +91,57 @@ def test_exclusive_session_refuses_concurrent_upload(case: tuple[Any, ...]) -> N
         )
     assert source.gets == 0 and destination.puts == 0
     assert (path / "nlcd-staging.lock").read_text() == "owned-existing-session"
+
+
+def test_capture_lock_refuses_paid_calls_or_receipt_access(
+    case: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(relay, "MANIFEST_SHA256", staging.MANIFEST_SHA256)
+    members, source, destination, path = case
+
+    def forbidden_head(**kwargs: Any) -> None:
+        pytest.fail("Capture lock must precede paid HEAD")
+
+    source.head_object = forbidden_head
+    lock = path / "nlcd-capture.lock"
+    lock.write_text("another-capture")
+    (path / "capture-receipt.json").write_text("invalid JSON must not be read")
+    with pytest.raises(FileExistsError):
+        relay.capture_members(members, source=source, directory=path)
+    assert source.gets == 0
+    assert lock.read_text() == "another-capture"
+    assert not any(path.glob("*.tif"))
+
+
+def test_last_source_drift_blocks_all_body_downloads(
+    case: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(relay, "MANIFEST_SHA256", staging.MANIFEST_SHA256)
+    members, source, destination, path = case
+    original = source.head_object
+    heads = []
+
+    def changed(**kwargs: Any) -> dict[str, Any]:
+        heads.append(kwargs["Key"])
+        response = original(**kwargs)
+        if kwargs["Key"] == members[-1]["key"]:
+            response["ETag"] = "changed"
+        return response
+
+    source.head_object = changed
+    with pytest.raises(ValueError, match="source identity drift"):
+        relay.capture_members(members, source=source, directory=path)
+    assert len(heads) == 6 and source.gets == 0
+    assert not (path / "nlcd-capture.lock").exists()
+    assert not any(path.glob("*.tif"))
+
+
+def test_late_unreceipted_capture_blocks_all_downloads(
+    case: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(relay, "MANIFEST_SHA256", staging.MANIFEST_SHA256)
+    members, source, destination, path = case
+    (path / Path(members[-1]["key"]).name).write_bytes(b"unreceipted")
+    with pytest.raises(ValueError, match="Unreceipted existing capture"):
+        relay.capture_members(members, source=source, directory=path)
+    assert source.gets == 0

@@ -109,3 +109,5 @@ for that reviewed provider check and the reviewed relay/deadline/cost guards.
 
 No live capture, relay, canary or staging occurred in this change. #594 owns
 handoff and separate distribution/processing review; Snowflake remains held.
+
+Capture holds an exclusive owned lock before any source requests or receipt access. All six source HEAD identities and all existing capture files and receipts are checked before the first body GET. A stale lock blocks resumption until reviewed recovery. The worker wrapper requires a loaded service with a positively observed inactive state; command errors and transitional or unknown states stop execution.
