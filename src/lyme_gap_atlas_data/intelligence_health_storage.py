@@ -291,11 +291,15 @@ class IntelligenceHealthPersistence:
                     )
                 ):
                     raise PermissionError("INTELLIGENCE_HEALTH_RUN_BINDING_MISMATCH")
-                document = dict(result.history.document)
-                document["parser_version"] = binding["parser_version"]
-                document["fetch_version"] = binding["fetch_version"]
-                validate_record("health", document)
-                result = replace(result, history=replace(result.history, document=document))
+                if (
+                    previous is None
+                    or result.history.processed_attempts != previous.processed_attempts
+                ):
+                    document = dict(result.history.document)
+                    document["parser_version"] = binding["parser_version"]
+                    document["fetch_version"] = binding["fetch_version"]
+                    validate_record("health", document)
+                    result = replace(result, history=replace(result.history, document=document))
             return result
 
         result = self.journal.transact(

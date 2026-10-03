@@ -107,6 +107,40 @@ def test_unbound_legacy_preload_failure_is_rejected(tmp_path):
     assert events(service.journal) == []
 
 
+def test_older_v1_replay_after_native_attempt_preserves_current_parser_on_restart(tmp_path):
+    from test_intelligence_raw_runtime import setup
+
+    source, older, checkpoints, service = fixture(tmp_path, failed=True)
+    service.record_checkpoint(source, checkpoints, older.ingestion_run_id, observed_at=NOW)
+    later = "2026-10-01T00:01:00Z"
+    newer, rows, context = run_evidence(source, "native-run", later, failed=True)
+    _, retention, _ = setup(tmp_path)
+    retention.bind_source(
+        newer.ingestion_run_id,
+        source,
+        parser_version="rss-atom-native-v2",
+        fetch_version="pinned-https-v1",
+    )
+    checkpoints.save(newer)
+    checkpoints.save_normalized(newer.ingestion_run_id, [])
+    current = service.record_checkpoint(
+        source, checkpoints, newer.ingestion_run_id, observed_at=later
+    )
+    assert current.history.document["parser_version"] == "rss-atom-native-v2"
+    before = events(service.journal)
+    restarted = IntelligenceHealthPersistence(
+        SQLiteHealthJournal(service.journal.path),
+        source_lookup=service.source_lookup,
+        context_lookup=service.context_lookup,
+        run_binding_lookup=retention.source_binding,
+    )
+    replay = restarted.record_checkpoint(
+        source, checkpoints, older.ingestion_run_id, observed_at=later
+    )
+    assert replay.history == current.history
+    assert events(restarted.journal) == before
+
+
 def test_native_parser_survives_accepted_load_then_quality_failure_and_restart(tmp_path):
     from test_intelligence_native_metadata import records
 

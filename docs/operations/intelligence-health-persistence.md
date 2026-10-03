@@ -14,6 +14,8 @@ require that binding; reconfigured or unbound legacy failures are rejected
 before journal writes. Legacy accepted LOADs may use their independently
 validated immutable acquisition receipt. Accepted native parser provenance
 survives a later QUALITY or other stage failure and journal restart.
+An idempotent older attempt replay preserves current parser provenance and
+does not append a new health event after a newer native-parser attempt.
 
 `SQLiteHealthJournal` supports caller-owned offline/DEV checkpoint integration.
 `SnowflakeHealthJournal` proposes the same append-only semantics under V135's
