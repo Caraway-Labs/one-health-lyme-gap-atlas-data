@@ -1,12 +1,31 @@
 """Daily selection preserves authority, isolation and per-source progress."""
 
+import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from test_intelligence_feed import approved
 
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.intelligence_polling import prepare_daily_sources
+
+
+def test_configured_pubmed_queries_cover_named_genus_and_disease_terms() -> None:
+    selection = json.loads(
+        (Path(__file__).parents[1] / "config/intelligence/feed-selection-v1.json").read_text()
+    )
+    rows = {row["source_id"]: row for row in selection["sources"]}
+    broad = rows["pubmed-tick-borne"]
+    assert broad["query_version"] == "pubmed-tick-borne-v2"
+    for term in ("Babesia", "babesiosis", "Ehrlichia", "ehrlichiosis", "Powassan"):
+        assert f"{term}[Title/Abstract]" in broad["query"]
+    for source_id in ("pubmed-tick-borne", "pubmed-lyme-borrelia"):
+        row = rows[source_id]
+        assert row["query_sha256"] == identity_hash(
+            {"query_version": row["query_version"], "query": row["query"]}
+        )
+        assert row["fetch_location"] is None  # No guessed generated feed token.
 
 
 def _source(source_id: str) -> dict:
