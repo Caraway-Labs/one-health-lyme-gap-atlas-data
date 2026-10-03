@@ -11,6 +11,7 @@ from typing import Any
 
 from ..intelligence_items import identity_hash, validate_acquisition_context, validate_record
 from ..intelligence_metadata import NativeMetadataPolicy
+from ..intelligence_raw_runtime import FeedRawRetention
 from ..intelligence_storage import IntelligenceStore
 from ..settings import PipelineSettings
 from .adapters import AcquireResult
@@ -28,6 +29,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         artifact_policy_allowed: Callable[[str, str], bool],
         native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
         spaces_client: Any | None = None,
+        feed_retention: FeedRawRetention | None = None,
     ) -> None:
         super().__init__(
             settings, connection_factory=connection_factory, spaces_client=spaces_client
@@ -39,6 +41,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
             settings=self.settings,
         )
         self.artifact_policy_allowed = artifact_policy_allowed
+        self.feed_retention = feed_retention
 
     @staticmethod
     def _definition(definition: SourceDefinition) -> dict[str, Any]:
@@ -76,8 +79,18 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
             source["access_use"]["content_retention_policy_ref"], definition.artifact_policy
         ):
             raise PermissionError("INTELLIGENCE_ARTIFACT_RETENTION_REQUIRED")
+        retention = self.feed_retention
+        if retention is None:
+            raise PermissionError("INTELLIGENCE_RAW_RETENTION_REQUIRED")
+        retention.bind(state.ingestion_run_id, acquired.payload)
         receipt = self._register_artifact(
-            definition, state, acquired, capture_identity=identity_hash(context)
+            definition,
+            state,
+            acquired,
+            capture_identity=identity_hash(context),
+            raw_artifact_guard=lambda uri: retention.copy_access(
+                state.ingestion_run_id, "raw_object", uri, write=True
+            ),
         )
         self.store.record_acquisition(
             source_id=source["source_id"],

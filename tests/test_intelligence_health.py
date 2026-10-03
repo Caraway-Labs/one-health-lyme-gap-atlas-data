@@ -289,11 +289,13 @@ def test_real_orchestrator_effects_store_receipt_health_and_resume_are_consisten
     monkeypatch.setattr("lyme_gap_atlas_data.ingestion.intelligence_feed.datetime", Clock)
     monkeypatch.setattr("lyme_gap_atlas_data.ingestion.orchestrator.datetime", Clock)
     checkpoints = FailingCheckpoints(tmp_path, database, "")
+    adapter.feed_retention = checkpoints.feed_retention
     effects = IntelligenceStageEffects(
         connection_factory=database.connect,
         spaces_client=Objects(),
         retention_allowed=lambda ref: True,
         artifact_policy_allowed=lambda ref, value: True,
+        feed_retention=checkpoints.feed_retention,
     )
     orchestrator = IngestionOrchestrator(
         store=checkpoints, adapter=adapter, fixture_dir=FIXTURES / "rss", effects=effects
