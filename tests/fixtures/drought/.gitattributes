@@ -1,0 +1,2 @@
+# Retained publisher CSV bytes must survive Windows/Linux checkout unchanged.
+*.csv binary
