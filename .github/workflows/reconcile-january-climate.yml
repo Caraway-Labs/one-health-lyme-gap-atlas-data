@@ -51,6 +51,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
           [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
           git merge-base --is-ancestor "$REVIEWED_COMMIT" origin/main
