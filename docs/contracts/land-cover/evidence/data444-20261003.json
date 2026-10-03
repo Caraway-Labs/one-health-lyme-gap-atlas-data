@@ -1,0 +1,2981 @@
+{
+  "dev_execution_run_ids": [],
+  "grid_evidence": [
+    {
+      "bounds": [
+        -465585.0,
+        914805.0,
+        -315585.0,
+        1064805.0
+      ],
+      "etag": "d1b502122eb8df9505a3c88ec4e5a13e",
+      "header_sha256": "30f933d14b9a9b986b36dfbdaa43f2e565272de5cd5e752322d9bf588f6533f7",
+      "mapping_year": 2025,
+      "object_key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2025_CU_C1V2.tif",
+      "product": "LndCov",
+      "tile_id": "H14V15",
+      "version_id": "7X6CZekMgvDjz0nIjhUee_INOEmRpC.C"
+    },
+    {
+      "bounds": [
+        -315585.0,
+        914805.0,
+        -165585.0,
+        1064805.0
+      ],
+      "etag": "9c133d56db69a5716f49455029a82629",
+      "header_sha256": "6eb89328ab35d3162dbbafd040b73458aa46afdb914f657b1e3015f846383aae",
+      "mapping_year": 2025,
+      "object_key": "annual-nlcd/c1/v2/cu/tile/h15v15/Annual_NLCD_H15V15_LndCov_2025_CU_C1V2.tif",
+      "product": "LndCov",
+      "tile_id": "H15V15",
+      "version_id": "eAczSZkFntoUCrqUTaLq5C21yBIqnHXC"
+    }
+  ],
+  "h14v15_missing_required_keys": [],
+  "h14v15_required_bytes": 455652258,
+  "h14v15_required_object_inventory": [
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"8b4e6b5a4ba881812204781bdb6e9b05\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1985_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1754264,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1985_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"45941fff00b45cf30c05f501934f508c\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1986_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1761277,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1986_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"d8692fffda2cbf916fd1831a55979257\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1987_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1767239,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1987_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"5e2f1815c6ebd3b8754e1a0899386970\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1988_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1774524,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1988_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"6789f995c0bc74fbbca13a4128b98556\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1989_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1781623,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1989_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"fb7d8d2cb87b8e6af0536ea25124dd66\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1990_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1788038,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1990_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"51c4078fb4d6039ab3fbd3a164e50d2a\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1991_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1792895,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1991_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"2aa8a4925207e1792f0e2ae82c52fcbb\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1992_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1797007,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1992_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"7fc5b3c168156cb4bd9adb673ab57c15\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1993_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1802412,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1993_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"88435196dd0784469c6dbdb53c38df4e\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1994_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1807548,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1994_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"a1423b26038406cc3a0567914a1499dc\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1995_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1815168,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1995_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1a380c68976d33a419aaf3b927fca669\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1996_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:50:59+00:00",
+      "Size": 1824478,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1996_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"000a1105e52f7fa86c9689ae3b6ca847\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1997_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1829199,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1997_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c71c39f1419414daeed070a5542de108\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1998_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1837881,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1998_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"9f15e3bf64ae305995ea0e9aaba8e7f9\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1999_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1841700,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_1999_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"502a748ca85d9450732b6384696af1c0\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2000_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1848125,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2000_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"57f43e005dff3f754fd47193b4d74ccb\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2001_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1857884,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2001_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"5da42a722e6fc600e4e9c423e4bcb448\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2002_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1866248,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2002_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"a044bd715431d7f2e18dac13f45d68d4\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2003_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1871849,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2003_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"b32290140a44ed706138ff9ce1eb703f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2004_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1875878,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2004_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"2fbaadf4eb6f37fa02cf5436cfb93f4b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2005_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1882999,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2005_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"b45dbe454a3139c5b1dcf16b3f74d7d4\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2006_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1902156,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2006_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"ca05a1fb916f8455be6457ea0eae7c8f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2007_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1920538,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2007_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"d5c75a6610c139ee1ee68c0f6b22096d\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2008_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1937445,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2008_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"7c90c373266c82f08b68933869ba617b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2009_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1948889,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2009_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"53a7c838c76e3ea84d5de8856f82bebc\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2010_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1955876,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2010_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"5665625e9ec4c9540ea0db265641b1c2\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2011_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1956561,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2011_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"87d85f00bbc49472c32f6ae4fa3a0c8c\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2012_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1958440,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2012_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"bef219f496b3926198c86ebb5243abe8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2013_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1967911,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2013_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"355bd4e0682594dc8d606388781a4897\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2014_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1977033,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2014_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"195c2d87523cd5e913164acf4ffeae2f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2015_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1979907,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2015_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c89de55937363d2231f5036d4cf349d4\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2016_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1984665,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2016_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"f2c4d866dd2b39464af82a7e436a223b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2017_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 1992637,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2017_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"4c61793cf2d4727ef9e373ceec8df60e\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2018_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 2000899,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2018_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c2e5dd37df30ad9dc22f4a7c46662f35\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2019_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:00+00:00",
+      "Size": 2006456,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2019_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"28243a172c31929075b819d9605fd4cc\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2020_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 2020277,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2020_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"67bd0f0adc42829ec499ef4475b056e2\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2021_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 2030528,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2021_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"3846f72668c1841dc8fbc8bf09e0f42c\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2022_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 2043847,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2022_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"2c16e3faef74f9b27ab4c3cd52166235\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2023_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 2055035,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2023_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"7e9bd0b5cfec0866df94dd536a4b69a9\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2024_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 2071502,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2024_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"c0186162d0d0a99bdc6933241239f7da\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2025_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 2092718,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"80b1ccd906390221cb1163979e77d0e6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_FctImp_2025_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:01+00:00",
+      "Size": 28109,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"7da12bbe0e4ecdcbb054302ba70b1cd5\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1985_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6817585,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1985_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"46c35e6daa199307d64e22cdd640f67f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1986_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6729316,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1986_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1d05c9015c9b39ee6da72a562b9796ab\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1987_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6806378,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1987_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"e32c763d5ce10e390388ea3e978cdb60\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1988_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 7136691,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1988_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"4ac7cc8365eb849dd0709b696de45204\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1989_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6936120,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1989_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"6463d118052266899f6a2bfe662aa1f5\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1990_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 7016813,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1990_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"bf7afa3194b2eae57cfecb4ce77f2d9b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1991_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6366537,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1991_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"2702c60f262322b8ae10dc78dbf5c02f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1992_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6300133,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1992_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"88d543b641d200ce6644c855a8f1b5f7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1993_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6178723,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1993_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"905c58b88e7a599353cc5b4bdf23bb2b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1994_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6211534,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1994_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"2e9724384ec2739d26703ef864d19df8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1995_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6161083,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1995_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"ca85f0d459b84a7bddaff8f5b29796c6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1996_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6158158,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1996_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"8f9df6c3b19ce30b1245ef4c6060bf15\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1997_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6117453,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1997_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"3e521f523483185898f81542849b1e5d\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1998_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6160281,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1998_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c40ca22ad2016820c9c864f6a3ac43af\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1999_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6149743,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_1999_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"8798ae22a0a2edc4bd5ef79f2392c686\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2000_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 6197160,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2000_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:03+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c7c1f0322e36510b172fdc9032f6b709\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2001_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6134013,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2001_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"9ce9883f2338fbc20a0aa72d9c300061\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2002_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6037862,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2002_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"d8bd73b1fdd0c0bc8b873358fd521228\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2003_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 5983604,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2003_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"9afb8d91a7328d6ea0a1f6f9ace2d152\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2004_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6054059,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2004_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"aad576a8ffda943555ddf1c5cc100892\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2005_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6112765,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2005_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"44ad1384706cd7f668bb060e67b8c8ae\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2006_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6127029,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2006_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"81261347901b82b10f2c6543fc93a937\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2007_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6138159,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2007_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"38b1ea407d844c215256ddc7c3a6843c\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2008_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6091478,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2008_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c786cdc90fbe1fc27243cdbf1cc4ef0a\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2009_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6114726,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2009_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"8db5bb528cbd5a37382ba93488c0ac9b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2010_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6132152,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2010_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"106a03b92f406e42c0ea5713932dde42\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2011_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6617489,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2011_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"8ac3aeee5d275379df0da456c404d455\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2012_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6416716,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2012_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"25a3f0a0fc8d650370367d1ce1827227\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2013_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6335240,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2013_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"ef814d0c7aaf634dcf13d0268cd981f9\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2014_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6317609,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2014_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"ed0837bf963721dcb7f3468d6944a3ce\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2015_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6489710,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2015_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1976df82807be5ea8e03e1f2ca594519\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2016_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6300622,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2016_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"f35d0e7d3ba3d1daa9c77d5b5baa75de\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2017_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6307782,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2017_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1307f24b67556879c77e27929592a62b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2018_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 6319393,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2018_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:04+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"e34880fb391ff3d43dbd8b9b06b9dda9\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2019_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6280169,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2019_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"112bc733ed0bfa15aca33a07e16cc819\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2020_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6167815,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2020_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"22bf001f38c3bd7aafe17a450f40f99b\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2021_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6202490,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2021_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"42d75f1f496e9bcbb399f5952b3feafc\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2022_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6412314,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2022_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"a72e3d47257d4cb9969cf349348664bc\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2023_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6240591,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2023_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"de014f9a14a787a40e9b833e28f296ae\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2024_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6348929,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2024_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"264f174cecc113d768adcf1726d4c36f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2025_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 6390767,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"da4904c6743e53556205a681db7481b7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndChg_2025_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:05+00:00",
+      "Size": 28468,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"564ff7bdf4b36c4563deb49ebaddcb98\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1985_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 3163318,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1985_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c027b285e04d3c3e5523c728efeb0409\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1986_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 3159332,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1986_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"dbfddc8ae970a9835e9d22abcab470b6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1987_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 3117512,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1987_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"05e9524642b6b8af8cd34658c740751a\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1988_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 3358607,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1988_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"e2b15b135928322baa2c3040432f5bf2\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1989_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 3298668,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1989_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"83f9da5a6b1705dc859638ded5880238\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1990_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 2910487,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1990_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"c49e9f1212d139212d6725cc0a84fe58\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1991_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 2837884,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1991_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"580f3d76cce8a837e9e660f559bf97d4\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1992_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 2780796,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1992_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"787972b881584b8dd2b46e0b842bffb7\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1993_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:11+00:00",
+      "Size": 2769583,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1993_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"36261ca0210986daac7a948171a4f141\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1994_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2746787,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1994_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"13ae2b715b958fc9ac12b84fcfdae3eb\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1995_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2724475,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1995_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"d7273c90b0d4efbea25ff5cd24254624\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1996_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2712501,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1996_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"890d82cfcc0c4f3952e7788d0e0ad729\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1997_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2683810,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1997_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"9131e74d2ef446efbe1139045c451c5c\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1998_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2659602,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1998_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"019207e8da9ee0fedfe74ed00b229674\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1999_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2639612,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_1999_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"6d30c28b511aa4e325f00e712e2e03a6\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2000_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2638443,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2000_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"56908a56d08d2f6e174a737141ebb440\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2001_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2606874,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2001_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1e6c22cf0918980e637a532635e2bfe8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2002_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2614986,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2002_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"af4faa1dc106bea9c717428056098d32\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2003_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2611372,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2003_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1b523bdfac1af881898e88aa7f13aa80\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2004_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2625185,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2004_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"5af62e9770d4dfcdae01301cea420d53\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2005_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2623468,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2005_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"238a4ca301051c75225b078b8adc7e6f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2006_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2624597,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2006_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"66a32e9ed7d4b64debc510ba6f0dab85\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2007_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2643225,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2007_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"ff3306323ccc874806384d87a856341c\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2008_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2643185,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2008_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"cc01cc344071f3556d3babed783b6f01\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2009_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2647027,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2009_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"8f8d8ec2d639da601017c89eeea9e6af\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2010_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2664052,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2010_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"66eb4c75b02b46c5c110b7b32debfd30\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2011_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2814830,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2011_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"dfe5058d28e4f88c6e7b4c21ad293475\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2012_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2818449,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2012_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"1f1a08d561652f70fb80efc4281d7e88\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2013_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 2829809,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2013_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:12+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"d7d746aadcb4897134e6d38bd88ab2c2\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2014_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2827931,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2014_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"a0871f7306c3ba7bc2dfeca5058b94d1\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2015_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2825429,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2015_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"3d9cab48912a52dcf74f85619d206d08\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2016_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2812670,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2016_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"17c309da13a393c06712f36c4afaec94\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2017_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2805457,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2017_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"680a9a4b4f414c960cab0e4225c29754\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2018_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2763470,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2018_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"7bbc8c9f4250c538cce1a97d7ba5fbd2\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2019_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2726098,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2019_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"561827f5590dae32e5e9800eb758c474\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2020_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2730869,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2020_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"0177cb790c2680d40bc2b1d278298b68\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2021_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2742188,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2021_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"2ef48f08d67549b4d60f2fedc1d89d7e\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2022_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2736234,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2022_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"debe8e80f2396cd77284e239575e1c22\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2023_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2765306,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2023_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC64NVME"
+      ],
+      "ETag": "\"bd1d4def971a87458115f45f1555347f\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2024_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2834504,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2024_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d1b502122eb8df9505a3c88ec4e5a13e\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2025_CU_C1V2.tif",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 2873383,
+      "StorageClass": "INTELLIGENT_TIERING"
+    },
+    {
+      "ChecksumAlgorithm": [
+        "CRC32"
+      ],
+      "ETag": "\"d81af29354ffd24bfe73522e0cc642e8\"",
+      "Key": "annual-nlcd/c1/v2/cu/tile/h14v15/Annual_NLCD_H14V15_LndCov_2025_CU_C1V2.xml",
+      "LastModified": "2026-04-02T20:51:13+00:00",
+      "Size": 34679,
+      "StorageClass": "STANDARD"
+    }
+  ],
+  "observed_date": "2026-10-03",
+  "requester_pays_charge_measured": false,
+  "source_bucket": "usgs-landcover",
+  "source_capture_run_ids": [],
+  "source_prefix": "annual-nlcd/c1/v2/cu/tile/",
+  "status": "PARTIAL_METADATA_INSPECTION_NOT_GOVERNED_CAPTURE",
+  "target_years": [
+    1985,
+    1986,
+    1987,
+    1988,
+    1989,
+    1990,
+    1991,
+    1992,
+    1993,
+    1994,
+    1995,
+    1996,
+    1997,
+    1998,
+    1999,
+    2000,
+    2001,
+    2002,
+    2003,
+    2004,
+    2005,
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "tile_prefix_listing_sha256": "ab12470f34694f0fc454d65486b9e468cdce0356a85b40b6a89edfdac7deea89",
+  "tile_prefixes": [
+    "annual-nlcd/c1/v2/cu/tile/h01v04/",
+    "annual-nlcd/c1/v2/cu/tile/h01v05/",
+    "annual-nlcd/c1/v2/cu/tile/h01v06/",
+    "annual-nlcd/c1/v2/cu/tile/h01v07/",
+    "annual-nlcd/c1/v2/cu/tile/h01v08/",
+    "annual-nlcd/c1/v2/cu/tile/h01v09/",
+    "annual-nlcd/c1/v2/cu/tile/h01v10/",
+    "annual-nlcd/c1/v2/cu/tile/h02v01/",
+    "annual-nlcd/c1/v2/cu/tile/h02v02/",
+    "annual-nlcd/c1/v2/cu/tile/h02v03/",
+    "annual-nlcd/c1/v2/cu/tile/h02v04/",
+    "annual-nlcd/c1/v2/cu/tile/h02v05/",
+    "annual-nlcd/c1/v2/cu/tile/h02v06/",
+    "annual-nlcd/c1/v2/cu/tile/h02v07/",
+    "annual-nlcd/c1/v2/cu/tile/h02v08/",
+    "annual-nlcd/c1/v2/cu/tile/h02v09/",
+    "annual-nlcd/c1/v2/cu/tile/h02v10/",
+    "annual-nlcd/c1/v2/cu/tile/h02v11/",
+    "annual-nlcd/c1/v2/cu/tile/h02v12/",
+    "annual-nlcd/c1/v2/cu/tile/h03v00/",
+    "annual-nlcd/c1/v2/cu/tile/h03v01/",
+    "annual-nlcd/c1/v2/cu/tile/h03v02/",
+    "annual-nlcd/c1/v2/cu/tile/h03v03/",
+    "annual-nlcd/c1/v2/cu/tile/h03v04/",
+    "annual-nlcd/c1/v2/cu/tile/h03v05/",
+    "annual-nlcd/c1/v2/cu/tile/h03v06/",
+    "annual-nlcd/c1/v2/cu/tile/h03v07/",
+    "annual-nlcd/c1/v2/cu/tile/h03v08/",
+    "annual-nlcd/c1/v2/cu/tile/h03v09/",
+    "annual-nlcd/c1/v2/cu/tile/h03v10/",
+    "annual-nlcd/c1/v2/cu/tile/h03v11/",
+    "annual-nlcd/c1/v2/cu/tile/h03v12/",
+    "annual-nlcd/c1/v2/cu/tile/h03v13/",
+    "annual-nlcd/c1/v2/cu/tile/h04v00/",
+    "annual-nlcd/c1/v2/cu/tile/h04v01/",
+    "annual-nlcd/c1/v2/cu/tile/h04v02/",
+    "annual-nlcd/c1/v2/cu/tile/h04v03/",
+    "annual-nlcd/c1/v2/cu/tile/h04v04/",
+    "annual-nlcd/c1/v2/cu/tile/h04v05/",
+    "annual-nlcd/c1/v2/cu/tile/h04v06/",
+    "annual-nlcd/c1/v2/cu/tile/h04v07/",
+    "annual-nlcd/c1/v2/cu/tile/h04v08/",
+    "annual-nlcd/c1/v2/cu/tile/h04v09/",
+    "annual-nlcd/c1/v2/cu/tile/h04v10/",
+    "annual-nlcd/c1/v2/cu/tile/h04v11/",
+    "annual-nlcd/c1/v2/cu/tile/h04v12/",
+    "annual-nlcd/c1/v2/cu/tile/h04v13/",
+    "annual-nlcd/c1/v2/cu/tile/h05v01/",
+    "annual-nlcd/c1/v2/cu/tile/h05v02/",
+    "annual-nlcd/c1/v2/cu/tile/h05v03/",
+    "annual-nlcd/c1/v2/cu/tile/h05v04/",
+    "annual-nlcd/c1/v2/cu/tile/h05v05/",
+    "annual-nlcd/c1/v2/cu/tile/h05v06/",
+    "annual-nlcd/c1/v2/cu/tile/h05v07/",
+    "annual-nlcd/c1/v2/cu/tile/h05v08/",
+    "annual-nlcd/c1/v2/cu/tile/h05v09/",
+    "annual-nlcd/c1/v2/cu/tile/h05v10/",
+    "annual-nlcd/c1/v2/cu/tile/h05v11/",
+    "annual-nlcd/c1/v2/cu/tile/h05v12/",
+    "annual-nlcd/c1/v2/cu/tile/h05v13/",
+    "annual-nlcd/c1/v2/cu/tile/h05v14/",
+    "annual-nlcd/c1/v2/cu/tile/h06v01/",
+    "annual-nlcd/c1/v2/cu/tile/h06v02/",
+    "annual-nlcd/c1/v2/cu/tile/h06v03/",
+    "annual-nlcd/c1/v2/cu/tile/h06v04/",
+    "annual-nlcd/c1/v2/cu/tile/h06v05/",
+    "annual-nlcd/c1/v2/cu/tile/h06v06/",
+    "annual-nlcd/c1/v2/cu/tile/h06v07/",
+    "annual-nlcd/c1/v2/cu/tile/h06v08/",
+    "annual-nlcd/c1/v2/cu/tile/h06v09/",
+    "annual-nlcd/c1/v2/cu/tile/h06v10/",
+    "annual-nlcd/c1/v2/cu/tile/h06v11/",
+    "annual-nlcd/c1/v2/cu/tile/h06v12/",
+    "annual-nlcd/c1/v2/cu/tile/h06v13/",
+    "annual-nlcd/c1/v2/cu/tile/h06v14/",
+    "annual-nlcd/c1/v2/cu/tile/h07v01/",
+    "annual-nlcd/c1/v2/cu/tile/h07v02/",
+    "annual-nlcd/c1/v2/cu/tile/h07v03/",
+    "annual-nlcd/c1/v2/cu/tile/h07v04/",
+    "annual-nlcd/c1/v2/cu/tile/h07v05/",
+    "annual-nlcd/c1/v2/cu/tile/h07v06/",
+    "annual-nlcd/c1/v2/cu/tile/h07v07/",
+    "annual-nlcd/c1/v2/cu/tile/h07v08/",
+    "annual-nlcd/c1/v2/cu/tile/h07v09/",
+    "annual-nlcd/c1/v2/cu/tile/h07v10/",
+    "annual-nlcd/c1/v2/cu/tile/h07v11/",
+    "annual-nlcd/c1/v2/cu/tile/h07v12/",
+    "annual-nlcd/c1/v2/cu/tile/h07v13/",
+    "annual-nlcd/c1/v2/cu/tile/h07v14/",
+    "annual-nlcd/c1/v2/cu/tile/h07v15/",
+    "annual-nlcd/c1/v2/cu/tile/h08v01/",
+    "annual-nlcd/c1/v2/cu/tile/h08v02/",
+    "annual-nlcd/c1/v2/cu/tile/h08v03/",
+    "annual-nlcd/c1/v2/cu/tile/h08v04/",
+    "annual-nlcd/c1/v2/cu/tile/h08v05/",
+    "annual-nlcd/c1/v2/cu/tile/h08v06/",
+    "annual-nlcd/c1/v2/cu/tile/h08v07/",
+    "annual-nlcd/c1/v2/cu/tile/h08v08/",
+    "annual-nlcd/c1/v2/cu/tile/h08v09/",
+    "annual-nlcd/c1/v2/cu/tile/h08v10/",
+    "annual-nlcd/c1/v2/cu/tile/h08v11/",
+    "annual-nlcd/c1/v2/cu/tile/h08v12/",
+    "annual-nlcd/c1/v2/cu/tile/h08v13/",
+    "annual-nlcd/c1/v2/cu/tile/h08v14/",
+    "annual-nlcd/c1/v2/cu/tile/h08v15/",
+    "annual-nlcd/c1/v2/cu/tile/h09v02/",
+    "annual-nlcd/c1/v2/cu/tile/h09v03/",
+    "annual-nlcd/c1/v2/cu/tile/h09v04/",
+    "annual-nlcd/c1/v2/cu/tile/h09v05/",
+    "annual-nlcd/c1/v2/cu/tile/h09v06/",
+    "annual-nlcd/c1/v2/cu/tile/h09v07/",
+    "annual-nlcd/c1/v2/cu/tile/h09v08/",
+    "annual-nlcd/c1/v2/cu/tile/h09v09/",
+    "annual-nlcd/c1/v2/cu/tile/h09v10/",
+    "annual-nlcd/c1/v2/cu/tile/h09v11/",
+    "annual-nlcd/c1/v2/cu/tile/h09v12/",
+    "annual-nlcd/c1/v2/cu/tile/h09v13/",
+    "annual-nlcd/c1/v2/cu/tile/h09v14/",
+    "annual-nlcd/c1/v2/cu/tile/h09v15/",
+    "annual-nlcd/c1/v2/cu/tile/h10v02/",
+    "annual-nlcd/c1/v2/cu/tile/h10v03/",
+    "annual-nlcd/c1/v2/cu/tile/h10v04/",
+    "annual-nlcd/c1/v2/cu/tile/h10v05/",
+    "annual-nlcd/c1/v2/cu/tile/h10v06/",
+    "annual-nlcd/c1/v2/cu/tile/h10v07/",
+    "annual-nlcd/c1/v2/cu/tile/h10v08/",
+    "annual-nlcd/c1/v2/cu/tile/h10v09/",
+    "annual-nlcd/c1/v2/cu/tile/h10v10/",
+    "annual-nlcd/c1/v2/cu/tile/h10v11/",
+    "annual-nlcd/c1/v2/cu/tile/h10v12/",
+    "annual-nlcd/c1/v2/cu/tile/h10v13/",
+    "annual-nlcd/c1/v2/cu/tile/h10v14/",
+    "annual-nlcd/c1/v2/cu/tile/h10v15/",
+    "annual-nlcd/c1/v2/cu/tile/h11v02/",
+    "annual-nlcd/c1/v2/cu/tile/h11v03/",
+    "annual-nlcd/c1/v2/cu/tile/h11v04/",
+    "annual-nlcd/c1/v2/cu/tile/h11v05/",
+    "annual-nlcd/c1/v2/cu/tile/h11v06/",
+    "annual-nlcd/c1/v2/cu/tile/h11v07/",
+    "annual-nlcd/c1/v2/cu/tile/h11v08/",
+    "annual-nlcd/c1/v2/cu/tile/h11v09/",
+    "annual-nlcd/c1/v2/cu/tile/h11v10/",
+    "annual-nlcd/c1/v2/cu/tile/h11v11/",
+    "annual-nlcd/c1/v2/cu/tile/h11v12/",
+    "annual-nlcd/c1/v2/cu/tile/h11v13/",
+    "annual-nlcd/c1/v2/cu/tile/h11v14/",
+    "annual-nlcd/c1/v2/cu/tile/h11v15/",
+    "annual-nlcd/c1/v2/cu/tile/h11v16/",
+    "annual-nlcd/c1/v2/cu/tile/h11v17/",
+    "annual-nlcd/c1/v2/cu/tile/h12v02/",
+    "annual-nlcd/c1/v2/cu/tile/h12v03/",
+    "annual-nlcd/c1/v2/cu/tile/h12v04/",
+    "annual-nlcd/c1/v2/cu/tile/h12v05/",
+    "annual-nlcd/c1/v2/cu/tile/h12v06/",
+    "annual-nlcd/c1/v2/cu/tile/h12v07/",
+    "annual-nlcd/c1/v2/cu/tile/h12v08/",
+    "annual-nlcd/c1/v2/cu/tile/h12v09/",
+    "annual-nlcd/c1/v2/cu/tile/h12v10/",
+    "annual-nlcd/c1/v2/cu/tile/h12v11/",
+    "annual-nlcd/c1/v2/cu/tile/h12v12/",
+    "annual-nlcd/c1/v2/cu/tile/h12v13/",
+    "annual-nlcd/c1/v2/cu/tile/h12v14/",
+    "annual-nlcd/c1/v2/cu/tile/h12v15/",
+    "annual-nlcd/c1/v2/cu/tile/h12v16/",
+    "annual-nlcd/c1/v2/cu/tile/h12v17/",
+    "annual-nlcd/c1/v2/cu/tile/h13v02/",
+    "annual-nlcd/c1/v2/cu/tile/h13v03/",
+    "annual-nlcd/c1/v2/cu/tile/h13v04/",
+    "annual-nlcd/c1/v2/cu/tile/h13v05/",
+    "annual-nlcd/c1/v2/cu/tile/h13v06/",
+    "annual-nlcd/c1/v2/cu/tile/h13v07/",
+    "annual-nlcd/c1/v2/cu/tile/h13v08/",
+    "annual-nlcd/c1/v2/cu/tile/h13v09/",
+    "annual-nlcd/c1/v2/cu/tile/h13v10/",
+    "annual-nlcd/c1/v2/cu/tile/h13v11/",
+    "annual-nlcd/c1/v2/cu/tile/h13v12/",
+    "annual-nlcd/c1/v2/cu/tile/h13v13/",
+    "annual-nlcd/c1/v2/cu/tile/h13v14/",
+    "annual-nlcd/c1/v2/cu/tile/h13v15/",
+    "annual-nlcd/c1/v2/cu/tile/h13v16/",
+    "annual-nlcd/c1/v2/cu/tile/h13v17/",
+    "annual-nlcd/c1/v2/cu/tile/h14v02/",
+    "annual-nlcd/c1/v2/cu/tile/h14v03/",
+    "annual-nlcd/c1/v2/cu/tile/h14v04/",
+    "annual-nlcd/c1/v2/cu/tile/h14v05/",
+    "annual-nlcd/c1/v2/cu/tile/h14v06/",
+    "annual-nlcd/c1/v2/cu/tile/h14v07/",
+    "annual-nlcd/c1/v2/cu/tile/h14v08/",
+    "annual-nlcd/c1/v2/cu/tile/h14v09/",
+    "annual-nlcd/c1/v2/cu/tile/h14v10/",
+    "annual-nlcd/c1/v2/cu/tile/h14v11/",
+    "annual-nlcd/c1/v2/cu/tile/h14v12/",
+    "annual-nlcd/c1/v2/cu/tile/h14v13/",
+    "annual-nlcd/c1/v2/cu/tile/h14v14/",
+    "annual-nlcd/c1/v2/cu/tile/h14v15/",
+    "annual-nlcd/c1/v2/cu/tile/h14v16/",
+    "annual-nlcd/c1/v2/cu/tile/h14v17/",
+    "annual-nlcd/c1/v2/cu/tile/h14v18/",
+    "annual-nlcd/c1/v2/cu/tile/h14v19/",
+    "annual-nlcd/c1/v2/cu/tile/h15v02/",
+    "annual-nlcd/c1/v2/cu/tile/h15v03/",
+    "annual-nlcd/c1/v2/cu/tile/h15v04/",
+    "annual-nlcd/c1/v2/cu/tile/h15v05/",
+    "annual-nlcd/c1/v2/cu/tile/h15v06/",
+    "annual-nlcd/c1/v2/cu/tile/h15v07/",
+    "annual-nlcd/c1/v2/cu/tile/h15v08/",
+    "annual-nlcd/c1/v2/cu/tile/h15v09/",
+    "annual-nlcd/c1/v2/cu/tile/h15v10/",
+    "annual-nlcd/c1/v2/cu/tile/h15v11/",
+    "annual-nlcd/c1/v2/cu/tile/h15v12/",
+    "annual-nlcd/c1/v2/cu/tile/h15v13/",
+    "annual-nlcd/c1/v2/cu/tile/h15v14/",
+    "annual-nlcd/c1/v2/cu/tile/h15v15/",
+    "annual-nlcd/c1/v2/cu/tile/h15v16/",
+    "annual-nlcd/c1/v2/cu/tile/h15v17/",
+    "annual-nlcd/c1/v2/cu/tile/h15v18/",
+    "annual-nlcd/c1/v2/cu/tile/h15v19/",
+    "annual-nlcd/c1/v2/cu/tile/h16v02/",
+    "annual-nlcd/c1/v2/cu/tile/h16v03/",
+    "annual-nlcd/c1/v2/cu/tile/h16v04/",
+    "annual-nlcd/c1/v2/cu/tile/h16v05/",
+    "annual-nlcd/c1/v2/cu/tile/h16v06/",
+    "annual-nlcd/c1/v2/cu/tile/h16v07/",
+    "annual-nlcd/c1/v2/cu/tile/h16v08/",
+    "annual-nlcd/c1/v2/cu/tile/h16v09/",
+    "annual-nlcd/c1/v2/cu/tile/h16v10/",
+    "annual-nlcd/c1/v2/cu/tile/h16v11/",
+    "annual-nlcd/c1/v2/cu/tile/h16v12/",
+    "annual-nlcd/c1/v2/cu/tile/h16v13/",
+    "annual-nlcd/c1/v2/cu/tile/h16v14/",
+    "annual-nlcd/c1/v2/cu/tile/h16v15/",
+    "annual-nlcd/c1/v2/cu/tile/h16v16/",
+    "annual-nlcd/c1/v2/cu/tile/h16v17/",
+    "annual-nlcd/c1/v2/cu/tile/h16v18/",
+    "annual-nlcd/c1/v2/cu/tile/h16v19/",
+    "annual-nlcd/c1/v2/cu/tile/h16v20/",
+    "annual-nlcd/c1/v2/cu/tile/h17v02/",
+    "annual-nlcd/c1/v2/cu/tile/h17v03/",
+    "annual-nlcd/c1/v2/cu/tile/h17v04/",
+    "annual-nlcd/c1/v2/cu/tile/h17v05/",
+    "annual-nlcd/c1/v2/cu/tile/h17v06/",
+    "annual-nlcd/c1/v2/cu/tile/h17v07/",
+    "annual-nlcd/c1/v2/cu/tile/h17v08/",
+    "annual-nlcd/c1/v2/cu/tile/h17v09/",
+    "annual-nlcd/c1/v2/cu/tile/h17v10/",
+    "annual-nlcd/c1/v2/cu/tile/h17v11/",
+    "annual-nlcd/c1/v2/cu/tile/h17v12/",
+    "annual-nlcd/c1/v2/cu/tile/h17v13/",
+    "annual-nlcd/c1/v2/cu/tile/h17v14/",
+    "annual-nlcd/c1/v2/cu/tile/h17v15/",
+    "annual-nlcd/c1/v2/cu/tile/h17v16/",
+    "annual-nlcd/c1/v2/cu/tile/h17v17/",
+    "annual-nlcd/c1/v2/cu/tile/h17v18/",
+    "annual-nlcd/c1/v2/cu/tile/h18v03/",
+    "annual-nlcd/c1/v2/cu/tile/h18v04/",
+    "annual-nlcd/c1/v2/cu/tile/h18v05/",
+    "annual-nlcd/c1/v2/cu/tile/h18v06/",
+    "annual-nlcd/c1/v2/cu/tile/h18v07/",
+    "annual-nlcd/c1/v2/cu/tile/h18v08/",
+    "annual-nlcd/c1/v2/cu/tile/h18v09/",
+    "annual-nlcd/c1/v2/cu/tile/h18v10/",
+    "annual-nlcd/c1/v2/cu/tile/h18v11/",
+    "annual-nlcd/c1/v2/cu/tile/h18v12/",
+    "annual-nlcd/c1/v2/cu/tile/h18v13/",
+    "annual-nlcd/c1/v2/cu/tile/h18v14/",
+    "annual-nlcd/c1/v2/cu/tile/h18v15/",
+    "annual-nlcd/c1/v2/cu/tile/h18v16/",
+    "annual-nlcd/c1/v2/cu/tile/h18v17/",
+    "annual-nlcd/c1/v2/cu/tile/h19v03/",
+    "annual-nlcd/c1/v2/cu/tile/h19v04/",
+    "annual-nlcd/c1/v2/cu/tile/h19v05/",
+    "annual-nlcd/c1/v2/cu/tile/h19v06/",
+    "annual-nlcd/c1/v2/cu/tile/h19v07/",
+    "annual-nlcd/c1/v2/cu/tile/h19v08/",
+    "annual-nlcd/c1/v2/cu/tile/h19v09/",
+    "annual-nlcd/c1/v2/cu/tile/h19v10/",
+    "annual-nlcd/c1/v2/cu/tile/h19v11/",
+    "annual-nlcd/c1/v2/cu/tile/h19v12/",
+    "annual-nlcd/c1/v2/cu/tile/h19v13/",
+    "annual-nlcd/c1/v2/cu/tile/h19v14/",
+    "annual-nlcd/c1/v2/cu/tile/h19v15/",
+    "annual-nlcd/c1/v2/cu/tile/h19v16/",
+    "annual-nlcd/c1/v2/cu/tile/h19v17/",
+    "annual-nlcd/c1/v2/cu/tile/h20v03/",
+    "annual-nlcd/c1/v2/cu/tile/h20v04/",
+    "annual-nlcd/c1/v2/cu/tile/h20v05/",
+    "annual-nlcd/c1/v2/cu/tile/h20v06/",
+    "annual-nlcd/c1/v2/cu/tile/h20v07/",
+    "annual-nlcd/c1/v2/cu/tile/h20v08/",
+    "annual-nlcd/c1/v2/cu/tile/h20v09/",
+    "annual-nlcd/c1/v2/cu/tile/h20v10/",
+    "annual-nlcd/c1/v2/cu/tile/h20v11/",
+    "annual-nlcd/c1/v2/cu/tile/h20v12/",
+    "annual-nlcd/c1/v2/cu/tile/h20v13/",
+    "annual-nlcd/c1/v2/cu/tile/h20v14/",
+    "annual-nlcd/c1/v2/cu/tile/h20v15/",
+    "annual-nlcd/c1/v2/cu/tile/h20v16/",
+    "annual-nlcd/c1/v2/cu/tile/h20v17/",
+    "annual-nlcd/c1/v2/cu/tile/h21v03/",
+    "annual-nlcd/c1/v2/cu/tile/h21v04/",
+    "annual-nlcd/c1/v2/cu/tile/h21v05/",
+    "annual-nlcd/c1/v2/cu/tile/h21v06/",
+    "annual-nlcd/c1/v2/cu/tile/h21v07/",
+    "annual-nlcd/c1/v2/cu/tile/h21v08/",
+    "annual-nlcd/c1/v2/cu/tile/h21v09/",
+    "annual-nlcd/c1/v2/cu/tile/h21v10/",
+    "annual-nlcd/c1/v2/cu/tile/h21v11/",
+    "annual-nlcd/c1/v2/cu/tile/h21v12/",
+    "annual-nlcd/c1/v2/cu/tile/h21v13/",
+    "annual-nlcd/c1/v2/cu/tile/h21v14/",
+    "annual-nlcd/c1/v2/cu/tile/h21v15/",
+    "annual-nlcd/c1/v2/cu/tile/h21v16/",
+    "annual-nlcd/c1/v2/cu/tile/h21v17/",
+    "annual-nlcd/c1/v2/cu/tile/h22v03/",
+    "annual-nlcd/c1/v2/cu/tile/h22v04/",
+    "annual-nlcd/c1/v2/cu/tile/h22v05/",
+    "annual-nlcd/c1/v2/cu/tile/h22v06/",
+    "annual-nlcd/c1/v2/cu/tile/h22v07/",
+    "annual-nlcd/c1/v2/cu/tile/h22v08/",
+    "annual-nlcd/c1/v2/cu/tile/h22v09/",
+    "annual-nlcd/c1/v2/cu/tile/h22v10/",
+    "annual-nlcd/c1/v2/cu/tile/h22v11/",
+    "annual-nlcd/c1/v2/cu/tile/h22v12/",
+    "annual-nlcd/c1/v2/cu/tile/h22v13/",
+    "annual-nlcd/c1/v2/cu/tile/h22v14/",
+    "annual-nlcd/c1/v2/cu/tile/h22v15/",
+    "annual-nlcd/c1/v2/cu/tile/h22v16/",
+    "annual-nlcd/c1/v2/cu/tile/h23v04/",
+    "annual-nlcd/c1/v2/cu/tile/h23v05/",
+    "annual-nlcd/c1/v2/cu/tile/h23v06/",
+    "annual-nlcd/c1/v2/cu/tile/h23v07/",
+    "annual-nlcd/c1/v2/cu/tile/h23v08/",
+    "annual-nlcd/c1/v2/cu/tile/h23v09/",
+    "annual-nlcd/c1/v2/cu/tile/h23v10/",
+    "annual-nlcd/c1/v2/cu/tile/h23v11/",
+    "annual-nlcd/c1/v2/cu/tile/h23v12/",
+    "annual-nlcd/c1/v2/cu/tile/h23v13/",
+    "annual-nlcd/c1/v2/cu/tile/h23v14/",
+    "annual-nlcd/c1/v2/cu/tile/h23v15/",
+    "annual-nlcd/c1/v2/cu/tile/h23v16/",
+    "annual-nlcd/c1/v2/cu/tile/h24v04/",
+    "annual-nlcd/c1/v2/cu/tile/h24v05/",
+    "annual-nlcd/c1/v2/cu/tile/h24v06/",
+    "annual-nlcd/c1/v2/cu/tile/h24v07/",
+    "annual-nlcd/c1/v2/cu/tile/h24v08/",
+    "annual-nlcd/c1/v2/cu/tile/h24v09/",
+    "annual-nlcd/c1/v2/cu/tile/h24v10/",
+    "annual-nlcd/c1/v2/cu/tile/h24v11/",
+    "annual-nlcd/c1/v2/cu/tile/h24v12/",
+    "annual-nlcd/c1/v2/cu/tile/h24v13/",
+    "annual-nlcd/c1/v2/cu/tile/h24v14/",
+    "annual-nlcd/c1/v2/cu/tile/h24v15/",
+    "annual-nlcd/c1/v2/cu/tile/h24v16/",
+    "annual-nlcd/c1/v2/cu/tile/h25v06/",
+    "annual-nlcd/c1/v2/cu/tile/h25v07/",
+    "annual-nlcd/c1/v2/cu/tile/h25v08/",
+    "annual-nlcd/c1/v2/cu/tile/h25v09/",
+    "annual-nlcd/c1/v2/cu/tile/h25v10/",
+    "annual-nlcd/c1/v2/cu/tile/h25v11/",
+    "annual-nlcd/c1/v2/cu/tile/h25v12/",
+    "annual-nlcd/c1/v2/cu/tile/h25v13/",
+    "annual-nlcd/c1/v2/cu/tile/h25v14/",
+    "annual-nlcd/c1/v2/cu/tile/h25v15/",
+    "annual-nlcd/c1/v2/cu/tile/h25v16/",
+    "annual-nlcd/c1/v2/cu/tile/h25v17/",
+    "annual-nlcd/c1/v2/cu/tile/h25v18/",
+    "annual-nlcd/c1/v2/cu/tile/h25v20/",
+    "annual-nlcd/c1/v2/cu/tile/h26v05/",
+    "annual-nlcd/c1/v2/cu/tile/h26v06/",
+    "annual-nlcd/c1/v2/cu/tile/h26v07/",
+    "annual-nlcd/c1/v2/cu/tile/h26v08/",
+    "annual-nlcd/c1/v2/cu/tile/h26v09/",
+    "annual-nlcd/c1/v2/cu/tile/h26v10/",
+    "annual-nlcd/c1/v2/cu/tile/h26v11/",
+    "annual-nlcd/c1/v2/cu/tile/h26v12/",
+    "annual-nlcd/c1/v2/cu/tile/h26v13/",
+    "annual-nlcd/c1/v2/cu/tile/h26v14/",
+    "annual-nlcd/c1/v2/cu/tile/h26v15/",
+    "annual-nlcd/c1/v2/cu/tile/h26v16/",
+    "annual-nlcd/c1/v2/cu/tile/h26v17/",
+    "annual-nlcd/c1/v2/cu/tile/h26v18/",
+    "annual-nlcd/c1/v2/cu/tile/h26v19/",
+    "annual-nlcd/c1/v2/cu/tile/h26v20/",
+    "annual-nlcd/c1/v2/cu/tile/h27v04/",
+    "annual-nlcd/c1/v2/cu/tile/h27v05/",
+    "annual-nlcd/c1/v2/cu/tile/h27v06/",
+    "annual-nlcd/c1/v2/cu/tile/h27v07/",
+    "annual-nlcd/c1/v2/cu/tile/h27v08/",
+    "annual-nlcd/c1/v2/cu/tile/h27v09/",
+    "annual-nlcd/c1/v2/cu/tile/h27v10/",
+    "annual-nlcd/c1/v2/cu/tile/h27v11/",
+    "annual-nlcd/c1/v2/cu/tile/h27v12/",
+    "annual-nlcd/c1/v2/cu/tile/h27v13/",
+    "annual-nlcd/c1/v2/cu/tile/h27v14/",
+    "annual-nlcd/c1/v2/cu/tile/h27v16/",
+    "annual-nlcd/c1/v2/cu/tile/h27v17/",
+    "annual-nlcd/c1/v2/cu/tile/h27v18/",
+    "annual-nlcd/c1/v2/cu/tile/h27v19/",
+    "annual-nlcd/c1/v2/cu/tile/h27v20/",
+    "annual-nlcd/c1/v2/cu/tile/h28v04/",
+    "annual-nlcd/c1/v2/cu/tile/h28v05/",
+    "annual-nlcd/c1/v2/cu/tile/h28v06/",
+    "annual-nlcd/c1/v2/cu/tile/h28v07/",
+    "annual-nlcd/c1/v2/cu/tile/h28v08/",
+    "annual-nlcd/c1/v2/cu/tile/h28v09/",
+    "annual-nlcd/c1/v2/cu/tile/h28v10/",
+    "annual-nlcd/c1/v2/cu/tile/h28v11/",
+    "annual-nlcd/c1/v2/cu/tile/h28v12/",
+    "annual-nlcd/c1/v2/cu/tile/h28v13/",
+    "annual-nlcd/c1/v2/cu/tile/h29v03/",
+    "annual-nlcd/c1/v2/cu/tile/h29v04/",
+    "annual-nlcd/c1/v2/cu/tile/h29v05/",
+    "annual-nlcd/c1/v2/cu/tile/h29v06/",
+    "annual-nlcd/c1/v2/cu/tile/h29v07/",
+    "annual-nlcd/c1/v2/cu/tile/h29v08/",
+    "annual-nlcd/c1/v2/cu/tile/h29v09/",
+    "annual-nlcd/c1/v2/cu/tile/h29v10/",
+    "annual-nlcd/c1/v2/cu/tile/h29v11/",
+    "annual-nlcd/c1/v2/cu/tile/h29v12/",
+    "annual-nlcd/c1/v2/cu/tile/h30v02/",
+    "annual-nlcd/c1/v2/cu/tile/h30v03/",
+    "annual-nlcd/c1/v2/cu/tile/h30v04/",
+    "annual-nlcd/c1/v2/cu/tile/h30v05/",
+    "annual-nlcd/c1/v2/cu/tile/h30v06/",
+    "annual-nlcd/c1/v2/cu/tile/h30v07/",
+    "annual-nlcd/c1/v2/cu/tile/h31v02/",
+    "annual-nlcd/c1/v2/cu/tile/h31v03/",
+    "annual-nlcd/c1/v2/cu/tile/h31v04/",
+    "annual-nlcd/c1/v2/cu/tile/h31v06/",
+    "annual-nlcd/c1/v2/cu/tile/h32v03/"
+  ]
+}
