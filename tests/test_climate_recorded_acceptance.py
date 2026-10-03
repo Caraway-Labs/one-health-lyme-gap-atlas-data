@@ -20,6 +20,7 @@ def candidate():
     metadata = deepcopy(packet["metadata_proposals"])
     for item in metadata:
         item["metadata_revision"] = 2
+        item["freshness"]["metadata_revised_at"] = {"state": "KNOWN", "value": "2026-10-03"}
         item["visibility"] = "CONSUMER_SAFE"
         item["provenance"]["source_version_id"] = {"state": "KNOWN", "value": "fixture-noaa"}
         item["steward_review"] = {
@@ -42,6 +43,7 @@ class Cursor:
         self.reviewer = "MATTHEWCARAWAY"
         self.original = {"state": "UNKNOWN", "value": None}
         self.recorded = STAMP
+        self.decision_resource = None
         self.queries = []
 
     def execute(self, sql, params):
@@ -62,6 +64,7 @@ class Cursor:
                 },
                 self.queries[-1][1][0],
                 "APPROVED_WITH_CONDITIONS",
+                self.decision_resource or self.queries[-1][1][1],
             )
         ]
 
@@ -72,6 +75,7 @@ def test_exact_acceptance_with_unknown_original_date_has_separate_recording_time
     for item in document["metadata"]:
         validate_metadata(item, approved_climate_metadata_revisions={item["revision_id"]})
         assert item["steward_review"]["reviewed_at"] == {"state": "UNKNOWN", "value": None}
+        assert item["freshness"]["metadata_revised_at"] == {"state": "KNOWN", "value": "2026-10-03"}
     verify_recorded_acceptance(cursor, document)
     assert len(cursor.queries) == 2
     assert all(sql.startswith("SELECT") for sql, _ in cursor.queries)
@@ -79,7 +83,9 @@ def test_exact_acceptance_with_unknown_original_date_has_separate_recording_time
     assert cursor.queries[1][1][:2] == ("fixture-tiger", INPUTS[1]["resource_key"])
 
 
-@pytest.mark.parametrize("mutation", ["reviewer", "original", "recorded", "content", "mixed"])
+@pytest.mark.parametrize(
+    "mutation", ["reviewer", "original", "recorded", "content", "mixed", "resource"]
+)
 def test_receipt_cannot_authorize_wrong_identity_timestamp_content_or_partial_set(mutation):
     document = candidate()
     cursor = Cursor()
@@ -91,6 +97,8 @@ def test_receipt_cannot_authorize_wrong_identity_timestamp_content_or_partial_se
         cursor.recorded = "2026-10-03T00:00:00+00:00"
     elif mutation == "content":
         document["metadata"][0]["definition"] += " changed"
+    elif mutation == "resource":
+        cursor.decision_resource = "unrelated-resource"
     else:
         del document["metadata"][0]["steward_review"]["acceptance_recorded_at"]
     with pytest.raises(ValueError, match="CLIMATE_"):

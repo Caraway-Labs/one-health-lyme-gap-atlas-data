@@ -14,6 +14,9 @@ instant in its local timezone; that rendering does not change the UTC instant.
 four enriched metadata candidates with actual NOAA source-version identity.
 The accepted definitions are unchanged. These are candidates, not publication
 authority, and carry no scientific certification.
+Revision 2 was created on October 3 and carries that actual metadata revision
+date. Verification separately restores the accepted October 1 draft date solely
+to reconstruct its original content hash; it never backdates the new revision.
 
 The January-only optional `steward_review.acceptance_recorded_at` field preserves
 `reviewed_at={state: UNKNOWN, value: null}`. It cannot be used for unrelated

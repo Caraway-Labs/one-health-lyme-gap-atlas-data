@@ -133,7 +133,7 @@
         },
         "metadata_revised_at": {
           "state": "KNOWN",
-          "value": "2026-10-01"
+          "value": "2026-10-03"
         }
       },
       "quality_evidence": {
@@ -182,7 +182,7 @@
       ],
       "visibility": "CONSUMER_SAFE",
       "meaning_signature": "3d0f27a484d98893f4c101944a055d6a25ecbb16f692b9c3ace2cd5bb26cd6b4",
-      "revision_id": "metadata-revision:v1:64b20121fc68992c8bcc1fa0c0483692b0cb1c6ac7ede0ffd7f234f1b2eb8269"
+      "revision_id": "metadata-revision:v1:786beaa8d68f76647bf71812a0154ab93faca1cba47655357f50349f7c2ef0e1"
     },
     {
       "contract_version": "atlas-semantic-metadata-v1",
@@ -294,7 +294,7 @@
         },
         "metadata_revised_at": {
           "state": "KNOWN",
-          "value": "2026-10-01"
+          "value": "2026-10-03"
         }
       },
       "quality_evidence": {
@@ -343,7 +343,7 @@
       ],
       "visibility": "CONSUMER_SAFE",
       "meaning_signature": "cfc6200b6221ef43a07d95df1b6fe3f120e8814e2f44529a6134a0e87028d8cc",
-      "revision_id": "metadata-revision:v1:f7f5e37446d7cf1b1df2ea88a301cc5a6e4f20ae98d880ae9a60aadb05471b27"
+      "revision_id": "metadata-revision:v1:b3f70fba27a255d65044c64556c87a48953508d74296afe0897107cffae94078"
     },
     {
       "contract_version": "atlas-semantic-metadata-v1",
@@ -455,7 +455,7 @@
         },
         "metadata_revised_at": {
           "state": "KNOWN",
-          "value": "2026-10-01"
+          "value": "2026-10-03"
         }
       },
       "quality_evidence": {
@@ -504,7 +504,7 @@
       ],
       "visibility": "CONSUMER_SAFE",
       "meaning_signature": "4f17b5ff42d50d4ff4dba00364167f6e27b7c7e48d746edc9994f0449c1b362f",
-      "revision_id": "metadata-revision:v1:8029ebb20d656ec4cca675e51bb9bff7bd7e27c4708490e552f458b69d2bfe42"
+      "revision_id": "metadata-revision:v1:b92d4203d5598fd87cd609ca0b3c7664bcd2b9314f184b2ac4aaee58428fa319"
     },
     {
       "contract_version": "atlas-semantic-metadata-v1",
@@ -616,7 +616,7 @@
         },
         "metadata_revised_at": {
           "state": "KNOWN",
-          "value": "2026-10-01"
+          "value": "2026-10-03"
         }
       },
       "quality_evidence": {
@@ -665,7 +665,7 @@
       ],
       "visibility": "CONSUMER_SAFE",
       "meaning_signature": "2460539209b109e5805bf9e80e8cd56e3203fe3c6cfee6145bbd48abda9a1539",
-      "revision_id": "metadata-revision:v1:9cbed865776f79bed838ec1177b56742bd2006d53856400069bf1d4f7b1c6675"
+      "revision_id": "metadata-revision:v1:d7ac2328b948c5799ebff52730013997d5725fa36e66b8e137b94aed845e097b"
     }
   ]
 }

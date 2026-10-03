@@ -33,6 +33,8 @@ from .semantic_metadata import metadata_revision_id, validate_metadata
 CONTRACT = "atlas-january-climate-release-extension-v1"
 CANDIDATE_SHA = "1e6b9809a5266d7cb3b4851f861835fdfddcf0d4f136a02d14e7e436806f5618"
 ROW_COUNT = 389856
+# Date in the original four accepted draft hashes; never the enriched revision date.
+ACCEPTED_DRAFT_METADATA_REVISED_AT = "2026-10-01"
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _FIELDS = {
     "contract_version",
@@ -179,6 +181,10 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
             "reviewed_at": {"state": "UNKNOWN", "value": None},
         }
         original["provenance"]["source_version_id"] = {"state": "UNKNOWN", "value": None}
+        original["freshness"]["metadata_revised_at"] = {
+            "state": "KNOWN",
+            "value": ACCEPTED_DRAFT_METADATA_REVISED_AT,
+        }
         accepted.add(metadata_revision_id(original))
         stamps.add(item["steward_review"]["acceptance_recorded_at"]["value"])
     _require(accepted == DRAFT_METADATA_REVISIONS and len(stamps) == 1, "CLIMATE_ACCEPTED_CONTENT")
@@ -186,16 +192,17 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
     for source in extension["sources"].values():
         cursor.execute(
             "SELECT d.reviewer_username,d.decided_at,d.conditions,d.data_source_version_id,"
-            "d.decision FROM GOVERNANCE.MANUAL_REVIEW_DECISIONS d "
+            "d.decision,d.resource_key FROM GOVERNANCE.MANUAL_REVIEW_DECISIONS d "
             "JOIN GOVERNANCE.DATA_SOURCE_VERSIONS v "
             "ON v.approved_decision_id=d.manual_review_decision_id "
+            "AND d.resource_key=v.resource_key "
             "WHERE v.data_source_version_id=%s AND v.resource_key=%s "
             "AND v.ingestion_run_id=%s AND v.artifact_id=%s",
             (source["source_version_id"], source["resource_key"], RUN_ID, source["artifact_id"]),
         )
         rows = cursor.fetchall()
         _require(len(rows) == 1, "CLIMATE_ACCEPTANCE_DECISION")
-        reviewer, decided_at, conditions, version, decision = rows[0]
+        reviewer, decided_at, conditions, version, decision, decision_resource = rows[0]
         conditions = json.loads(conditions) if isinstance(conditions, str) else conditions
         _require(isinstance(conditions, Mapping), "CLIMATE_ACCEPTANCE_CONDITIONS")
         provenance = conditions.get("acceptance_provenance", {})
@@ -203,6 +210,7 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
             reviewer == "MATTHEWCARAWAY"
             and decided_at == stamp
             and version == source["source_version_id"]
+            and decision_resource == source["resource_key"]
             and decision == "APPROVED_WITH_CONDITIONS"
             and set(conditions.get("accepted_metadata_revisions", [])) == accepted
             and provenance.get("original_decision_at") == {"state": "UNKNOWN", "value": None}
