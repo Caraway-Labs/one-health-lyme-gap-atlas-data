@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .climate_publication import NOAA_ARTIFACT_ID, NOAA_SHA, RESOURCE_KEY, RUN_ID, TIGER_SHA
+from .semantic_metadata import metadata_revision_id
 
 TIGER_ARTIFACT_ID = f"{RESOURCE_KEY}:{RUN_ID}:510b7bc9e094d24e9094b19ba3b961ab"
 DRAFT_METADATA_REVISIONS = frozenset(
@@ -197,18 +198,72 @@ def register_pending_inputs(cursor: Any) -> list[str]:
     return versions
 
 
+def prepare_recorded_acceptance(
+    packet: Mapping[str, Any], acceptance: Mapping[str, Any], *, recorded_at: str
+) -> dict[str, Any]:
+    """Prepare an auditable recording action without inventing the acceptance time.
+
+    This performs no database operation. The recording action timestamp is distinct
+    from the unknown original decision time. Every accepted content hash is recomputed.
+    """
+    proposals = packet.get("metadata_proposals")
+    if not isinstance(proposals, list) or len(proposals) != 4:
+        raise ValueError("ACCEPTANCE_PACKET")
+    revisions = [metadata_revision_id(item) for item in proposals]
+    _require(
+        all(
+            item.get("revision_id") == digest
+            for item, digest in zip(proposals, revisions, strict=True)
+        )
+        and set(revisions) == DRAFT_METADATA_REVISIONS,
+        "ACCEPTANCE_CONTENT_HASHES",
+    )
+    context = acceptance.get("acceptance_context", {})
+    scope = acceptance.get("scope", {})
+    _require(
+        acceptance.get("approver") == "Matthew"
+        and context.get("source_and_metadata_acceptance")
+        == "ACCEPTED_WITH_THE_EXPLAINED_JANUARY_LIMITATIONS"
+        and context.get("decision_timestamp") is None
+        and scope.get("selected_run_id") == RUN_ID
+        and scope.get("period") == "2025-01-01/2025-01-31"
+        and scope.get("historical_expansion") == "DEFERRED"
+        and scope.get("measures") == ["PRCP", "TMIN", "TMAX", "NOAA-native TAVG"]
+        and packet.get("selected_run_id") == RUN_ID
+        and acceptance.get("technical_or_scientific_approval") is False,
+        "RECORDED_ACCEPTANCE_SCOPE",
+    )
+    return {
+        "reviewer": "MATTHEWCARAWAY",
+        "reviewed_at": recorded_at,
+        "evidence": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/"
+        "issues/443#issuecomment-5964172065",
+        "rationale": "Persist Matthew's already supplied acceptance of the retained January "
+        "NOAA/Census inputs and exact four definitions. The timestamp denotes this ledger "
+        "recording action; the original acceptance time remains unknown. Descriptive county "
+        "weather only with accepted coverage and labeled-day limitations. No scientific "
+        "certification, historical expansion, activation, grants or PROD publication approval.",
+        "accepted_metadata_revisions": sorted(revisions),
+        "acceptance_provenance": {
+            "original_decision_at": {"state": "UNKNOWN", "value": None},
+            "ledger_recorded_at": recorded_at,
+            "timestamp_basis": "LEDGER_RECORDING_ACTION_NOT_ORIGINAL_ACCEPTANCE",
+        },
+    }
+
+
 def record_steward_decision(cursor: Any, decision: Mapping[str, Any]) -> list[str]:
     """Append reviewed owner decisions and new approved versions; preserve PENDING.
 
-    Required evidence is supplied by the real reviewer; product approval alone
-    cannot satisfy this function. Caller owns transaction/rollback. No runtime
-    can use this path, and no UPDATE silently reclassifies prior source versions.
+    Exact source/definition acceptance and technical binding checks are distinct.
+    Recorded acceptance preserves its unknown original time in conditions; the
+    ledger timestamp denotes the current recording action. Caller owns rollback.
+    No runtime can use this path, and no UPDATE reclassifies prior versions.
     """
     user = _identity(cursor, "OH_LYME_DEV_OWNER")
+    required = {"reviewer", "reviewed_at", "evidence", "rationale", "accepted_metadata_revisions"}
     _require(
-        set(decision)
-        == {"reviewer", "reviewed_at", "evidence", "rationale", "accepted_metadata_revisions"},
-        "STEWARD_DECISION_FIELDS",
+        set(decision) in (required, required | {"acceptance_provenance"}), "STEWARD_DECISION_FIELDS"
     )
     _require(decision["reviewer"] == user, "STEWARD_REVIEWER")
     stamp = datetime.fromisoformat(decision["reviewed_at"])
@@ -239,6 +294,17 @@ def record_steward_decision(cursor: Any, decision: Mapping[str, Any]) -> list[st
         "STEWARD_METADATA_REVISIONS",
     )
     _require(set(revisions) == DRAFT_METADATA_REVISIONS, "STEWARD_EXACT_DEFINITIONS")
+    provenance = decision.get("acceptance_provenance")
+    if "acceptance_provenance" in decision:
+        _require(
+            provenance
+            == {
+                "original_decision_at": {"state": "UNKNOWN", "value": None},
+                "ledger_recorded_at": decision["reviewed_at"],
+                "timestamp_basis": "LEDGER_RECORDING_ACTION_NOT_ORIGINAL_ACCEPTANCE",
+            },
+            "ACCEPTANCE_PROVENANCE",
+        )
     cursor.execute(
         "SELECT COUNT(*) FROM GOVERNANCE.APPROVAL_STEWARDS WHERE username=%s AND is_active=TRUE "
         "AND authorization_scope='GLOBAL'",
@@ -280,6 +346,7 @@ def record_steward_decision(cursor: Any, decision: Mapping[str, Any]) -> list[st
                         "scope": "January 2025 descriptive county weather only",
                         "evidence": decision["evidence"],
                         "accepted_metadata_revisions": revisions,
+                        "acceptance_provenance": provenance,
                     }
                 ),
                 user,

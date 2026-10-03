@@ -6,12 +6,13 @@ independent review and the appropriate existing identity; no workflow is dispatc
 
 import argparse
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
-from lyme_gap_atlas_data.climate_source_review import reconcile
+from lyme_gap_atlas_data.climate_source_review import prepare_recorded_acceptance, reconcile
 
 
 def main() -> None:
@@ -20,8 +21,18 @@ def main() -> None:
         "--phase", choices=["inspect", "register-pending", "record-steward"], default="inspect"
     )
     parser.add_argument("--decision", type=Path)
+    parser.add_argument("--record-accepted-january", action="store_true")
     args = parser.parse_args()
     decision = json.loads(args.decision.read_text()) if args.decision else None
+    if args.record_accepted_january:
+        if args.phase != "record-steward" or args.decision:
+            parser.error("record-accepted-january requires record-steward and no decision file")
+        root = Path(__file__).resolve().parents[1] / "docs/contracts/climate"
+        decision = prepare_recorded_acceptance(
+            json.loads((root / "january-2025-metadata-source-review-packet.json").read_text()),
+            json.loads((root / "january-2025-product-approval.json").read_text()),
+            recorded_at=datetime.now(UTC).isoformat(),
+        )
     with connect(SnowflakeSettings()) as connection:
         result = reconcile(connection, phase=args.phase, decision=decision)
     if args.phase == "inspect":
