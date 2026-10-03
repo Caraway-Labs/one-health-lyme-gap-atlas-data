@@ -1,0 +1,70 @@
+{
+  "recorded_at_utc": "2026-10-03T06:00:22.621327+00:00",
+  "source": "CDC/NCEZID Tick Bite Data Tracker public Power BI report",
+  "report_url": "https://app.powerbigov.us/view?r=eyJrIjoiMjljNzRkMTYtZWY4Ni00YzVlLTgyNDgtMjQ4NzFjOWVkNDY4IiwidCI6IjljZTcwODY5LTYwZGItNDRmZC1hYmU4LWQyNzY3MDc3ZmM4ZiJ9",
+  "inspection": "Anonymous headless browser; no existing browser sessions or NSSP credentials; page navigation only; no export or ingestion",
+  "retained_repository_screenshot": "cdc384-page-6.png",
+  "receipts": [
+    {
+      "local_capture_name": "cdc384-dashboard.png",
+      "byte_count": 197482,
+      "sha256": "755c9c0706e51d61870d294a461892843fd88f6ae1b45e186775a5da819d928d",
+      "capture_date_utc": "2026-10-03",
+      "status": "LOCAL_SCREENSHOT_NOT_GOVERNED_ARTIFACT"
+    },
+    {
+      "local_capture_name": "cdc384-explained.png",
+      "byte_count": 151580,
+      "sha256": "84b90e8c78326ad8a74227ed1bc69554e89358db996be0f24d615f90792e8196",
+      "capture_date_utc": "2026-10-03",
+      "status": "LOCAL_SCREENSHOT_NOT_GOVERNED_ARTIFACT"
+    },
+    {
+      "local_capture_name": "cdc384-page-3.png",
+      "byte_count": 98475,
+      "sha256": "c39eef9e0847720f32f58e78f68a8340a6985c39f14e7724fb93bea8595adb7a",
+      "capture_date_utc": "2026-10-03",
+      "status": "LOCAL_SCREENSHOT_NOT_GOVERNED_ARTIFACT"
+    },
+    {
+      "local_capture_name": "cdc384-page-4.png",
+      "byte_count": 111252,
+      "sha256": "4f6bc5c6f4ece9e6bd4322454d68f45d3e4b022eb9d7437ebffb7e5d08807e86",
+      "capture_date_utc": "2026-10-03",
+      "status": "LOCAL_SCREENSHOT_NOT_GOVERNED_ARTIFACT"
+    },
+    {
+      "local_capture_name": "cdc384-page-5.png",
+      "byte_count": 107779,
+      "sha256": "ea88d60e9768dfe9cbbb76975f55eee853770989d5d6e2b6585b37ba748838ac",
+      "capture_date_utc": "2026-10-03",
+      "status": "LOCAL_SCREENSHOT_NOT_GOVERNED_ARTIFACT"
+    },
+    {
+      "local_capture_name": "cdc384-page-6.png",
+      "byte_count": 156401,
+      "sha256": "40f86abe27895a2f7f676ce3471282f70349b9acd17c3c0e399c9ffe8a281bf3",
+      "capture_date_utc": "2026-10-03",
+      "status": "LOCAL_SCREENSHOT_NOT_GOVERNED_ARTIFACT"
+    }
+  ],
+  "observed_region_labels": [
+    "Midwest",
+    "Northeast",
+    "South Central",
+    "Southeast",
+    "West"
+  ],
+  "observed_rate_denominator_label": "100,000 ED visits",
+  "displayed_refresh_date": "9/27/2026",
+  "displayed_year_controls": [
+    2017,
+    2026
+  ],
+  "history_completeness_verified": false,
+  "observation_timestamp_semantics_verified": false,
+  "suppression_missingness_policy_verified": false,
+  "historical_availability_and_revision_policy_verified": false,
+  "decision": "DEFER",
+  "governed_artifact_registration": false
+}
