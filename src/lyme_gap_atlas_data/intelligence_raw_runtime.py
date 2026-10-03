@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import sqlite3
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -300,7 +301,7 @@ class FeedRawRetention:
             raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID") from None
         if pid <= 0 or pid == os.getpid():
             raise PermissionError("INTELLIGENCE_RAW_BUFFER_OWNER_REQUIRED")
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
             from ctypes import wintypes
 
