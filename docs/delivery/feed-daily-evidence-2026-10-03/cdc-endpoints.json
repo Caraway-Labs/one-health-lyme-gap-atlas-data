@@ -1,0 +1,67 @@
+[
+  {
+    "sheet_row": 5,
+    "url": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
+    "observed_at": "2026-10-03T01:22:15.320662+00:00",
+    "status": 200,
+    "bytes": 2783,
+    "sha256": "85c5142a09f9ead49ffd13cc551f018fbdc2a558aff7557725a88a9cdb1ea72a",
+    "content_type": "text/xml; charset=utf-8",
+    "root": "rss",
+    "items": 5
+  },
+  {
+    "sheet_row": 6,
+    "url": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+    "observed_at": "2026-10-03T01:22:15.658622+00:00",
+    "status": 200,
+    "bytes": 1564,
+    "sha256": "d5157794b405c94455703d42bf580bcf46a1b6c4d1f9801d49bbbf3b1a414366",
+    "content_type": "text/xml; charset=utf-8",
+    "root": "rss",
+    "items": 2
+  },
+  {
+    "sheet_row": 7,
+    "url": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
+    "observed_at": "2026-10-03T01:22:15.917055+00:00",
+    "status": 200,
+    "bytes": 7386,
+    "sha256": "b09cc3eca245c6d9a53a9ca2db2d878ea23b5d44e173647060821de548e50259",
+    "content_type": "text/xml; charset=UTF-8",
+    "root": "rss",
+    "items": 11
+  },
+  {
+    "sheet_row": 8,
+    "url": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
+    "observed_at": "2026-10-03T01:22:16.213650+00:00",
+    "status": 200,
+    "bytes": 1416838,
+    "sha256": "25637191064c0f340bd004ea76fe3cee62d20244beed2a9f921c3a1c8c525b8c",
+    "content_type": "text/xml; charset=UTF-8",
+    "root": "rss",
+    "items": 1844
+  },
+  {
+    "sheet_row": 4,
+    "url": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+    "observed_at": "2026-10-03T01:22:16.731234+00:00",
+    "status": 200,
+    "bytes": 1943224,
+    "sha256": "605818f97802172cb919b4a105945e18a23bd52d06d4d42e2c42ba6799179604",
+    "content_type": "text/xml; charset=UTF-8",
+    "root": "rss",
+    "items": 2332
+  },
+  {
+    "sheet_row": 9,
+    "url": "https://www.nih.gov/news-events/news-releases",
+    "observed_at": "2026-10-03T01:22:17.354456+00:00",
+    "status": 403,
+    "bytes": 5842,
+    "sha256": "d58e5de1e8f713d0f566c11f113970904a8dc5c685e5def0fac795ac03cf5b21",
+    "content_type": "text/html; charset=UTF-8",
+    "discovered_rss_links": []
+  }
+]

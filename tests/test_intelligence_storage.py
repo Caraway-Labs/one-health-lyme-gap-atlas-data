@@ -421,7 +421,7 @@ def test_concurrent_replays_serialize_before_identity_checks_in_ledger_double() 
 def test_bound_invalid_unknown_fields_and_duplicate_registry_rows() -> None:
     database = Ledger()
     with pytest.raises(IntelligenceStorageError, match="WRITE_LIMIT"):
-        write(database, [item()] * 1001)
+        write(database, [item()] * 5001)
     unsafe = item()
     unsafe["recipient"] = "private@example.org"
     with pytest.raises(ValueError, match="INVALID_INTELLIGENCE_RECORD"):
@@ -430,6 +430,28 @@ def test_bound_invalid_unknown_fields_and_duplicate_registry_rows() -> None:
     database.sources.append(copy.deepcopy(database.sources[0]))
     with pytest.raises(IntelligenceStorageError, match="DUPLICATE_LEDGER_KEY"):
         write(database, [item()])
+
+
+def test_large_approved_feed_is_complete_atomic_and_idempotent() -> None:
+    database = Ledger()
+    record = database.sources[0]
+    record["limits"]["maximum_items"] = 2500
+    database.pin("fixture-run", "fixture-artifact", record, "2026-10-01T00:00:00Z")
+    documents = [
+        item(record, url=f"https://example.org/article/{index}", publisher_identity=str(index))
+        for index in range(1001)
+    ]
+    assert write(database, documents) == WriteReceipt(1001, 1001, 0)
+    assert len(database.revisions) == len(database.captures) == 1001
+    assert write(database, documents) == WriteReceipt(0, 0, 1001)
+
+
+def test_source_limit_still_fails_atomically_below_global_limit() -> None:
+    database = Ledger()
+    with pytest.raises(IntelligenceStorageError, match="WRITE_LIMIT"):
+        write(database, [item()] * (database.sources[0]["limits"]["maximum_items"] + 1))
+    assert not database.revisions and not database.captures
+    assert "commit" not in database.events
 
 
 def test_offline_transport_to_storage_to_public_contract_fields() -> None:
