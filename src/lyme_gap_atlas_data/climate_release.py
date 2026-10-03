@@ -11,6 +11,8 @@ import json
 import re
 import tempfile
 from collections.abc import Iterator, Mapping
+from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,9 +25,10 @@ from .climate_publication import (
     project_verified_partitions,
 )
 from .climate_semantics import PERIOD, january_measure_definitions
+from .climate_source_review import DRAFT_METADATA_REVISIONS, INPUTS, TIGER_ARTIFACT_ID
 from .ingestion.checkpoints import _partition_from_document
 from .ingestion.partitioning import NormalizedPartition
-from .semantic_metadata import validate_metadata
+from .semantic_metadata import metadata_revision_id, validate_metadata
 
 CONTRACT = "atlas-january-climate-release-extension-v1"
 CANDIDATE_SHA = "1e6b9809a5266d7cb3b4851f861835fdfddcf0d4f136a02d14e7e436806f5618"
@@ -115,6 +118,10 @@ def validate_extension(extension: Any) -> None:
         )
     _require(sources["noaa"]["artifact_id"] == NOAA_ARTIFACT_ID, "CLIMATE_NOAA_ARTIFACT")
     _require(sources["noaa"]["resource_key"] == RESOURCE_KEY, "CLIMATE_NOAA_RESOURCE")
+    _require(sources["tiger"]["artifact_id"] == TIGER_ARTIFACT_ID, "CLIMATE_TIGER_ARTIFACT")
+    _require(
+        sources["tiger"]["resource_key"] == INPUTS[1]["resource_key"], "CLIMATE_TIGER_RESOURCE"
+    )
     _require(
         sources["noaa"]["source_version_id"] != sources["tiger"]["source_version_id"],
         "CLIMATE_SOURCE_IDENTITIES",
@@ -135,7 +142,6 @@ def validate_extension(extension: Any) -> None:
         _require(
             item["visibility"] == "CONSUMER_SAFE"
             and item["steward_review"]["state"] == "REVIEWED"
-            and item["steward_review"]["reviewed_at"]["state"] == "KNOWN"
             and item["quality_evidence"]["evidence_basis"]
             == {"state": "KNOWN", "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"},
             "CLIMATE_REVIEWED_METADATA",
@@ -151,9 +157,66 @@ def validate_extension(extension: Any) -> None:
         )
 
 
+def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
+    """Bind recording-time metadata to actual owner decisions and accepted content.
+
+    Original review time stays unknown. This does not turn a recording timestamp
+    into a scientific review or authorize any source beyond the fixed January pins.
+    """
+    metadata = extension["metadata"]
+    recorded = ["acceptance_recorded_at" in item["steward_review"] for item in metadata]
+    if not any(recorded):
+        return
+    _require(all(recorded), "CLIMATE_MIXED_ACCEPTANCE")
+    accepted = set()
+    stamps = set()
+    for item in metadata:
+        original = deepcopy(item)
+        original["visibility"] = "INTERNAL"
+        original["metadata_revision"] = 1
+        original["steward_review"] = {
+            "state": "PENDING",
+            "reviewed_at": {"state": "UNKNOWN", "value": None},
+        }
+        original["provenance"]["source_version_id"] = {"state": "UNKNOWN", "value": None}
+        accepted.add(metadata_revision_id(original))
+        stamps.add(item["steward_review"]["acceptance_recorded_at"]["value"])
+    _require(accepted == DRAFT_METADATA_REVISIONS and len(stamps) == 1, "CLIMATE_ACCEPTED_CONTENT")
+    stamp = datetime.fromisoformat(next(iter(stamps)))
+    for source in extension["sources"].values():
+        cursor.execute(
+            "SELECT d.reviewer_username,d.decided_at,d.conditions,d.data_source_version_id,"
+            "d.decision FROM GOVERNANCE.MANUAL_REVIEW_DECISIONS d "
+            "JOIN GOVERNANCE.DATA_SOURCE_VERSIONS v "
+            "ON v.approved_decision_id=d.manual_review_decision_id "
+            "WHERE v.data_source_version_id=%s AND v.resource_key=%s "
+            "AND v.ingestion_run_id=%s AND v.artifact_id=%s",
+            (source["source_version_id"], source["resource_key"], RUN_ID, source["artifact_id"]),
+        )
+        rows = cursor.fetchall()
+        _require(len(rows) == 1, "CLIMATE_ACCEPTANCE_DECISION")
+        reviewer, decided_at, conditions, version, decision = rows[0]
+        conditions = json.loads(conditions) if isinstance(conditions, str) else conditions
+        _require(isinstance(conditions, Mapping), "CLIMATE_ACCEPTANCE_CONDITIONS")
+        provenance = conditions.get("acceptance_provenance", {})
+        _require(
+            reviewer == "MATTHEWCARAWAY"
+            and decided_at == stamp
+            and version == source["source_version_id"]
+            and decision == "APPROVED_WITH_CONDITIONS"
+            and set(conditions.get("accepted_metadata_revisions", [])) == accepted
+            and provenance.get("original_decision_at") == {"state": "UNKNOWN", "value": None}
+            and provenance.get("timestamp_basis")
+            == "LEDGER_RECORDING_ACTION_NOT_ORIGINAL_ACCEPTANCE"
+            and datetime.fromisoformat(provenance.get("ledger_recorded_at", "")) == stamp,
+            "CLIMATE_ACCEPTANCE_PROVENANCE",
+        )
+
+
 def verify_extension(cursor: Any, extension: Any) -> None:
     """Revalidate source approval and exact immutable revision membership at activation."""
     validate_extension(extension)
+    verify_recorded_acceptance(cursor, extension)
     for source in extension["sources"].values():
         cursor.execute(
             """SELECT v.status, v.approved_decision_id, v.retired_at
