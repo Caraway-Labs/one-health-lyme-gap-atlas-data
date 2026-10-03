@@ -55,7 +55,11 @@ generation's payload.
 
 Claim registration commits **before** physical writes. A second guard rechecks
 expiry and rights and remains held during I/O. Ambiguous provider failures retain
-their claim. Nested uncommitted copy writes fail closed. Cleanup acquires the
+their claim but cannot authorize a read. A durable completion receipt is committed
+only after successful I/O; readers require both claim and completion for their
+exact lease/copy. This prevents a new reservation from authorizing an old payload
+when replacement fails or has not begun. Nested uncommitted copy writes fail
+closed. Cleanup acquires the
 same guard, so it cannot race a registered reader/writer or delete bytes protected
 by a live claim under another logical copy kind. External processes bypassing
 this composition are not covered. Retained inventories fail closed beyond

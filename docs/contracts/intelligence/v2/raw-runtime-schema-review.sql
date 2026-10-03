@@ -11,7 +11,8 @@ CREATE TABLE GOVERNANCE.INTELLIGENCE_RAW_RETENTION_DOCUMENTS (
     DOCUMENT VARIANT NOT NULL,
     REGISTERED_AT TIMESTAMP_TZ NOT NULL DEFAULT CURRENT_TIMESTAMP()
 );
--- lease/capture/validation/run/copy only: bounded structured metadata, never XML,
+-- lease/capture/validation/run/copy/write_complete/buffer_release only:
+-- bounded structured metadata, never XML,
 -- base64 or raw feed body. Standard-table uniqueness is enforced under V135's
 -- existing write guard by the runtime, not assumed from unenforced constraints.
 

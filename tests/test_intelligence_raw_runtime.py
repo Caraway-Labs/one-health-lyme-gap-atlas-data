@@ -294,6 +294,30 @@ def test_production_cannot_use_unshared_local_ledger(tmp_path):
         )
 
 
+def test_new_failed_write_claim_cannot_authorize_old_expired_checkpoint(tmp_path, monkeypatch):
+    source, gate, clock = setup(tmp_path)
+    feed, _ = adapter(source, gate)
+    initial = feed.acquire(definition(source))
+    store = IntelligenceFileCheckpoints(tmp_path / "checkpoints", gate)
+    store.save_payload("fixture-run", initial.payload)
+    clock.value = END
+    fresh_feed, _ = adapter(source, gate)
+    fresh = fresh_feed.acquire(definition(source))
+    gate.bind("fixture-run", fresh.payload)
+
+    def failed_replace(*args):
+        raise RuntimeError("ambiguous write before replacement")
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.intelligence_checkpoints.os.replace", failed_replace
+    )
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        store.save_payload("fixture-run", fresh.payload)
+    monkeypatch.setattr(Path, "read_text", lambda *args, **kwargs: pytest.fail("old XML read"))
+    with pytest.raises(PermissionError, match="WRITE_COMPLETION_REQUIRED"):
+        store.load_payload("fixture-run")
+
+
 @pytest.mark.parametrize("role", ["OH_LYME_DEV_RUNTIME", "OH_LYME_DEV_OWNER"])
 def test_warehouse_object_replay_checks_role_and_committed_claim_before_get(tmp_path, role):
     source, gate, clock = setup(tmp_path)

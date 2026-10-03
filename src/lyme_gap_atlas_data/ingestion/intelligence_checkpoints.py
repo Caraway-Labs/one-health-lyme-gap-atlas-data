@@ -98,11 +98,8 @@ class IntelligenceFileCheckpoints(FileCheckpointStore):
         # Both final and staging paths are durable claims before any bytes.
         # A hard crash can leave the staging path: exact cleanup can find it.
         temporary = path.with_name(path.name + f".raw-{uuid4().hex}.tmp")
+        self.feed_retention.reserve_copy(run_id, kind, temporary.resolve().as_uri())
         with self.feed_retention.copy_access(run_id, kind, path.resolve().as_uri(), write=True):
-            pass
-        with self.feed_retention.copy_access(
-            run_id, kind, temporary.resolve().as_uri(), write=True
-        ):
             with temporary.open("xb") as handle:
                 handle.write(content)
                 handle.flush()

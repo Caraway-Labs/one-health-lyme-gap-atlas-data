@@ -500,19 +500,25 @@ class FeedRawRetention:
         with self.lease_access(lease.sha256, kind, locator, write=write):
             yield
 
+    def reserve_copy(self, run_id: str, kind: CopyKind, locator: str) -> None:
+        self._reserve_lease(self.require_run(run_id).sha256, kind, locator)
+
+    def _reserve_lease(self, sha256: str, kind: CopyKind, locator: str) -> None:
+        if self.ledger.in_guard():
+            raise PermissionError("INTELLIGENCE_RAW_IO_NESTING_INVALID")
+        with self.ledger.guard():
+            lease = self.require_lease(sha256)
+            copy = RawCopy(self.environment, lease.source_id, kind, locator, sha256)
+            if self.ledger.get("buffer_release", copy.sha256) is not None:
+                raise PermissionError("INTELLIGENCE_RAW_BUFFER_RELEASED")
+            self.ledger.put("copy", copy.sha256, asdict(copy))
+
     @contextmanager
     def lease_access(
         self, sha256: str, kind: CopyKind, locator: str, *, write: bool = False
     ) -> Iterator[None]:
         if write:
-            if self.ledger.in_guard():
-                raise PermissionError("INTELLIGENCE_RAW_IO_NESTING_INVALID")
-            with self.ledger.guard():
-                lease = self.require_lease(sha256)
-                copy = RawCopy(self.environment, lease.source_id, kind, locator, sha256)
-                if self.ledger.get("buffer_release", copy.sha256) is not None:
-                    raise PermissionError("INTELLIGENCE_RAW_BUFFER_RELEASED")
-                self.ledger.put("copy", copy.sha256, asdict(copy))
+            self._reserve_lease(sha256, kind, locator)
             # Claim is durably committed BEFORE physical I/O. Cleanup sees the
             # unexpired claim even between transactions; expiry is rechecked
             # under the I/O guard. Ambiguous provider failures retain the claim.
@@ -520,4 +526,9 @@ class FeedRawRetention:
             lease = self.require_lease(sha256)
             copy = RawCopy(self.environment, lease.source_id, kind, locator, sha256)
             require_read(copy, self, now=self.clock(), permitted=self._permitted)
+            completion = {"lease_sha256": sha256}
+            if not write and self.ledger.get("write_complete", copy.sha256) != completion:
+                raise PermissionError("INTELLIGENCE_RAW_WRITE_COMPLETION_REQUIRED")
             yield
+            if write:
+                self.ledger.put("write_complete", copy.sha256, completion)
