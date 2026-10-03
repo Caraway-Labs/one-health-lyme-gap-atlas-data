@@ -1,0 +1,44 @@
+{
+  "evidence_kind": "LOCAL_SOURCE_INSPECTION_NOT_INGESTION",
+  "inspected_at_utc": "2026-10-03T05:20:32.406722+00:00",
+  "source_url": "https://droughtmonitor.unl.edu/data/shapefiles_m/USDM_20250107_M.zip",
+  "artifact_sha256": "8a3a38b729074de97996afc8ffc3bb2dd8394df48ff206b2b6565c10fdf5fa6d",
+  "artifact_bytes": 2407168,
+  "source_crs_authority": [
+    "EPSG",
+    "4326"
+  ],
+  "class_geometry_checks": [
+    {
+      "DM": 0,
+      "geometry_valid": false,
+      "validation_reason": "Ring Self-intersection[-97.590703362392 27.2500011252205]"
+    },
+    {
+      "DM": 1,
+      "geometry_valid": true,
+      "validation_reason": "Valid Geometry"
+    },
+    {
+      "DM": 2,
+      "geometry_valid": true,
+      "validation_reason": "Valid Geometry"
+    },
+    {
+      "DM": 3,
+      "geometry_valid": true,
+      "validation_reason": "Valid Geometry"
+    },
+    {
+      "DM": 4,
+      "geometry_valid": true,
+      "validation_reason": "Valid Geometry"
+    }
+  ],
+  "decision": "DEFER",
+  "blockers": [
+    "INVALID_D0_SOURCE_GEOMETRY_NO_APPROVED_REPAIR",
+    "NO_EXPLICIT_NONDROUGHT_SUPPORT_MASK"
+  ],
+  "repairs_applied": false
+}
