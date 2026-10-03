@@ -33,6 +33,12 @@ on:
           - nclimgrid-pilot-measurement
           - bulk-transport-canary
           - january-source-registration
+          - spaces-readiness
+      candidate_keys_json:
+        description: At most 16 exact existing DEV object keys for metadata HEAD, JSON array
+        required: false
+        default: '[]'
+        type: string
       reviewed_commit:
         description: Exact reviewed main SHA for bounded January registration or frozen membership
         required: false
@@ -92,7 +98,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  spaces_readiness:
+    if: inputs.operation == 'spaces-readiness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    env:
+      TOPX_ENV: dev
+      SPACES_REGION: ${{ secrets.SPACES_REGION }}
+      SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+      SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+      SPACES_PREFIX: ${{ secrets.SPACES_PREFIX }}
+      SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+      SPACES_CANDIDATE_KEYS_JSON: ${{ inputs.candidate_keys_json }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require reviewed green main and DEV-only request
+        env:
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment_name }}
+          REQUESTED_TIER: ${{ inputs.tier }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+          REQUESTED_RECAPTURE: ${{ inputs.recapture }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$REQUESTED_ENVIRONMENT" = dev
+          test "$REQUESTED_TIER" = B
+          test "$REQUESTED_PUBLISH" = false
+          test "$REQUESTED_RECAPTURE" = false
+          [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed_checks" -gt 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Read bounded Spaces metadata only
+        run: uv run python -m lyme_gap_atlas_data.spaces_readiness
   ingest:
+    if: inputs.operation != 'spaces-readiness'
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.operation == 'january-source-registration' && 15 || 360 }}
