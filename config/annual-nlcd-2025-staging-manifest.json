@@ -1,0 +1,62 @@
+[
+  {
+    "bucket": "usgs-landcover",
+    "key": "annual-nlcd/c1/v2/cu/mosaic/Annual_NLCD_FctImp_2025_CU_C1V2.tif",
+    "bytes": 997375854,
+    "version_id": "C9x_R3gVyQQY6sK35Z4jN9c8HFnGcxM1",
+    "etag": "\"bf4b163836808693eb47adaad6b0d104-119\"",
+    "last_modified": "2026-04-02T13:22:12-06:00",
+    "storage_class": "INTELLIGENT_TIERING",
+    "request_charged": "requester"
+  },
+  {
+    "bucket": "usgs-landcover",
+    "key": "annual-nlcd/c1/v2/cu/mosaic/Annual_NLCD_FctImp_2025_CU_C1V2.xml",
+    "bytes": 28117,
+    "version_id": "SM9mMy7xvpHww9JE.mX_uzlhiTocY2U.",
+    "etag": "\"b78aa5a7ef5c8c2d8323a615f6801012\"",
+    "last_modified": "2026-04-02T13:22:12-06:00",
+    "storage_class": null,
+    "request_charged": "requester"
+  },
+  {
+    "bucket": "usgs-landcover",
+    "key": "annual-nlcd/c1/v2/cu/mosaic/Annual_NLCD_LndChg_2025_CU_C1V2.tif",
+    "bytes": 1863988327,
+    "version_id": "A1wffMBJnS58KuRvHHIvmMyY0rTyb4M0",
+    "etag": "\"73dd8b05cf818df739da07473de3f93d-223\"",
+    "last_modified": "2026-04-02T13:28:42-06:00",
+    "storage_class": "INTELLIGENT_TIERING",
+    "request_charged": "requester"
+  },
+  {
+    "bucket": "usgs-landcover",
+    "key": "annual-nlcd/c1/v2/cu/mosaic/Annual_NLCD_LndChg_2025_CU_C1V2.xml",
+    "bytes": 28475,
+    "version_id": "BQqrCnBnn4H_PEKJAvxWanXcyMwU7kMs",
+    "etag": "\"f2aa07af521271d94b55abd11fec89da\"",
+    "last_modified": "2026-04-02T13:28:44-06:00",
+    "storage_class": null,
+    "request_charged": "requester"
+  },
+  {
+    "bucket": "usgs-landcover",
+    "key": "annual-nlcd/c1/v2/cu/mosaic/Annual_NLCD_LndCov_2025_CU_C1V2.tif",
+    "bytes": 1473884069,
+    "version_id": "cyZCGk893G4gg8bL_LtLChwoh2lx6bP7",
+    "etag": "\"9bb5ab7f7bb5404a2e3b2889c84d201f-176\"",
+    "last_modified": "2026-04-02T13:56:27-06:00",
+    "storage_class": "INTELLIGENT_TIERING",
+    "request_charged": "requester"
+  },
+  {
+    "bucket": "usgs-landcover",
+    "key": "annual-nlcd/c1/v2/cu/mosaic/Annual_NLCD_LndCov_2025_CU_C1V2.xml",
+    "bytes": 34686,
+    "version_id": "FBPd17hCFPf.ZHmdFj4U5zpFowL170ga",
+    "etag": "\"e147174a53936003f94c3734b92fe192\"",
+    "last_modified": "2026-04-02T13:56:34-06:00",
+    "storage_class": null,
+    "request_charged": "requester"
+  }
+]
