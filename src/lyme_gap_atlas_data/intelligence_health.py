@@ -230,6 +230,11 @@ def reduce_health(
             revisions.add(item["revision_id"])
         new = revisions - seen
         seen = seen | revisions
+        parsers = {item["provenance"]["parser_version"] for item in items}
+        if len(parsers) > 1:
+            raise ValueError("INTELLIGENCE_HEALTH_MIXED_PARSER_VERSIONS")
+        if parsers:
+            document["parser_version"] = parsers.pop()
         if len(seen) > 100_000:
             raise ValueError("INTELLIGENCE_HEALTH_HISTORY_LIMIT")
         document.update(
