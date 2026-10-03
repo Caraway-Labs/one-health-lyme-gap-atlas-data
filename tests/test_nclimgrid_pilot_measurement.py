@@ -417,7 +417,10 @@ def test_measurement_workflow_is_read_only_and_confined_to_dev():
     workflow = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
     assert "nclimgrid-pilot-measurement" in workflow
     assert "inputs.operation == 'nclimgrid-pilot-measurement' && 'dev'" in workflow
-    assert "inputs.operation != 'nclimgrid-pilot-measurement' && secrets.SPACES_BUCKET" in workflow
+    assert (
+        "inputs.operation != 'nclimgrid-pilot-measurement' && "
+        "inputs.operation != 'january-source-registration' && secrets.SPACES_BUCKET"
+    ) in workflow
     assert 'test "${{ inputs.recapture }}" = "false"' in workflow
     assert 'test "${{ inputs.publish }}" = "false"' in workflow
     assert (
