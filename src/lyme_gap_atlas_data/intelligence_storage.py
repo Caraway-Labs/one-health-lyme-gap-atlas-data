@@ -323,7 +323,7 @@ class IntelligenceStore:
         # Freeze caller documents, bound the entire unit and reject malformed data
         # before opening a write transaction. One run/source is one atomic unit.
         serialized = canonical_json(items)
-        if len(items) > 1000 or len(serialized.encode("utf-8")) > 10_000_000:
+        if len(items) > 5000 or len(serialized.encode("utf-8")) > 10_000_000:
             raise IntelligenceStorageError("INTELLIGENCE_WRITE_LIMIT")
         frozen: list[dict[str, Any]] = json.loads(serialized)
         for item in frozen:
@@ -333,6 +333,8 @@ class IntelligenceStore:
             try:
                 self._begin(cursor)
                 source = self._source(cursor, source_id, registry_version)
+                if len(frozen) > source["limits"]["maximum_items"]:
+                    raise IntelligenceStorageError("INTELLIGENCE_WRITE_LIMIT")
                 run = _one(
                     cursor,
                     """SELECT resource_key FROM GOVERNANCE.INGESTION_RUNS
