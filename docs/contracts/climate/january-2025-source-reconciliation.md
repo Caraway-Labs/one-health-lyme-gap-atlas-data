@@ -1,10 +1,13 @@
 # Bounded January source reconciliation (DATA #443 / #496)
 
 The user approved the January 2025 descriptive weather pilot: ingestion,
-Snowflake modeling and API exposure. The exact statement and relayed provenance
+Snowflake modeling and API exposure. The minimal decision summary and scope
 are in `january-2025-product-approval.json`. That record supplies product scope,
-not checksums, scientific approval, steward-review evidence, grants or production
-acceptance. Further historical ingestion remains deferred.
+not checksums, scientific certification, grants or production acceptance. The
+2026-10-03 clarification confirms that Matthew reviewed the retained
+NOAA/Census inputs and four January definitions with their caveats before this
+decision. It therefore also records bounded source and metadata acceptance;
+Matthew must not be asked to repeat that decision. Further history is deferred.
 
 Fresh 2026-10-03 read-only inspection authenticated the existing DEV READ and
 OWNER connections to their documented roles and suffixed DEV database. OWNER
@@ -47,7 +50,10 @@ The `record-steward` phase separately requires the existing OH_LYME_DEV_OWNER,
 current-user match to the actual reviewer, active GLOBAL steward authorization,
 real dated decision evidence in a linked issue comment/PR review, rationale and
 the four exact draft metadata revision pins from the existing review packet.
-Generic product approval cannot satisfy these inputs. It appends conditional
+The already supplied bounded acceptance can supply the decision scope and
+rationale; engineering must retain its truthful relayed provenance and obtain
+the original decision timestamp from evidence rather than inventing one. A
+generic approval without this confirmed review context cannot suffice. It appends conditional
 January-only review decisions and new CONDITIONAL versions linked to their real
 decision IDs, preserving the factual PENDING versions and all previous evidence.
 It does not mark final metadata as REVIEWED; final metadata must bind those live
@@ -70,6 +76,14 @@ the full canonical target candidate, prove protected publication identity's
 canonical-partition reads, actual API-reader identity and view-only grants, and
 protected publication/rollback. Missing visibility remains UNKNOWN. Any new
 persistent grant or credential action needs its precise authorization.
+
+The climate contract's status says "proposed for protected source and scientific
+review under #198 and #202" and distinguishes source approval from reviewed
+semantic release. It does not specify a separate qualified scientific reviewer
+for this descriptive January release. No new scientific certification or causal,
+ML, score, or multi-year approval is inferred. The confirmed Matthew acceptance
+resolves the bounded owner decision; source binding, exact validation and actual
+consumer access remain engineering evidence, not additional owner approvals.
 
 V136 remains DEV-only. PROD requires its own reviewed SQL, retained capture/target
 parity, source authority, publication and reader evidence. This draft does not

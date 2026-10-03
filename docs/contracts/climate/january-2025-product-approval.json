@@ -1,12 +1,15 @@
 {
-  "record_type": "PRODUCT_APPROVAL_NOT_TECHNICAL_EVIDENCE",
+  "record_type": "BOUNDED_PRODUCT_AND_SOURCE_METADATA_ACCEPTANCE_NOT_TECHNICAL_EVIDENCE",
   "recorded_on": "2026-10-03",
   "approver": "Matthew",
-  "provenance": {
-    "kind": "USER_MESSAGE_RELAYED_IN_CODEX_DELEGATION",
-    "source_thread_id": "01a0f0a7-5578-71c8-8377-44ec39025015"
+  "decision_summary": "Matthew accepted the retained January NOAA/Census inputs and four descriptive county-weather definitions, and approved ingestion, Snowflake modeling and API exposure within that bounded scope.",
+  "acceptance_context": {
+    "recording_date": "2026-10-03",
+    "review_material": "Retained NOAA/Census inputs and the four January metadata definitions with explicit coverage and day-boundary caveats",
+    "source_and_metadata_acceptance": "ACCEPTED_WITH_THE_EXPLAINED_JANUARY_LIMITATIONS",
+    "decision_timestamp": null,
+    "timestamp_limitation": "The recording date is known; the original decision timestamp has not been established. Do not invent decided_at."
   },
-  "exact_statement": "Yes, I approve ingesting the data, making sure it's in Snowflake, getting it modeled correctly in Snowflake, and then exposing it through our API.",
   "scope": {
     "period": "2025-01-01/2025-01-31",
     "inputs": ["Retained NOAA nClimGrid-Daily scaled January 2025", "Retained Census TIGER 2025 county boundaries"],
@@ -18,7 +21,7 @@
   "remaining_distinct_evidence": [
     "Exact artifact and canonical target validation",
     "Genuine catalog/source-version binding",
-    "Actual steward review of retained input use and exact four metadata definitions",
+    "Persist the already supplied Matthew acceptance with truthful identity, provenance and available timestamp evidence; do not request duplicate approval",
     "Independent technical review and exact-head CI",
     "Effective API reader identity and separately authorized persistent grants",
     "Protected environment-specific publication and consumer acceptance"
