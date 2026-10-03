@@ -1,0 +1,6 @@
+{
+  "query": "(\"Lyme Disease\"[MeSH Terms] OR Lyme[Title/Abstract] OR Borrelia[Title/Abstract])",
+  "url": "https://pubmed.ncbi.nlm.nih.gov/?term=%28%22Lyme+Disease%22%5BMeSH+Terms%5D+OR+Lyme%5BTitle%2FAbstract%5D+OR+Borrelia%5BTitle%2FAbstract%5D%29&sort=date&size=10",
+  "status": 403,
+  "wiring": []
+}
