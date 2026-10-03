@@ -24,6 +24,9 @@ class Cursor:
         self.corrupt = False
         self.conflict = False
         self.fail_second_review = False
+        self.resource_url = None
+        self.canonical_url = None
+        self.dataset_key = "FIXTURE_DEFAULT"
 
     def __enter__(self):
         return self
@@ -45,7 +48,19 @@ class Cursor:
             self.rows = [("wrong" if self.corrupt else source["sha256"], source["byte_count"])]
         elif "FROM GOVERNANCE.CATALOG_RESOURCES" in sql:
             if self.registered or self.conflict:
-                self.rows = [("unrelated" if self.conflict else params[0], "dataset", False)]
+                source = next(s for s in INPUTS if s["resource_key"] == params[0])
+                self.rows = [
+                    (
+                        "unrelated" if self.conflict else params[0],
+                        "linked-dataset",
+                        False,
+                        self.resource_url or source["url"],
+                        self.canonical_url or source["url"],
+                        source["dataset_key"]
+                        if self.dataset_key == "FIXTURE_DEFAULT"
+                        else self.dataset_key,
+                    )
+                ]
         elif "FROM GOVERNANCE.DATA_SOURCE_VERSIONS" in sql and self.registered:
             source = next(s for s in INPUTS if s["artifact_id"] == params[1])
             self.rows = [
@@ -167,3 +182,24 @@ def test_inspect_never_commits():
     connection = Connection(Cursor())
     reconcile(connection, phase="inspect")
     assert connection.rolled_back and not connection.committed
+
+
+@pytest.mark.parametrize("phase", ["register-pending", "record-steward"])
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("resource_url", "https://example.org/wrong", "CATALOG_RESOURCE_URL_CONFLICT"),
+        ("canonical_url", "https://example.org/wrong", "CATALOG_RESOURCE_URL_CONFLICT"),
+        ("dataset_key", "unrelated-dataset", "CATALOG_RESOURCE_DATASET_CONFLICT"),
+        ("dataset_key", None, "CATALOG_RESOURCE_DATASET_CONFLICT"),
+    ],
+)
+def test_existing_key_cannot_bind_wrong_urls_dataset_or_orphan(phase, field, value, code):
+    role = "OH_LYME_DEV_OWNER" if phase == "record-steward" else "OH_LYME_DEV_RUNTIME"
+    cursor = Cursor(role, registered=True)
+    setattr(cursor, field, value)
+    connection = Connection(cursor)
+    with pytest.raises(ValueError, match=code):
+        reconcile(connection, phase=phase, decision=decision())
+    assert connection.rolled_back and not connection.committed
+    assert not any(sql.startswith(("INSERT", "UPDATE")) for sql, _ in cursor.statements)

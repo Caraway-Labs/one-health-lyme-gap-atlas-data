@@ -84,14 +84,25 @@ def inspect_retained_inputs(cursor: Any) -> list[dict[str, Any]]:
             cursor.fetchall() == [(source["sha256"], source["byte_count"])], "RETAINED_ARTIFACT"
         )
         cursor.execute(
-            "SELECT resource_key, catalog_dataset_id, is_active FROM GOVERNANCE.CATALOG_RESOURCES "
-            "WHERE resource_key=%s OR resource_url=%s OR canonical_source_url=%s",
+            "SELECT r.resource_key, r.catalog_dataset_id, r.is_active, r.resource_url, "
+            "r.canonical_source_url, d.dataset_key FROM GOVERNANCE.CATALOG_RESOURCES r "
+            "LEFT JOIN GOVERNANCE.CATALOG_DATASETS d "
+            "ON d.catalog_dataset_id=r.catalog_dataset_id "
+            "WHERE r.resource_key=%s OR r.resource_url=%s OR r.canonical_source_url=%s",
             (source["resource_key"], source["url"], source["url"]),
         )
         resources = cursor.fetchall()
         _require(len(resources) <= 1, "AMBIGUOUS_CATALOG_RESOURCE")
         if resources:
             _require(resources[0][0] == source["resource_key"], "CATALOG_RESOURCE_CONFLICT")
+            _require(
+                resources[0][3:5] == (source["url"], source["url"]),
+                "CATALOG_RESOURCE_URL_CONFLICT",
+            )
+            _require(
+                resources[0][1] is not None and resources[0][5] == source["dataset_key"],
+                "CATALOG_RESOURCE_DATASET_CONFLICT",
+            )
         cursor.execute(
             "SELECT data_source_version_id, resource_key, artifact_id, status, "
             "approved_decision_id "
