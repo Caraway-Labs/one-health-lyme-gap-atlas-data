@@ -99,3 +99,7 @@ retention durations or authorize deletion. Disabling a source or reader view
 stops new delivery without rewriting old evidence. Forward-only migration and
 intended-role DEV/PROD integration evidence remain release gates; fixture and
 transaction-failure tests are not a substitute for that evidence.
+
+## October3 retention decision
+
+Matthew approved long-term normalized metadata/provenance subject to source permissions, recent UI display with archive access, and raw feed copies retained30days for debug/replay. Excerpts/full article text require separate rights; no blanket full-text copying approval. This supersedes the unactivated7/90/365proposal; no90daynormalized metadata deletion is authorized. The approved decision is recorded on #132/#135/#136. See `docs/delivery/intelligence-daily-preparation-2026-10-03.md` and #135's expiry acceptance checklist. Live raw retention remains blocked until reviewed expiry, replay/cache invalidation and intended-role evidence exist. Policy approval alone does not activate a source or alter shared Spaces lifecycle.
