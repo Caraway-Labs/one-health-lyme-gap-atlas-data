@@ -1,0 +1,27 @@
+[
+  [
+    {
+      "AUDIT_TIME"  :   "2026-10-02T18:06:43.635000-07:00"  ,
+      "AUDIT_ROLE"  :   "OH_LYME_DEV_READ"  ,
+      "AUDIT_DATABASE"  :   "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+    }
+  ],
+  [
+    {
+      "TABLE_SCHEMA"  :   "PRESENTATION"  ,
+      "TABLE_NAME"  :   "INFECTED_TICK_DERIVED_RESULTS"  ,
+      "ROW_COUNT"  :   1
+    }  ,
+    {
+      "TABLE_SCHEMA"  :   "PRESENTATION"  ,
+      "TABLE_NAME"  :   "SURVEILLANCE_COVERAGE_DERIVED_RESULTS"  ,
+      "ROW_COUNT"  :   9
+    }  ,
+    {
+      "TABLE_SCHEMA"  :   "PRESENTATION"  ,
+      "TABLE_NAME"  :   "SURVEILLANCE_PRIORITY_DERIVED_RESULTS"  ,
+      "ROW_COUNT"  :   16
+    }
+  ]
+]
+

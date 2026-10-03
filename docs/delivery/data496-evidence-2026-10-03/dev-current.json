@@ -1,0 +1,32 @@
+[
+  [
+    {
+      "AUDIT_TIME"  :   "2026-10-02T18:05:16.542000-07:00"  ,
+      "AUDIT_USER"  :   "MATTHEWCARAWAY"  ,
+      "AUDIT_ROLE"  :   "OH_LYME_DEV_READ"  ,
+      "AUDIT_DATABASE"  :   "ONE_HEALTH_LYME_GAP_ATLAS_DEV"  ,
+      "AUDIT_WAREHOUSE"  :   "OH_LYME_DEV_INGEST_XS_WH"
+    }
+  ],
+  [
+    {
+      "RELEASE_ID"  :   "governed-2026-09-17-unknown-coverage"
+    }
+  ],
+  [
+    {
+      "COUNTY_ROWS"  :   3144
+    }
+  ],
+  [
+    {
+      "PAPER_ROWS"  :   40
+    }
+  ],
+  [
+    {
+      "CORPUS_ROWS"  :   72
+    }
+  ]
+]
+
