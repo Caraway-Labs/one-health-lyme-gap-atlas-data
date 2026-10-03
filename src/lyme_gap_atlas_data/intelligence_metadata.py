@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .intelligence_items import (
+    TOKEN,
     canonical_json,
     canonical_timestamp,
     canonical_url,
@@ -174,6 +175,8 @@ def _date(
     if raw is not None and len(raw) > 512:
         raise ValueError("INTELLIGENCE_NATIVE_DATE_LIMIT")
     permitted = path in policy.permitted_paths
+    if raw and not permitted:
+        normalized, state = None, "withheld"
     return {
         "raw": raw if permitted else None,
         "raw_state": "present" if permitted and raw else "not_provided" if not raw else "withheld",
@@ -245,11 +248,36 @@ def parse_native_feed(
         if len(canonical_json(native).encode()) > 65536:
             raise ValueError("INTELLIGENCE_NATIVE_METADATA_LIMIT")
         canonical = _publisher_metadata(fields, source, policy, native)
+        # Legacy public fields must obey the same receipt as the private tree.
+        rss = source["transport"] == "rss"
+        for key, name in (("title", "title"), ("excerpt", "description" if rss else "summary")):
+            path = "item/" + (name if rss else ATOM + name)
+            if any(
+                p == path or p.startswith(path + "/")
+                for p in fields
+                if p not in policy.permitted_paths
+            ):
+                base[key] = None
+        if not _url_paths_permitted(fields, policy, rss):
+            base["url"] = None
+        base["topics"] = tuple(canonical["categories"])
         for key in ("published_at", "updated_at"):
             date = native["publisher_dates"][key]
             base[key] = date["normalized"]
         mapped.append({**base, "publisher_metadata": canonical, "native_metadata": native})
     return mapped
+
+
+def _url_paths_permitted(
+    fields: dict[str, list[str | None]], policy: NativeMetadataPolicy, rss: bool
+) -> bool:
+    prefix = "item/link" if rss else "item/" + ATOM + "link"
+    relevant = {path for path in fields if path == prefix or path.startswith(prefix + "/")}
+    if not rss:
+        relevant |= {
+            path for path in fields if path.endswith("/@{http://www.w3.org/XML/1998/namespace}base")
+        }
+    return relevant <= policy.permitted_paths
 
 
 def _publisher_metadata(
@@ -406,14 +434,34 @@ def verify_native_item(
             value_at(attribute, scope + "/@" + attribute["name"])
     if native["inventory"] != sorted(fields):
         raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
-    for key, path, dialect in (
+    if not policy.required_paths <= set(fields):
+        raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
+    rss = source["transport"] == "rss"
+    for key, name in (("title", "title"), ("excerpt", "description" if rss else "summary")):
+        path = "item/" + (name if rss else ATOM + name)
+        if item[key] is not None and any(
+            p == path or p.startswith(path + "/") for p in fields if p not in policy.permitted_paths
+        ):
+            raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
+    if item["canonical_url"] is not None and not _url_paths_permitted(fields, policy, rss):
+        raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
+    for key, date_path, dialect in (
         ("published_at", policy.published_path, policy.published_format),
         ("updated_at", policy.updated_path, policy.updated_format),
     ):
         date = native["publisher_dates"][key]
-        if date["raw"] is not None and date != _date(date["raw"], dialect, path, policy):
+        retained = _scalar(fields, date_path)
+        if date["raw"] is None and (
+            date["normalized"] is not None or date["state"] not in {"not_provided", "withheld"}
+        ):
             raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
-        if date["raw"] is not None and path not in policy.permitted_paths:
+        if date_path in policy.permitted_paths and retained is not None and date["raw"] is None:
+            raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
+        if date["raw"] is not None and permitted_text(date["raw"], 4096) != retained:
+            raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
+        if date["raw"] is not None and date != _date(date["raw"], dialect, date_path, policy):
+            raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
+        if date["raw"] is not None and date_path not in policy.permitted_paths:
             raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
         if (
             date["normalized"] != item[key]
@@ -422,6 +470,19 @@ def verify_native_item(
         ):
             raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
     if item["publisher_metadata"] != _publisher_metadata(fields, source, policy, native):
+        raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
+    expected_topics = [
+        {
+            "value": category,
+            "origin": "publisher",
+            "method": None,
+            "method_version": None,
+            "confidence": None,
+        }
+        for category in item["publisher_metadata"]["categories"]
+        if TOKEN.fullmatch(category)
+    ]
+    if item["topics"] != expected_topics or item["geographies"]:
         raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
     if len(canonical_json(native).encode()) > 65536:
         raise ValueError("INTELLIGENCE_NATIVE_METADATA_LIMIT")

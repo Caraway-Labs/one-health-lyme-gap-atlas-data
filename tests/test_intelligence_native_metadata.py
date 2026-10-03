@@ -9,7 +9,12 @@ from test_intelligence_feed import approved, definition, fetch_adapter
 from test_intelligence_storage import Ledger
 
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse
-from lyme_gap_atlas_data.intelligence_items import identity_hash, permitted_text, validate_record
+from lyme_gap_atlas_data.intelligence_items import (
+    canonical_url,
+    identity_hash,
+    permitted_text,
+    validate_record,
+)
 from lyme_gap_atlas_data.intelligence_metadata import (
     NativeMetadataPolicy,
     inventory_feed,
@@ -136,6 +141,71 @@ def test_unreviewed_native_field_and_required_field_loss_are_drift() -> None:
 def test_quiet_native_feed_is_not_required_item_field_failure() -> None:
     start, end = RAW.index(b"<item>"), RAW.index(b"</item>") + len(b"</item>")
     assert parse_native_feed(RAW[:start] + RAW[end:], approved(), policy()) == []
+
+
+@pytest.mark.parametrize("path,field", [("item/title", "title"), ("item/link", "canonical_url")])
+def test_denied_public_fields_cannot_escape_native_receipt(path: str, field: str) -> None:
+    receipt = replace(policy(), permitted_paths=policy().permitted_paths - {path})
+    document = records(receipt=receipt)[0]
+    assert document[field] is None
+    verify_native_item(document, receipt, approved())
+    document[field] = "https://example.org/article/1" if field == "canonical_url" else "Test update"
+    with pytest.raises(PermissionError, match="RIGHTS_REQUIRED"):
+        verify_native_item(document, receipt, approved())
+
+
+def test_denied_categories_cannot_escape_through_legacy_topics() -> None:
+    receipt = replace(policy(), permitted_paths=policy().permitted_paths - {"item/category"})
+    document = records(receipt=receipt)[0]
+    assert document["publisher_metadata"]["categories"] == [] and document["topics"] == []
+    verify_native_item(document, receipt, approved())
+    document["topics"] = [
+        {
+            "value": "Research",
+            "origin": "publisher",
+            "method": None,
+            "method_version": None,
+            "confidence": None,
+        }
+    ]
+    with pytest.raises(PermissionError, match="MAPPING_INVALID"):
+        verify_native_item(document, receipt, approved())
+
+
+def test_writer_rejects_invented_normalized_date_and_required_guid_removal() -> None:
+    document = records()[0]
+    document["native_metadata"]["publisher_dates"]["published_at"]["raw"] = None
+    with pytest.raises(PermissionError, match="MAPPING_INVALID"):
+        verify_native_item(document, policy(), approved())
+    document = records()[0]
+    document["native_metadata"]["item"] = [
+        node for node in document["native_metadata"]["item"] if node["name"] != "guid"
+    ]
+    document["native_metadata"]["inventory"] = [
+        path
+        for path in document["native_metadata"]["inventory"]
+        if not path.startswith("item/guid")
+    ]
+    document["publisher_metadata"]["source_item_id"] = None
+    with pytest.raises(PermissionError, match="MAPPING_INVALID"):
+        verify_native_item(document, policy(), approved())
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://localhost./x",
+        "https://127.1/x",
+        "https://2130706433/x",
+        "https://0x7f000001/x",
+        "https://0177.0.0.1/x",
+        "https://example.org/x?X-Amz-Signature=secret",
+        "https://example.org/x?sig=secret",
+    ],
+)
+def test_noncanonical_local_hosts_and_signed_reference_queries_are_rejected(url: str) -> None:
+    with pytest.raises(ValueError, match="INVALID_CANONICAL_URL"):
+        canonical_url(url)
 
 
 def test_metadata_only_revision_and_overlapping_guid_items_are_not_dropped() -> None:

@@ -36,6 +36,9 @@ PRIVATE_QUERY_KEYS = frozenset(
         "authorization",
         "email",
         "recipient",
+        "sig",
+        "googleaccessid",
+        "key-pair-id",
     }
 )
 
@@ -111,14 +114,24 @@ def canonical_url(value: str | None) -> str | None:
             or not re.fullmatch(r"[a-zA-Z0-9.-]+", host)
             or host.lower() == "localhost"
             or host.lower().endswith((".local", ".internal"))
+            or host.endswith(".")
+            or ".." in host
         ):
             raise ValueError("INVALID_CANONICAL_URL")
-        if any(key.lower() in PRIVATE_QUERY_KEYS for key, _ in parse_qsl(parts.query)):
+        if any(
+            key.lower() in PRIVATE_QUERY_KEYS or key.lower().startswith(("x-amz-", "x-goog-"))
+            for key, _ in parse_qsl(parts.query)
+        ):
             raise ValueError("PRIVATE_CANONICAL_URL")
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
             address = None
+        if address is None and (
+            "." not in host
+            or re.fullmatch(r"(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*", host.lower())
+        ):
+            raise ValueError("PRIVATE_CANONICAL_URL")
         if address is not None and not address.is_global:
             raise ValueError("PRIVATE_CANONICAL_URL")
         return urlunsplit(("https", host.lower(), parts.path, parts.query, ""))
