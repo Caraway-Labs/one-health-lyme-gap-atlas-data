@@ -1,0 +1,30 @@
+{
+  "record_type": "BOUNDED_PRODUCT_AND_SOURCE_METADATA_ACCEPTANCE_NOT_TECHNICAL_EVIDENCE",
+  "recorded_on": "2026-10-03",
+  "approver": "Matthew",
+  "decision_summary": "Matthew accepted the retained January NOAA/Census inputs and four descriptive county-weather definitions, and approved ingestion, Snowflake modeling and API exposure within that bounded scope.",
+  "acceptance_context": {
+    "recording_date": "2026-10-03",
+    "review_material": "Retained NOAA/Census inputs and the four January metadata definitions with explicit coverage and day-boundary caveats",
+    "source_and_metadata_acceptance": "ACCEPTED_WITH_THE_EXPLAINED_JANUARY_LIMITATIONS",
+    "decision_timestamp": null,
+    "timestamp_limitation": "The recording date is known; the original decision timestamp has not been established. Do not invent decided_at."
+  },
+  "scope": {
+    "period": "2025-01-01/2025-01-31",
+    "inputs": ["Retained NOAA nClimGrid-Daily scaled January 2025", "Retained Census TIGER 2025 county boundaries"],
+    "measures": ["PRCP", "TMIN", "TMAX", "NOAA-native TAVG"],
+    "interpretation": "Descriptive county weather only, preserving coverage and labeled-day caveats",
+    "selected_run_id": "c2eb2146-005d-44d2-bac4-e2805ca42577",
+    "historical_expansion": "DEFERRED"
+  },
+  "remaining_distinct_evidence": [
+    "Exact artifact and canonical target validation",
+    "Genuine catalog/source-version binding",
+    "Persist the already supplied Matthew acceptance with truthful identity, provenance and available timestamp evidence; do not request duplicate approval",
+    "Independent technical review and exact-head CI",
+    "Effective API reader identity and separately authorized persistent grants",
+    "Protected environment-specific publication and consumer acceptance"
+  ],
+  "technical_or_scientific_approval": false
+}
