@@ -5,10 +5,12 @@ product decision; no repeat owner acceptance is required. This plan is not a
 publication receipt and supplies no fabricated source IDs or review times.
 
 1. Independently review the protected reconciliation workflow and exact main
-   commit, then run `reconcile-january-climate.yml` with `phase=inspect` and
+   commit, then run `run-ingestion.yml` with `operation=january-source-registration`,
+   `registration_phase=inspect`, the exact January definition/run, DEV/Tier B and
+   `recapture=false`, `publish=false` and
    `reviewed_commit` equal to that reviewed full SHA. The existing DEV pipeline
    runtime must authenticate exactly; no new credential or grant is configured.
-2. Run the same reviewed workflow with `phase=register-pending`. Existing matching
+2. Run the same reviewed workflow with `registration_phase=register-pending`. Existing matching
    identities are reused; both URLs, linked dataset keys, retained checksums and
    completed selected run are checked before any INSERT. Both inputs register in
    one transaction; inactive resources and PENDING versions confer no approval.
