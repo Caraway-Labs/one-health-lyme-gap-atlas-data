@@ -34,7 +34,7 @@ on:
           - bulk-transport-canary
           - january-source-registration
       reviewed_commit:
-        description: Exact reviewed main SHA for bounded January registration only
+        description: Exact reviewed main SHA for bounded January registration or frozen membership
         required: false
         type: string
       registration_phase:
@@ -71,6 +71,7 @@ on:
           - benchmark-history
           - candidate
           - candidate-diagnostic
+          - frozen-membership
       recapture:
         description: Explicitly create new captures for completed batch definitions
         required: false
@@ -118,10 +119,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify reviewed main for January registration
-        if: inputs.operation == 'january-source-registration'
+        if: inputs.operation == 'january-source-registration' || (inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership')
         env:
           REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
-          PHASE: ${{ inputs.registration_phase }}
+          PHASE: ${{ inputs.operation == 'january-source-registration' && inputs.registration_phase || 'inspect' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -168,7 +169,7 @@ jobs:
             else
               test -n "$MEASUREMENT_RUN_ID"
             fi
-            if [ "${{ inputs.measurement_action }}" = "candidate" ] || [ "${{ inputs.measurement_action }}" = "candidate-diagnostic" ]; then
+            if [ "${{ inputs.measurement_action }}" = "candidate" ] || [ "${{ inputs.measurement_action }}" = "candidate-diagnostic" ] || [ "${{ inputs.measurement_action }}" = "frozen-membership" ]; then
               test "$MEASUREMENT_RUN_ID" = "c2eb2146-005d-44d2-bac4-e2805ca42577"
             fi
           fi
@@ -304,6 +305,14 @@ jobs:
               --run-id "$INGESTION_RUN_ID" \
               --definition "$SOURCE_DEFINITION"
           fi
+      - name: Retain read-only pilot inspection artifact
+        if: inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership'
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-pilot-inspection
+          path: ${{ runner.temp }}/source-pilot-inspection-artifact.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Inspect definition
         if: inputs.operation == 'inspect'
         env:

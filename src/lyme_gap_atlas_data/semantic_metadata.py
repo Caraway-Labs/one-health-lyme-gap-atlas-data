@@ -254,12 +254,26 @@ def validate_metadata(
     elif metadata.get("summary_source_revision") is not None:
         raise SemanticMetadataError("summary reference only applies to generated summary")
     review = metadata.get("steward_review")
-    if not isinstance(review, Mapping) or set(review) != {"state", "reviewed_at"}:
+    if not isinstance(review, Mapping) or set(review) not in (
+        {"state", "reviewed_at"},
+        {"state", "reviewed_at", "acceptance_recorded_at"},
+    ):
         raise SemanticMetadataError("steward review state required")
     if review["state"] not in {"PENDING", "REVIEWED"}:
         raise SemanticMetadataError("invalid steward review state")
     _state_field(review["reviewed_at"], "reviewed_at", date_value=True)
-    if (review["state"] == "REVIEWED") != (review["reviewed_at"]["state"] == "KNOWN"):
+    recorded_acceptance = "acceptance_recorded_at" in review
+    if recorded_acceptance:
+        _state_field(review["acceptance_recorded_at"], "acceptance_recorded_at")
+        _timestamp_field(review["acceptance_recorded_at"], "acceptance_recorded_at")
+        if not (
+            measure in january_measure_definitions()
+            and review["state"] == "REVIEWED"
+            and review["reviewed_at"] == {"state": "UNKNOWN", "value": None}
+            and review["acceptance_recorded_at"]["state"] == "KNOWN"
+        ):
+            raise SemanticMetadataError("recorded acceptance requires exact January scope")
+    elif (review["state"] == "REVIEWED") != (review["reviewed_at"]["state"] == "KNOWN"):
         raise SemanticMetadataError("review state/date contradiction")
     applicability = metadata.get("applicability")
     if not isinstance(applicability, Mapping) or set(applicability) != {
@@ -399,7 +413,7 @@ def validate_metadata(
             and metadata.get("revision_id") in approved_climate_metadata_revisions
             and measure in january_measure_definitions()
             and review["state"] == "REVIEWED"
-            and review["reviewed_at"]["state"] == "KNOWN"
+            and (review["reviewed_at"]["state"] == "KNOWN" or recorded_acceptance)
             and quality["evidence_basis"]
             == {"state": "KNOWN", "value": "CURRENT_CODE_SOURCE_BACKED_REPLAY"}
             and freshness["observation_period"] == {"state": "KNOWN", "value": CLIMATE_PERIOD}
