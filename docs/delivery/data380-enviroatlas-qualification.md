@@ -131,3 +131,21 @@ other agents' uncommitted work. No other agent's branch was modified.
 The qualification decision is delivered; selected-scope ingestion, semantic
 mapping, #202 implementation and consumer proof remain undelivered. Keep #380
 open for human review. No database, PROD, grants, score, ML or Web action occurs.
+
+## Offline validation and limits
+
+All four retained working-tree **and committed** metadata responses match the
+manifest byte counts/SHA-256 receipts and parse as JSON/XML. Path-local Git
+attributes preserve original response bytes; publisher XML whitespace is
+retained as evidence. Context and branch diff checks pass.
+
+The branch changes only this record and public metadata evidence. Source,
+tests, configuration, migrations, dbt, Dockerfile and dependency files are
+identical to the refreshed main SHA above. The full checks executed for #382
+on that same runtime/test baseline apply without repeating unchanged code:
+ruff lint/format, mypy (112 sources), dbt parse and container build pass;
+pytest reports **3002 passed, 2 skipped, 4 failed**. A focused unchanged-main
+rerun reproduces all four existing spawned-child launcher timeout failures
+(4 failed, 2 passed). Their root cause is unresolved and the suite is not green.
+This evidence does not establish an EPA county derivation, #202 source-specific
+implementation, DEV execution or consumer compatibility.
