@@ -147,3 +147,14 @@ regexTarget = "secret"
 regexes = [
   '''^1394a4e1c0bf2a6d258e57a05268114a6251f69983549366fdda5fa3c57239ea$''',
 ]
+
+[[allowlists]]
+description = "CDC-published anonymous Power BI report identifier verified in DATA384, exact value and evidence path only"
+condition = "AND"
+paths = [
+  '''^docs/delivery/evidence/data384/public-report-inspection\.json$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^eyJrIjoiMjljNzRkMTYtZWY4Ni00YzVlLTgyNDgtMjQ4NzFjOWVkNDY4IiwidCI6IjljZTcwODY5LTYwZGItNDRmZC1hYmU4LWQyNzY3MDc3ZmM4ZiJ9$''',
+]
