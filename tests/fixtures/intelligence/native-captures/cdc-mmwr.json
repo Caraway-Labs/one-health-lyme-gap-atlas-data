@@ -1,0 +1,1445 @@
+{
+  "evidence": {
+    "source_id": "cdc-mmwr",
+    "endpoint": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+    "captured_at": "2026-10-03T03:06:51.113264Z",
+    "mode": "metadata_fixture_only",
+    "status": 200,
+    "transport_bytes": 1943224,
+    "transport_sha256": "605818f97802172cb919b4a105945e18a23bd52d06d4d42e2c42ba6799179604",
+    "item_count": 2332,
+    "sample_count": 3,
+    "observed_inventory": {
+      "feed/category": 6,
+      "feed/copyright": 1,
+      "feed/description": 1,
+      "feed/language": 1,
+      "feed/lastBuildDate": 1,
+      "feed/link": 1,
+      "feed/pubDate": 1,
+      "feed/title": 1,
+      "feed/webMaster": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}author": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}description": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}email": 1,
+      "feed/{http://www.w3.org/2005/Atom}link": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@href": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@rel": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@type": 1,
+      "item/category": 10566,
+      "item/description": 2332,
+      "item/enclosure": 1,
+      "item/enclosure/@length": 1,
+      "item/enclosure/@type": 1,
+      "item/enclosure/@url": 1,
+      "item/guid": 2332,
+      "item/guid/@isPermaLink": 2332,
+      "item/link": 2332,
+      "item/pubDate": 2332,
+      "item/title": 2332,
+      "item/{http://search.yahoo.com/mrss/}content": 3,
+      "item/{http://search.yahoo.com/mrss/}content/@height": 3,
+      "item/{http://search.yahoo.com/mrss/}content/@type": 3,
+      "item/{http://search.yahoo.com/mrss/}content/@url": 3,
+      "item/{http://search.yahoo.com/mrss/}content/@width": 3
+    },
+    "uncovered_paths": [],
+    "raw_transport_retained": false
+  },
+  "source_candidate": {
+    "contract_version": "1.0.0",
+    "source_id": "cdc-mmwr",
+    "registry_version": 1,
+    "organization": "CDC",
+    "family": "cdc_mmwr",
+    "source_type": "publication",
+    "geographies": [],
+    "topics": [
+      "tick-borne"
+    ],
+    "trust_review": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "trust_classification": "unreviewed",
+    "transport": "rss",
+    "canonical_location": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+    "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+    "approved_hosts": [
+      "tools.cdc.gov"
+    ],
+    "state": "candidate",
+    "cadence": {
+      "poll_seconds": null,
+      "expected_item_seconds": null,
+      "basis": "unknown"
+    },
+    "access_use": {
+      "terms_location": "https://www.cdc.gov/other/agencymaterials.html",
+      "conditions": [
+        "Metadata-fixture review only; no endorsement by CDC; source material is available free at the canonical CDC link",
+        "No article descriptions/content or image bytes retained; source rights and live policy remain unresolved"
+      ],
+      "availability_verified_at": null,
+      "excerpt_max_chars": 0,
+      "content_retention_policy_ref": null,
+      "public_excerpt_permitted": false
+    },
+    "approval": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "change_review_policy": "new_version_requires_review",
+    "fallback_reason": null,
+    "limits": {
+      "maximum_bytes": 2000000,
+      "timeout_seconds": 20,
+      "maximum_items": 5000,
+      "maximum_redirects": 0,
+      "maximum_attempts": 1
+    }
+  },
+  "mapping_policy_candidate": {
+    "policy_ref": "cdc-metadata-fixture-review-v1",
+    "source_sha256": "d17ec7f496defea216ae930433202b77ab3208715197df868992ed136294e870",
+    "inventory": [
+      "feed/category",
+      "feed/copyright",
+      "feed/description",
+      "feed/language",
+      "feed/lastBuildDate",
+      "feed/link",
+      "feed/pubDate",
+      "feed/title",
+      "feed/webMaster",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+      "feed/{http://www.w3.org/2005/Atom}link",
+      "feed/{http://www.w3.org/2005/Atom}link/@href",
+      "feed/{http://www.w3.org/2005/Atom}link/@rel",
+      "feed/{http://www.w3.org/2005/Atom}link/@type",
+      "item/category",
+      "item/description",
+      "item/enclosure",
+      "item/enclosure/@length",
+      "item/enclosure/@type",
+      "item/enclosure/@url",
+      "item/guid",
+      "item/guid/@isPermaLink",
+      "item/link",
+      "item/pubDate",
+      "item/title",
+      "item/{http://search.yahoo.com/mrss/}content",
+      "item/{http://search.yahoo.com/mrss/}content/@height",
+      "item/{http://search.yahoo.com/mrss/}content/@type",
+      "item/{http://search.yahoo.com/mrss/}content/@url",
+      "item/{http://search.yahoo.com/mrss/}content/@width"
+    ],
+    "permitted_paths": [
+      "feed/category",
+      "feed/language",
+      "feed/lastBuildDate",
+      "feed/link",
+      "feed/pubDate",
+      "feed/title",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+      "feed/{http://www.w3.org/2005/Atom}link",
+      "feed/{http://www.w3.org/2005/Atom}link/@type",
+      "item/category",
+      "item/enclosure/@length",
+      "item/enclosure/@type",
+      "item/enclosure/@url",
+      "item/guid",
+      "item/guid/@isPermaLink",
+      "item/link",
+      "item/pubDate",
+      "item/title",
+      "item/{http://search.yahoo.com/mrss/}content/@height",
+      "item/{http://search.yahoo.com/mrss/}content/@type",
+      "item/{http://search.yahoo.com/mrss/}content/@url",
+      "item/{http://search.yahoo.com/mrss/}content/@width"
+    ],
+    "published_path": "item/pubDate",
+    "published_format": "rfc822",
+    "updated_path": null,
+    "updated_format": "iso8601",
+    "required_paths": []
+  },
+  "samples": [
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_mmwr",
+        "source_item_id": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=766563&_=47FFA211E915DE76D944C70BC6E3D98D0BF890189CFCE835E94EB3A6BC81042C",
+        "authors": [],
+        "categories": [
+          "MMWR",
+          "Morbidity & Mortality Weekly Report"
+        ],
+        "language": "en",
+        "media": [],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "6411f4f063ed03601e2002245d9e82f493e7acc1bdc07a33795420c28ed5c895",
+        "inventory": [
+          "feed/category",
+          "feed/copyright",
+          "feed/description",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/webMaster",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "Morbidity and Mortality Weekly Report (MMWR)",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}author",
+            "value": "imtech@cdc.gov",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}email",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "language",
+            "value": "en",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Fri, 06 Jan 2023 18:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "lastBuildDate",
+            "value": "Wed, 17 Jun 2026 16:31:16 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://www.cdc.gov/mmwr/index.html",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.w3.org/2005/Atom}link",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "href",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "rel",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "type",
+                "value": "application/rss+xml",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "copyright",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "webMaster",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Public Health",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats New",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Covid Journal Content",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats-New MMWR",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "poxvirus-730339-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "wcms-730836-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "EARLY RELEASE: Notes from the Field: Molecular Detections of Cladophialophora bantiana at a Clinical Reference Laboratory - United States, 2009-2026",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=766563",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "guid",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=766563&_=47FFA211E915DE76D944C70BC6E3D98D0BF890189CFCE835E94EB3A6BC81042C",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "isPermaLink",
+                "value": "true",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Fri, 02 Oct 2026 17:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "MMWR",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Morbidity & Mortality Weekly Report",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Fri, 02 Oct 2026 17:00:00 GMT",
+            "raw_state": "present",
+            "normalized": "2026-10-02T17:00:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=766563&_=47FFA211E915DE76D944C70BC6E3D98D0BF890189CFCE835E94EB3A6BC81042C",
+        "url": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=766563",
+        "title": "EARLY RELEASE: Notes from the Field: Molecular Detections of Cladophialophora bantiana at a Clinical Reference Laboratory - United States, 2009-2026",
+        "published_at": "2026-10-02T17:00:00Z",
+        "updated_at": null
+      }
+    },
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_mmwr",
+        "source_item_id": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=763661&_=2C93D4BB050F38A0E825C7252F14AC489386B3D0FB6329A91B27D5D4520A99E6",
+        "authors": [],
+        "categories": [
+          "MMWR",
+          "Morbidity & Mortality Weekly Report"
+        ],
+        "language": "en",
+        "media": [
+          {
+            "url": "https://www.cdc.gov/mmwr/mobile_app_images/mm7506a2_RespiratoryVirusActivity_IMAGE_19Feb2026_750x393.png",
+            "origin": "publisher"
+          }
+        ],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "6411f4f063ed03601e2002245d9e82f493e7acc1bdc07a33795420c28ed5c895",
+        "inventory": [
+          "feed/category",
+          "feed/copyright",
+          "feed/description",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/webMaster",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title",
+          "item/{http://search.yahoo.com/mrss/}content",
+          "item/{http://search.yahoo.com/mrss/}content/@height",
+          "item/{http://search.yahoo.com/mrss/}content/@type",
+          "item/{http://search.yahoo.com/mrss/}content/@url",
+          "item/{http://search.yahoo.com/mrss/}content/@width"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "Morbidity and Mortality Weekly Report (MMWR)",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}author",
+            "value": "imtech@cdc.gov",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}email",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "language",
+            "value": "en",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Fri, 06 Jan 2023 18:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "lastBuildDate",
+            "value": "Wed, 17 Jun 2026 16:31:16 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://www.cdc.gov/mmwr/index.html",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.w3.org/2005/Atom}link",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "href",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "rel",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "type",
+                "value": "application/rss+xml",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "copyright",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "webMaster",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Public Health",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats New",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Covid Journal Content",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats-New MMWR",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "poxvirus-730339-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "wcms-730836-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "Respiratory Virus Activity - United States, July 1, 2024-June 30, 2025",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=763661",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "guid",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=763661&_=2C93D4BB050F38A0E825C7252F14AC489386B3D0FB6329A91B27D5D4520A99E6",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "isPermaLink",
+                "value": "true",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Thu, 19 Feb 2026 18:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "MMWR",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Morbidity & Mortality Weekly Report",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://search.yahoo.com/mrss/}content",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "height",
+                "value": "394",
+                "state": "present"
+              },
+              {
+                "name": "type",
+                "value": "image/png",
+                "state": "present"
+              },
+              {
+                "name": "url",
+                "value": "https://www.cdc.gov/mmwr/mobile_app_images/mm7506a2_RespiratoryVirusActivity_IMAGE_19Feb2026_750x393.png",
+                "state": "present"
+              },
+              {
+                "name": "width",
+                "value": "750",
+                "state": "present"
+              }
+            ],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Thu, 19 Feb 2026 18:00:00 GMT",
+            "raw_state": "present",
+            "normalized": "2026-02-19T18:00:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=763661&_=2C93D4BB050F38A0E825C7252F14AC489386B3D0FB6329A91B27D5D4520A99E6",
+        "url": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=763661",
+        "title": "Respiratory Virus Activity - United States, July 1, 2024-June 30, 2025",
+        "published_at": "2026-02-19T18:00:00Z",
+        "updated_at": null
+      }
+    },
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_mmwr",
+        "source_item_id": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=408828&_=43ACE46B5474A3D7AFE05DC60A671994156A860601CAEF50E7593C099AB1F1C7",
+        "authors": [],
+        "categories": [
+          "Coronavirus [CoV]",
+          "MMWR",
+          "Morbidity & Mortality Weekly Report",
+          "COVID-19",
+          "Coronavirus Disease 2019"
+        ],
+        "language": "en",
+        "media": [
+          {
+            "url": "https://www.cdc.gov/mobile/Applications/CDCGeneral/MMWRThumbnails/mm6929e2_GeorgiaSerology_IMAGE_21July20_750x393.jpg",
+            "origin": "publisher"
+          }
+        ],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "6411f4f063ed03601e2002245d9e82f493e7acc1bdc07a33795420c28ed5c895",
+        "inventory": [
+          "feed/category",
+          "feed/copyright",
+          "feed/description",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/webMaster",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/enclosure",
+          "item/enclosure/@length",
+          "item/enclosure/@type",
+          "item/enclosure/@url",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title",
+          "item/{http://search.yahoo.com/mrss/}content",
+          "item/{http://search.yahoo.com/mrss/}content/@height",
+          "item/{http://search.yahoo.com/mrss/}content/@type",
+          "item/{http://search.yahoo.com/mrss/}content/@url",
+          "item/{http://search.yahoo.com/mrss/}content/@width"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "Morbidity and Mortality Weekly Report (MMWR)",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}author",
+            "value": "imtech@cdc.gov",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}email",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "language",
+            "value": "en",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Fri, 06 Jan 2023 18:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "lastBuildDate",
+            "value": "Wed, 17 Jun 2026 16:31:16 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://www.cdc.gov/mmwr/index.html",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.w3.org/2005/Atom}link",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "href",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "rel",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "type",
+                "value": "application/rss+xml",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "copyright",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "webMaster",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Public Health",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats New",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Covid Journal Content",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats-New MMWR",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "poxvirus-730339-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "wcms-730836-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "Estimated Community Seroprevalence of SARS-CoV-2 Antibodies - Two Georgia Counties, April 28-May 3, 2020",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=408828",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "guid",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=408828&_=43ACE46B5474A3D7AFE05DC60A671994156A860601CAEF50E7593C099AB1F1C7",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "isPermaLink",
+                "value": "true",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Thu, 23 Jul 2020 16:58:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "enclosure",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "length",
+                "value": "131588",
+                "state": "present"
+              },
+              {
+                "name": "type",
+                "value": "image/jpeg",
+                "state": "present"
+              },
+              {
+                "name": "url",
+                "value": "http://www.cdc.gov/mobile/Applications/CDCGeneral/MMWRThumbnails/mm6929e2_GeorgiaSerology_IMAGE_21July20_750x393.jpg",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Coronavirus [CoV]",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "MMWR",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Morbidity & Mortality Weekly Report",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "COVID-19",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Coronavirus Disease 2019",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://search.yahoo.com/mrss/}content",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "height",
+                "value": "393",
+                "state": "present"
+              },
+              {
+                "name": "type",
+                "value": "image/jpeg",
+                "state": "present"
+              },
+              {
+                "name": "url",
+                "value": "https://www.cdc.gov/mobile/Applications/CDCGeneral/MMWRThumbnails/mm6929e2_GeorgiaSerology_IMAGE_21July20_750x393.jpg",
+                "state": "present"
+              },
+              {
+                "name": "width",
+                "value": "750",
+                "state": "present"
+              }
+            ],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Thu, 23 Jul 2020 16:58:00 GMT",
+            "raw_state": "present",
+            "normalized": "2020-07-23T16:58:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=408828&_=43ACE46B5474A3D7AFE05DC60A671994156A860601CAEF50E7593C099AB1F1C7",
+        "url": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=408828",
+        "title": "Estimated Community Seroprevalence of SARS-CoV-2 Antibodies - Two Georgia Counties, April 28-May 3, 2020",
+        "published_at": "2020-07-23T16:58:00Z",
+        "updated_at": null
+      }
+    }
+  ]
+}

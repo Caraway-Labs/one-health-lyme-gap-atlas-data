@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 from ..intelligence_items import identity_hash, validate_acquisition_context, validate_record
+from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_storage import IntelligenceStore
 from ..settings import PipelineSettings
 from .adapters import AcquireResult
@@ -25,6 +26,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         connection_factory: Callable[[], Any],
         retention_allowed: Callable[[str], bool],
         artifact_policy_allowed: Callable[[str, str], bool],
+        native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
         spaces_client: Any | None = None,
     ) -> None:
         super().__init__(
@@ -33,6 +35,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         self.store = IntelligenceStore(
             connection_factory=connection_factory,
             retention_allowed=retention_allowed,
+            native_policy_lookup=native_policy_lookup,
             settings=self.settings,
         )
         self.artifact_policy_allowed = artifact_policy_allowed

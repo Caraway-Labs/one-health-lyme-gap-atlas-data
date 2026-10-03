@@ -1,0 +1,375 @@
+{
+  "evidence": {
+    "source_id": "cdc-eid-ahead-of-print",
+    "endpoint": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
+    "captured_at": "2026-10-03T03:06:52.756940Z",
+    "mode": "metadata_fixture_only",
+    "status": 200,
+    "transport_bytes": 2783,
+    "transport_sha256": "85c5142a09f9ead49ffd13cc551f018fbdc2a558aff7557725a88a9cdb1ea72a",
+    "item_count": 5,
+    "sample_count": 1,
+    "observed_inventory": {
+      "feed/description": 1,
+      "feed/image": 1,
+      "feed/image/description": 1,
+      "feed/image/height": 1,
+      "feed/image/link": 1,
+      "feed/image/title": 1,
+      "feed/image/url": 1,
+      "feed/image/width": 1,
+      "feed/language": 1,
+      "feed/link": 1,
+      "feed/title": 1,
+      "feed/webMaster": 1,
+      "item/description": 5,
+      "item/link": 5,
+      "item/pubDate": 5,
+      "item/title": 5
+    },
+    "uncovered_paths": [],
+    "raw_transport_retained": false
+  },
+  "source_candidate": {
+    "contract_version": "1.0.0",
+    "source_id": "cdc-eid-ahead-of-print",
+    "registry_version": 1,
+    "organization": "CDC",
+    "family": "cdc_eid",
+    "source_type": "publication",
+    "geographies": [],
+    "topics": [
+      "tick-borne"
+    ],
+    "trust_review": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "trust_classification": "unreviewed",
+    "transport": "rss",
+    "canonical_location": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
+    "fetch_location": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
+    "approved_hosts": [
+      "wwwnc.cdc.gov"
+    ],
+    "state": "candidate",
+    "cadence": {
+      "poll_seconds": null,
+      "expected_item_seconds": null,
+      "basis": "unknown"
+    },
+    "access_use": {
+      "terms_location": "https://www.cdc.gov/other/agencymaterials.html",
+      "conditions": [
+        "Metadata-fixture review only; no endorsement by CDC; source material is available free at the canonical CDC link",
+        "No article descriptions/content or image bytes retained; source rights and live policy remain unresolved"
+      ],
+      "availability_verified_at": null,
+      "excerpt_max_chars": 0,
+      "content_retention_policy_ref": null,
+      "public_excerpt_permitted": false
+    },
+    "approval": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "change_review_policy": "new_version_requires_review",
+    "fallback_reason": null,
+    "limits": {
+      "maximum_bytes": 2000000,
+      "timeout_seconds": 20,
+      "maximum_items": 5000,
+      "maximum_redirects": 0,
+      "maximum_attempts": 1
+    }
+  },
+  "mapping_policy_candidate": {
+    "policy_ref": "cdc-metadata-fixture-review-v1",
+    "source_sha256": "b747a7b43a590eec72da690bf6976879ebab2bf29d020701a747df91662aea81",
+    "inventory": [
+      "feed/description",
+      "feed/image",
+      "feed/image/description",
+      "feed/image/height",
+      "feed/image/link",
+      "feed/image/title",
+      "feed/image/url",
+      "feed/image/width",
+      "feed/language",
+      "feed/link",
+      "feed/title",
+      "feed/webMaster",
+      "item/description",
+      "item/link",
+      "item/pubDate",
+      "item/title"
+    ],
+    "permitted_paths": [
+      "feed/image/height",
+      "feed/image/link",
+      "feed/image/title",
+      "feed/image/url",
+      "feed/image/width",
+      "feed/language",
+      "feed/link",
+      "feed/title",
+      "item/link",
+      "item/pubDate",
+      "item/title"
+    ],
+    "published_path": "item/pubDate",
+    "published_format": "rfc822",
+    "updated_path": null,
+    "updated_format": "iso8601",
+    "required_paths": []
+  },
+  "samples": [
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_eid",
+        "source_item_id": null,
+        "authors": [],
+        "categories": [],
+        "language": "en-us",
+        "media": [],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "c8d6d8068337c171bccf7af2887c1ccd7e77b55bd3fb41e8ce5beffaf7699707",
+        "inventory": [
+          "feed/description",
+          "feed/image",
+          "feed/image/description",
+          "feed/image/height",
+          "feed/image/link",
+          "feed/image/title",
+          "feed/image/url",
+          "feed/image/width",
+          "feed/language",
+          "feed/link",
+          "feed/title",
+          "feed/webMaster",
+          "item/description",
+          "item/link",
+          "item/pubDate",
+          "item/title"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "Emerging Infectious Diseases Journal",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://wwwnc.cdc.gov/eid/early-release",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "image",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": [
+              {
+                "name": "title",
+                "value": "Emerging Infectious Diseases Journal",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "url",
+                "value": "https://wwwnc.cdc.gov/eid/images/og-eid-logo-2.jpg",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "link",
+                "value": "https://wwwnc.cdc.gov/eid/early-release",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "width",
+                "value": "1200",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "height",
+                "value": "630",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "description",
+                "value": null,
+                "state": "withheld",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "language",
+            "value": "en-us",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "webMaster",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "The Impermanence of Public Health Gains—Lessons Learned from Measles Resurgence, Bangladesh, 2026",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://wwwnc.cdc.gov/eid/article/32/11/26-1019_article",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Fri, 02 Oct 2026 04:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Fri, 02 Oct 2026 04:00:00 GMT",
+            "raw_state": "present",
+            "normalized": "2026-10-02T04:00:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": null,
+        "url": "https://wwwnc.cdc.gov/eid/article/32/11/26-1019_article",
+        "title": "The Impermanence of Public Health Gains—Lessons Learned from Measles Resurgence, Bangladesh, 2026",
+        "published_at": "2026-10-02T04:00:00Z",
+        "updated_at": null
+      }
+    }
+  ]
+}
