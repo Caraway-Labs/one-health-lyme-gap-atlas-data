@@ -1,0 +1,1238 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<metadata>
+  	
+  <eainfo>
+    		
+    <overview>
+      			
+      <eadetcit>https://www.epa.gov/enviroatlas/enviroatlas-fact-sheets</eadetcit>
+      			
+      <eaover>Values are CODES FOR LANDSCAPE ELEMENTS described in the MSPA Guide included with the GUIDOS package. GUIDOS is available at forest.jrc.ec.europa.eu/download/software/guidos. The codes are: 0 Background, 1 Branch, 3 Edge, 5 Perforation, 9 Islet, 17 Core, 100 Interior Background, and 129 (No Data).
+			
+The landscape elements are based on the National Land Cover Database (NLCD). NLCD classes were reclassified to either foreground or background depending on the type of connectivity measured (See processing steps for specific classes).</eaover>
+      		
+    </overview>
+    		
+    <detailed Name="Forest_connectivity_CONUS_2024.tif.vat">
+      			
+      <enttyp>
+        				
+        <enttypl Sync="TRUE">Forest_connectivity_CONUS_2024.tif.vat</enttypl>
+        				
+        <enttypt Sync="TRUE">Table</enttypt>
+        				
+        <enttypc Sync="TRUE">8</enttypc>
+        				
+        <enttypd>SPA landscape elements with forest as foreground</enttypd>
+        				
+        <enttypds>U.S. EPA</enttypds>
+        			
+      </enttyp>
+      			
+      <attr>
+        				
+        <attrlabl Sync="TRUE">OID</attrlabl>
+        				
+        <attalias Sync="TRUE">OID</attalias>
+        				
+        <attrtype Sync="TRUE">OID</attrtype>
+        				
+        <attwidth Sync="TRUE">4</attwidth>
+        				
+        <atprecis Sync="TRUE">0</atprecis>
+        				
+        <attscale Sync="TRUE">0</attscale>
+        				
+        <attrdef Sync="TRUE">Internal feature number.</attrdef>
+        				
+        <attrdefs Sync="TRUE">Esri</attrdefs>
+        				
+        <attrdomv>
+          					
+          <udom Sync="TRUE">Sequential unique whole numbers that are automatically generated.</udom>
+          				
+        </attrdomv>
+        			
+      </attr>
+      			
+      <attr>
+        				
+        <attrlabl Sync="TRUE">Value</attrlabl>
+        				
+        <attalias Sync="TRUE">Value</attalias>
+        				
+        <attrtype Sync="TRUE">Integer</attrtype>
+        				
+        <attwidth Sync="TRUE">10</attwidth>
+        				
+        <atprecis Sync="TRUE">10</atprecis>
+        				
+        <attscale Sync="TRUE">0</attscale>
+        				
+        <attrdef>Code for GUIDOS landscape elements</attrdef>
+        				
+        <attrdefs>GUIDOS</attrdefs>
+        				
+        <attrdomv>
+          					
+          <edom>
+            						
+            <edomv>0</edomv>
+            						
+            <edomvd>Background</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>1</edomv>
+            						
+            <edomvd>Branch - Foreground pixels that extend from core and then terminate in background</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>3</edomv>
+            						
+            <edomvd>Edge - Foreground separating core from background</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>5</edomv>
+            						
+            <edomvd>Perforation - Interior edge separating core from background</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>9</edomv>
+            						
+            <edomvd>Islet (patch) - Feature of interest not large enough to contain core</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>17</edomv>
+            						
+            <edomvd>Core - Feature of interest that is greater that the specified edge distance from background</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>100</edomv>
+            						
+            <edomvd>Interior background - Same as class 0 but for interior (i.e., nested) instances of the class.</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          					
+          <edom>
+            						
+            <edomv>129</edomv>
+            						
+            <edomvd>No data</edomvd>
+            						
+            <edomvds>GUIDOS</edomvds>
+            					
+          </edom>
+          				
+        </attrdomv>
+        			
+      </attr>
+      			
+      <attr>
+        				
+        <attrlabl Sync="TRUE">Count</attrlabl>
+        				
+        <attalias Sync="TRUE">Count</attalias>
+        				
+        <attrtype Sync="TRUE">Double</attrtype>
+        				
+        <attwidth Sync="TRUE">19</attwidth>
+        				
+        <atprecis Sync="TRUE">0</atprecis>
+        				
+        <attscale Sync="TRUE">0</attscale>
+        				
+        <attrdef>Number of pixels in class</attrdef>
+        				
+        <attrdefs>EPA</attrdefs>
+        				
+        <attrdomv>
+          					
+          <rdom>
+            						
+            <rdommin>25609811</rdommin>
+            						
+            <rdommax>7821758669</rdommax>
+            					
+          </rdom>
+          				
+        </attrdomv>
+        			
+      </attr>
+      			
+      <attr>
+        				
+        <attrlabl>Class</attrlabl>
+        				
+        <attalias>Class</attalias>
+        				
+        <attrdef>Labels for GUIDOS landscape elements</attrdef>
+        				
+        <attrdefs>GUIDOS</attrdefs>
+        				
+        <attrtype>String</attrtype>
+        				
+        <attwidth>254</attwidth>
+        				
+        <atprecis>0</atprecis>
+        				
+        <attscale>0</attscale>
+        				
+        <attrdomv>
+          					
+          <udom>Labels for GUIDOS landscape elements defined in Value attribute definitions.</udom>
+          				
+        </attrdomv>
+        			
+      </attr>
+      		
+    </detailed>
+    	
+  </eainfo>
+  	
+  <mdChar>
+    		
+    <CharSetCd value="004"/>
+    	
+  </mdChar>
+  	
+  <mdHrLv>
+    		
+    <ScopeCd value="005"/>
+    	
+  </mdHrLv>
+  	
+  <mdContact>
+    		
+    <rpIndName>EnviroAtlas Coordinator</rpIndName>
+    		
+    <rpOrgName>U.S. Environmental Protection Agency, Office of Research and Development - Center for Public Health and Environmental Assessment (CPHEA), EnviroAtlas</rpOrgName>
+    		
+    <rpPosName>Geospatial Data Owner</rpPosName>
+    		
+    <rpCntInfo>
+      			
+      <cntPhone>
+        				
+        <voiceNum tddtty="">(919) 541-3832</voiceNum>
+        			
+      </cntPhone>
+      			
+      <cntAddress addressType="both">
+        				
+        <delPoint>109 T.W. Alexander Drive</delPoint>
+        				
+        <city>Research Triangle Park</city>
+        				
+        <adminArea>NC</adminArea>
+        				
+        <postCode>27709</postCode>
+        				
+        <eMailAdd>EnviroAtlas@epa.gov</eMailAdd>
+        			
+      </cntAddress>
+      			
+      <cntInstr>https://www.epa.gov/enviroatlas</cntInstr>
+      		
+    </rpCntInfo>
+    		
+    <role>
+      			
+      <RoleCd value="007"/>
+      		
+    </role>
+    	
+  </mdContact>
+  	
+  <mdDateSt Sync="FALSE">2025-10-24</mdDateSt>
+  	
+  <distInfo>
+    		
+    <distTranOps>
+      			
+      <onLineSrc>
+        				
+        <linkage>https://enviroatlas.epa.gov/download/</linkage>
+        				
+        <protocol>download</protocol>
+        				
+        <orFunct>
+          					
+          <OnFunctCd value="001"/>
+          				
+        </orFunct>
+        			
+      </onLineSrc>
+      			
+      <onLineSrc>
+        				
+        <linkage>https://enviroatlas.epa.gov/download/</linkage>
+        				
+        <protocol>ESRI:ArcGIS</protocol>
+        				
+        <orFunct>
+          					
+          <OnFunctCd value="003"/>
+          				
+        </orFunct>
+        			
+      </onLineSrc>
+      			
+      <onLineSrc>
+        				
+        <linkage>https://www.epa.gov/enviroatlas/enviroatlas-data</linkage>
+        				
+        <protocol>information</protocol>
+        				
+        <orFunct>
+          					
+          <OnFunctCd value="002"/>
+          				
+        </orFunct>
+        			
+      </onLineSrc>
+      			
+      <onLineSrc>
+        				
+        <linkage>https://www.epa.gov/enviroatlas</linkage>
+        				
+        <protocol>information</protocol>
+        				
+        <orFunct>
+          					
+          <OnFunctCd value="002"/>
+          				
+        </orFunct>
+        			
+      </onLineSrc>
+      		
+    </distTranOps>
+    		
+    <distFormat>
+      			
+      <formatName Sync="TRUE">Raster Dataset</formatName>
+      		
+    </distFormat>
+    	
+  </distInfo>
+  	
+  <dataIdInfo>
+    		
+    <idCitation>
+      			
+      <resTitle>Forest_connectivity_CONUS_2024</resTitle>
+      			
+      <citRespParty>
+        				
+        <rpOrgName>U.S. Environmental Protection Agency (US EPA)</rpOrgName>
+        				
+        <role>
+          					
+          <RoleCd value="006"/>
+          				
+        </role>
+        			
+      </citRespParty>
+      			
+      <citRespParty>
+        				
+        <rpOrgName>U.S. EPA Office of Research and Development (ORD) - Center for Public Health and Environmental Assessment (CPHEA)</rpOrgName>
+        				
+        <rpCntInfo>
+          					
+          <cntAddress addressType="">
+            						
+            <delPoint>Research Triangle Park, NC</delPoint>
+            					
+          </cntAddress>
+          				
+        </rpCntInfo>
+        				
+        <role>
+          					
+          <RoleCd value="010"/>
+          				
+        </role>
+        			
+      </citRespParty>
+      			
+      <presForm>
+        				
+        <PresFormCd Sync="TRUE" value="005"/>
+        			
+      </presForm>
+      			
+      <date>
+        				
+        <pubDate>2025-06-30</pubDate>
+        			
+      </date>
+      		
+    </idCitation>
+    		
+    <idStatus>
+      			
+      <ProgCd value="001"/>
+      		
+    </idStatus>
+    		
+    <idPoC>
+      			
+      <rpIndName>EnviroAtlas Coordinator</rpIndName>
+      			
+      <rpOrgName>U.S. Environmental Protection Agency, Office of Research and Development - Center for Public Health and Environmental Assessment (CPHEA), EnviroAtlas</rpOrgName>
+      			
+      <rpPosName>Geospatial Data Owner</rpPosName>
+      			
+      <rpCntInfo>
+        				
+        <cntPhone>
+          					
+          <voiceNum tddtty="">(919) 541-3832</voiceNum>
+          				
+        </cntPhone>
+        				
+        <cntAddress addressType="both">
+          					
+          <delPoint>109 T.W. Alexander Drive</delPoint>
+          					
+          <city>Research Triangle Park</city>
+          					
+          <adminArea>NC</adminArea>
+          					
+          <postCode>27709</postCode>
+          					
+          <eMailAdd>EnviroAtlas@epa.gov</eMailAdd>
+          				
+        </cntAddress>
+        				
+        <cntInstr>https://www.epa.gov/enviroatlas</cntInstr>
+        			
+      </rpCntInfo>
+      			
+      <role>
+        				
+        <RoleCd value="010">Publisher</RoleCd>
+        			
+      </role>
+      		
+    </idPoC>
+    		
+    <resMaint>
+      			
+      <maintFreq>
+        				
+        <MaintFreqCd value="009"/>
+        			
+      </maintFreq>
+      		
+    </resMaint>
+    		
+    <placeKeys>
+      			
+      <thesaName>
+        				
+        <resTitle>EPA Place Names</resTitle>
+        				
+        <date>
+          					
+          <pubDate>2015-01-31</pubDate>
+          				
+        </date>
+        				
+        <citOnlineRes>
+          					
+          <linkage>https://ofmpub.epa.gov/sor_internet/registry/termreg/searchandretrieve/taxonomies/search.do?search=&amp;searchString=&amp;taxonomyName=WBT%20-%20Geographic%20Locations</linkage>
+          					
+          <orFunct>
+            						
+            <OnFunctCd value="002"/>
+            					
+          </orFunct>
+          					
+          <orName>Web Taxonomy - Geographic Locations</orName>
+          				
+        </citOnlineRes>
+        			
+      </thesaName>
+      			
+      <thesaLang>
+        				
+        <languageCode value="eng"/>
+        				
+        <countryCode value="US"/>
+        			
+      </thesaLang>
+      			
+      <keyword>Alabama</keyword>
+      			
+      <keyword>Arizona</keyword>
+      			
+      <keyword>Arkansas</keyword>
+      			
+      <keyword>California</keyword>
+      			
+      <keyword>Colorado</keyword>
+      			
+      <keyword>Connecticut</keyword>
+      			
+      <keyword>Delaware</keyword>
+      			
+      <keyword>Florida</keyword>
+      			
+      <keyword>Georgia</keyword>
+      			
+      <keyword>Idaho</keyword>
+      			
+      <keyword>Illinois</keyword>
+      			
+      <keyword>Indiana</keyword>
+      			
+      <keyword>Iowa</keyword>
+      			
+      <keyword>Kansas</keyword>
+      			
+      <keyword>Kentucky</keyword>
+      			
+      <keyword>Louisiana</keyword>
+      			
+      <keyword>Maine</keyword>
+      			
+      <keyword>Maryland</keyword>
+      			
+      <keyword>Massachusetts</keyword>
+      			
+      <keyword>Michigan</keyword>
+      			
+      <keyword>Minnesota</keyword>
+      			
+      <keyword>Mississippi</keyword>
+      			
+      <keyword>Missouri</keyword>
+      			
+      <keyword>Montana</keyword>
+      			
+      <keyword>Nebraska</keyword>
+      			
+      <keyword>Nevada</keyword>
+      			
+      <keyword>New Hampshire</keyword>
+      			
+      <keyword>New Jersey</keyword>
+      			
+      <keyword>New Mexico</keyword>
+      			
+      <keyword>New York</keyword>
+      			
+      <keyword>North Carolina</keyword>
+      			
+      <keyword>North Dakota</keyword>
+      			
+      <keyword>Ohio</keyword>
+      			
+      <keyword>Oklahoma</keyword>
+      			
+      <keyword>Oregon</keyword>
+      			
+      <keyword>Pennsylvania</keyword>
+      			
+      <keyword>Rhode Island</keyword>
+      			
+      <keyword>South Carolina</keyword>
+      			
+      <keyword>South Dakota</keyword>
+      			
+      <keyword>Tennessee</keyword>
+      			
+      <keyword>Texas</keyword>
+      			
+      <keyword>United States</keyword>
+      			
+      <keyword>Utah</keyword>
+      			
+      <keyword>Vermont</keyword>
+      			
+      <keyword>Virginia</keyword>
+      			
+      <keyword>Washington</keyword>
+      			
+      <keyword>West Virginia</keyword>
+      			
+      <keyword>Wisconsin</keyword>
+      			
+      <keyword>Wyoming</keyword>
+      		
+    </placeKeys>
+    		
+    <themeKeys>
+      			
+      <thesaName>
+        				
+        <resTitle>EPA GIS Keyword Thesaurus</resTitle>
+        				
+        <date>
+          					
+          <pubDate>2007-11-02</pubDate>
+          				
+        </date>
+        				
+        <citOnlineRes>
+          					
+          <linkage>https://ofmpub.epa.gov/sor_internet/registry/termreg/searchandretrieve/taxonomies/search.do?search=&amp;searchString=&amp;taxonomyName=WBT%20-%20Geographic%20Locations</linkage>
+          					
+          <orFunct>
+            						
+            <OnFunctCd value="002"/>
+            					
+          </orFunct>
+          					
+          <orName>EPA Metadata Technical Specification</orName>
+          				
+        </citOnlineRes>
+        			
+      </thesaName>
+      			
+      <thesaLang>
+        				
+        <languageCode value="eng"/>
+        				
+        <countryCode value="US"/>
+        			
+      </thesaLang>
+      			
+      <keyword>Conservation</keyword>
+      			
+      <keyword>Ecology</keyword>
+      			
+      <keyword>Ecosystem</keyword>
+      			
+      <keyword>Environment</keyword>
+      			
+      <keyword>Land</keyword>
+      			
+      <keyword>Management</keyword>
+      		
+    </themeKeys>
+    		
+    <resConst>
+      			
+      <Consts>
+        				
+        <useLimit>None. Please check sources, scale, accuracy, currency and other available information. Please confirm that you are using the most recent copy of both data and metadata.  Acknowledgement of the EPA would be appreciated.</useLimit>
+        			
+      </Consts>
+      		
+    </resConst>
+    		
+    <dataLang>
+      			
+      <languageCode value="eng"/>
+      			
+      <countryCode Sync="TRUE" value="USA"/>
+      		
+    </dataLang>
+    		
+    <dataChar>
+      			
+      <CharSetCd value="004"/>
+      		
+    </dataChar>
+    		
+    <resConst>
+      			
+      <LegConsts>
+        				
+        <accessConsts>
+          					
+          <RestrictCd value="009">Unrestricted License</RestrictCd>
+          				
+        </accessConsts>
+        				
+        <othConsts>https://edg.epa.gov/EPA_Data_License.html</othConsts>
+        				
+        <useLimit>EPA Public Domain License</useLimit>
+        			
+      </LegConsts>
+      		
+    </resConst>
+    		
+    <themeKeys>
+      			
+      <thesaLang>
+        				
+        <languageCode value="eng"/>
+        				
+        <countryCode value="US"/>
+        			
+      </thesaLang>
+      			
+      <thesaName>
+        				
+        <resTitle>Federal Program Inventory</resTitle>
+        				
+        <date>
+          					
+          <pubDate>2013-09-16</pubDate>
+          				
+        </date>
+        				
+        <citOnlineRes>
+          					
+          <linkage>https://www.performance.gov/federalprograminventory</linkage>
+          					
+          <orFunct>
+            						
+            <OnFunctCd value="002"/>
+            					
+          </orFunct>
+          					
+          <orName>Federal Program Inventory</orName>
+          				
+        </citOnlineRes>
+        			
+      </thesaName>
+      			
+      <keyword>020:072</keyword>
+      		
+    </themeKeys>
+    		
+    <idPurp>This dataset is useful for green infrastructure applications, such as habitat suitability analyses.
+
+The overall goal of EnviroAtlas is to employ and develop the best available science to map indicators of ecosystem services production, demand, and drivers for the nation.</idPurp>
+    		
+    <idAbs>This EnviroAtlas dataset categorizes land cover into structural elements (e.g. core, edge, branch, etc.). It depicts core areas of forest, core fragmentation, and patterns of connectivity among core patches. Forest is treated as foreground in this dataset; forest land cover classes are separated from the all other land cover classes.
+
+This dataset was produced by the US EPA to support research and online mapping activities related to EnviroAtlas. EnviroAtlas (https://www.epa.gov/enviroatlas) allows the user to interact with a web-based, easy-to-use, mapping application to view and analyze multiple ecosystem services for the contiguous United States. The dataset is available as downloadable data (https://edg.epa.gov/data/Public/ORD/EnviroAtlas) or as an EnviroAtlas map service. Additional descriptive information about each attribute in this dataset can be found in its associated EnviroAtlas Fact Sheet (https://www.epa.gov/enviroatlas/enviroatlas-fact-sheets).</idAbs>
+    		
+    <resConst>
+      			
+      <SecConsts>
+        				
+        <class>
+          					
+          <ClasscationCd value="001">Unclassified</ClasscationCd>
+          				
+        </class>
+        				
+        <classSys>https://project-open-data.github.io/schema/#accessLevel</classSys>
+        			
+      </SecConsts>
+      		
+    </resConst>
+    		
+    <themeKeys>
+      			
+      <thesaLang>
+        				
+        <languageCode value="eng"/>
+        				
+        <countryCode value="US"/>
+        			
+      </thesaLang>
+      			
+      <thesaName>
+        				
+        <resTitle>User</resTitle>
+        				
+        <date>
+          					
+          <pubDate>2022-01-11</pubDate>
+          				
+        </date>
+        			
+      </thesaName>
+      			
+      <keyword>Ecosystem Services</keyword>
+      			
+      <keyword>EnviroAtlas</keyword>
+      			
+      <keyword>Environment</keyword>
+      			
+      <keyword>Environmental Atlas</keyword>
+      			
+      <keyword>Green Infrastructure</keyword>
+      			
+      <keyword>Habitat</keyword>
+      			
+      <keyword>Land Cover</keyword>
+      		
+    </themeKeys>
+    		
+    <envirDesc Sync="TRUE">Microsoft Windows 10 Version 10.0 (Build 22631) ; Esri ArcGIS 13.5.0.57366</envirDesc>
+    		
+    <spatRpType>
+      			
+      <SpatRepTypCd Sync="TRUE" value="002"/>
+      		
+    </spatRpType>
+    		
+    <dataExt>
+      			
+      <geoEle>
+        				
+        <GeoBndBox esriExtentType="search">
+          					
+          <exTypeCode Sync="TRUE">1</exTypeCode>
+          					
+          <westBL Sync="TRUE">-129.277320</westBL>
+          					
+          <eastBL Sync="TRUE">-63.118430</eastBL>
+          					
+          <northBL Sync="TRUE">52.921890</northBL>
+          					
+          <southBL Sync="TRUE">21.805095</southBL>
+          				
+        </GeoBndBox>
+        			
+      </geoEle>
+      			
+      <tempEle>
+        				
+        <TempExtent>
+          					
+          <exTemp>
+            						
+            <TM_Period>
+              							
+              <tmBegin>2024-01-01T00:00:00</tmBegin>
+              							
+              <tmEnd>2024-12-31T00:00:00</tmEnd>
+              						
+            </TM_Period>
+            					
+          </exTemp>
+          				
+        </TempExtent>
+        			
+      </tempEle>
+      		
+    </dataExt>
+    		
+    <tpCat>
+      			
+      <TopicCatCd value="007"/>
+      		
+    </tpCat>
+    		
+    <tpCat>
+      			
+      <TopicCatCd value="017"/>
+      		
+    </tpCat>
+    		
+    <idCredit/>
+  </dataIdInfo>
+  	
+  <mdMaint>
+    		
+    <maintFreq>
+      			
+      <MaintFreqCd value="009"/>
+      		
+    </maintFreq>
+    		
+    <dateNext>2025-07-30T00:00:00</dateNext>
+    	
+  </mdMaint>
+  	
+  <dqInfo>
+    		
+    <dqScope>
+      			
+      <scpLvl>
+        				
+        <ScopeCd value="005"/>
+        			
+      </scpLvl>
+      		
+    </dqScope>
+    		
+    <report dimension="" type="DQConcConsis">
+      			
+      <measDesc>Tests for integrity have not been performed.</measDesc>
+      			
+      <measResult>
+        				
+        <ConResult>
+          					
+          <conSpec>
+            						
+            <resTitle>EPA National Geospatial Data Policy</resTitle>
+            					
+          </conSpec>
+          					
+          <conExpl>Features have been reviewed by U.S. EPA EnviroAtlas Project Managers for public release.</conExpl>
+          					
+          <conPass>1</conPass>
+          				
+        </ConResult>
+        			
+      </measResult>
+      		
+    </report>
+    		
+    <report dimension="" type="DQCompOm">
+      			
+      <measDesc>Features represented have not been tested for completeness</measDesc>
+      			
+      <measResult>
+        				
+        <ConResult>
+          					
+          <conSpec>
+            						
+            <resTitle>EPA National Geospatial Data Policy</resTitle>
+            					
+          </conSpec>
+          					
+          <conExpl>Features have been reviewed by U.S. EPA EnviroAtlas Project Managers for public release.</conExpl>
+          					
+          <conPass>1</conPass>
+          				
+        </ConResult>
+        			
+      </measResult>
+      		
+    </report>
+    		
+    <dataLineage>
+      			
+      <dataSource type="">
+        				
+        <srcDesc>2024 National Land Cover Database (NLCD) Land Cover for CONUS. Download source: https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_LndCov_2024_CU_C1V1.zip</srcDesc>
+        			
+      </dataSource>
+      			
+      <prcStep>
+        				
+        <stepDesc>Reclassify NLCD 2024 Land Cover (CONUS) (http://www.mrlc.gov/index.php) as follows: 
+				foreground [classes 41 - Deciduous Forest, 42 - Evergreen Forest, 43 - Mixed Forest, 90 - Woody Wetlands]; background [classes 11 - Water, 12 - Perennial Ice/Snow, 21 - Developed, Open Space, 22 - Developed, Low Intensity, 23 - Developed, Medium Intensity, 24 - Developed, High Intensity, 31 - Barren Land (Rock/Sand/Clay), 51 - Dwarf Scrub, 52 - Shrub/Scrub, 71 - Grassland/Herbaceous, 72 - Sedge/Herbaceous, 73 - Lichens, 74 - Moss, 81 - Pasture/Hay, 82 - Cultivated Crops, 95 - Emergent Herbaceous Wetlands]; and nodata (255).</stepDesc>
+        				
+        <stepDateTm>2025-05-01T00:00:00</stepDateTm>
+        			
+      </prcStep>
+      			
+      <prcStep>
+        				
+        <stepDesc>Connectivity data were derived using the GUIDOS (Graphical User Interface for the Description of image Objects and their Shapes) Workbench 1.9.8 (GWB1.9.8) raster image processing toolbox, which includes the Simplified Pattern Analysis (SPA) module, a downscaled version of Morphological Spatial Pattern Analysis tool (MSPA). Run GWB1.9.8 (https://forest.jrc.ec.europa.eu/en/activities/lpa/gtb/#Download) using, using 8 neighbor connectivity, 1 pixel edge width, transition and intext on.</stepDesc>
+        				
+        <stepDateTm>2025-05-01T00:00:00</stepDateTm>
+        			
+      </prcStep>
+      		
+    </dataLineage>
+    	
+  </dqInfo>
+  	
+  <mdLang>
+    		
+    <languageCode value="eng"/>
+    		
+    <countryCode Sync="TRUE" value="USA"/>
+    	
+  </mdLang>
+  	
+  <Esri>
+    		
+    <scaleRange>
+      			
+      <minScale>150000000</minScale>
+      			
+      <maxScale>5000</maxScale>
+      		
+    </scaleRange>
+    		
+    <ArcGISFormat>1.0</ArcGISFormat>
+    		
+    <ArcGISProfile>ISO19115_3</ArcGISProfile>
+    		
+    <DataProperties>
+      			
+      <itemProps>
+        				
+        <imsContentType export="False"/>
+        				
+        <itemName Sync="TRUE">Forest_connectivity_CONUS_2024.tif</itemName>
+        				
+        <itemLocation>
+          					
+          <protocol Sync="TRUE">Local Area Network</protocol>
+          					
+          <linkage Sync="TRUE">file://\\AW18H1NEASTSTG\D$\Public\Data\S3proxies\UploadRasters\MSPA\MSPA3\Forest_connectivity_CONUS_2024.tif</linkage>
+        </itemLocation>
+        				
+        <nativeExtBox>
+          					
+          <westBL Sync="TRUE">-2415585.000000</westBL>
+          					
+          <eastBL Sync="TRUE">2384415.000000</eastBL>
+          					
+          <southBL Sync="TRUE">164805.000000</southBL>
+          					
+          <northBL Sync="TRUE">3314805.000000</northBL>
+          					
+          <exTypeCode Sync="TRUE">1</exTypeCode>
+          				
+        </nativeExtBox>
+        			
+      </itemProps>
+      			
+      <coordRef>
+        				
+        <type Sync="TRUE">Projected</type>
+        				
+        <geogcsn Sync="TRUE">GCS_WGS_1984</geogcsn>
+        				
+        <csUnits Sync="TRUE">Linear Unit: Meter (1.000000)</csUnits>
+        				
+        <projcsn Sync="TRUE">AEA_WGS84</projcsn>
+        				
+        <peXml Sync="TRUE">&lt;ProjectedCoordinateSystem xsi:type='typens:ProjectedCoordinateSystem' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xmlns:xs='http://www.w3.org/2001/XMLSchema' xmlns:typens='http://www.esri.com/schemas/ArcGIS/3.5.0'&gt;&lt;WKT&gt;PROJCS[&amp;quot;AEA_WGS84&amp;quot;,GEOGCS[&amp;quot;GCS_WGS_1984&amp;quot;,DATUM[&amp;quot;D_WGS_1984&amp;quot;,SPHEROID[&amp;quot;WGS_1984&amp;quot;,6378137.0,298.257223563]],PRIMEM[&amp;quot;Greenwich&amp;quot;,0.0],UNIT[&amp;quot;Degree&amp;quot;,0.0174532925199433]],PROJECTION[&amp;quot;Albers&amp;quot;],PARAMETER[&amp;quot;False_Easting&amp;quot;,0.0],PARAMETER[&amp;quot;False_Northing&amp;quot;,0.0],PARAMETER[&amp;quot;Central_Meridian&amp;quot;,-96.0],PARAMETER[&amp;quot;Standard_Parallel_1&amp;quot;,29.5],PARAMETER[&amp;quot;Standard_Parallel_2&amp;quot;,45.5],PARAMETER[&amp;quot;Latitude_Of_Origin&amp;quot;,23.0],UNIT[&amp;quot;Meter&amp;quot;,1.0]]&lt;/WKT&gt;&lt;XOrigin&gt;-16901100&lt;/XOrigin&gt;&lt;YOrigin&gt;-6972200&lt;/YOrigin&gt;&lt;XYScale&gt;266467840.99085236&lt;/XYScale&gt;&lt;ZOrigin&gt;-100000&lt;/ZOrigin&gt;&lt;ZScale&gt;10000&lt;/ZScale&gt;&lt;MOrigin&gt;-100000&lt;/MOrigin&gt;&lt;MScale&gt;10000&lt;/MScale&gt;&lt;XYTolerance&gt;0.001&lt;/XYTolerance&gt;&lt;ZTolerance&gt;0.001&lt;/ZTolerance&gt;&lt;MTolerance&gt;0.001&lt;/MTolerance&gt;&lt;HighPrecision&gt;true&lt;/HighPrecision&gt;&lt;/ProjectedCoordinateSystem&gt;</peXml>
+        			
+      </coordRef>
+      			
+      <RasterProperties>
+        				
+        <General>
+          					
+          <PixelDepth Sync="TRUE">8</PixelDepth>
+          					
+          <HasColormap Sync="TRUE">TRUE</HasColormap>
+          					
+          <CompressionType Sync="TRUE">LZW</CompressionType>
+          					
+          <NumBands Sync="TRUE">1</NumBands>
+          					
+          <Format Sync="TRUE">TIFF</Format>
+          					
+          <HasPyramids Sync="TRUE">TRUE</HasPyramids>
+          					
+          <SourceType Sync="TRUE">discrete</SourceType>
+          					
+          <PixelType Sync="TRUE">unsigned integer</PixelType>
+          					
+          <NoDataValue Sync="TRUE"/>
+          				
+        </General>
+        			
+      </RasterProperties>
+      			
+      <lineage>
+        <Process Date="20251027" Time="102705" ToolSource="c:\users\mculler\appdata\local\programs\arcgis\pro\Resources\ArcToolbox\toolboxes\Data Management Tools.tbx\DeleteColormap">DeleteColormap "C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Forest_connectivity_CONUS_2024.tif"</Process>
+        <Process Date="20251027" Time="142633" ToolSource="c:\users\mculler\appdata\local\programs\arcgis\pro\Resources\ArcToolbox\toolboxes\Data Management Tools.tbx\CopyMultiple">CopyMultiple "'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Agriculture_connectivity_AK_2016.tif' raster_file_general;'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Agriculture_connectivity_CONUS_2024.tif' raster_file_general;'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Forest_connectivity_AK_2016.tif' raster_file_general;'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Forest_connectivity_CONUS_2024.tif' raster_file_general;'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Natural_land_cover_connectivity_water_as_background_AK_2016.tif' raster_file_general;'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Natural_land_cover_connectivity_water_as_background_CONUS_2024.tif' raster_file_general;'C:\Users\mculler\OneDrive - Environmental Protection Agency (EPA)\Documents\2_AREAS\EnviroAtlas-DataQA\Data\Connectivity\2_Editing\Data_RemovingNoDataAreas\Natural_land_cover_connectivity_water_as_foreground_AK_2016.tif' raster_file_general" O:\NERL_LEB7\Transfer_to_Woolpert\DataTransfer2025\MSPA Agriculture_connectivity_AK_2016;Agriculture_connectivity_CONUS_2024;Forest_connectivity_AK_2016;Forest_connectivity_CONUS_2024;Natural_land_cover_connectivity_water_as_background_AK_2016;Natural_land_cover_connectivity_water_as_background_CONUS_2024;Natural_land_cover_connectivity_water_as_foreground_AK_2016 "Agriculture_connectivity_AK_2016.tif RasterDataset Agriculture_connectivity_AK_2016.tif #;Agriculture_connectivity_CONUS_2024.tif RasterDataset Agriculture_connectivity_CONUS_2024.tif #;Forest_connectivity_AK_2016.tif RasterDataset Forest_connectivity_AK_2016.tif #;Forest_connectivity_CONUS_2024.tif RasterDataset Forest_connectivity_CONUS_2024.tif #;Natural_land_cover_connectivity_water_as_background_AK_2016.tif RasterDataset Natural_land_cover_connectivity_water_as_background_AK_2016.tif #;Natural_land_cover_connectivity_water_as_background_CONUS_2024.tif RasterDataset Natural_land_cover_connectivity_water_as_background_CONUS_2024.tif #;Natural_land_cover_connectivity_water_as_foreground_AK_2016.tif RasterDataset Natural_land_cover_connectivity_water_as_foreground_AK_2016.tif #"</Process>
+        <Process Date="20251027" Time="182517" ToolSource="d:\public\server\apps\arcgis\pro\Resources\ArcToolbox\Toolboxes\Data Management Tools.tbx\CopyMultiple">CopyMultiple "D:\Public\Data\S3proxies\UploadRasters\MSPA\Agriculture_connectivity_AK_2016.tif raster_file_general;D:\Public\Data\S3proxies\UploadRasters\MSPA\Forest_connectivity_AK_2016.tif raster_file_general;D:\Public\Data\S3proxies\UploadRasters\MSPA\Forest_connectivity_CONUS_2024.tif raster_file_general;D:\Public\Data\S3proxies\UploadRasters\MSPA\Natural_land_cover_connectivity_water_as_background_AK_2016.tif raster_file_general;D:\Public\Data\S3proxies\UploadRasters\MSPA\Natural_land_cover_connectivity_water_as_background_CONUS_2024.tif raster_file_general;D:\Public\Data\S3proxies\UploadRasters\MSPA\Natural_land_cover_connectivity_water_as_foreground_AK_2016.tif raster_file_general" D:\Public\Data\S3proxies\UploadRasters\MSPA\MSPA3 Agriculture_connectivity_AK_2016;Forest_connectivity_AK_2016;Forest_connectivity_CONUS_2024;Natural_land_cover_connectivity_water_as_background_AK_2016;Natural_land_cover_connectivity_water_as_background_CONUS_2024;Natural_land_cover_connectivity_water_as_foreground_AK_2016 "Agriculture_connectivity_AK_2016.tif RasterDataset Agriculture_connectivity_AK_2016.tif #;Forest_connectivity_AK_2016.tif RasterDataset Forest_connectivity_AK_2016.tif #;Forest_connectivity_CONUS_2024.tif RasterDataset Forest_connectivity_CONUS_2024.tif #;Natural_land_cover_connectivity_water_as_background_AK_2016.tif RasterDataset Natural_land_cover_connectivity_water_as_background_AK_2016.tif #;Natural_land_cover_connectivity_water_as_background_CONUS_2024.tif RasterDataset Natural_land_cover_connectivity_water_as_background_CONUS_2024.tif #;Natural_land_cover_connectivity_water_as_foreground_AK_2016.tif RasterDataset Natural_land_cover_connectivity_water_as_foreground_AK_2016.tif #"</Process>
+      </lineage>
+      <copyHistory>
+        <copy date="20251027" dest="\\AW18H1NEASTSTG\D$\Public\Data\S3proxies\UploadRasters\MSPA\MSPA3\Forest_connectivity_CONUS_2024.tif" source="D:\Public\Data\S3proxies\UploadRasters\MSPA\Forest_connectivity_CONUS_2024.tif" time="18251100"/>
+      </copyHistory>
+    </DataProperties>
+    		
+    <SyncDate>20250630</SyncDate>
+    		
+    <SyncTime>17100800</SyncTime>
+    		
+    <ModDate>20251024</ModDate>
+    		
+    <ModTime>17464400</ModTime>
+    		
+    <CreaDate>20251027</CreaDate>
+    <CreaTime>18251100</CreaTime>
+    <SyncOnce>TRUE</SyncOnce>
+  </Esri>
+  	
+  <mdHrLvName Sync="TRUE">dataset</mdHrLvName>
+  	
+  <refSysInfo>
+    		
+    <RefSystem dimension="">
+      			
+      <refSysID>
+        				
+        <identCode Sync="FALSE" code="4326"/>
+        				
+        <idCodeSpace>EPSG</idCodeSpace>
+        			
+      </refSysID>
+      		
+    </RefSystem>
+    	
+  </refSysInfo>
+  	
+  <spatRepInfo>
+    		
+    <Georect>
+      			
+      <cellGeo>
+        				
+        <CellGeoCd Sync="TRUE" value="002"/>
+        			
+      </cellGeo>
+      			
+      <numDims Sync="TRUE">2</numDims>
+      			
+      <tranParaAv Sync="TRUE">1</tranParaAv>
+      			
+      <chkPtAv Sync="TRUE">0</chkPtAv>
+      			
+      <cornerPts>
+        				
+        <pos Sync="TRUE">-2415585.000000 164805.000000</pos>
+        			
+      </cornerPts>
+      			
+      <cornerPts>
+        				
+        <pos Sync="TRUE">-2415585.000000 3314805.000000</pos>
+        			
+      </cornerPts>
+      			
+      <cornerPts>
+        				
+        <pos Sync="TRUE">2384415.000000 3314805.000000</pos>
+        			
+      </cornerPts>
+      			
+      <cornerPts>
+        				
+        <pos Sync="TRUE">2384415.000000 164805.000000</pos>
+        			
+      </cornerPts>
+      			
+      <centerPt>
+        				
+        <pos Sync="TRUE">-15585.000000 1739805.000000</pos>
+        			
+      </centerPt>
+      			
+      <axisDimension type="002">
+        				
+        <dimSize Sync="TRUE">160000</dimSize>
+        				
+        <dimResol>
+          					
+          <value Sync="TRUE" uom="m">30.000000</value>
+          				
+        </dimResol>
+        			
+      </axisDimension>
+      			
+      <axisDimension type="001">
+        				
+        <dimSize Sync="TRUE">105000</dimSize>
+        				
+        <dimResol>
+          					
+          <value Sync="TRUE" uom="m">30.000000</value>
+          				
+        </dimResol>
+        			
+      </axisDimension>
+      			
+      <ptInPixel>
+        				
+        <PixOrientCd Sync="TRUE" value="001"/>
+        			
+      </ptInPixel>
+      		
+    </Georect>
+    	
+  </spatRepInfo>
+  	
+  <contInfo>
+    		
+    <ImgDesc>
+      			
+      <contentTyp>
+        				
+        <ContentTypCd Sync="TRUE" value="002"/>
+        			
+      </contentTyp>
+      			
+      <covDim>
+        				
+        <Band>
+          					
+          <dimDescrp Sync="TRUE">Band_1</dimDescrp>
+          					
+          <maxVal Sync="TRUE">129.000000</maxVal>
+          					
+          <minVal Sync="TRUE">0.000000</minVal>
+          					
+          <bitsPerVal Sync="TRUE">8</bitsPerVal>
+          					
+          <valUnit>
+            						
+            <UOM gmlID="" type="length">
+              							
+              <unitSymbol>[arb'U]</unitSymbol>
+              						
+            </UOM>
+            					
+          </valUnit>
+          					
+          <seqID>
+            						
+            <aName>1</aName>
+            						
+            <attributeType>
+              							
+              <aName>1</aName>
+              						
+            </attributeType>
+            					
+          </seqID>
+          				
+        </Band>
+        			
+      </covDim>
+      			
+      <attDesc>Landscape connectivity with forest as foreground</attDesc>
+      			
+      <trianInd>False</trianInd>
+      			
+      <radCalDatAv>False</radCalDatAv>
+      			
+      <camCalInAv>False</camCalInAv>
+      			
+      <filmDistInAv>False</filmDistInAv>
+      			
+      <lensDistInAv>False</lensDistInAv>
+      		
+    </ImgDesc>
+    	
+  </contInfo>
+  	
+  <mdFileID>265AC7DE-57EE-4C93-A9B0-D1161CCA8956</mdFileID>
+  
+</metadata>

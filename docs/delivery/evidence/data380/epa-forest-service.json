@@ -1,0 +1,122 @@
+{
+ "extent": {
+  "ymin": 164805,
+  "xmin": -2415585,
+  "ymax": 3314805,
+  "xmax": 2384415,
+  "spatialReference": {
+   "wkt": "PROJCS[\"AEA_WGS84\",GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433]],PROJECTION[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0],UNIT[\"Meter\",1.0]]",
+   "wkt2": "PROJCRS[\"AEA_WGS84\",BASEGEOGCRS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",ELLIPSOID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],CS[ellipsoidal,2],AXIS[\"Latitude (lat)\",north,ORDER[1]],AXIS[\"Longitude (lon)\",east,ORDER[2]],ANGLEUNIT[\"Degree\",0.0174532925199433]],CONVERSION[\"Albers\",METHOD[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0]],CS[Cartesian,2],AXIS[\"Easting (X)\",east,ORDER[1]],AXIS[\"Northing (Y)\",north,ORDER[2]],LENGTHUNIT[\"Meter\",1.0]]"
+  }
+ },
+ "blockWidth": 512,
+ "mosaicOperator": "First",
+ "serviceSourceType": "esriImageServiceSourceTypeDataset",
+ "hasMultidimensions": false,
+ "maxImageWidth": 15000,
+ "meanValues": [62.534700641813998],
+ "hasColormap": false,
+ "compressionType": "DEFLATE",
+ "defaultCompressionQuality": 75,
+ "maxValues": [129],
+ "hasHistograms": false,
+ "datasetFormat": "TIFF",
+ "maxImageHeight": 4100,
+ "sortField": "",
+ "bandNames": ["Band_1"],
+ "spatialReference": {
+  "wkt": "PROJCS[\"AEA_WGS84\",GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433]],PROJECTION[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0],UNIT[\"Meter\",1.0]]",
+  "wkt2": "PROJCRS[\"AEA_WGS84\",BASEGEOGCRS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",ELLIPSOID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],CS[ellipsoidal,2],AXIS[\"Latitude (lat)\",north,ORDER[1]],AXIS[\"Longitude (lon)\",east,ORDER[2]],ANGLEUNIT[\"Degree\",0.0174532925199433]],CONVERSION[\"Albers\",METHOD[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0]],CS[Cartesian,2],AXIS[\"Easting (X)\",east,ORDER[1]],AXIS[\"Northing (Y)\",north,ORDER[2]],LENGTHUNIT[\"Meter\",1.0]]"
+ },
+ "fullExtent": {
+  "ymin": 164805,
+  "xmin": -2415585,
+  "ymax": 3314805,
+  "xmax": 2384415,
+  "spatialReference": {
+   "wkt": "PROJCS[\"AEA_WGS84\",GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433]],PROJECTION[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0],UNIT[\"Meter\",1.0]]",
+   "wkt2": "PROJCRS[\"AEA_WGS84\",BASEGEOGCRS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",ELLIPSOID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],CS[ellipsoidal,2],AXIS[\"Latitude (lat)\",north,ORDER[1]],AXIS[\"Longitude (lon)\",east,ORDER[2]],ANGLEUNIT[\"Degree\",0.0174532925199433]],CONVERSION[\"Albers\",METHOD[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0]],CS[Cartesian,2],AXIS[\"Easting (X)\",east,ORDER[1]],AXIS[\"Northing (Y)\",north,ORDER[2]],LENGTHUNIT[\"Meter\",1.0]]"
+  }
+ },
+ "bandCount": 1,
+ "rasterFunctionInfos": [
+  {
+   "help": "",
+   "name": "SPA_connectivity_forest",
+   "description": "SPA Connectivity Symbology"
+  },
+  {
+   "help": "",
+   "name": "None",
+   "description": ""
+  }
+ ],
+ "supportsStatistics": false,
+ "sortableFields": "",
+ "minValues": [0],
+ "allowRasterFunction": true,
+ "allowComputeTiePoints": false,
+ "serviceDataType": "esriImageServiceDataTypeGeneric",
+ "supportsAdvancedQueries": false,
+ "currentVersion": 12.1,
+ "sortValue": null,
+ "objectIdField": "",
+ "blockHeight": 512,
+ "initialExtent": {
+  "ymin": 164805,
+  "xmin": -2415585,
+  "ymax": 3314805,
+  "xmax": 2384415,
+  "spatialReference": {
+   "wkt": "PROJCS[\"AEA_WGS84\",GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433]],PROJECTION[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0],UNIT[\"Meter\",1.0]]",
+   "wkt2": "PROJCRS[\"AEA_WGS84\",BASEGEOGCRS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",ELLIPSOID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],CS[ellipsoidal,2],AXIS[\"Latitude (lat)\",north,ORDER[1]],AXIS[\"Longitude (lon)\",east,ORDER[2]],ANGLEUNIT[\"Degree\",0.0174532925199433]],CONVERSION[\"Albers\",METHOD[\"Albers\"],PARAMETER[\"False_Easting\",0.0],PARAMETER[\"False_Northing\",0.0],PARAMETER[\"Central_Meridian\",-96.0],PARAMETER[\"Standard_Parallel_1\",29.5],PARAMETER[\"Standard_Parallel_2\",45.5],PARAMETER[\"Latitude_Of_Origin\",23.0]],CS[Cartesian,2],AXIS[\"Easting (X)\",east,ORDER[1]],AXIS[\"Northing (Y)\",north,ORDER[2]],LENGTHUNIT[\"Meter\",1.0]]"
+  }
+ },
+ "pixelSizeX": 30,
+ "pixelSizeY": 30,
+ "defaultMosaicMethod": "Center",
+ "name": "Rasters/Forest_connectivity_CONUS_2024",
+ "allowedMosaicMethods": "",
+ "fields": [],
+ "allowAnalysis": true,
+ "hasRasterAttributeTable": true,
+ "useStandardizedQueries": false,
+ "description": "",
+ "pixelType": "U8",
+ "meanPixelSize": 30,
+ "exportTilesAllowed": false,
+ "editFieldsInfo": null,
+ "rasterTypeInfos": [{
+  "help": "",
+  "name": "Raster Dataset",
+  "description": "Supports all ArcGIS Raster Datasets"
+ }],
+ "defaultResamplingMethod": "Nearest",
+ "itemAccess": false,
+ "minScale": 0,
+ "serviceProperties": "<ImageServer><ImageServiceProperties><MosaicMethod>Center<\/MosaicMethod><MosaicOperator>First<\/MosaicOperator><SortAscending>true<\/SortAscending><LockImageID><\/LockImageID><TileOrderField><\/TileOrderField><TileOrderBase>0<\/TileOrderBase><AvgImageSpacingX>0.000000<\/AvgImageSpacingX><AvgImageSpacingY>0.000000<\/AvgImageSpacingY><ViewPointX>0.0<\/ViewPointX><ViewPointY>0.0<\/ViewPointY><ViewPointDefShiftX>0.0<\/ViewPointDefShiftX><ViewPointDefShiftY>0.0<\/ViewPointDefShiftY><CompressionMethod>None<\/CompressionMethod><CompressionQuality>75<\/CompressionQuality><CompressionTolerance>0.010000<\/CompressionTolerance><SamplingMethod>Nearest<\/SamplingMethod><\/ImageServiceProperties><\/ImageServer>",
+ "advancedQueryCapabilities": {
+  "supportsStatistics": false,
+  "supportsSqlExpression": false,
+  "supportsOrderBy": false,
+  "useStandardizedQueries": false,
+  "supportsPagination": false,
+  "supportsDistinct": false
+ },
+ "capabilities": "Mensuration,Image,Metadata",
+ "maxScale": 0,
+ "stdvValues": [62.588872138794002],
+ "allowedFields": "",
+ "minPixelSize": 0,
+ "resampling": false,
+ "sortAscending": true,
+ "inspectionCapabilities": "",
+ "maxPixelSize": 0,
+ "allowedCompressions": "None,JPEG,LZ77,LERC",
+ "uncompressedSize": 16800000000,
+ "serviceDescription": "This EnviroAtlas dataset categorizes land cover into structural elements (e.g. core, edge, branch, etc.). It depicts core areas of forest, core fragmentation, and patterns of connectivity among core patches. Forest is treated as foreground in this dataset; forest land cover classes are separated from the all other land cover classes.\n\nThis dataset was produced by the US EPA to support research and online mapping activities related to EnviroAtlas. EnviroAtlas (https://www.epa.gov/enviroatlas) allows the user to interact with a web-based, easy-to-use, mapping application to view and analyze multiple ecosystem services for the contiguous United States. The dataset is available as downloadable data (https://edg.epa.gov/data/Public/ORD/EnviroAtlas) or as an EnviroAtlas map service. Additional descriptive information about each attribute in this dataset can be found in its associated EnviroAtlas Fact Sheet (https://www.epa.gov/enviroatlas/enviroatlas-fact-sheets).",
+ "allowCopy": true,
+ "copyrightText": "",
+ "mensurationCapabilities": "Basic",
+ "ownershipBasedAccessControlForRasters": null
+}
