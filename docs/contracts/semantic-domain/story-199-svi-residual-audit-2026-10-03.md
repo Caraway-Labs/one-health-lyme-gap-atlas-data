@@ -100,6 +100,42 @@ executed. Source metadata and missingness were subsequently queried separately.
 The [SQL audit companion](story-199-svi-audit-2026-10-03.sql) records reproducible
 SELECTs and these visibility boundaries; execute each separately.
 
+## Coordinated DATA200 evidence and one remaining proof plan
+
+The [DATA200 audit handoff](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/200#issuecomment-5965980365)
+was read during this audit. It reports a successful historical
+[build receipt](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/35328355391)
+at `7b80373187b8aa665891e2f39e6bf7f8c6fb35a1` and
+[publication receipt](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/35362701191)
+for the same PROD release/hash observed above, with the pinned SVI and RUCC
+manifest source tuples. This is contributed historical source-tuple-to-bundle
+binding evidence; it narrows the gap and must not be described as nonexistent.
+It is not a fresh replay, current per-observation record/hash reconciliation or
+reviewed metadata-state admission. Those private runtime proofs remain missing.
+No denied queries or historical workflow were repeated to obtain this handoff.
+
+Use **one shared, bounded read-only evidence plan** coordinated by the parent,
+under an already-authorized audit/release identity with existing permissions:
+
+1. Pin current PROD release/hash to the historical manifest; return five
+   aggregates restricted to `rucc_2023`, `population_2022`, `svi_percentile_2022`,
+   `uninsured_percentile_2022`, and `uninsured_percent_2022`. For each, report row
+   count/distinct FIPS, actual state counts, exact version/run/artifact agreement
+   to the two manifest sources, missing record/hash and invalid hash-shape
+   counts, period, and transformation version. These aggregates are planned,
+   not measured by this audit. Do not expose RAW payloads or artifact locations.
+2. Supply the five authoritative REVIEWED #191 envelopes, each bound to its
+   measure/source version, with semantic version, metadata revision/revision ID,
+   meaning signature, steward date, allowed states, applicability and provenance.
+   Confirm actual emitted-state admission and the intended SVI ZERO/MISSING
+   policy without widening existing metadata. #191 is storage-neutral; no
+   metadata authority table is presumed. PENDING examples cannot provide proof.
+
+The four SVI measures belong to DATA199; RUCC belongs to DATA200. The parent
+owns coordination/execution of this single evidence packet; this branch adds
+no second SQL lineage implementation, source run or grant request. Publisher
+availability/ordering and any new-head replay remain separate acceptance gates.
+
 ## Fixture verification and remaining acceptance gates
 
 Current-head existing SVI/mapping/#202/metadata/lineage/governance/release suites:
