@@ -1,5 +1,7 @@
 """Release candidates preserve categorical evidence and exact membership."""
 
+import hashlib
+import json
 from copy import deepcopy
 
 import pytest
@@ -75,7 +77,24 @@ def test_snapshot_membership_cannot_authorize_publisher_omission() -> None:
     result = _result("01003", complete=False)
     result["state"] = "NOT_REPORTED_IN_DATASET"
     with pytest.raises(ValueError, match="snapshot|omission"):
-        _candidate([result])
+        build_surveillance_release_candidate(
+            [result],
+            release_id="fixture-release-v1",
+            scope_reference="fixture-scope-v1",
+            expected_result_ids=["coverage-result:v2:unproven-omission"],
+            evidence_basis="SYNTHETIC_FIXTURE",
+        )
+
+
+def test_digest_independently_binds_exact_projection_and_scope() -> None:
+    candidate = _candidate([_result()])
+    digest = candidate.pop("snapshot_sha256")
+    encoded = json.dumps(candidate, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    assert digest == hashlib.sha256(encoded.encode()).hexdigest()
+    changed = deepcopy(candidate)
+    changed["scope_reference"] = "different-scope"
+    encoded = json.dumps(changed, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    assert digest != hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def test_revised_evidence_cannot_satisfy_old_manifest() -> None:
