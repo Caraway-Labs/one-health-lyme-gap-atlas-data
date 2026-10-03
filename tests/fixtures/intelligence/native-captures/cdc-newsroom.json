@@ -1,0 +1,1123 @@
+{
+  "evidence": {
+    "source_id": "cdc-newsroom",
+    "endpoint": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
+    "captured_at": "2026-10-03T03:06:53.378520Z",
+    "mode": "metadata_fixture_only",
+    "status": 200,
+    "transport_bytes": 1416838,
+    "transport_sha256": "25637191064c0f340bd004ea76fe3cee62d20244beed2a9f921c3a1c8c525b8c",
+    "item_count": 1844,
+    "sample_count": 2,
+    "observed_inventory": {
+      "feed/category": 5,
+      "feed/copyright": 1,
+      "feed/description": 1,
+      "feed/image": 1,
+      "feed/image/height": 1,
+      "feed/image/link": 1,
+      "feed/image/title": 1,
+      "feed/image/url": 1,
+      "feed/image/width": 1,
+      "feed/language": 1,
+      "feed/lastBuildDate": 1,
+      "feed/link": 1,
+      "feed/pubDate": 1,
+      "feed/title": 1,
+      "feed/webMaster": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}author": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}description": 1,
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}email": 1,
+      "feed/{http://www.w3.org/2005/Atom}link": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@href": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@rel": 1,
+      "feed/{http://www.w3.org/2005/Atom}link/@type": 1,
+      "item/category": 2146,
+      "item/description": 1844,
+      "item/enclosure": 187,
+      "item/enclosure/@length": 187,
+      "item/enclosure/@type": 187,
+      "item/enclosure/@url": 187,
+      "item/guid": 1844,
+      "item/guid/@isPermaLink": 1844,
+      "item/link": 1844,
+      "item/pubDate": 1844,
+      "item/title": 1844,
+      "item/{http://search.yahoo.com/mrss/}content": 282,
+      "item/{http://search.yahoo.com/mrss/}content/@height": 282,
+      "item/{http://search.yahoo.com/mrss/}content/@type": 282,
+      "item/{http://search.yahoo.com/mrss/}content/@url": 282,
+      "item/{http://search.yahoo.com/mrss/}content/@width": 282
+    },
+    "uncovered_paths": [],
+    "raw_transport_retained": false
+  },
+  "source_candidate": {
+    "contract_version": "1.0.0",
+    "source_id": "cdc-newsroom",
+    "registry_version": 1,
+    "organization": "CDC",
+    "family": "cdc_other",
+    "source_type": "publication",
+    "geographies": [],
+    "topics": [
+      "tick-borne"
+    ],
+    "trust_review": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "trust_classification": "unreviewed",
+    "transport": "rss",
+    "canonical_location": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
+    "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
+    "approved_hosts": [
+      "tools.cdc.gov"
+    ],
+    "state": "candidate",
+    "cadence": {
+      "poll_seconds": null,
+      "expected_item_seconds": null,
+      "basis": "unknown"
+    },
+    "access_use": {
+      "terms_location": "https://www.cdc.gov/other/agencymaterials.html",
+      "conditions": [
+        "Metadata-fixture review only; no endorsement by CDC; source material is available free at the canonical CDC link",
+        "No article descriptions/content or image bytes retained; source rights and live policy remain unresolved"
+      ],
+      "availability_verified_at": null,
+      "excerpt_max_chars": 0,
+      "content_retention_policy_ref": null,
+      "public_excerpt_permitted": false
+    },
+    "approval": {
+      "status": "pending",
+      "decision_ref": null,
+      "reviewed_at": null,
+      "owner": "intelligence-steward"
+    },
+    "change_review_policy": "new_version_requires_review",
+    "fallback_reason": null,
+    "limits": {
+      "maximum_bytes": 2000000,
+      "timeout_seconds": 20,
+      "maximum_items": 5000,
+      "maximum_redirects": 0,
+      "maximum_attempts": 1
+    }
+  },
+  "mapping_policy_candidate": {
+    "policy_ref": "cdc-metadata-fixture-review-v1",
+    "source_sha256": "ec8f33727d449d9d483074fdc20d4be90e8d5a9b0295926c64d0bb9ce22a9fc3",
+    "inventory": [
+      "feed/category",
+      "feed/copyright",
+      "feed/description",
+      "feed/image",
+      "feed/image/height",
+      "feed/image/link",
+      "feed/image/title",
+      "feed/image/url",
+      "feed/image/width",
+      "feed/language",
+      "feed/lastBuildDate",
+      "feed/link",
+      "feed/pubDate",
+      "feed/title",
+      "feed/webMaster",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+      "feed/{http://www.w3.org/2005/Atom}link",
+      "feed/{http://www.w3.org/2005/Atom}link/@href",
+      "feed/{http://www.w3.org/2005/Atom}link/@rel",
+      "feed/{http://www.w3.org/2005/Atom}link/@type",
+      "item/category",
+      "item/description",
+      "item/enclosure",
+      "item/enclosure/@length",
+      "item/enclosure/@type",
+      "item/enclosure/@url",
+      "item/guid",
+      "item/guid/@isPermaLink",
+      "item/link",
+      "item/pubDate",
+      "item/title",
+      "item/{http://search.yahoo.com/mrss/}content",
+      "item/{http://search.yahoo.com/mrss/}content/@height",
+      "item/{http://search.yahoo.com/mrss/}content/@type",
+      "item/{http://search.yahoo.com/mrss/}content/@url",
+      "item/{http://search.yahoo.com/mrss/}content/@width"
+    ],
+    "permitted_paths": [
+      "feed/category",
+      "feed/image/height",
+      "feed/image/link",
+      "feed/image/title",
+      "feed/image/url",
+      "feed/image/width",
+      "feed/language",
+      "feed/lastBuildDate",
+      "feed/link",
+      "feed/pubDate",
+      "feed/title",
+      "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+      "feed/{http://www.w3.org/2005/Atom}link",
+      "feed/{http://www.w3.org/2005/Atom}link/@type",
+      "item/category",
+      "item/enclosure/@length",
+      "item/enclosure/@type",
+      "item/enclosure/@url",
+      "item/guid",
+      "item/guid/@isPermaLink",
+      "item/link",
+      "item/pubDate",
+      "item/title",
+      "item/{http://search.yahoo.com/mrss/}content/@height",
+      "item/{http://search.yahoo.com/mrss/}content/@type",
+      "item/{http://search.yahoo.com/mrss/}content/@url",
+      "item/{http://search.yahoo.com/mrss/}content/@width"
+    ],
+    "published_path": "item/pubDate",
+    "published_format": "rfc822",
+    "updated_path": null,
+    "updated_format": "iso8601",
+    "required_paths": []
+  },
+  "samples": [
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_other",
+        "source_item_id": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=766495&_=3B6567405937448547F6F1093ECBB7BE4E33A2934CA36BEF208B98F1D6D3E1B4",
+        "authors": [],
+        "categories": [
+          "CDC Newsroom"
+        ],
+        "language": "en",
+        "media": [
+          {
+            "url": "https://www.cdc.gov/media/media/images/2024/09/cdc-logo.jpg",
+            "origin": "publisher"
+          }
+        ],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "3437d730acfd71d720054cf84b7743bb52b3b7511ec045cd0846b20cea7e7d3e",
+        "inventory": [
+          "feed/category",
+          "feed/copyright",
+          "feed/description",
+          "feed/image",
+          "feed/image/height",
+          "feed/image/link",
+          "feed/image/title",
+          "feed/image/url",
+          "feed/image/width",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/webMaster",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title",
+          "item/{http://search.yahoo.com/mrss/}content",
+          "item/{http://search.yahoo.com/mrss/}content/@height",
+          "item/{http://search.yahoo.com/mrss/}content/@type",
+          "item/{http://search.yahoo.com/mrss/}content/@url",
+          "item/{http://search.yahoo.com/mrss/}content/@width"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "CDC Online Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}author",
+            "value": "Kevin Cartwright",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}email",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "language",
+            "value": "en",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Sat, 21 Nov 2015 04:09:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "lastBuildDate",
+            "value": "Thu, 03 Aug 2023 22:50:26 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://www.cdc.gov/media/index.html",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.w3.org/2005/Atom}link",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "href",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "rel",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "type",
+                "value": "application/rss+xml",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "image",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": [
+              {
+                "name": "title",
+                "value": "CDC Online Newsroom",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "url",
+                "value": "https://www.cdc.gov/images/newsroom.jpg",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "link",
+                "value": "https://www.cdc.gov/media/index.html",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "width",
+                "value": "144",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "height",
+                "value": "154",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "copyright",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "webMaster",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "CDC Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "MobileApp Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats New",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "poxvirus-730339-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "wcms-730836-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "Annual Report to the Nation: Progress Against Lung Cancer Drives Down Cancer Mortality",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=766495",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "guid",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=766495&_=3B6567405937448547F6F1093ECBB7BE4E33A2934CA36BEF208B98F1D6D3E1B4",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "isPermaLink",
+                "value": "true",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Tue, 22 Sep 2026 08:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "CDC Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://search.yahoo.com/mrss/}content",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "height",
+                "value": "408",
+                "state": "present"
+              },
+              {
+                "name": "type",
+                "value": "image/jpeg",
+                "state": "present"
+              },
+              {
+                "name": "url",
+                "value": "https://www.cdc.gov/media/media/images/2024/09/cdc-logo.jpg",
+                "state": "present"
+              },
+              {
+                "name": "width",
+                "value": "680",
+                "state": "present"
+              }
+            ],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Tue, 22 Sep 2026 08:00:00 GMT",
+            "raw_state": "present",
+            "normalized": "2026-09-22T08:00:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=766495&_=3B6567405937448547F6F1093ECBB7BE4E33A2934CA36BEF208B98F1D6D3E1B4",
+        "url": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=766495",
+        "title": "Annual Report to the Nation: Progress Against Lung Cancer Drives Down Cancer Mortality",
+        "published_at": "2026-09-22T08:00:00Z",
+        "updated_at": null
+      }
+    },
+    {
+      "publisher_metadata": {
+        "publisher": "CDC",
+        "source_family": "cdc_other",
+        "source_item_id": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=382644&_=929645AD1D7C9083FA4010ABA9457B548306F81E5D72D2BED3811BB081A76A47",
+        "authors": [],
+        "categories": [
+          "CDC Newsroom",
+          "Transcript"
+        ],
+        "language": "en",
+        "media": [],
+        "date_states": {
+          "published_at": "present",
+          "updated_at": "not_provided"
+        }
+      },
+      "native_metadata": {
+        "policy_ref": "cdc-metadata-fixture-review-v1",
+        "policy_sha256": "3437d730acfd71d720054cf84b7743bb52b3b7511ec045cd0846b20cea7e7d3e",
+        "inventory": [
+          "feed/category",
+          "feed/copyright",
+          "feed/description",
+          "feed/image",
+          "feed/image/height",
+          "feed/image/link",
+          "feed/image/title",
+          "feed/image/url",
+          "feed/image/width",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/webMaster",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/enclosure",
+          "item/enclosure/@length",
+          "item/enclosure/@type",
+          "item/enclosure/@url",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title"
+        ],
+        "feed": [
+          {
+            "name": "title",
+            "value": "CDC Online Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}author",
+            "value": "Kevin Cartwright",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}email",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.google.com/schemas/play-podcasts/1.0}description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "language",
+            "value": "en",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Sat, 21 Nov 2015 04:09:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "lastBuildDate",
+            "value": "Thu, 03 Aug 2023 22:50:26 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://www.cdc.gov/media/index.html",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "{http://www.w3.org/2005/Atom}link",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "href",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "rel",
+                "value": null,
+                "state": "withheld"
+              },
+              {
+                "name": "type",
+                "value": "application/rss+xml",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "image",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": [
+              {
+                "name": "title",
+                "value": "CDC Online Newsroom",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "url",
+                "value": "https://www.cdc.gov/images/newsroom.jpg",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "link",
+                "value": "https://www.cdc.gov/media/index.html",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "width",
+                "value": "144",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              },
+              {
+                "name": "height",
+                "value": "154",
+                "state": "present",
+                "tail": {
+                  "value": null,
+                  "state": "not_provided"
+                },
+                "attributes": [],
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "copyright",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "webMaster",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "CDC Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "MobileApp Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Whats New",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "poxvirus-730339-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "wcms-730836-1",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "feed_attributes": [],
+        "item": [
+          {
+            "name": "title",
+            "value": "Transcript for VitalSigns Teleconference: Zika in Babies in US Territories - Transcript",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "description",
+            "value": null,
+            "state": "withheld",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "link",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=382644",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "guid",
+            "value": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=382644&_=929645AD1D7C9083FA4010ABA9457B548306F81E5D72D2BED3811BB081A76A47",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "isPermaLink",
+                "value": "true",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "pubDate",
+            "value": "Wed, 08 Aug 2018 17:00:00 GMT",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "enclosure",
+            "value": null,
+            "state": "not_provided",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [
+              {
+                "name": "length",
+                "value": "6064128",
+                "state": "present"
+              },
+              {
+                "name": "type",
+                "value": "audio/mpeg",
+                "state": "present"
+              },
+              {
+                "name": "url",
+                "value": "http://tools.cdc.gov/api/embed/downloader/download.mp3?m=132608&c=382644&e=6357802",
+                "state": "present"
+              }
+            ],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "CDC Newsroom",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          },
+          {
+            "name": "category",
+            "value": "Transcript",
+            "state": "present",
+            "tail": {
+              "value": null,
+              "state": "not_provided"
+            },
+            "attributes": [],
+            "children": []
+          }
+        ],
+        "item_attributes": [],
+        "publisher_dates": {
+          "published_at": {
+            "raw": "Wed, 08 Aug 2018 17:00:00 GMT",
+            "raw_state": "present",
+            "normalized": "2018-08-08T17:00:00Z",
+            "state": "present",
+            "parser": "rfc822"
+          },
+          "updated_at": {
+            "raw": null,
+            "raw_state": "not_provided",
+            "normalized": null,
+            "state": "not_provided",
+            "parser": "iso8601"
+          }
+        }
+      },
+      "canonical": {
+        "publisher_identity": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=382644&_=929645AD1D7C9083FA4010ABA9457B548306F81E5D72D2BED3811BB081A76A47",
+        "url": "https://tools.cdc.gov/api/embed/downloader/download.asp?m=132608&c=382644",
+        "title": "Transcript for VitalSigns Teleconference: Zika in Babies in US Territories - Transcript",
+        "published_at": "2018-08-08T17:00:00Z",
+        "updated_at": null
+      }
+    }
+  ]
+}
