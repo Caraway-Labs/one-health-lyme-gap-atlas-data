@@ -87,3 +87,24 @@ Repository search found no delivered 3DEP implementation. GitHub PR title search
 for `3DEP` returned no prior PR. These are bounded searches, not a claim about
 uncommitted work in other agents' worktrees. Their branches and sessions were
 not modified. Repository context validation passes.
+
+## Validation (offline only)
+
+On the reconciled baseline and this documentation-only branch:
+`uv run --no-sync ruff check .`, `ruff format --check .`, `mypy src` and
+`dbt parse --project-dir dbt --profiles-dir dbt` pass using the frozen dependency
+environment (472 formatted files; 112 typed source files). The repository
+container build passes, image SHA-256
+`2aab2937f928f50e7c0bcac7d0a1b7ffd593b628b54d0e17d549db9005f6002d`.
+`git diff --check` and the credential-free context check pass.
+
+The full pytest result is **3002 passed, 2 skipped, 4 failed** (800.83 seconds).
+The failures are existing `test_failure_engine_launcher.py` spawned-child
+success, cooperative timeout, disappearing child, and private-error receipt
+tests, each receiving an outer-timeout result. A focused rerun on unchanged
+main reproduces the same four failures (4 failed, 2 passed, 45.49 seconds).
+Runtime/test sources are identical to main; this branch changes only this
+qualification document. Host startup/deadline behaviour is a hypothesis, not a
+verified root cause. No test deadline or unrelated launcher code was changed.
+The suite is not represented as green. DEV, deployment, source-backed terrain
+derivation and consumer validation were not performed.
