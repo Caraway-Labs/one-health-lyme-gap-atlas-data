@@ -1,0 +1,27 @@
+{
+  "record_type": "PRODUCT_APPROVAL_NOT_TECHNICAL_EVIDENCE",
+  "recorded_on": "2026-10-03",
+  "approver": "Matthew",
+  "provenance": {
+    "kind": "USER_MESSAGE_RELAYED_IN_CODEX_DELEGATION",
+    "source_thread_id": "01a0f0a7-5578-71c8-8377-44ec39025015"
+  },
+  "exact_statement": "Yes, I approve ingesting the data, making sure it's in Snowflake, getting it modeled correctly in Snowflake, and then exposing it through our API.",
+  "scope": {
+    "period": "2025-01-01/2025-01-31",
+    "inputs": ["Retained NOAA nClimGrid-Daily scaled January 2025", "Retained Census TIGER 2025 county boundaries"],
+    "measures": ["PRCP", "TMIN", "TMAX", "NOAA-native TAVG"],
+    "interpretation": "Descriptive county weather only, preserving coverage and labeled-day caveats",
+    "selected_run_id": "c2eb2146-005d-44d2-bac4-e2805ca42577",
+    "historical_expansion": "DEFERRED"
+  },
+  "remaining_distinct_evidence": [
+    "Exact artifact and canonical target validation",
+    "Genuine catalog/source-version binding",
+    "Actual steward review of retained input use and exact four metadata definitions",
+    "Independent technical review and exact-head CI",
+    "Effective API reader identity and separately authorized persistent grants",
+    "Protected environment-specific publication and consumer acceptance"
+  ],
+  "technical_or_scientific_approval": false
+}
