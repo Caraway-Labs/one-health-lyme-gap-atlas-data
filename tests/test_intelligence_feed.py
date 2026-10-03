@@ -55,6 +55,23 @@ def definition(record: dict[str, Any]) -> SourceDefinition:
     )
 
 
+def test_large_complete_feed_obeys_reviewed_bound_without_truncation() -> None:
+    record = source()
+    record["limits"].update(maximum_items=3000, maximum_bytes=2_000_000)
+    entries = "".join(
+        f"<item><guid>{index}</guid><title>Publication {index}</title></item>"
+        for index in range(2332)
+    )
+    raw = f'<rss version="2.0"><channel>{entries}</channel></rss>'.encode()
+    parsed = parse_feed(raw, record)
+    assert len(parsed) == 2332
+    assert parsed[0]["publisher_identity"] == "0"
+    assert parsed[-1]["publisher_identity"] == "2331"
+    record["limits"]["maximum_items"] = 1000
+    with pytest.raises(AcquisitionError, match="FEED_ITEM_LIMIT"):
+        parse_feed(raw, record)
+
+
 def approved() -> dict[str, Any]:
     """In-memory simulation of a steward record, never a configured live source."""
     record = source()
