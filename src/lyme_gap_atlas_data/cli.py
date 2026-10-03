@@ -1137,11 +1137,12 @@ def source_nclimgrid_pilot_measure(
         "benchmark-history": lambda: measurement.benchmark_history(_required_run_id(run_id)),
         "candidate": lambda: measurement.candidate_report(_required_run_id(run_id)),
         "candidate-diagnostic": lambda: measurement.candidate_diagnostic(_required_run_id(run_id)),
+        "frozen-membership": lambda: measurement.frozen_membership_report(_required_run_id(run_id)),
     }
     if action not in actions:
         raise typer.BadParameter(
             "Use preflight, inspect, ordered-read, report, benchmark-history, "
-            "candidate, or candidate-diagnostic"
+            "candidate, candidate-diagnostic, or frozen-membership"
         )
     if action == "preflight" and run_id is not None:
         raise typer.BadParameter("Preflight does not accept a run ID")
