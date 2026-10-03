@@ -40,8 +40,11 @@ Warehouse deletion outcomes are appended only after the enclosing transaction
 commits. Failed commit leaves independently durable pending intent, never a
 false deleted receipt. Audit outage after commit also leaves pending intent for
 readback/retry. File/object outcomes describe nontransactional physical deletion.
+Cleanup requires its own guard transaction and rejects an already-held guard
+before deletion or audit writes, so outcomes cannot precede an outer commit.
 Independent object claims and deletion reject noncanonical S3 paths, including
-double slashes, so a live canonical object cannot be reached via an expired alias.
+double slashes and empty query/fragment delimiters. Exact URI round-trip is
+required, so a live canonical object cannot be reached via an expired alias.
 Do not hand untrusted code either ledger's writable connection or authority
 callbacks: these are trusted runtime components, not an authorization service.
 

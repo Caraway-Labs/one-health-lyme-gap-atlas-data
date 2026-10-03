@@ -184,3 +184,20 @@ def test_warehouse_deleted_audit_follows_actual_commit_and_retry_is_absent(tmp_p
         delete={"checkpoint_payload": driver},
     )
     assert retry[0].outcome == "already_absent"
+
+
+def test_nested_cleanup_refuses_before_delete_or_audit_and_outer_rollback(tmp_path):
+    gate, warehouse, plan, driver = prepared(tmp_path)
+    with pytest.raises(RuntimeError, match="outer rollback"), gate.ledger.guard():
+        with pytest.raises(PermissionError, match="CLEANUP_TRANSACTION_REQUIRED"):
+            cleanup(
+                gate,
+                plan,
+                approved=lambda digest: digest == plan.sha256,
+                scope=lambda copy: True,
+                delete={"checkpoint_payload": driver},
+            )
+        assert warehouse.payload_exists and warehouse.audit == []
+        raise RuntimeError("outer rollback")
+    assert warehouse.payload_exists and warehouse.audit == []
+    assert warehouse.calls[-1] == "ROLLBACK"

@@ -46,6 +46,7 @@ def canonical_object_uri(value: str) -> bool:
         return False
     return bool(
         value.startswith("s3://")
+        and parts.geturl() == value
         and parts.netloc
         and parts.hostname == parts.netloc
         and parts.netloc == parts.netloc.lower()

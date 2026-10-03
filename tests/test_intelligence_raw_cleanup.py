@@ -196,6 +196,9 @@ def test_object_driver_requires_exact_approved_source_and_artifact_key(tmp_path)
         url.replace(source["source_id"], "scientific-source"),
         url.replace("fixture-run", "../escape"),
         url.replace("fixture-bucket/", "fixture-bucket//"),
+        url + "?",
+        url + "#",
+        url + "?#",
     ):
         with pytest.raises(PermissionError, match="SCOPE_INVALID"):
             driver(replace(copy, locator=unsafe))
@@ -204,7 +207,8 @@ def test_object_driver_requires_exact_approved_source_and_artifact_key(tmp_path)
     assert [event[0] for event in events] == ["head", "delete"]
 
 
-def test_independent_expired_alias_cannot_delete_canonical_live_object(tmp_path):
+@pytest.mark.parametrize("suffix", [None, "?", "#", "?#"])
+def test_independent_expired_alias_cannot_delete_canonical_live_object(tmp_path, suffix):
     source, gate, clock = setup(tmp_path)
     feed, _ = adapter(source, gate)
     first = feed.acquire(definition(source))
@@ -219,7 +223,9 @@ def test_independent_expired_alias_cannot_delete_canonical_live_object(tmp_path)
     canonical = RawCopy("DEV", source["source_id"], "raw_object", uri, live.sha256)
     aliased = replace(
         canonical,
-        locator=uri.replace("fixture-bucket/", "fixture-bucket//"),
+        locator=uri + suffix
+        if suffix is not None
+        else uri.replace("fixture-bucket/", "fixture-bucket//"),
         lease_sha256=old.sha256,
     )
     # A separately recorded claim, bypassing the built-in writer, still fails closed.

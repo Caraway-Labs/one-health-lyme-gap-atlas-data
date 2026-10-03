@@ -171,6 +171,8 @@ def cleanup(
     delete: Mapping[CopyKind, Callable[[RawCopy], bool]],
 ) -> tuple[CleanupReceipt, ...]:
     """Hold the same durable guard as claim registration and all raw I/O."""
+    if gate.ledger.in_guard():
+        raise PermissionError("INTELLIGENCE_RAW_CLEANUP_TRANSACTION_REQUIRED")
     if plan.environment != gate.environment:
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
     warehouse = {
