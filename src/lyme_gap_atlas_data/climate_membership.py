@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .climate_publication import NOAA_ARTIFACT_ID, NOAA_SHA, RESOURCE_KEY, RUN_ID
 from .climate_source_review import INPUTS
+from .surveillance_safe import has_sensitive_path
 
 ROW_COUNT = 389856
 ARTIFACT_NAME = "source-pilot-inspection-artifact.json"
@@ -25,6 +28,148 @@ class MembershipBlocked(ValueError):
 def require(condition: bool, code: str) -> None:
     if not condition:
         raise MembershipBlocked(code)
+
+
+def validate_donor(donor: Any, donor_id: Any) -> None:
+    """Closed annual contract before exporting any existing warehouse content."""
+    from .semantic_release import REQUIRED_SCORE_DEFAULT_KEYS, REQUIRED_SOURCE_KEYS
+
+    fields = {
+        "manifest_schema",
+        "release_id",
+        "schema_version",
+        "methodology_version",
+        "generated_at",
+        "scope",
+        "score_defaults",
+        "limitations",
+        "sources",
+    }
+    require(isinstance(donor, dict) and set(donor) == fields, "MEMBERSHIP_DONOR_SHAPE")
+    require(
+        isinstance(donor_id, str)
+        and re.fullmatch(r"[a-z0-9][a-z0-9-]{2,80}", donor_id) is not None
+        and donor["release_id"] == donor_id
+        and donor["manifest_schema"] == "atlas-governed-semantic-release/v1",
+        "MEMBERSHIP_DONOR_IDENTITY",
+    )
+    unsafe = re.compile(
+        r"(?:[a-z][a-z0-9+.-]*://|(?:token|password|credential|secret)\s*[=:]|"
+        r"PRIVATE KEY|[A-Za-z]:\\|(?:^|\s)/(?:home|tmp|private|mnt)/)",
+        re.I,
+    )
+
+    def text(value: Any) -> None:
+        require(
+            isinstance(value, str)
+            and 0 < len(value) <= 4096
+            and not unsafe.search(value)
+            and not has_sensitive_path(value)
+            and not any(ord(c) < 32 for c in value),
+            "MEMBERSHIP_DONOR_TEXT",
+        )
+
+    for key in fields - {"sources", "score_defaults"}:
+        text(donor[key])
+    require(
+        all(
+            re.fullmatch(r"(?:semantic-)?[0-9]+\.[0-9]+\.[0-9]+", donor[key]) is not None
+            for key in ("schema_version", "methodology_version")
+        ),
+        "MEMBERSHIP_DONOR_VERSION",
+    )
+    scores = donor["score_defaults"]
+    require(
+        isinstance(scores, dict) and set(scores) == REQUIRED_SCORE_DEFAULT_KEYS,
+        "MEMBERSHIP_DONOR_SCORES",
+    )
+    mixes = {
+        "ecological_mix": {"tick_status", "b_burgdorferi_in_ticks"},
+        "community_mix": {"svi", "uninsured_percentile", "rurality"},
+    }
+    for key, value in scores.items():
+        if key in mixes:
+            require(isinstance(value, dict) and set(value) == mixes[key], "MEMBERSHIP_DONOR_SCORES")
+            numbers = value.values()
+        else:
+            numbers = [value]
+        require(
+            all(type(n) in (int, float) and math.isfinite(n) for n in numbers),
+            "MEMBERSHIP_DONOR_SCORES",
+        )
+    sources = donor["sources"]
+    require(
+        isinstance(sources, list)
+        and len(sources) == 5
+        and all(isinstance(s, dict) for s in sources),
+        "MEMBERSHIP_ANNUAL_SLOTS",
+    )
+    require(
+        {s.get("source_key") for s in sources} == REQUIRED_SOURCE_KEYS, "MEMBERSHIP_ANNUAL_SLOTS"
+    )
+    source_fields = {
+        "source_key",
+        "resource_key",
+        "source_id",
+        "dataset_id",
+        "label",
+        "vintage",
+        "source_url",
+        "note",
+        "data_source_version_id",
+        "ingestion_run_id",
+        "artifact_id",
+        "artifact_sha256",
+        "definition_version",
+    }
+    for source in sources:
+        require(
+            set(source) in (source_fields, source_fields | {"field_map"}),
+            "MEMBERSHIP_DONOR_SOURCE_SHAPE",
+        )
+        for key in source_fields - {"source_url", "definition_version"}:
+            text(source[key])
+        require(
+            type(source["definition_version"]) is int
+            and source["definition_version"] > 0
+            and HEX.fullmatch(source["artifact_sha256"]) is not None,
+            "MEMBERSHIP_DONOR_SOURCE_SHAPE",
+        )
+        require(
+            isinstance(source["source_url"], str) and len(source["source_url"]) <= 2048,
+            "MEMBERSHIP_DONOR_URL",
+        )
+        url = urlsplit(source["source_url"])
+        require(
+            url.scheme == "https"
+            and url.netloc
+            in {
+                "data.cdc.gov",
+                "www.cdc.gov",
+                "www.atsdr.cdc.gov",
+                "www.ers.usda.gov",
+            }
+            and not url.query
+            and not url.fragment
+            and not url.username
+            and not url.password
+            and not any(ord(c) < 33 for c in source["source_url"]),
+            "MEMBERSHIP_DONOR_URL",
+        )
+        field_map = source.get("field_map", {})
+        require(isinstance(field_map, dict) and len(field_map) <= 20, "MEMBERSHIP_DONOR_FIELD_MAP")
+        for key, names in field_map.items():
+            text(key)
+            require(
+                re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", key) is not None
+                and not re.search(r"secret|token|password|credential|private", key, re.I),
+                "MEMBERSHIP_DONOR_FIELD_MAP",
+            )
+            require(isinstance(names, (str, list)), "MEMBERSHIP_DONOR_FIELD_MAP")
+            names = [names] if isinstance(names, str) else names
+            require(0 < len(names) <= 20, "MEMBERSHIP_DONOR_FIELD_MAP")
+            for name in names:
+                text(name)
 
 
 def freeze_membership(cursor: Any, output: Path, code_sha: str) -> dict[str, Any]:
@@ -69,9 +214,7 @@ def freeze_membership(cursor: Any, output: Path, code_sha: str) -> dict[str, Any
     require(len(pointers) == 1 and pointers[0][1] == "PUBLISHED", "MEMBERSHIP_CURRENT_RELEASE")
     donor_id, _, donor = pointers[0]
     donor = json.loads(donor) if isinstance(donor, str) else donor
-    require(
-        isinstance(donor, dict) and len(donor.get("sources", [])) == 5, "MEMBERSHIP_ANNUAL_SLOTS"
-    )
+    validate_donor(donor, donor_id)
     cursor.execute(
         "SELECT capture_record_id,record_revision,record_id,source_row_hash,normalized_sha256 "
         "FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS WHERE ingestion_run_id=%s "

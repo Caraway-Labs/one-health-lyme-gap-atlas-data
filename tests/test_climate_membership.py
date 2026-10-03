@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -26,7 +27,13 @@ class Cursor:
         self.extra_count = 0
         self.calls = []
         self.batch = False
-        self.donor = {"sources": [{"source_key": str(i)} for i in range(5)], "unchanged": "annual"}
+        self.donor = json.loads(
+            (
+                Path(__file__).parents[1] / "docs/contracts/semantic-release/"
+                "governed-2026-09-15-manifest.json"
+            ).read_text()
+        )
+        self.donor["release_id"] = "current-annual"
 
     def execute(self, sql, params=()):
         self.calls.append((sql, params))
@@ -118,6 +125,55 @@ def test_wrapper_rejects_other_run_and_missing_workflow_directory_before_connect
     monkeypatch.delenv("RUNNER_TEMP", raising=False)
     with pytest.raises(pilot.MeasurementError, match="workflow artifact directory"):
         pilot.frozen_membership_report(membership.RUN_ID)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "string",
+        "duplicate",
+        "identity",
+        "extra",
+        "source_extra",
+        "credential_url",
+        "private_url",
+        "text_secret",
+        "scores_extra",
+        "field_map_secret",
+    ],
+)
+def test_unsafe_donor_is_rejected_before_membership_read_or_artifact_creation(
+    monkeypatch, tmp_path, mutation
+):
+    monkeypatch.setattr(membership, "ROW_COUNT", 2)
+    cursor = Cursor()
+    if mutation == "string":
+        cursor.donor["sources"] = "abcde"
+    elif mutation == "duplicate":
+        cursor.donor["sources"][1] = cursor.donor["sources"][0]
+    elif mutation == "identity":
+        cursor.donor["release_id"] = "different-release"
+    elif mutation == "extra":
+        cursor.donor["private_token"] = "sensitive"
+    elif mutation == "source_extra":
+        cursor.donor["sources"][0]["credentials"] = "sensitive"
+    elif mutation == "credential_url":
+        cursor.donor["sources"][0]["source_url"] += "?token=sensitive"
+    elif mutation == "private_url":
+        cursor.donor["sources"][0]["source_url"] = "https://private.example/source"
+    elif mutation == "text_secret":
+        cursor.donor["limitations"] = "password=sensitive"
+    elif mutation == "scores_extra":
+        cursor.donor["score_defaults"]["private_token"] = "sensitive"
+    else:
+        cursor.donor["sources"][0]["field_map"] = {"secret": ["token=sensitive"]}
+    output = tmp_path / membership.ARTIFACT_NAME
+    output.write_text("existing-reviewed-artifact")
+    with pytest.raises(membership.MembershipBlocked, match="MEMBERSHIP_"):
+        membership.freeze_membership(cursor, output, "1" * 40)
+    assert output.read_text() == "existing-reviewed-artifact"
+    assert list(tmp_path.iterdir()) == [output]
+    assert not any("ORDER BY capture_record_id" in sql for sql, _ in cursor.calls)
 
 
 def test_sdk_failure_does_not_emit_message_or_misclassify_absence(monkeypatch, tmp_path):
