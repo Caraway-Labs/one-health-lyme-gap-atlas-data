@@ -143,13 +143,26 @@ Context validation passes. Existing repository and GitHub PR title searches
 found no delivered tracker ingestion or qualification; they do not inspect
 other agents' uncommitted work. Their branches and sessions were not modified.
 
-This branch contains research/specification only. Runtime, tests, dependencies,
+This branch contains research/specification, public evidence and one exact-value
+secret-scanner exception for the CDC-published report identifier. Runtime, tests, dependencies,
 source configs, dbt, migrations and Dockerfile remain identical to the baseline
 used for #382's full checks: lint/format, mypy, dbt parse and container build
 pass; pytest **3002 passed, 2 skipped, 4 failed**, with all four existing launcher
 timeout failures reproduced on unchanged main (4 failed, 2 passed). GitHub CI
 on #382/#380 draft PRs passes; this does not erase the local host failures or
 qualify CDC source semantics. Diff and evidence checks are recorded with the PR.
+
+The first #384 CI run passed its runtime tests/build checks, then the pinned
+Gitleaks history scan misclassified the public Power BI identifier as a
+`grafana-api-key` in the inspection manifest. Anonymous report rendering and
+the CDC landing-page link verify its public provenance. The exception is an
+AND match on that exact identifier and exact manifest path, following existing
+public-identifier exceptions in `.gitleaks.toml`; no rule or file class is
+disabled. The pinned scanner then passes the reachable branch-history bundle
+(561 commits, about 9.65 MB), while a different synthetic matching candidate
+in the same evidence path is still detected (one controlled commit, expected
+exit 1). The synthetic candidate was local-only and was not committed to this
+branch. CI rerun remains the authority for the complete repository-history scan.
 
 No data adapter, source definition, county allocation, ingestion story, database
 write, deployment, PROD action, grant, ML admission or Web change is delivered.
