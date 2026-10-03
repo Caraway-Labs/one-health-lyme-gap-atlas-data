@@ -22,7 +22,9 @@ from lyme_gap_atlas_data.ingestion.annual_nlcd_planning import (
 from lyme_gap_atlas_data.ingestion.source_definition import (
     load_source_definition,
     source_definition_from_mapping,
+    validate_source_definition,
 )
+from lyme_gap_atlas_data.ingestion.types import AdapterKind
 
 BASE = load_source_definition(
     Path(__file__).resolve().parents[1] / "config/sources/usgs_annual_nlcd_c1v2_2025_48081.yml"
@@ -142,6 +144,17 @@ def test_missing_xml_and_byte_caps_block_generation() -> None:
         bounded_definitions(BASE, [_coverage()], {key: 50_000_000 for key in _sizes()})
     with pytest.raises(ValueError, match="artifact size"):
         bounded_definitions(BASE, [_coverage()], {key: 128_000_001 for key in _sizes()})
+
+
+def test_non_nlcd_adapter_and_changed_frozen_measures_are_rejected() -> None:
+    csv = replace(BASE, adapter_kind=AdapterKind.HTTP_CSV)
+    assert validate_source_definition(csv).ok
+    changed_measures = replace(BASE, extra={**BASE.extra, "measures": ["FOREST_AREA_SHARE"]})
+    for definition in (csv, changed_measures):
+        with pytest.raises(ValueError, match="invalid frozen Annual NLCD"):
+            bounded_definitions(definition, [_coverage()], _sizes())
+        with pytest.raises(ValueError, match="invalid planned definition"):
+            planned_footprint([definition], _sizes())
 
 
 def test_documents_roundtrip_and_retention_counts_repeated_captures() -> None:

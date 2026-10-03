@@ -16,7 +16,7 @@ from shapely.ops import unary_union
 from ..county_analysis_geometry import CountyAnalysisGeometry, project_geometry
 from .annual_nlcd import _CRS, MEASURES, PREFIX, PRODUCTS, _key, _raster_metadata
 from .source_definition import validate_source_definition
-from .types import SourceDefinition
+from .types import AdapterKind, SourceDefinition
 
 TARGET_YEARS = tuple(range(1985, 2026))
 TIGER_BYTES = 83_989_800
@@ -178,7 +178,7 @@ def bounded_definitions(
     object_sizes: Mapping[str, int],
 ) -> tuple[SourceDefinition, ...]:
     """Generate reviewable definitions, without registering or executing them."""
-    if not validate_source_definition(base).ok:
+    if base.adapter_kind is not AdapterKind.ANNUAL_NLCD or not validate_source_definition(base).ok:
         raise ValueError("invalid frozen Annual NLCD base definition")
     groups: dict[tuple[int, tuple[str, ...]], list[str]] = defaultdict(list)
     seen: set[tuple[int, str]] = set()
@@ -250,7 +250,11 @@ def planned_footprint(
     keys_seen: set[str] = set()
     captures = retained = rows = runs = 0
     for definition in definitions:
-        if definition.resource_key in seen or not validate_source_definition(definition).ok:
+        if (
+            definition.resource_key in seen
+            or definition.adapter_kind is not AdapterKind.ANNUAL_NLCD
+            or not validate_source_definition(definition).ok
+        ):
             raise ValueError("duplicate or invalid planned definition")
         seen.add(definition.resource_key)
         year = definition.extra["mapping_year"]
