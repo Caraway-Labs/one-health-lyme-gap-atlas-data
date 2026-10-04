@@ -7,13 +7,14 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import threading
 import uuid
 import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import boto3  # type: ignore[import-untyped]
 import requests
@@ -28,6 +29,8 @@ MANIFEST_SHA256 = "efc10176621a16b8d28bf714cb667d72b467cbfae1434c79243ef1558993d
 PACKAGE_BYTES = 4_269_391_159
 PREFIX = f"dev/source-staging/annual-nlcd-mrlc-c1v2/2025/{MANIFEST_SHA256}/"
 TRANSFER_BOUND_USD = PACKAGE_BYTES / 1024**3 * 0.20 + 0.01
+MAX_CENTRAL_BYTES = 65_536
+MAX_ZIP_MEMBERS = 16
 
 
 class PackageLimits(Limits):
@@ -65,9 +68,99 @@ def identity(response: Any, member: Mapping[str, Any]) -> None:
         raise ValueError("Unexpected transport encoding")
 
 
+def validate_zip_layout(body: BinaryIO, expected_bytes: int, expected_count: int) -> None:
+    """Bound every directory read before the stdlib ZIP parser sees the file.
+
+    This contract accepts single-disk classic ZIP and the fixed ZIP64 EOCD
+    form, including ZIP64 at small file sizes. Extensible ZIP64 records,
+    concatenated archives, trailing data and directory signatures are excluded.
+    """
+    body.seek(0, os.SEEK_END)
+    length = body.tell()
+    if length != expected_bytes or not 0 < expected_count <= MAX_ZIP_MEMBERS:
+        raise ValueError("ZIP file/count bound mismatch")
+    tail_size = min(length, 65_535 + 22)
+    body.seek(length - tail_size)
+    tail = body.read(tail_size)
+    index = tail.rfind(b"PK\x05\x06")
+    if index < 0 or len(tail) - index < 22:
+        raise ValueError("Missing bounded ZIP EOCD")
+    _, disk, cd_disk, disk_count, count, size, offset, comment = struct.unpack(
+        "<4s4H2LH", tail[index : index + 22]
+    )
+    end_offset = length - tail_size + index
+    if end_offset + 22 + comment != length or disk != 0 or cd_disk != 0:
+        raise ValueError("Invalid or multi-disk ZIP EOCD")
+    directory_end = end_offset
+    locator = b""
+    if end_offset >= 20:
+        body.seek(end_offset - 20)
+        locator = body.read(20)
+    if locator.startswith(b"PK\x06\x07"):
+        _, zip_disk, zip_offset, disks = struct.unpack("<4sLQL", locator)
+        if zip_disk != 0 or disks != 1 or zip_offset != end_offset - 20 - 56:
+            raise ValueError("Invalid ZIP64 locator offset/disks")
+        body.seek(zip_offset)
+        record = body.read(56)
+        if len(record) != 56 or record[:4] != b"PK\x06\x06":
+            raise ValueError("Invalid bounded ZIP64 EOCD")
+        record_size = struct.unpack_from("<Q", record, 4)[0]
+        if record_size != 44:
+            raise ValueError("ZIP64 extensible record outside contract")
+        _, _, z_disk, z_cd_disk, z_disk_count, z_count, z_size, z_offset = struct.unpack(
+            "<HHLLQQQQ", record[12:]
+        )
+        if z_disk != 0 or z_cd_disk != 0 or z_disk_count != z_count:
+            raise ValueError("ZIP64 multi-disk/count mismatch")
+        for classic, sentinel, extended in (
+            (disk_count, 0xFFFF, z_disk_count),
+            (count, 0xFFFF, z_count),
+            (size, 0xFFFFFFFF, z_size),
+            (offset, 0xFFFFFFFF, z_offset),
+        ):
+            if classic != sentinel and classic != extended:
+                raise ValueError("Classic/ZIP64 directory mismatch")
+        count, disk_count, size, offset = z_count, z_disk_count, z_size, z_offset
+        directory_end = zip_offset
+    elif count == 0xFFFF or disk_count == 0xFFFF or size == 0xFFFFFFFF or offset == 0xFFFFFFFF:
+        raise ValueError("Missing ZIP64 locator")
+    if (
+        count != expected_count
+        or disk_count != count
+        or not 46 * count <= size <= MAX_CENTRAL_BYTES
+        or offset < 0
+        or offset + size != directory_end
+    ):
+        raise ValueError("ZIP central-directory size/count/offset bound")
+    body.seek(offset)
+    directory = body.read(size)
+    if len(directory) != size:
+        raise ValueError("Truncated bounded central directory")
+    cursor = entries = 0
+    while cursor < size:
+        if size - cursor < 46 or directory[cursor : cursor + 4] != b"PK\x01\x02":
+            raise ValueError("Invalid bounded central-directory entry")
+        name, extra, entry_comment = struct.unpack_from("<3H", directory, cursor + 28)
+        entry_disk = struct.unpack_from("<H", directory, cursor + 34)[0]
+        cursor += 46 + name + extra + entry_comment
+        entries += 1
+        if cursor > size or entries > expected_count or entry_disk != 0:
+            raise ValueError("Central-directory entry size/count/disk bound")
+    if entries != expected_count:
+        raise ValueError("Central-directory entry count mismatch")
+    body.seek(0)
+
+
 def archive_inventory(path: Path, member: Mapping[str, Any], limits: Limits) -> list[Any]:
+    with path.open("rb") as body:
+        limits.check()
+        validate_zip_layout(body, int(member["bytes"]), len(member["members"]))
+        return _archive_inventory(body, member, limits)
+
+
+def _archive_inventory(body: BinaryIO, member: Mapping[str, Any], limits: Limits) -> list[Any]:
     result = []
-    with zipfile.ZipFile(path) as archive:
+    with zipfile.ZipFile(body) as archive:
         actual: list[dict[str, Any]] = [
             {
                 "name": m.filename,
@@ -86,9 +179,9 @@ def archive_inventory(path: Path, member: Mapping[str, Any], limits: Limits) -> 
             name = entry["name"]
             if name in ("", ".", "..") or Path(name).name != name or "\\" in name or ":" in name:
                 raise ValueError("Unsafe ZIP member")
-            with archive.open(name) as body:
+            with archive.open(name) as member_body:
                 # Complete reads also verify the ZIP CRC. No member is extracted.
-                digest = local_hash(body, int(entry["bytes"]), limits)
+                digest = local_hash(member_body, int(entry["bytes"]), limits)
             result.append({**entry, "sha256": digest})
     return result
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
+import struct
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -280,3 +282,103 @@ def test_crc_corruption_cannot_create_capture_receipt(case: tuple[Any, ...]) -> 
     with pytest.raises((zipfile.BadZipFile, ValueError)):
         run_capture(case)
     assert not (directory / "mrlc-capture-receipt.json").exists()
+
+
+class SparseDirectory:
+    """Virtual sparse ZIP: never allocate the alleged 1 GiB directory."""
+
+    def __init__(self, size: int, offset: int, count: int) -> None:
+        self.end = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, count, count, size, offset, 0)
+        self.length = (1 << 30) + 22
+        self.position = 0
+        self.read_sizes: list[int] = []
+
+    def __enter__(self) -> SparseDirectory:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass
+
+    def tell(self) -> int:
+        return self.position
+
+    def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
+        self.position = offset if whence == os.SEEK_SET else self.length + offset
+        return self.position
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_sizes.append(size)
+        assert 0 <= size <= 65_557, "attempted unbounded directory allocation"
+        start = self.position
+        size = min(size, self.length - start)
+        result = bytearray(size)
+        end_start = self.length - 22
+        if start + size > end_start:
+            index = max(end_start - start, 0)
+            result[index:] = self.end[max(start - end_start, 0) :]
+        self.position += size
+        return bytes(result)
+
+
+@pytest.mark.parametrize("size,offset,count", [(1 << 30, 0, 3), (200, 0, 3), (200, 0, 65_534)])
+def test_directory_resource_metadata_rejected_before_zipfile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int, offset: int, count: int
+) -> None:
+    path = tmp_path / "virtual.zip"
+    sparse = SparseDirectory(size, offset, count)
+    original = Path.open
+    monkeypatch.setattr(
+        Path, "open", lambda self, *a, **kw: sparse if self == path else original(self, *a, **kw)
+    )
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("ZipFile constructed before resource validation")
+
+    monkeypatch.setattr(mrlc.zipfile, "ZipFile", forbidden)
+    member = {"bytes": sparse.length, "members": [{}, {}, {}]}
+    with pytest.raises(ValueError, match="central-directory size/count/offset"):
+        mrlc.archive_inventory(path, member, mrlc.PackageLimits())
+    assert max(sparse.read_sizes) <= 65_557
+
+
+def zip64_package(payload: bytes) -> bytes:
+    _, _, _, count, _, size, offset, _ = struct.unpack("<4s4H2LH", payload[-22:])
+    record_offset = len(payload) - 22
+    record = struct.pack(
+        "<4sQHHLLQQQQ", b"PK\x06\x06", 44, 45, 45, 0, 0, count, count, size, offset
+    )
+    locator = struct.pack("<4sLQL", b"PK\x06\x07", 0, record_offset, 1)
+    end = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0)
+    return payload[:-22] + record + locator + end
+
+
+def test_bounded_zip64_and_classic_packages_remain_compatible(case: tuple[Any, ...]) -> None:
+    members, http, destination, directory, scratch = case
+    member = dict(members[0])
+    payload = zip64_package(http.bodies[member["url"]])
+    member["bytes"] = len(payload)
+    path = directory / "zip64.zip"
+    path.write_bytes(payload)
+    assert len(mrlc.archive_inventory(path, member, mrlc.PackageLimits())) == 3
+
+
+@pytest.mark.parametrize("field", ["record-size", "locator-offset", "disk", "trailing-data"])
+def test_invalid_zip64_layout_stops_before_zipfile(
+    case: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    members, http, destination, directory, scratch = case
+    payload = bytearray(zip64_package(http.bodies[members[0]["url"]]))
+    if field == "record-size":
+        struct.pack_into("<Q", payload, len(payload) - 98 + 4, 1 << 30)
+    elif field == "locator-offset":
+        struct.pack_into("<Q", payload, len(payload) - 42 + 8, 1 << 40)
+    elif field == "disk":
+        struct.pack_into("<L", payload, len(payload) - 42 + 4, 1)
+    else:
+        payload.extend(b"unreviewed-trailer")
+    path = directory / "bad-zip64.zip"
+    path.write_bytes(payload)
+    member = {**members[0], "bytes": len(payload)}
+    monkeypatch.setattr(mrlc.zipfile, "ZipFile", lambda *a, **kw: pytest.fail("Unvalidated ZIP"))
+    with pytest.raises(ValueError):
+        mrlc.archive_inventory(path, member, mrlc.PackageLimits())

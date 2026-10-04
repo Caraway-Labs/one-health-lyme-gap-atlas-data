@@ -100,4 +100,21 @@ set-oriented transactions, validation/revision lineage and fixed warehouse/time/
 credit limits reviewed before execution. No direct Spaces external-stage
 compatibility is assumed. Processing and database execution remain held.
 
+## ZIP parser resource preflight
+
+Before constructing `ZipFile`, the same open file handle undergoes bounded EOCD,
+ZIP64 locator/record and central-directory validation. Tail reads are at most
+65,557 bytes, ZIP64 records exactly 56 bytes, directory at most 65,536 bytes,
+member count at most 16 and exactly the frozen inventory count (three/package).
+Directory offsets, entry extents, actual count, disk numbers, EOCD comments and
+file length must agree. The parser accepts ordinary single-disk classic ZIP and
+fixed ZIP64 EOCD even at small file sizes; extensible records, concatenated
+archives, directory signatures and trailing data are outside this contract.
+Sparse 1 GiB directory declarations reject before either a large read or stdlib
+parser construction. No national package is needed to run this regression.
+
+The shared-cap execution prerequisite is the explicit
+[cost reconciliation](mrlc-staging-cost-reconciliation.md). Confirm its known
+exposure, live runtime and retention/rate assumptions before any execution.
+
 No package body capture, relay or upload has occurred in this PR.
