@@ -89,3 +89,87 @@ ORDER BY o.MEASURE_ID, o.VALUE_STATE, o.FIPS;
 ```
 
 Until review decisions and the representative authority rows are available, `validate_lineages()` cannot be run on actual #191/#193 envelopes. Do not substitute PENDING examples, the aggregate CSVs, a generated summary, or guessed temporal/record revision values. DATA #199/#200 remain open. No PROD mutation, release or source replay is implied.
+
+## 2026-10-04 owner-directed acceptance attempt
+
+The Atlas product owner directed a conservative review and authorized a bounded
+SELECT-only attempt using the existing `ATLAS_PROD_READ` connection. The CLI
+identity SELECT, with `--warehouse COMPUTE_WH`, returned user `MATTHEWCARAWAY`,
+role `OH_LYME_PROD_READ`, database `ONE_HEALTH_LYME_GAP_ATLAS_PROD`, and warehouse
+`COMPUTE_WH`. The exact corrected SELECT above was then submitted unchanged. It
+failed at compilation, before returning any representative rows:
+
+> `002003 (42S02): 01c7824f-040b-e23e-0064-2d070111f16e: SQL compilation error: Object 'ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_OBSERVATIONS' does not exist or not authorized. Your primary role OH_LYME_PROD_READ must have at least one privilege granted on TABLE ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_OBSERVATIONS.`
+
+This is a SELECT-only access failure, not evidence of a missing table or source
+record. No role switch, grant, secondary-role expansion, owner credential, or
+PROD write was attempted. The repository's
+[`connection-inventory.md`](../../operations/connection-inventory.md) documents
+`ATLAS_PROD_RUNTIME_AUDIT` for read-only PROD runtime checks and
+`ATLAS_PROD_OWNER` for owner rights, but does not establish that either may read
+these physical tables for this task. Prior runtime audit also recorded `002003`
+for direct `SEMANTIC_DATA_SOURCES` access. An authorized data steward/audit owner
+must either execute this exact bounded query in an already-permitted session and
+provide its CSV, or identify an existing approved read route. No new grant is
+requested solely for acceptance.
+
+### Conservative metadata decision record
+
+The product-owner direction accepts county contextual use, explicit missingness,
+noncausal/nonindividual limits, and exact source-version binding. It does not
+assert an unevidenced scientific finding. The following recommendations separate
+source/contract facts (A), product-safe policy (B), and unsupported claims (C):
+
+| Measure | A: supported meaning | B: recommended admission | C: do not assert |
+| --- | --- | --- | --- |
+| `population_2022` | CDC/ATSDR `E_TOTPOP` is a county population estimate in the 2022 SVI product / 2018–2022 ACS period. | People; no numeric denominator; admit OBSERVED, genuine ZERO, and sentinel/null MISSING; retain estimate and context limitations. | Exact publication/availability date or individual risk. |
+| `svi_percentile_2022` | `RPL_THEMES` is the overall SVI county percentile, 0–1, with a national county reference. | Keep percentile distinct from percent and people; admit OBSERVED, genuine ZERO, and MISSING; forbid causal/risk claims. | A person denominator or change in vulnerability from percentile differences. |
+| `uninsured_percentile_2022` | `EPL_UNINSUR` ranks the county uninsured percentage, 0–1. | Use the national county reference, not a person denominator; admit OBSERVED, genuine ZERO, and MISSING. | Treat the rank as the percentage of uninsured people. |
+| `uninsured_percent_2022` | `EP_UNINSUR` is a 0–100 county percentage using the civilian noninstitutionalized population. | Keep this denominator distinct from `E_TOTPOP`; admit OBSERVED, genuine ZERO, and MISSING. | Individual insurance status or disease risk. |
+| `rucc_2023` | USDA ERS `RUCC_2023` is a 1–9 county category from the 2023 codebook; the accepted release requires a valid code for every selected county. | Admit OBSERVED only for this release; preserve the 2023 codebook, categorical use, and vintage-only time limitation. | Numeric distance between codes, annual observation date, causality, or individual risk. |
+
+The source facts and sentinel behavior are documented in
+[`story-199-svi-reconciliation-2026-10-02.md`](story-199-svi-reconciliation-2026-10-02.md)
+and [`story-200-rucc-context-v1.md`](story-200-rucc-context-v1.md). These are
+recommendations for the five complete, exact-source-bound PENDING envelopes;
+the JSON was not relabeled `REVIEWED`. The #191 contract names Atlas data
+stewardship and engineering as owner and requires a dated steward review. This
+owner direction did not itself identify a data steward or complete that review.
+The candidate meaning signatures and revision IDs remain candidate identities.
+
+RUCC's candidate #190 `POINT_IN_TIME` definition is still incompatible with a
+vintage-only source when #193 constructs a real observation: its validator
+requires an exact date. The product-safe decision is to preserve `2023` as a
+vintage, not assign a fabricated day. A reviewed additive vintage-time semantic
+and versioned measure identity is the smallest honest contract direction; it
+must be reviewed and tested before the RUCC envelope can be finalized. The
+historical conformed record has no V103 revision, so a legacy identity rule must
+be anchored to its actual immutable record ID, run and row hash without
+pretending a V103 capture existed. Neither rule was used to fabricate a #193
+PASS while the representative authority query was denied.
+
+### Criterion-by-criterion disposition at this attempt
+
+| DATA #199 criterion | Status | Evidence or exact gap |
+| --- | --- | --- |
+| Accepted field-level matrix | PASS | Existing #199 field matrix identifies retained and deferred fields. |
+| People, percentage, percentile separation | PASS | Distinct measures, units, denominators and source fields in the matrix and current release. |
+| Sentinel/missingness explicit and tested | PASS | Existing `svi_context` and source-mapping tests; current PROD has no missing selected SVI values, so fixture cases remain separately labeled. |
+| Exact source/version/run/artifact and #188 metadata/lineage | FAIL | Aggregate authority reconciliation passes, but reviewed #191 revisions and representative #193 validation remain absent; corrected SELECT denied `002003`. |
+| New field/meaning versioned and reviewed | NOT APPLICABLE | No new field or meaning is being published in this accepted scope; the proposed #191 envelopes still require review before admission. |
+| Fixture versus governed evidence separated | PASS | Existing #199 audit, PR #600 aggregate PROD receipt, and this denied representative query remain distinct. |
+| Deferred fields disposition | PASS | Existing #199 matrix explicitly defers other SVI factors, vintages and separate adapters. |
+
+| DATA #200 criterion | Status | Evidence or exact gap |
+| --- | --- | --- |
+| Delivered-versus-gap matrix | PASS | Existing #200 matrix covers RUCC and selected SVI context. |
+| RUCC codebook/vintage explicit and tested | PASS | Nine-category 2023 codebook and source-domain tests; no annual-date interpretation is claimed. |
+| Geography/missingness deterministic | PASS | Existing numeric/string, FIPS, duplicate and missing-mapping tests plus 3,144/3,144 PROD aggregate reconciliation. |
+| #188 metadata/lineage directly used | FAIL | Reviewed RUCC metadata and real representative #193 execution remain absent; corrected SELECT denied `002003`. |
+| Existing release preserved or versioned | PASS | Pinned release/bundle unchanged; this PR contains no PROD change. |
+| Unsupported/deferred fields disposition | PASS | Existing #200 matrix defers broader demographics and annual API projection. |
+
+Neither issue is ready to close. The exact next evidence action is an
+owner-authorized read of the corrected bounded query; the dated #191 steward
+decisions and versioned vintage/legacy rules must then be applied before a
+real `validate_lineages()` result or PR merge-readiness claim.
