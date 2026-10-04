@@ -1,12 +1,18 @@
 # Human surveillance MMG crosswalk v1 (DATA #470)
 
-Status: draft for independent scientific/steward review. Owner: Atlas data
+Status: accepted for bounded aggregate/open-data scope on October 4, 2026 by
+the product owner. Owner: Atlas data
 stewardship. [Machine-readable crosswalk](atlas-human-mmg-crosswalk-v1.json),
 version 1.0.0, reviewed October 2, 2026. This is a bounded metadata annotation of
 the existing #188 identities, not a second semantic layer or an adapter runtime.
 Here `reviewed_on` and context status `reviewed` record source research only;
-they do not record scientific/steward approval. DATA #470 remains open until
-that human approval is recorded.
+product acceptance applies to the bounded crosswalk, not exact CDC terminology
+equivalence or executable case notification mapping.
+
+The accepted scope keeps MMWR-year equivalence, Case Class Status value-set/code
+equivalence, and full historical county/FIPS membership equivalence unresolved.
+Atlas does not ingest HL7/FHIR case notifications. Future standards improvements
+may issue a new crosswalk version without blocking this aggregate product scope.
 
 The [CDC catalog](https://ndc.services.cdc.gov/mmgpage/lyme-and-tickborne-rickettsial-diseases-message-mapping-guide/)
 identifies Lyme/TBRD MMG v1.0.2, May 10, 2022, as current. Its workbook requires
