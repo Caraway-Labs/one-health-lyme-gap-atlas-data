@@ -1,0 +1,718 @@
+[
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:population_2022:1.0.0",
+    "metadata_revision": 1,
+    "meaning_signature": "71a919c8ef66d528205c88ffb3d863456567bf1c835b733aff1f4a3767aca9d9",
+    "measure": {
+      "measure_id": "population_2022",
+      "indicator_id": "population_context",
+      "semantic_version": "1.0.0",
+      "definition": "County total population estimate reported in E_TOTPOP for the 2022 SVI product's 2018-2022 ACS period.",
+      "data_type": "integer",
+      "unit": "people",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "semantic-1.0.0",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING"
+      ]
+    },
+    "label": "SVI population estimate",
+    "definition": "County total population estimate reported in E_TOTPOP for the 2022 SVI product's 2018-2022 ACS period.",
+    "short_description": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "authority": {
+      "label": "GOVERNED_GENERATED",
+      "definition": "GOVERNED_GENERATED",
+      "short_description": "GOVERNED_GENERATED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "people",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "ZERO",
+      "MISSING"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "CDC/ATSDR"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_atsdr_svi"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "atsdr-svi-2022-county-layer"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "b8b6bf61-c6a3-4538-b0df-1b88c61720b1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "semantic-1.0.0"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "semantic_county_assembly_v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "retrieved_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-10-04"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "context_only",
+        "text": "An estimate of county population, not an uninsured count or a direct measure of Lyme disease risk."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:411113a27b0aa2975285c9fbb08b45c6dec8eeda66d26735704a62d015f6fb34"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:svi_percentile_2022:1.0.0",
+    "metadata_revision": 1,
+    "meaning_signature": "661c02aa84f82c34a2770a8ff60b7734c880dd87d695cc7c1f0f72ff1a217f8b",
+    "measure": {
+      "measure_id": "svi_percentile_2022",
+      "indicator_id": "population_context",
+      "semantic_version": "1.0.0",
+      "definition": "Overall county Social Vulnerability Index percentile reported in RPL_THEMES for the 2022 SVI product.",
+      "data_type": "number",
+      "unit": "percentile",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "semantic-1.0.0",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING"
+      ]
+    },
+    "label": "SVI percentile",
+    "definition": "Overall county Social Vulnerability Index percentile reported in RPL_THEMES for the 2022 SVI product.",
+    "short_description": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "authority": {
+      "label": "GOVERNED_GENERATED",
+      "definition": "GOVERNED_GENERATED",
+      "short_description": "GOVERNED_GENERATED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "percentile",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "ZERO",
+      "MISSING"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "CDC/ATSDR"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_atsdr_svi"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "atsdr-svi-2022-county-layer"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "b8b6bf61-c6a3-4538-b0df-1b88c61720b1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "semantic-1.0.0"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "semantic_county_assembly_v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "retrieved_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-10-04"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "context_only",
+        "text": "National county percentile rank for this product and vintage; not a percentage of people, causal driver, or individual risk."
+      },
+      {
+        "category": "DENOMINATOR",
+        "code": "national_county_reference",
+        "text": "This is a national county rank in the 2022 SVI product, not a person denominator."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:148a909af0536566ceb6a1ff14c70f70861be0d243c2ddc1b1d9357febe76cc8"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:uninsured_percentile_2022:1.0.0",
+    "metadata_revision": 1,
+    "meaning_signature": "9d3bc797a25f42148b62f95aac519ff80df789149bcabca8ab60106313c5822c",
+    "measure": {
+      "measure_id": "uninsured_percentile_2022",
+      "indicator_id": "population_context",
+      "semantic_version": "1.0.0",
+      "definition": "County percentile rank of the uninsured percentage reported in EPL_UNINSUR for the 2022 SVI product.",
+      "data_type": "number",
+      "unit": "percentile",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "semantic-1.0.0",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING"
+      ]
+    },
+    "label": "Uninsured percentile",
+    "definition": "County percentile rank of the uninsured percentage reported in EPL_UNINSUR for the 2022 SVI product.",
+    "short_description": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "authority": {
+      "label": "GOVERNED_GENERATED",
+      "definition": "GOVERNED_GENERATED",
+      "short_description": "GOVERNED_GENERATED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "percentile",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED",
+      "ZERO",
+      "MISSING"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "CDC/ATSDR"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_atsdr_svi"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "atsdr-svi-2022-county-layer"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "b8b6bf61-c6a3-4538-b0df-1b88c61720b1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "semantic-1.0.0"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "semantic_county_assembly_v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "retrieved_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-10-04"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "context_only",
+        "text": "National county percentile rank of EP_UNINSUR; not an uninsured population percentage or individual risk."
+      },
+      {
+        "category": "DENOMINATOR",
+        "code": "national_county_reference",
+        "text": "This is a national county rank in the 2022 SVI product, not a person denominator."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:bd8abef641ac0944507bb3501cc82cc60343b6b8f33d1f01e831d2aec9ecd121"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:uninsured_percent_2022:1.0.0",
+    "metadata_revision": 1,
+    "meaning_signature": "c7ae99b36fb08920f8260c81ff10948d1960b4615a9aa91d2ffefbe6c4aa0ef1",
+    "measure": {
+      "measure_id": "uninsured_percent_2022",
+      "indicator_id": "population_context",
+      "semantic_version": "1.0.0",
+      "definition": "County percentage of the civilian noninstitutionalized population that is uninsured, reported in EP_UNINSUR for the 2022 SVI product.",
+      "data_type": "number",
+      "unit": "percent",
+      "denominator": "civilian_noninstitutionalized_population",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "semantic-1.0.0",
+      "allowed_value_states": [
+        "OBSERVED",
+        "ZERO",
+        "MISSING"
+      ]
+    },
+    "label": "Uninsured percent",
+    "definition": "County percentage of the civilian noninstitutionalized population that is uninsured, reported in EP_UNINSUR for the 2022 SVI product.",
+    "short_description": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "authority": {
+      "label": "GOVERNED_GENERATED",
+      "definition": "GOVERNED_GENERATED",
+      "short_description": "GOVERNED_GENERATED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "PERIOD",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "percent",
+    "denominator": "civilian_noninstitutionalized_population",
+    "allowed_value_states": [
+      "OBSERVED",
+      "ZERO",
+      "MISSING"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "CDC/ATSDR"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "cdc_atsdr_svi"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "atsdr-svi-2022-county-layer"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "b8b6bf61-c6a3-4538-b0df-1b88c61720b1"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "semantic-1.0.0"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "semantic_county_assembly_v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2022 (2018-2022 ACS)"
+      },
+      "retrieved_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-10-04"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "context_only",
+        "text": "The denominator is the civilian noninstitutionalized population, not E_TOTPOP; this percentage does not establish individual risk."
+      },
+      {
+        "category": "DENOMINATOR",
+        "code": "civilian_noninstitutionalized",
+        "text": "EP_UNINSUR uses the civilian noninstitutionalized population; E_TOTPOP is not its denominator."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:b7d86ed0900e394534c23390c607778f793d3a5af3d9863725c686960a05491c"
+  },
+  {
+    "contract_version": "atlas-semantic-metadata-v1",
+    "metadata_id": "metadata:rucc_2023:1.0.0",
+    "metadata_revision": 1,
+    "meaning_signature": "fc4bb6820ff547e7365c0d9c786179201d47a5a1d9b1cd5577064ba4bd1ea179",
+    "measure": {
+      "measure_id": "rucc_2023",
+      "indicator_id": "rurality_context",
+      "semantic_version": "1.0.0",
+      "definition": "USDA ERS 2023 Rural-Urban Continuum Code category from the RUCC_2023 source attribute for a county.",
+      "data_type": "integer",
+      "unit": "code",
+      "denominator": "NONE",
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "methodology_version": "semantic-1.0.0",
+      "allowed_value_states": [
+        "OBSERVED"
+      ]
+    },
+    "label": "RUCC 2023",
+    "definition": "USDA ERS 2023 Rural-Urban Continuum Code category from the RUCC_2023 source attribute for a county.",
+    "short_description": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "authority": {
+      "label": "GOVERNED_GENERATED",
+      "definition": "GOVERNED_GENERATED",
+      "short_description": "GOVERNED_GENERATED"
+    },
+    "steward_review": {
+      "state": "PENDING",
+      "reviewed_at": {
+        "state": "UNKNOWN",
+        "value": null
+      }
+    },
+    "applicability": {
+      "geography_grain": "COUNTY",
+      "temporal_semantics": "POINT_IN_TIME",
+      "allowed_strata": [],
+      "origin": "REPORTED",
+      "representativeness": "COUNTY_NATIVE_STATUS"
+    },
+    "unit": "code",
+    "denominator": "NONE",
+    "allowed_value_states": [
+      "OBSERVED"
+    ],
+    "provenance": {
+      "publisher": {
+        "state": "KNOWN",
+        "value": "USDA ERS"
+      },
+      "source_id": {
+        "state": "KNOWN",
+        "value": "usda_ers"
+      },
+      "dataset_id": {
+        "state": "KNOWN",
+        "value": "rural-urban-continuum-codes-2023"
+      },
+      "source_version_id": {
+        "state": "KNOWN",
+        "value": "87872b36-93ab-4a34-b70e-29569192cb48"
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "method_version": {
+        "state": "KNOWN",
+        "value": "semantic-1.0.0"
+      },
+      "transformation_version": {
+        "state": "KNOWN",
+        "value": "semantic_county_assembly_v1"
+      }
+    },
+    "freshness": {
+      "observation_period": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "source_vintage": {
+        "state": "KNOWN",
+        "value": "2023"
+      },
+      "retrieved_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "published_at": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "metadata_revised_at": {
+        "state": "KNOWN",
+        "value": "2026-10-04"
+      }
+    },
+    "quality_evidence": {
+      "quality_contract": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "propagation_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "eligibility_contract": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      },
+      "uncertainty": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_basis": {
+        "state": "NOT_APPLICABLE",
+        "value": null
+      }
+    },
+    "limitations": [
+      {
+        "category": "INTERPRETATION",
+        "code": "context_only",
+        "text": "Codes 1-9 are vintage-specific categories, not ordered distances, annual observations, causal drivers, or individual risk."
+      },
+      {
+        "category": "SOURCE",
+        "code": "rucc_2023_codebook",
+        "text": "2023 codes 1-3 are metro population bands; 4-9 are nonmetro urban-population and adjacency categories. The urban threshold changed from 2,500 to 5,000; do not substitute an older vintage."
+      }
+    ],
+    "visibility": "INTERNAL",
+    "revision_id": "metadata-revision:v1:2806df32fb957207376d5cc3a08a9eba3aa5dafb90f777db093979c6ec854d8e"
+  }
+]

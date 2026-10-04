@@ -1,5 +1,7 @@
 # DATA #199/#200: bounded PROD SVI/RUCC authority reconciliation
 
+2026-10-04 follow-up: the [#191 metadata and #193 legacy-lineage review handoff](data-199-200-metadata-review-handoff-2026-10-04.md) inventories the new human-run exports and provides five validated `PENDING` production-bound metadata candidates. It does not change this document's bounded PASS / full-acceptance DEFER decision.
+
 Status: **source, release, and historical record correspondence PASS; full acceptance DEFER**. This record supplements the [SVI residual audit](story-199-svi-residual-audit-2026-10-03.md) and [RUCC context contract](story-200-rucc-context-v1.md). It does not change either contract, approve metadata, or close either issue.
 
 ## Scope and receipt
