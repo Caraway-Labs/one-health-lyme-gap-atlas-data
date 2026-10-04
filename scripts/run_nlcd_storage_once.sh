@@ -29,6 +29,13 @@ case "$mode" in
       --manifest /relay/reviewed-code/config/annual-nlcd-2025-staging-manifest.json
       --scratch /relay/scratch --non-transfer-cost-bound-usd 9)
     ;;
+  mrlc-stage)
+    seconds=1800
+    test -f "$relay_dir/capture/mrlc-capture-receipt.json"
+    command=(/app/.venv/bin/python -m lyme_gap_atlas_data.mrlc_storage_staging
+      --execute --directory /relay/capture --scratch /relay/scratch
+      --manifest /relay/reviewed-code/config/annual-nlcd-2025-mrlc-staging-manifest.json)
+    ;;
   *) exit 2 ;;
 esac
 cleanup() {

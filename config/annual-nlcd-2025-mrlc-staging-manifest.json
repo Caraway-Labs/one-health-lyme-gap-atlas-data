@@ -1,0 +1,110 @@
+[
+  {
+    "product": "LndCov",
+    "url": "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_LndCov_2025_CU_C1V2.zip",
+    "bytes": 1457983950,
+    "etag": "\"56e711ce-64fec1a6cfdae\"",
+    "last_modified": "Mon, 20 Apr 2026 22:48:54 GMT",
+    "members": [
+      {
+        "name": "Annual_NLCD_LndCov_2025_CU_C1V2.tif.aux.xml",
+        "bytes": 4951,
+        "compressed_bytes": 983,
+        "crc32": "d3aa1c45",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      },
+      {
+        "name": "Annual_NLCD_LndCov_2025_CU_C1V2.xml",
+        "bytes": 34686,
+        "compressed_bytes": 8666,
+        "crc32": "aba1e80e",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      },
+      {
+        "name": "Annual_NLCD_LndCov_2025_CU_C1V2.tif",
+        "bytes": 1473884069,
+        "compressed_bytes": 1457973825,
+        "crc32": "9e24b356",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      }
+    ]
+  },
+  {
+    "product": "FctImp",
+    "url": "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_FctImp_2025_CU_C1V2.zip",
+    "bytes": 983683952,
+    "etag": "\"3aa1d370-64febf73c4775\"",
+    "last_modified": "Mon, 20 Apr 2026 22:39:04 GMT",
+    "members": [
+      {
+        "name": "Annual_NLCD_FctImp_2025_CU_C1V2.xml",
+        "bytes": 28117,
+        "compressed_bytes": 7320,
+        "crc32": "2477bedd",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      },
+      {
+        "name": "Annual_NLCD_FctImp_2025_CU_C1V2.tif.aux.xml",
+        "bytes": 17674,
+        "compressed_bytes": 2219,
+        "crc32": "0bb47041",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      },
+      {
+        "name": "Annual_NLCD_FctImp_2025_CU_C1V2.tif",
+        "bytes": 997375854,
+        "compressed_bytes": 983673937,
+        "crc32": "206e138a",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      }
+    ]
+  },
+  {
+    "product": "LndChg",
+    "url": "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_LndChg_2025_CU_C1V2.zip",
+    "bytes": 1827723257,
+    "etag": "\"6cf0d7f9-64fec0052e09b\"",
+    "last_modified": "Mon, 20 Apr 2026 22:41:36 GMT",
+    "members": [
+      {
+        "name": "Annual_NLCD_LndChg_2025_CU_C1V2.tif.aux.xml",
+        "bytes": 185835,
+        "compressed_bytes": 6034,
+        "crc32": "53713396",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      },
+      {
+        "name": "Annual_NLCD_LndChg_2025_CU_C1V2.xml",
+        "bytes": 28475,
+        "compressed_bytes": 7417,
+        "crc32": "b6d111eb",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      },
+      {
+        "name": "Annual_NLCD_LndChg_2025_CU_C1V2.tif",
+        "bytes": 1863988327,
+        "compressed_bytes": 1827709330,
+        "crc32": "16817315",
+        "method": 8,
+        "flags": 0,
+        "external_attr": 2176188416
+      }
+    ]
+  }
+]
