@@ -38,7 +38,9 @@ For the four SVI candidates, `OBSERVED`, `ZERO`, and `MISSING` are proposed perm
 
 PR #600 proves all 15,720 selected observation links have one historical `CONFORMED.GOVERNED_SOURCE_RECORDS` match by run, source record ID and row hash; V103 capture absence is expected for these runs. That aggregate does not supply the actual five-to-eight example row envelopes required for `validate_lineages()`. The legacy conformed table also has no `record_revision`, `artifact_id`, or `source_version_id` columns. The separately verified release source tuple and artifact ledger bind the latter two. A legacy record revision must be explicitly defined from retained immutable content and reviewed, rather than copied from a nonexistent V103 capture. #190's `POINT_IN_TIME` RUCC candidate likewise requires an exact date while the physical release records only vintage `2023`; assigning January 1 or December 31 would invent time semantics. The steward/release owner must resolve that mapping or approve a versioned contract correction before claiming RUCC #193 PASS. For SVI, any conversion from the ACS 2018–2022 label to exact ISO start/end dates also needs an explicit reviewed mapping. Computed #190 semantic revision membership must be tied one-to-one to the physical release observation IDs; the bundle hash alone does not provide it.
 
-One additional bounded SELECT is useful for **representative #193 execution**, not metadata-table discovery. It returns at most one physical observation per selected measure and emitted OBSERVED/ZERO state, with exact legacy conformed record identity and no payload. Run it in Snowsight under the existing `OH_LYME_PROD_READ` role, `ONE_HEALTH_LYME_GAP_ATLAS_PROD`, and `COMPUTE_WH`; do not change grants, roles, or PROD data:
+The human-run result of the first example query is `Untitled 27_2026-10-04-1050.csv`, SHA-256 `e4226de0614abd77a9411dbdb506f4f5bc3ccc0ba3ac7341211c445ec7e50703` (operator-held, not committed). It returned the expected eight current-release physical observations: five OBSERVED, one ZERO each for the three SVI/insurance measures, and five exact source-version/run/artifact bindings. All eight `CONFORMED_RECORD_ID` and `SOURCE_DEFINITION_VERSION` fields were NULL. **Those NULLs are a failed diagnostic join, not evidence of eight missing conformed records.** The query used `r.SOURCE_RECORD_ID = o.SOURCE_RECORD_ID`, while the historical release builder's `_source_record_id()` uses `row.source_record_id or row.record_id`. It therefore excludes a legacy row whose `SOURCE_RECORD_ID` is NULL and whose `RECORD_ID` was carried into the release observation. The previous all-row reconciliation remains separate evidence; this example export does not prove the record identity needed for #193.
+
+The corrected bounded SELECT below uses that exact builder fallback and leaves source/dataset/resource equality visible for independent inspection. It is for **representative #193 execution**, not metadata-table discovery. It returns at most one physical observation per selected measure and emitted OBSERVED/ZERO state, with no payload. Run it in Snowsight under the existing `OH_LYME_PROD_READ` role, `ONE_HEALTH_LYME_GAP_ATLAS_PROD`, and `COMPUTE_WH`; do not change grants, roles, or PROD data:
 
 ```sql
 WITH selected AS (
@@ -65,7 +67,13 @@ SELECT o.RELEASE_ID, o.OBSERVATION_ID, o.MEASURE_ID, o.FIPS,
        o.SOURCE_ROW_HASH, d.SOURCE_ID, d.DATASET_ID,
        d.RESOURCE_KEY, d.VINTAGE, d.LABEL AS SOURCE_LABEL,
        r.RECORD_ID AS CONFORMED_RECORD_ID,
-       r.SOURCE_DEFINITION_VERSION, r.RETRIEVED_AT AS RECORD_RETRIEVED_AT
+       r.SOURCE_RECORD_ID AS CONFORMED_SOURCE_RECORD_ID,
+       r.SOURCE_ROW_HASH AS CONFORMED_ROW_HASH,
+       r.SOURCE_ID AS CONFORMED_SOURCE_ID,
+       r.DATASET_ID AS CONFORMED_DATASET_ID,
+       r.RESOURCE_KEY AS CONFORMED_RESOURCE_KEY,
+       r.SOURCE_DEFINITION_VERSION,
+       r.RETRIEVED_AT AS RECORD_RETRIEVED_AT
 FROM selected AS o
 LEFT JOIN ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_DATA_SOURCES AS d
   ON d.RELEASE_ID = o.RELEASE_ID
@@ -75,11 +83,8 @@ LEFT JOIN ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_DATA_SOURCES AS d
  AND d.ARTIFACT_ID = o.ARTIFACT_ID
 LEFT JOIN ONE_HEALTH_LYME_GAP_ATLAS_PROD.CONFORMED.GOVERNED_SOURCE_RECORDS AS r
   ON r.INGESTION_RUN_ID = o.INGESTION_RUN_ID
- AND r.SOURCE_RECORD_ID = o.SOURCE_RECORD_ID
+ AND COALESCE(NULLIF(r.SOURCE_RECORD_ID, ''), r.RECORD_ID) = o.SOURCE_RECORD_ID
  AND r.SOURCE_ROW_HASH = o.SOURCE_ROW_HASH
- AND r.SOURCE_ID = d.SOURCE_ID
- AND r.DATASET_ID = d.DATASET_ID
- AND r.RESOURCE_KEY = d.RESOURCE_KEY
 ORDER BY o.MEASURE_ID, o.VALUE_STATE, o.FIPS;
 ```
 
