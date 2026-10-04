@@ -104,6 +104,8 @@ def observation(m: dict, *, value: object = 3, state: str = "OBSERVED") -> dict:
     temporal = {"semantics": m["temporal_semantics"]}
     if m["temporal_semantics"] == "PERIOD":
         temporal.update(start="2023-01-01", end="2023-12-31")
+    elif m["temporal_semantics"] == "VINTAGE_YEAR":
+        temporal["year"] = "2023"
     else:
         temporal["date"] = "2025-12-31"
     provenance = {
@@ -163,6 +165,23 @@ def reseal(o: dict, m: dict) -> None:
     o["revision_id"] = revision_id(o)
 
 
+def test_rucc_vintage_year_never_requires_or_accepts_an_invented_day() -> None:
+    m = measure("rucc_2023", time="VINTAGE_YEAR", unit="code", states=["OBSERVED"])
+    m["semantic_version"] = "2.0.0"
+    o = observation(m, value=4)
+    validate_observation(o, m)
+    assert o["temporal"] == {"semantics": "VINTAGE_YEAR", "year": "2023"}
+    for invalid in (
+        {"semantics": "VINTAGE_YEAR", "year": "2023", "date": "2023-01-01"},
+        {"semantics": "VINTAGE_YEAR", "year": "2023-01-01"},
+        {"semantics": "VINTAGE_YEAR", "year": "0000"},
+    ):
+        changed = copy.deepcopy(o)
+        changed["temporal"] = invalid
+        with pytest.raises(SemanticDomainError, match="vintage year"):
+            validate_observation(changed, m)
+
+
 def test_existing_county_release_has_exactly_the_14_unchanged_slots() -> None:
     tree = ast.parse(textwrap.dedent(inspect.getsource(semantic_release._county_observations)))
     definitions = next(
@@ -192,7 +211,7 @@ def test_each_existing_county_slot_has_a_valid_domain_identity(slot: str) -> Non
         ("case_count_floor_2023", "cases", "NONE", "PERIOD", 3, "OBSERVED"),
         ("incidence_floor_2023", "per 100,000", "population", "PERIOD", 2.1, "OBSERVED"),
         ("svi_percentile_2022", "percentile", "NONE", "PERIOD", 0.6, "OBSERVED"),
-        ("rucc_2023", "code", "NONE", "POINT_IN_TIME", 4, "OBSERVED"),
+        ("rucc_2023", "code", "NONE", "VINTAGE_YEAR", 4, "OBSERVED"),
         (
             "scapularis_status",
             "status",

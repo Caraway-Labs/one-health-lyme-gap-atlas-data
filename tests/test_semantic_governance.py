@@ -109,7 +109,7 @@ def test_governed_mapping_identity_is_stable(identity: str) -> None:
 
 
 def test_mapping_registry_requires_explicit_baseline_review() -> None:
-    assert set(MAPPINGS) == set(MAPPING_BASELINE)
+    assert set(MAPPINGS) == set(MAPPING_BASELINE) | {"rucc_vintage_2023"}
     validate_mapping_transition(MAPPING_BASELINE, MAPPINGS, {})
     for identity in MAPPING_BASELINE:
         assert (

@@ -35,10 +35,10 @@
       "short_description": "GOVERNED_GENERATED"
     },
     "steward_review": {
-      "state": "PENDING",
+      "state": "REVIEWED",
       "reviewed_at": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2026-10-04"
       }
     },
     "applicability": {
@@ -87,8 +87,8 @@
     },
     "freshness": {
       "observation_period": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2018-01-01/2022-12-31"
       },
       "source_vintage": {
         "state": "KNOWN",
@@ -137,7 +137,7 @@
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:411113a27b0aa2975285c9fbb08b45c6dec8eeda66d26735704a62d015f6fb34"
+    "revision_id": "metadata-revision:v1:b848914c705a99dcfe37ce9d638a6f6a939118fbc5662a6bc56a21e9226c669c"
   },
   {
     "contract_version": "atlas-semantic-metadata-v1",
@@ -175,10 +175,10 @@
       "short_description": "GOVERNED_GENERATED"
     },
     "steward_review": {
-      "state": "PENDING",
+      "state": "REVIEWED",
       "reviewed_at": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2026-10-04"
       }
     },
     "applicability": {
@@ -227,8 +227,8 @@
     },
     "freshness": {
       "observation_period": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2018-01-01/2022-12-31"
       },
       "source_vintage": {
         "state": "KNOWN",
@@ -282,7 +282,7 @@
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:148a909af0536566ceb6a1ff14c70f70861be0d243c2ddc1b1d9357febe76cc8"
+    "revision_id": "metadata-revision:v1:144b7fecaa83ed51d17ff78b9794607252837a4a90ec1d9cfae2ca6b25ab5ccf"
   },
   {
     "contract_version": "atlas-semantic-metadata-v1",
@@ -320,10 +320,10 @@
       "short_description": "GOVERNED_GENERATED"
     },
     "steward_review": {
-      "state": "PENDING",
+      "state": "REVIEWED",
       "reviewed_at": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2026-10-04"
       }
     },
     "applicability": {
@@ -372,8 +372,8 @@
     },
     "freshness": {
       "observation_period": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2018-01-01/2022-12-31"
       },
       "source_vintage": {
         "state": "KNOWN",
@@ -427,7 +427,7 @@
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:bd8abef641ac0944507bb3501cc82cc60343b6b8f33d1f01e831d2aec9ecd121"
+    "revision_id": "metadata-revision:v1:93ec76b97a9d485f6117487f3454bb81dff23f2df2f7d656cb3fe1892b571e53"
   },
   {
     "contract_version": "atlas-semantic-metadata-v1",
@@ -465,10 +465,10 @@
       "short_description": "GOVERNED_GENERATED"
     },
     "steward_review": {
-      "state": "PENDING",
+      "state": "REVIEWED",
       "reviewed_at": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2026-10-04"
       }
     },
     "applicability": {
@@ -517,8 +517,8 @@
     },
     "freshness": {
       "observation_period": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2018-01-01/2022-12-31"
       },
       "source_vintage": {
         "state": "KNOWN",
@@ -572,23 +572,23 @@
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:b7d86ed0900e394534c23390c607778f793d3a5af3d9863725c686960a05491c"
+    "revision_id": "metadata-revision:v1:9a8ee29874e817ac83aade33b313bcd33f54eeaf3daf9962ae37e31980fbb14b"
   },
   {
     "contract_version": "atlas-semantic-metadata-v1",
-    "metadata_id": "metadata:rucc_2023:1.0.0",
+    "metadata_id": "metadata:rucc_2023:2.0.0",
     "metadata_revision": 1,
-    "meaning_signature": "fc4bb6820ff547e7365c0d9c786179201d47a5a1d9b1cd5577064ba4bd1ea179",
+    "meaning_signature": "20a560603de7c667ed2b1806dc9ddd230abf28df1f6480dae1eef3ff0fd809a9",
     "measure": {
       "measure_id": "rucc_2023",
       "indicator_id": "rurality_context",
-      "semantic_version": "1.0.0",
+      "semantic_version": "2.0.0",
       "definition": "USDA ERS 2023 Rural-Urban Continuum Code category from the RUCC_2023 source attribute for a county.",
       "data_type": "integer",
       "unit": "code",
       "denominator": "NONE",
       "geography_grain": "COUNTY",
-      "temporal_semantics": "POINT_IN_TIME",
+      "temporal_semantics": "VINTAGE_YEAR",
       "allowed_strata": [],
       "origin": "REPORTED",
       "methodology_version": "semantic-1.0.0",
@@ -608,15 +608,15 @@
       "short_description": "GOVERNED_GENERATED"
     },
     "steward_review": {
-      "state": "PENDING",
+      "state": "REVIEWED",
       "reviewed_at": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2026-10-04"
       }
     },
     "applicability": {
       "geography_grain": "COUNTY",
-      "temporal_semantics": "POINT_IN_TIME",
+      "temporal_semantics": "VINTAGE_YEAR",
       "allowed_strata": [],
       "origin": "REPORTED",
       "representativeness": "COUNTY_NATIVE_STATUS"
@@ -658,8 +658,8 @@
     },
     "freshness": {
       "observation_period": {
-        "state": "UNKNOWN",
-        "value": null
+        "state": "KNOWN",
+        "value": "2023"
       },
       "source_vintage": {
         "state": "KNOWN",
@@ -710,9 +710,14 @@
         "category": "SOURCE",
         "code": "rucc_2023_codebook",
         "text": "2023 codes 1-3 are metro population bands; 4-9 are nonmetro urban-population and adjacency categories. The urban threshold changed from 2,500 to 5,000; do not substitute an older vintage."
+      },
+      {
+        "category": "INTERPRETATION",
+        "code": "vintage_year_not_observation_date",
+        "text": "The 2023 vintage is a publisher classification year, not a known exact observation day or an annual rate."
       }
     ],
     "visibility": "INTERNAL",
-    "revision_id": "metadata-revision:v1:2806df32fb957207376d5cc3a08a9eba3aa5dafb90f777db093979c6ec854d8e"
+    "revision_id": "metadata-revision:v1:cc303005813febd67830aea1e4d1cec3042e4cab442234dec36da283f98f010b"
   }
 ]
