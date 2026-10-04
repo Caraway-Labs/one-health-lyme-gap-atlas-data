@@ -1,7 +1,7 @@
 {
   "contract_version": "atlas-human-mmg-crosswalk-v1",
   "crosswalk_version": "1.0.0",
-  "review_status": "draft_for_independent_review",
+  "review_status": "accepted_for_bounded_aggregate_scope",
   "reviewed_on": "2026-10-02",
   "canonical_contract": "atlas-semantic-domain-v1",
   "canonical_source_mapping_contract": "atlas-semantic-source-mappings-v1",
