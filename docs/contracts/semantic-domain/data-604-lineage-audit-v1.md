@@ -26,7 +26,7 @@ An owner-rights procedure could constrain input IDs but adds code, execution pri
 
 ## Acceptance query
 
-Run with `ATLAS_DEV_READ` in DEV. In PROD, use a separately configured named PAT connection bound to `OH_LYME_PROD_READ`, with its identity checked first. This connection is not present in the 2026-09-16 inventory and must be created through the approved connection process; never repurpose the runtime/owner/migrator or ACCOUNTADMIN connection.
+Run with `ATLAS_DEV_READ` in DEV. In PROD, use a separately configured named PAT connection bound to `OH_LYME_PROD_READ`, with its identity checked first, and substitute the reviewed PROD release ID. This connection is not present in the 2026-09-16 inventory and must be created through the approved connection process; never repurpose the runtime/owner/migrator or ACCOUNTADMIN connection.
 
 ```sql
 SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE();
@@ -40,7 +40,7 @@ SELECT observation_id, release_id, measure_id, county_fips, temporal_window,
        conformed_record_id, governed_source_record_id,
        governed_source_row_hash, record_match_kind
 FROM LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V
-WHERE release_id = 'governed-2026-09-18-unknown-coverage'
+WHERE release_id = 'governed-2026-09-17-unknown-coverage'
   AND source_key IN ('context_svi', 'context_rucc')
 ORDER BY observation_id
 LIMIT 20;
@@ -50,4 +50,15 @@ For acceptance, count rows per observation ID and require exactly one authoritat
 
 ## Rollback
 
-After checking dependents and the migration ledger, use a reviewed forward migration that revokes `SELECT` on this one view from `OH_LYME_{ENV}_READ` and drops this one view. Do not roll back V069/V071/V103, touch source or semantic rows, change pointers, or grant a broader role. PROD rollback uses the protected migration path and an exact reviewed image digest.
+After checking dependents and the migration ledger, use a reviewed forward migration with the following environment-rendered operations:
+
+```sql
+REVOKE SELECT ON VIEW LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V
+  FROM ROLE OH_LYME_{{ ENV }}_READ;
+REVOKE USAGE ON SCHEMA LINEAGE_AUDIT FROM ROLE OH_LYME_{{ ENV }}_READ;
+DROP VIEW IF EXISTS LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V;
+-- Only after confirming the dedicated schema contains no other objects:
+DROP SCHEMA IF EXISTS LINEAGE_AUDIT;
+```
+
+Do not roll back V069/V071/V103, touch source or semantic rows, change pointers, or grant a broader role. PROD rollback uses the protected migration path and an exact reviewed image digest. The commands above are documented and parsed as SQL; rollback is not executed against the live DEV or PROD lineage without a separate recovery decision.
