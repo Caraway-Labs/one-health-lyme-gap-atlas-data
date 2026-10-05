@@ -519,6 +519,7 @@ class AnnualNLCDAdapter:
             county.geometry, county.lineage.storage_crs, county.analysis_crs
         )
         expected_area = county_shape.area
+        weight_code_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
         tile_footprints = []
         grid_ids: dict[str, str] = {}
         for tile in definition.extra["tile_ids"]:
@@ -609,7 +610,7 @@ class AnnualNLCDAdapter:
             valid[product] = min(valid[product], supported)
         weight_id = hashlib.sha256(
             f"{sorted(grid_ids.items())}:{county.lineage.normalized_geometry_sha256}:"
-            f"{county.lineage.artifact_sha256}:{WEIGHT_VERSION}".encode()
+            f"{county.lineage.artifact_sha256}:{WEIGHT_VERSION}:{weight_code_sha256}".encode()
         ).hexdigest()
         for measure in MEASURES:
             product = (
@@ -659,6 +660,7 @@ class AnnualNLCDAdapter:
                 inputs,
                 grid_ids,
                 weight_id,
+                weight_code_sha256,
             )
 
 
@@ -678,6 +680,7 @@ def _row(
     inputs: RetainedInputs,
     grid_ids: dict[str, str] | None = None,
     weight_id: str | None = None,
+    weight_code_sha256: str | None = None,
 ) -> dict[str, object]:
     record_id = f"{definition.resource_key}:{county.county_fips}:{year}:{measure}"
     product = (
@@ -722,6 +725,7 @@ def _row(
             "geometry_digest": county.lineage.normalized_geometry_sha256,
             "tiger_sha256": inputs.sha256[TIGER_MEMBER],
             "weight_version": WEIGHT_VERSION,
+            "weight_code_sha256": weight_code_sha256,
             "weight_id": weight_id,
             "grid_id_by_tile": grid_ids or {},
             "transformation_version": TRANSFORM_VERSION,

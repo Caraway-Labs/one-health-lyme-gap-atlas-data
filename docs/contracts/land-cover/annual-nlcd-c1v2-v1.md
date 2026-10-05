@@ -18,6 +18,12 @@ The 2025 TIGER/Line county ZIP is the SHA-256-pinned #424 analysis reference. Th
 
 ## Native categories and seven frozen measures
 
+The normalized tile row also records the weighting helper's exact code SHA-256
+and includes it in `weight_id`. An implementation correction therefore has a
+distinct weight identity even while the frozen #424 mathematical method and
+seven semantic formulas retain their versions. The offline mosaic lineage
+additionally records the exact Git revision. Old output identities are immutable.
+
 The approved `LndCov` codes are 11, 12, 21–24, 31, 41–43, 52, 71, 81–82, 90, and 95. The five area shares group forest 41–43, developed 21–24, agriculture 81–82, wetland 90/95, and open water 11. Each is class area divided by valid land-cover source-supported area. The sixth measure is the valid-area-weighted mean FctImp percentage explicitly divided by 100 to yield a fraction. The seventh is the valid-area-weighted share of changed pixels in `LndChg`: a native unchanged land-cover code is unchanged; an `AABB` code with valid different before/after classes is changed. Native class and transition areas remain in the normalized row. No fragmentation or phenology is inferred.
 
 `LndChg` is labeled by the latter mapping year. The bounded 1985 artifact contains native transition codes, but the checked publisher evidence does not establish its earlier comparison period. Its native distribution is retained and `LAND_COVER_CHANGED_AREA_SHARE` is null with `UNVERIFIED_FIRST_YEAR_CHANGE`. The other six 1985 measures can be computed. This prevents an invented 1984 baseline.
