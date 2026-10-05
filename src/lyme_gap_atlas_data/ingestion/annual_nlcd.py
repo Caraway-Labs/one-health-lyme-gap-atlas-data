@@ -247,6 +247,23 @@ def _pixel_weights(county: CountyAnalysisGeometry, dataset: Any, window: Window)
     return weights
 
 
+def _validate_search_bounds(
+    weights: np.ndarray,
+    window: Window,
+    bounds: tuple[int, int, int, int],
+    dataset: Any,
+) -> None:
+    """Require an empty outer search halo unless clipped by the raster edge."""
+    col0, row0, col1, row1 = bounds
+    if (
+        (row0 > 0 and window.row_off == row0 and weights[0].any())
+        or (col0 > 0 and window.col_off == col0 and weights[:, 0].any())
+        or (row1 < dataset.height and window.row_off + window.height == row1 and weights[-1].any())
+        or (col1 < dataset.width and window.col_off + window.width == col1 and weights[:, -1].any())
+    ):
+        raise ValueError("Projected county reaches search halo; candidate coverage unverified")
+
+
 class AnnualNLCDAdapter:
     kind = AdapterKind.ANNUAL_NLCD
 
@@ -555,6 +572,9 @@ class AnnualNLCDAdapter:
                             col, row, min(_WINDOW, col1 - col), min(_WINDOW, row1 - row)
                         )
                         weights = _pixel_weights(county, reference, window)
+                        _validate_search_bounds(
+                            weights, window, (col0, row0, col1, row1), reference
+                        )
                         if not weights.any():
                             continue
                         raster_values = {

@@ -39,6 +39,8 @@ neighbors. Only fully covered projected cells receive a full-cell projected
 area; partial cells use exact #424 intersections. This corrects shallow edge
 slivers missed by the old rasterized boundary mask. A translated-coordinate
 full-cell area formula avoids cancellation from large projected coordinates.
+Positive projected area at an outer search-halo edge that is not the raster
+edge fails closed: the candidate envelope has not established completeness.
 The #424 county-area guard, three-product support union, product-valid areas,
 and 100% within-support rule remain unchanged.
 Partial validity is null `PARTIAL_COVERAGE`; no support is `SOURCE_MISSING`;

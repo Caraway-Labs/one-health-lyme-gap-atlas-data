@@ -26,7 +26,8 @@ from lyme_gap_atlas_data.county_analysis_geometry import (
     load_tiger_counties,
     project_geometry,
 )
-from lyme_gap_atlas_data.ingestion.annual_nlcd import _pixel_weights
+from lyme_gap_atlas_data.ingestion import annual_nlcd_mosaic
+from lyme_gap_atlas_data.ingestion.annual_nlcd import _pixel_weights, _validate_search_bounds
 from lyme_gap_atlas_data.ingestion.annual_nlcd_mosaic import aggregate_county
 
 
@@ -246,6 +247,41 @@ def test_all_seven_rows_match_direct_cell_polygon_oracle(partial: bool) -> None:
         assert actual["valid_fraction_of_supported_area"] == pytest.approx(valid / supported)
 
 
+def test_truncated_candidate_envelope_fails_instead_of_undercounting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    x, y = 1_000_000.0, 2_000_000.0
+    county = _county(box(x + 90, y - 210, x + 210, y - 90))
+    grid = _grid(x, y)
+    monkeypatch.setattr(
+        annual_nlcd_mosaic, "from_bounds", lambda *_args, **_kwargs: Window(4, 4, 1, 1)
+    )
+    with ExitStack() as stack:
+        datasets = {}
+        for product, code, nodata, dtype in (
+            ("LndCov", 41, 250, "uint8"),
+            ("FctImp", 0, 250, "uint8"),
+            ("LndChg", 41, 9999, "uint16"),
+        ):
+            memory = stack.enter_context(MemoryFile())
+            dataset = stack.enter_context(
+                memory.open(
+                    driver="GTiff",
+                    width=10,
+                    height=10,
+                    count=1,
+                    dtype=dtype,
+                    crs=grid.crs,
+                    transform=grid.transform,
+                    nodata=nodata,
+                )
+            )
+            dataset.write(np.full((10, 10), code, dtype=dtype), 1)
+            datasets[product] = dataset
+        with pytest.raises(ValueError, match="candidate coverage unverified"):
+            aggregate_county(county, datasets, "test-lineage")
+
+
 def test_retained_46127_matches_frozen_exact_cells_and_conserves_area() -> None:
     supplied = os.environ.get("ATLAS_NLCD_RETAINED_INPUTS")
     if not supplied:
@@ -269,6 +305,7 @@ def test_retained_46127_matches_frozen_exact_cells_and_conserves_area() -> None:
             for col in range(col0, col1, 256):
                 window = Window(col, row, min(256, col1 - col), min(256, row1 - row))
                 weights = _pixel_weights(county, dataset, window)
+                _validate_search_bounds(weights, window, (col0, row0, col1, row1), dataset)
                 totals.append(float(np.sum(weights)))
                 if row <= 36087 < row + int(window.height) and col <= 78901 < col + int(
                     window.width

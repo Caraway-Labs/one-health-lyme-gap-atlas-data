@@ -51,6 +51,7 @@ from .annual_nlcd import (
     _change_code,
     _pixel_weights,
     _raster_metadata,
+    _validate_search_bounds,
 )
 from .checkpoints import FileCheckpointStore
 from .partitioning import partition_records
@@ -230,6 +231,7 @@ def aggregate_county(
             check()
             window = Window(col, row, min(WINDOW, col1 - col), min(WINDOW, row1 - row))
             weights = _pixel_weights(county, reference, window)
+            _validate_search_bounds(weights, window, (col0, row0, col1, row1), reference)
             if not weights.any():
                 continue
             values = {product: datasets[product].read(1, window=window) for product in PRODUCTS}
