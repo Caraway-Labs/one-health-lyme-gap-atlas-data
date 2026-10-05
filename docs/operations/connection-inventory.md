@@ -1,5 +1,9 @@
 # `snow` CLI connection-surface audit and reconciliation (Epic #294, Stories #295 and #300)
 
+## DATA #604 pending lineage-audit connection
+
+After V137 is deployed and its effective grant verified, routine semantic-lineage validation uses `ATLAS_DEV_READ` in DEV and a named PAT connection bound to `OH_LYME_PROD_READ` in PROD. No PROD READ connection is listed in the reconciled inventory below; provisioning and identity verification remain required before PROD acceptance. The bounded query and contract are in [DATA #604 lineage audit v1](../contracts/semantic-domain/data-604-lineage-audit-v1.md). **ACCOUNTADMIN is prohibited for normal lineage verification.** Do not use `ATLAS_PROD_RUNTIME_AUDIT`, `ATLAS_PROD_OWNER`, or `ATLAS_PROD_MIGRATOR` as the routine audit route.
+
 Story #295 captured the pre-consolidation inventory on 2026-09-16 (12 named
 connections). Story #300 reconciled the client-side `snow` connection surface
 to the role model [ADR 0030](../adr/0030-snowflake-role-model-simplification.md)

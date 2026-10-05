@@ -1,5 +1,11 @@
 # Stable Snowflake role model (Epic #223 / Story #229; consolidated by Epic #294 / ADR 0030)
 
+## DATA #604 semantic lineage audit route (pending DEV/PROD acceptance)
+
+V137 proposes one secure internal view, `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V`, with object-level `SELECT` for `OH_LYME_{ENV}_READ`. It adds no base-table grant or new role. Use the environment's READ connection for routine semantic-lineage validation after its migration and effective grant are verified. `ATLAS_DEV_READ` is the existing DEV connection; a named PROD READ PAT connection must be provisioned and verified before PROD acceptance. See [the bounded contract](../contracts/semantic-domain/data-604-lineage-audit-v1.md) for the query and failure checks.
+
+**ACCOUNTADMIN is prohibited for normal lineage verification.** OWNER, RUNTIME, and MIGRATION_DEPLOYER are also not routine audit identities. This proposal does not establish live DEV or PROD acceptance until protected migrations and single-identity lineage proofs pass.
+
 ## Current model (as of Story #297, DEV; Story #298 mirrors this to PROD)
 
 [ADR 0030](../adr/0030-snowflake-role-model-simplification.md) consolidated

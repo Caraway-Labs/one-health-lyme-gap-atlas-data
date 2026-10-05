@@ -51,7 +51,7 @@ def connection(cursor: Cursor):
 
 def test_pending_prod_schema_migration_is_v106() -> None:
     applied = {f"V{number:03d}" for number in range(1, 106)}
-    assert pending_schema_creation_versions(PROD, applied) == ["V106"]
+    assert pending_schema_creation_versions(PROD, applied) == ["V106", "V137"]
 
 
 def test_preflight_rejects_missing_create_schema_without_ddl() -> None:
@@ -80,7 +80,7 @@ def test_preflight_accepts_exact_prod_database_grant() -> None:
     with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
         result = migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
     assert result == {
-        "pending_schema_creation": ["V106"],
+        "pending_schema_creation": ["V106", "V137"],
         "create_schema_grant": "present",
         "v126_catalog_grants": "present",
     }
@@ -94,7 +94,10 @@ def test_preflight_rejects_missing_account_owned_catalog_grant_before_ddl(
         {"CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES"} - {missing_table}
     ).pop()
     cursor = Cursor(
-        [("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{present_table}")],
+        [
+            ("CREATE SCHEMA", "DATABASE", PROD),
+            ("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{present_table}"),
+        ],
         applied_through=124,
     )
     with (
@@ -109,7 +112,8 @@ def test_preflight_rejects_missing_account_owned_catalog_grant_before_ddl(
 
 def test_preflight_accepts_account_owned_catalog_grants_without_schema_creation() -> None:
     cursor = Cursor(
-        [
+        [("CREATE SCHEMA", "DATABASE", PROD)]
+        + [
             ("SELECT", "TABLE", f"{PROD}.GOVERNANCE.{name}")
             for name in ("CATALOG_DISCOVERY_OBSERVATIONS", "CATALOG_RESOURCES")
         ],
@@ -118,15 +122,15 @@ def test_preflight_accepts_account_owned_catalog_grants_without_schema_creation(
     with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
         result = migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
     assert result == {
-        "pending_schema_creation": [],
-        "create_schema_grant": "not_required",
+        "pending_schema_creation": ["V137"],
+        "create_schema_grant": "present",
         "v126_catalog_grants": "present",
     }
 
 
 def test_preflight_skips_catalog_grants_after_v126_receipt() -> None:
-    cursor = Cursor([], applied_through=126)
+    cursor = Cursor([("CREATE SCHEMA", "DATABASE", PROD)], applied_through=126)
     with patch("lyme_gap_atlas_data.migrations.connect", return_value=connection(cursor)):
         result = migration_authority_preflight(object(), PROD)  # type: ignore[arg-type]
     assert result["v126_catalog_grants"] == "not_required"
-    assert not any(statement.startswith("SHOW GRANTS") for statement in cursor.statements)
+    assert f"SHOW GRANTS TO ROLE {ROLE}" in cursor.statements
