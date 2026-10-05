@@ -240,7 +240,7 @@ result is **FAIL / NOT EXECUTABLE against actual authority rows**: the existing
 conformed-record read is denied. Neither issue is complete solely from
 reviewed metadata and the aggregate.
 
-### Current acceptance decision by issue
+### Superseded access-blocked acceptance decision by issue
 
 | DATA #199 criterion | Decision | Evidence |
 | --- | --- | --- |
@@ -261,7 +261,75 @@ reviewed metadata and the aggregate.
 | Release preserved or versioned | PASS | Versioned semantic identity is additive; physical release and pointer were not changed. |
 | Unsupported/deferred fields disposition | PASS | Existing #200 matrix excludes broader demographics, other RUCC attributes, and annual API projection. |
 
-No issue closure, PR merge, or live #193 PASS is warranted while the required
-historical conformed-record authority cannot be read. A limitation can express
+The decision above records the earlier single-role access boundary. The
+two-role audit below supersedes its FAIL entries. A limitation can express
 uncertain scientific time or interpretation; it cannot substitute for a
 required source-record identity in #193.
+
+### Final two-role PROD acceptance audit (2026-10-04)
+
+The owner-authorized audit used only SELECTs. Both sessions resolved to
+`MATTHEWCARAWAY`, `ONE_HEALTH_LYME_GAP_ATLAS_PROD`, and
+`OH_LYME_PROD_INGEST_XS_WH`; Read A used `OH_LYME_PROD_OWNER` and Read B
+used `OH_LYME_PROD_RUNTIME`. No grant, role, data, source, or release was
+changed. The split follows ADR 0030 and V069; DATA #604 tracks a durable
+least-privilege cross-schema audit surface.
+
+Read A was the corrected bounded query above with its CONFORMED projection
+and join removed. It read only `CURRENT_RELEASE_V`,
+`SEMANTIC_OBSERVATIONS`, and `SEMANTIC_DATA_SOURCES`. Query ID
+`01c78490-040b-e434-0064-2d0701128176` returned eight physical
+observations: one OBSERVED row for each of the five accepted measures and
+one ZERO row each for `svi_percentile_2022`,
+`uninsured_percentile_2022`, and `uninsured_percent_2022`.
+Every row carried the pinned release, source version, run, artifact, source
+record ID, and row hash. The current-release join pinned bundle
+`038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026`.
+
+Read B used only the four distinct (run, source-record ID, row-hash) tuples
+returned by Read A against `CONFORMED.GOVERNED_SOURCE_RECORDS`. Query ID
+`01c78491-040b-e499-0064-2d070112916a` returned exactly four rows.
+All four historical `SOURCE_RECORD_ID` columns were NULL, and each
+`RECORD_ID` equaled the physical observation's source record ID under
+`COALESCE(NULLIF(SOURCE_RECORD_ID, ''), RECORD_ID)`. Run, row hash,
+source, dataset, and resource all matched. The two exact retained artifact
+digests were separately SELECTed from `GOVERNANCE.RAW_ARTIFACTS`:
+`dc042342a2e5abc108af67b439ec04c86da8b61f9bdd1cf1b1e5ee0462dea7b2`
+(SVI) and
+`ec455ee2a8bc5fc8e070575ea5bee7dce46fc6037f8c3449cbf56e8b45331fa7`
+(RUCC).
+
+Local reconciliation: **PASS**, eight observations to four unambiguous
+historical conformed records, with no orphan or ambiguous representative
+join. `scripts/audit_data_199_200_lineage.py` records
+the bounded, safe representative row identities and constructs the #193
+storage-neutral snapshot. Its legacy adapter revision is a SHA-256 of the
+retained `(ingestion_run_id, record_id, source_row_hash)` tuple and is
+explicitly labeled `legacy:v1:`; it does not claim a V103 capture.
+The reviewed SVI metadata supplies the 2018-01-01/2022-12-31 ACS
+period, while reviewed RUCC semantic v2 supplies `VINTAGE_YEAR=2023`.
+Each computed #190 semantic revision is paired with its actual physical
+observation ID from Read A in the release membership snapshot. Against
+the five REVIEWED #191 envelopes and exact source/run/artifact/record
+authority, `validate_lineages()` returned **#193 PASS** for all eight
+representative traces. This is representative live PROD lineage validation,
+not a claim that every physical row has a persisted #190/#193 envelope.
+
+| DATA #199 criterion | Final decision | Evidence |
+| --- | --- | --- |
+| Field-level source-to-semantic matrix | PASS | Existing accepted-field matrix and explicit deferred scope. |
+| Population, percentage, percentile distinction | PASS | Four reviewed definitions with distinct units, denominator/reference and source fields. |
+| Missing/sentinel explicit and tested | PASS | Source behavior tests and reviewed OBSERVED/ZERO/MISSING envelopes; three live ZERO examples. |
+| Source/version/run/artifact lineage and #188 metadata | PASS | Pinned release reconciliation, two-role record joins, and representative #193 PASS. |
+| New field or meaning versioned/reviewed | PASS | Reviewed initial SVI revisions; no unreviewed SVI meaning change. |
+| Fixture versus governed evidence separated | PASS | Local fixtures, all-row release aggregate, and eight live representative traces are labeled independently. |
+| Unsupported/deferred fields disposed | PASS | Existing matrix records exclusions and future adapters. |
+
+| DATA #200 criterion | Final decision | Evidence |
+| --- | --- | --- |
+| Delivered-versus-gap matrix | PASS | Existing accepted-scope matrix. |
+| RUCC codebook/vintage explicit and tested | PASS | 2023 codebook, reviewed `VINTAGE_YEAR` semantic v2 and mapping tests. |
+| Geography and missingness deterministic | PASS | FIPS, duplicate, code-domain and missing-mapping tests; 3,144/3,144 PROD RUCC reconciliation. |
+| #188 metadata/lineage used directly | PASS | Reviewed RUCC envelope and real #193 representative trace. |
+| Release preserved or versioned | PASS | Additive v2 semantic identity; physical release and pointer unchanged. |
+| Unsupported/deferred fields disposed | PASS | Existing matrix excludes broader demographics and other vintages. |
