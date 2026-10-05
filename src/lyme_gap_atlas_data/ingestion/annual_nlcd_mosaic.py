@@ -217,9 +217,11 @@ def aggregate_county(
     if native.difference(box(*reference.bounds)).area > native.area * 1e-8:
         raise ValueError("Mosaic envelope leaves a legal county gap")
     raw = from_bounds(*native.bounds, transform=reference.transform)
-    col0, row0 = max(0, math.floor(raw.col_off)), max(0, math.floor(raw.row_off))
-    col1 = min(reference.width, math.ceil(raw.col_off + raw.width))
-    row1 = min(reference.height, math.ceil(raw.row_off + raw.height))
+    # Include the outer neighboring cells; geometric intersection, not a
+    # rasterized candidate mask, decides whether they contribute area.
+    col0, row0 = max(0, math.floor(raw.col_off) - 1), max(0, math.floor(raw.row_off) - 1)
+    col1 = min(reference.width, math.ceil(raw.col_off + raw.width) + 1)
+    row1 = min(reference.height, math.ceil(raw.row_off + raw.height) + 1)
     areas: dict[str, dict[int, float]] = {product: defaultdict(float) for product in PRODUCTS}
     valid = dict.fromkeys(PRODUCTS, 0.0)
     intersected = supported = impervious_sum = 0.0
@@ -227,7 +229,7 @@ def aggregate_county(
         for col in range(col0, col1, WINDOW):
             check()
             window = Window(col, row, min(WINDOW, col1 - col), min(WINDOW, row1 - row))
-            weights = _pixel_weights(county, native, reference, window)
+            weights = _pixel_weights(county, reference, window)
             if not weights.any():
                 continue
             values = {product: datasets[product].read(1, window=window) for product in PRODUCTS}

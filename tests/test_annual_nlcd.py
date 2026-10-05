@@ -174,10 +174,7 @@ def test_fractional_boundary_weights_match_424() -> None:
         MemoryFile(inputs.payloads[_name("H14V15", "LndCov", "tif")]) as memory,
         memory.open() as dataset,
     ):
-        native = transform(
-            Transformer.from_crs(4269, _CRS, always_xy=True).transform, county.geometry
-        )
-        weights = _pixel_weights(county, native, dataset, rasterio.windows.Window(0, 0, 2, 2))
+        weights = _pixel_weights(county, dataset, rasterio.windows.Window(0, 0, 2, 2))
     cells = [
         GridCell(f"{row}:{col}", box(col * 30, 30 - row * 30, (col + 1) * 30, 60 - row * 30), None)
         for row in range(2)

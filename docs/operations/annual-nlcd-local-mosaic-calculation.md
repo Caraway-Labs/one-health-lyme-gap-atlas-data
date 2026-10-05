@@ -33,9 +33,14 @@ from observation year and retrieval time.
 
 `ingestion.annual_nlcd_mosaic` is an offline disk reader, not a second ingestion
 orchestrator. It reuses #196 `_pixel_weights`, class groups, nodata and change
-decoder unchanged. It reads only native 256 × 256 windows. Exact boundary
-intersections, full-cell projected areas, the union of three products' source
-support, product-valid areas and the 100% within-support rule remain unchanged.
+decoder. It reads only native 256 × 256 windows. Projected geometric containment
+is checked for every cell in the county bounding windows and their outer cell
+neighbors. Only fully covered projected cells receive a full-cell projected
+area; partial cells use exact #424 intersections. This corrects shallow edge
+slivers missed by the old rasterized boundary mask. A translated-coordinate
+full-cell area formula avoids cancellation from large projected coordinates.
+The #424 county-area guard, three-product support union, product-valid areas,
+and 100% within-support rule remain unchanged.
 Partial validity is null `PARTIAL_COVERAGE`; no support is `SOURCE_MISSING`;
 AK/HI have seven null `OUT_OF_SOURCE_COVERAGE` rows. Numeric zero stays zero.
 No fragmentation, county-share differencing, causal-risk or ML measure is added.
@@ -58,6 +63,10 @@ partition completion receipt. A timed-out unfinished county is recomputed on
 explicit resume; large-county runtime must be measured before national expansion.
 Stale exclusive locks block simultaneous or unreviewed restart. These local
 partitions and content references are not fabricated governed artifact IDs.
+The former calculation's 2,426 saved county partitions retain their old
+immutable run identity. Corrected code SHA and Git revision produce a new
+lineage and run; old partitions cannot be relabelled as corrected results.
+A full replay requires separate scientific and runtime authorization.
 
 Example (operator supplies existing owned local directories):
 
