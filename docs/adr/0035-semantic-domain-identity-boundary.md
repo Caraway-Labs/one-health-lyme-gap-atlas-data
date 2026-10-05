@@ -16,6 +16,17 @@ Adopt `atlas-semantic-domain-v1` as a storage-neutral, versioned definition and 
 
 Downstream adapters can describe county, site/event, derived, and source-only shapes without migrating history. The current county hierarchy's `county_geometry` versus physical `geometry` observation ID mismatch remains historical; #192 must map it explicitly rather than silently rewrite it. Cross-version equivalence, broader metadata, lineage edges, and consumer projections remain #191–#195 work. No public health interpretation or source authorization changes.
 
+## 2026-10-04 bounded RUCC temporal amendment
+
+The Atlas product owner approved an additive `VINTAGE_YEAR` scope
+for the USDA ERS 2023 RUCC county classification. The source establishes a
+four-digit codebook year, not an exact publisher observation day. This meaning
+uses `rucc_2023` semantic version `2.0.0` and a new #192
+`rucc_vintage_2023` mapping identity; the earlier point-date mapping remains
+historical. `VINTAGE_YEAR` accepts exactly `YYYY` and rejects a supplied day.
+This contract correction leaves the fixed physical release and pointer intact.
+It does not authorize publication or claim #193 live lineage validation.
+
 ## Alternatives considered
 
 - Extend V071 with all site/event and derived columns: rejected because current fixed release and pointer would acquire incompatible meaning.

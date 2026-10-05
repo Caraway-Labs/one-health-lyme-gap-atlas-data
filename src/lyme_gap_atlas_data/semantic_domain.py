@@ -18,7 +18,7 @@ _ID = re.compile(r"^[a-z][a-z0-9_:-]*$")
 _FIPS = re.compile(r"^[0-9]{5}$")
 _NULL_STATES = {"MISSING", "UNKNOWN", "SUPPRESSED", "NOT_REPORTED", "UNAVAILABLE", "NOT_DEFENSIBLE"}
 _LITERAL_STATES = {"NO_RECORDS": "No records", "NO_COUNTY_LINKED_RECORD": "NO_COUNTY_LINKED_RECORD"}
-_TIME = {"PERIOD", "CUMULATIVE_THROUGH_DATE", "POINT_IN_TIME"}
+_TIME = {"PERIOD", "CUMULATIVE_THROUGH_DATE", "POINT_IN_TIME", "VINTAGE_YEAR"}
 _GRAINS = {"COUNTY", "SITE_EVENT", "SOURCE_ONLY_COUNTY"}
 _ORIGINS = {"REPORTED", "DERIVED"}
 _STRATA = {"tick_taxon", "life_stage", "pathogen_target", "collection_method", "testing_scope"}
@@ -163,13 +163,21 @@ def _scope(observation: Mapping[str, Any], measure: Mapping[str, Any]) -> dict[s
         start, end = _required(temporal, "start"), _required(temporal, "end")
         _valid_date(start)
         _valid_date(end)
-        if start > end or temporal.get("date") is not None:
+        if start > end or temporal.get("date") is not None or temporal.get("year") is not None:
             raise SemanticDomainError("invalid period")
         time_id: Any = (start, end)
+    elif kind == "VINTAGE_YEAR":
+        time_id = _required(temporal, "year")
+        if (
+            not re.fullmatch(r"[0-9]{4}", time_id)
+            or time_id == "0000"
+            or any(temporal.get(field) is not None for field in ("date", "start", "end"))
+        ):
+            raise SemanticDomainError("invalid vintage year")
     else:
         time_id = _required(temporal, "date")
         _valid_date(time_id)
-        if temporal.get("start") is not None or temporal.get("end") is not None:
+        if any(temporal.get(field) is not None for field in ("start", "end", "year")):
             raise SemanticDomainError("invalid point/cumulative date")
     strata = observation.get("strata", {})
     if not isinstance(strata, dict) or not set(strata) <= set(measure["allowed_strata"]):

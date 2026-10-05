@@ -12,7 +12,7 @@ on DATA199 reconciliation and merged DATA200. It does not close all of DATA202.
 | --- | --- | --- | --- |
 | Selected vintage | 2022, ACS 2018–2022 | 2023 | Retain both; no silent vintage substitution |
 | County identity | Five-digit FIPS, unique county | Five-digit FIPS, unique county | Match identities, not row counts |
-| Observation time | PERIOD, 2018-01-01 through 2022-12-31 | POINT_IN_TIME, 2023 | Descriptive mixed-vintage context; contemporaneity is not established |
+| Observation time | PERIOD, 2018-01-01 through 2022-12-31 | VINTAGE_YEAR, 2023, in reviewed semantic version 2.0.0 | Descriptive mixed-vintage context; contemporaneity is not established; no exact RUCC observation day is asserted |
 | Meaning | Overall SVI percentile; uninsured percentage/percentile; E_TOTPOP population estimate | Classification codes 1–9 | Percent, percentile, people and code remain distinct |
 | Denominator/reference | E_TOTPOP is a population estimate used by legacy incidence as its denominator; EP_UNINSUR uses the civilian noninstitutionalized population; percentile has its source reference population | No numeric population denominator | Preserve each denominator; no pooling ranks or treating RUCC as a continuous quantity |
 | Geography | Source county polygon displayed in EPSG:4326 with existing 0.01 simplification | County identity classification | Display geometry does not establish TIGER 2025 analytical equivalence |
