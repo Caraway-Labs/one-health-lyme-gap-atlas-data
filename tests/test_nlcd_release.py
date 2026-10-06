@@ -8,6 +8,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -192,3 +193,32 @@ def test_baseline_release_counts_and_grants_are_not_relaxed() -> None:
             migration_execution_role(migration, "ONE_HEALTH_LYME_GAP_ATLAS_PROD")
             == "OH_LYME_PROD_OWNER"
         )
+
+
+def test_prod_admission_is_excluded_and_rejected_in_dev(monkeypatch) -> None:
+    from lyme_gap_atlas_shared.settings import SnowflakeSettings
+
+    from lyme_gap_atlas_data import migrations
+
+    migration = next(m for m in migrations.load_migrations() if m.version == "V139")
+    assert "V139" not in {
+        item["version"] for item in migrations.migration_plan(migrations.DEV_DATABASE)
+    }
+    for boundary in (migrations.render_migration, migrations.migration_execution_role):
+        with pytest.raises(ValueError, match="PROD-only"):
+            boundary(migration, migrations.DEV_DATABASE)
+
+    # Exercise the canonical apply boundary: no replacement of the existing
+    # DEV procedure even when V139 is the only unapplied source migration.
+    monkeypatch.setattr(migrations, "load_migrations", lambda: [migration])
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+    connector = MagicMock(return_value=connection)
+    monkeypatch.setattr(migrations, "connect", connector)
+    assert (
+        migrations.apply_migrations(SnowflakeSettings.model_construct(), migrations.DEV_DATABASE)
+        == []
+    )
+    connector.assert_called_once()
+    connection.execute_string.assert_not_called()
