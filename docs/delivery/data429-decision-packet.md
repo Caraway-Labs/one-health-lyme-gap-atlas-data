@@ -1,6 +1,44 @@
 # DATA429 bounded implementation and decision packet
 
-## Lane A continuation — 2026-10-06
+## Delegated Reported interpretation decision - 2026-10-06
+
+Recorded before candidate code changes, from main
+`b36893cf4f77a98e4363ea77f0267c36596c8933` (PR615 after merged PR614).
+Under Matthew's explicit overnight
+delegation, the coordinating agent selected this bounded implementation meaning:
+**Detected; establishment criteria not documented as met in the source.**
+This is a delegated implementation decision backed by independently researched
+official evidence, not a claim that Matthew personally performed scientific
+review or that formal contract-steward approval occurred.
+
+The candidate applies only to the original `Reported` value in existing
+`county_tick_status` / `scapularis_status` (*Ixodes scapularis*), source
+`cdc-ixodes-county-status-2025`, definition 1, vintage 2025, county/cumulative
+endpoint 2025-12-31. The pinned workbook is
+`Public_Use_Ixodes_County_Table_2026_03252026.xlsx`, sheet `Ixodes records 2025`,
+SHA-256 `e35a5066a7c77b2e79c50f315a18e042405ab7baa8a414a1a907792bb25d2adc`.
+The existing canonical/semantic mapper remains authoritative for exact input
+identity and lineage; the interpretation preserves its value and provenance.
+
+[CDC's dataset page](https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html)
+links the through-2025 workbook and defines cumulative publisher categories.
+[Eisen et al. 2016, page 2](https://stacks.cdc.gov/view/cdc/39097/cdc_39097_DS1.pdf)
+also includes historical Reported records with unspecified tick counts or life
+stages. The interpretation therefore preserves the publisher label without
+calculating a threshold. Count, life stage, collection date and effort stay
+missing; it implies neither current ecological non-establishment nor a 2025
+collection event or sampling completeness. Pathogen Present and other taxa
+remain unchanged.
+
+Governance boundary: canonical tick v1.2 explicitly records formal
+contract-steward approval as pending. Existing live mapping requires REVIEWED
+semantic metadata and consumer publication requires its separate admission gate.
+This candidate neither supplies nor changes those review/admission records.
+Independent code review is required before merge; governed source-backed
+canonical replay remains unproven without genuine metadata/authority inputs.
+The earlier sections below are historical, including PR614's abstention rule.
+
+## Lane A continuation - 2026-10-06
 
 Current issue text and main `819dde4974d4bd0c6acc3235dfaeeb146098233a`
 were reconciled before editing. PR562 remains the historical synthetic scaffold.
