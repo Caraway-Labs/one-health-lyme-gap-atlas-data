@@ -44,7 +44,7 @@ on:
         required: false
         type: string
       diagnostic_budget_evidence:
-        description: January read-only billing price receipt JSON; never credentials
+        description: Public official pricing forecast JSON only; never private billing or credentials
         required: false
         type: string
       registration_phase:
@@ -167,6 +167,9 @@ jobs:
       SPACES_ACCESS_KEY_ID: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_ACCESS_KEY_ID || '' }}
       SPACES_SECRET_ACCESS_KEY: ${{ inputs.operation != 'nclimgrid-pilot-measurement' && inputs.operation != 'january-source-registration' && secrets.SPACES_SECRET_ACCESS_KEY || '' }}
     steps:
+      - name: Start bounded January diagnostic clock
+        if: inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership'
+        run: echo "JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Verify reviewed main for January registration
         if: inputs.operation == 'january-source-registration' || (inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership')

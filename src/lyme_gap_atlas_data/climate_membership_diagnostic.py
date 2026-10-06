@@ -14,6 +14,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .climate_membership import ARTIFACT_NAME, MembershipBlocked, freeze_membership
 
@@ -38,17 +39,40 @@ def budget_evidence(document: str) -> dict[str, Any]:
         value = json.loads(document)
     except (ValueError, TypeError):
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_REQUIRED") from None
-    if not isinstance(value, dict) or set(value) != {
-        "unit_price_usd",
-        "evidence_reference",
-        "verified_by",
-        "verified_at",
-    }:
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {
+            "unit_price_usd",
+            "evidence_reference",
+            "verified_by",
+            "verified_at",
+        }
+        and set(value)
+        != {"unit_price_usd", "evidence_reference", "verified_by", "verified_at", "region"}
+    ):
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_REQUIRED")
     price = value["unit_price_usd"]
     if type(price) not in (int, float) or not math.isfinite(price) or not 0 < price <= 20:
         raise DiagnosticStop("BILLING_PRICE_OUTSIDE_APPROVED_CEILING")
-    for key in ("evidence_reference", "verified_by"):
+    reference = value["evidence_reference"]
+    if isinstance(reference, str) and reference.startswith("https://"):
+        url = urlsplit(reference)
+        if (
+            url.netloc not in {"www.snowflake.com", "docs.snowflake.com"}
+            or url.query
+            or url.fragment
+            or url.username
+            or url.password
+            or any(ord(c) < 33 for c in reference)
+            or not isinstance(value.get("region"), str)
+            or re.fullmatch(r"(?:AWS|AZURE|GCP)_[A-Z0-9_]+", value["region"]) is None
+        ):
+            raise DiagnosticStop("OFFICIAL_FORECAST_REFERENCE_REQUIRED")
+        value["basis"] = "OFFICIAL_PUBLIC_PRICE_FORECAST_NOT_ACCOUNT_INVOICE"
+    else:
+        raise DiagnosticStop("PUBLIC_PRICING_ONLY_NO_PRIVATE_BILLING_INPUT")
+    for key in ("verified_by",):
         if (
             not isinstance(value[key], str)
             or re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value[key]) is None
@@ -61,6 +85,16 @@ def budget_evidence(document: str) -> dict[str, Any]:
     if verified.tzinfo is None or not 0 <= (datetime.now(UTC) - verified).total_seconds() <= 604800:
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_STALE")
     return value
+
+
+def budget_runtime(price: float) -> int:
+    # Published maximum Gen2 XS (AWS/GCP): 1.35 credits/hour. Cloud services:
+    # 4.4 credits/hour, conservatively without the daily adjustment. Include
+    # one minute of warehouse suspension tail and US$1 noncompute reserve.
+    seconds = math.floor(((4 / price - 1.35 / 60) * 3600) / (1.35 + 4.4))
+    if seconds < 30:
+        raise DiagnosticStop("FORECAST_EXCEEDS_FIVE_DOLLAR_CAP")
+    return min(MAX_SECONDS, seconds)
 
 
 def stage_for(sql: str) -> str:
@@ -95,9 +129,12 @@ class BoundedCursor:
     def __init__(self, cursor: Any, started: float, receipt: dict[str, Any]):
         self.cursor, self.started, self.receipt = cursor, started, receipt
         self.stage = "PREFLIGHT"
+        self.prior_query_id: str | None = None
 
     def check(self) -> float:
-        remaining = MAX_SECONDS - (time.monotonic() - self.started)
+        remaining = float(self.receipt.get("runtime_limit_seconds", MAX_SECONDS)) - (
+            time.monotonic() - self.started
+        )
         if remaining <= 1:
             raise DiagnosticStop("RUNTIME_LIMIT")
         return remaining
@@ -110,6 +147,7 @@ class BoundedCursor:
             raise DiagnosticStop("READ_ONLY_REQUIRED")
         self.stage = stage_for(sql)
         self.receipt["statements"] += 1
+        self.prior_query_id = safe_query_id(getattr(self.cursor, "sfqid", None))
         try:
             self.cursor.execute(sql, params, timeout=min(15, int(remaining)))
         except Exception as error:
@@ -118,8 +156,7 @@ class BoundedCursor:
                 {
                     "stage": self.stage,
                     "category": category(error),
-                    "query_id": safe_query_id(getattr(error, "sfqid", None))
-                    or safe_query_id(getattr(self.cursor, "sfqid", None)),
+                    "query_id": failure_query_id(error, self.cursor, self.prior_query_id),
                 },
             )
             raise DiagnosticStop("READ_FAILED") from None
@@ -129,19 +166,36 @@ class BoundedCursor:
 
     def fetchone(self) -> Any:
         self.check()
+        self.reject_remote_batches()
         return self.cursor.fetchone()
 
     def fetchall(self) -> Any:
         self.check()
+        self.reject_remote_batches()
         return self.cursor.fetchall()
 
     def fetchmany(self, size: int) -> Any:
         self.check()
+        self.reject_remote_batches()
         return self.cursor.fetchmany(size)
+
+    def reject_remote_batches(self) -> None:
+        # Supported public ResultBatch metadata, checked before any iterator can
+        # launch prefetch/download. The pinned SDK's chunk retry loop differs
+        # from request retries; this diagnostic permits inline result data only.
+        batches = self.cursor.get_result_batches()
+        if any(batch.compressed_size is not None for batch in batches or []):
+            raise DiagnosticStop("REMOTE_RESULT_BATCH_REQUIRES_SEPARATE_REVIEW")
 
 
 def safe_query_id(value: Any) -> str | None:
     return value if isinstance(value, str) and re.fullmatch(r"[0-9a-f-]{36}", value) else None
+
+
+def failure_query_id(error: Exception, cursor: Any, prior: str | None) -> str | None:
+    direct = safe_query_id(getattr(error, "sfqid", None))
+    current = safe_query_id(getattr(cursor, "sfqid", None))
+    return direct or (current if current != prior else None)
 
 
 def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, Any]:
@@ -172,8 +226,24 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
     pending_output = output.with_name("pending-" + ARTIFACT_NAME)
     try:
         evidence = budget_evidence(supplied_budget)
+        try:
+            job_started = int(os.environ["JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX"])
+        except (KeyError, ValueError):
+            raise DiagnosticStop("EARLY_JOB_CLOCK_REQUIRED") from None
+        job_elapsed = time.time() - job_started
+        remaining_job = math.floor(MAX_SECONDS - job_elapsed - 60)
+        if job_elapsed < 0 or remaining_job < 30:
+            raise DiagnosticStop("INSUFFICIENT_JOB_TIME_FOR_RECEIPT")
+        runtime_limit = min(budget_runtime(evidence["unit_price_usd"]), remaining_job)
+        receipt["job_elapsed_seconds_at_launch"] = round(job_elapsed, 3)
+        receipt["cleanup_upload_reserved_seconds"] = 60
+        receipt["runtime_limit_seconds"] = runtime_limit
         receipt["price_evidence_sha256"] = hashlib.sha256(supplied_budget.encode()).hexdigest()
-        receipt["compute_estimate_ceiling_usd"] = 0.20 * evidence["unit_price_usd"]
+        receipt["forecast_basis"] = evidence["basis"]
+        receipt["billing"]["actual_billed_unit_price_usd"] = None
+        receipt["compute_and_cloud_services_forecast_ceiling_usd"] = (
+            runtime_limit * 5.75 / 3600 + 1.35 / 60
+        ) * evidence["unit_price_usd"]
         receipt["noncompute_reserve_usd"] = 1
         if shutil.disk_usage(output.parent).free < 1024**3:
             raise DiagnosticStop("TEMP_DISK_HEADROOM")
@@ -184,7 +254,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             raise DiagnosticStop("RUNTIME_LIMIT")
 
         old_handler = signal.signal(alarm_signal, alarm_handler)
-        set_timer(real_timer, MAX_SECONDS)
+        set_timer(real_timer, runtime_limit)
         parameters = connection_parameters(SnowflakeSettings())
         parameters.update(
             login_timeout=15,
@@ -204,10 +274,11 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         with connection.cursor() as cursor:
             bounded = BoundedCursor(cursor, started, receipt)
             bounded.execute(
-                "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
+                "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),"
+                "CURRENT_WAREHOUSE(),CURRENT_REGION()"
             )
             identity = bounded.fetchone()
-            if identity != (
+            if identity[:4] != (
                 "OH_LYME_DEV_PIPELINE_SVC",
                 "OH_LYME_DEV_RUNTIME",
                 "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
@@ -215,22 +286,34 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             ):
                 raise DiagnosticStop("IDENTITY_MISMATCH")
             receipt["effective_context"] = list(identity)
+            region = identity[4]
+            if "region" in evidence and evidence["region"] != region:
+                raise DiagnosticStop("PUBLIC_PRICE_REGION_MISMATCH")
             bounded.execute("SHOW WAREHOUSES LIKE 'OH_LYME_DEV_INGEST_XS_WH'")
             columns = [str(c[0]).lower() for c in cursor.description]
             rows = [dict(zip(columns, row, strict=True)) for row in bounded.fetchall()]
             if len(rows) != 1:
                 raise DiagnosticStop("WAREHOUSE_VISIBILITY")
             warehouse = rows[0]
-            # Gen2/rate cannot be guessed from X-Small; require explicit Gen1 evidence.
+            generation = str(warehouse.get("generation")).upper()
             if (
                 warehouse.get("size") != "X-Small"
                 or warehouse.get("type") != "STANDARD"
-                or str(warehouse.get("generation")).upper() not in ("1", "GEN_1", "GEN1")
+                or generation not in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2")
                 or warehouse.get("max_cluster_count") != 1
                 or warehouse.get("enable_query_acceleration") is not False
                 or not 0 < int(warehouse.get("auto_suspend", 0)) <= 60
             ):
                 raise DiagnosticStop("WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED")
+            cloud = str(region).split("_", 1)[0]
+            if cloud not in {"AWS", "AZURE", "GCP"}:
+                raise DiagnosticStop("WAREHOUSE_CLOUD_RATE_UNVERIFIED")
+            receipt["published_warehouse_credits_per_hour"] = (
+                1 if generation in ("1", "GEN_1", "GEN1") else 1.25 if cloud == "AZURE" else 1.35
+            )
+            receipt["consumption_reference"] = (
+                "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
+            )
             receipt["warehouse_assumptions"] = {
                 key: warehouse[key]
                 for key in ("size", "type", "generation", "max_cluster_count", "auto_suspend")
@@ -257,8 +340,9 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             {
                 "stage": bounded.stage if bounded else "PRE_CONNECTION",
                 "category": category(error),
-                "query_id": safe_query_id(getattr(error, "sfqid", None))
-                or safe_query_id(getattr(bounded.cursor, "sfqid", None) if bounded else None),
+                "query_id": failure_query_id(error, bounded.cursor, bounded.prior_query_id)
+                if bounded
+                else safe_query_id(getattr(error, "sfqid", None)),
             },
         )
     finally:
@@ -267,7 +351,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             connection is not None
             and bounded is not None
             and "warehouse_assumptions" in receipt
-            and time.monotonic() - started < MAX_SECONDS - 16
+            and time.monotonic() - started < receipt.get("runtime_limit_seconds", MAX_SECONDS) - 16
             and receipt["statements"] < MAX_STATEMENTS
         ):
             try:

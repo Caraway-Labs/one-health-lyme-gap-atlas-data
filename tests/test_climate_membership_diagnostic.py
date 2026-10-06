@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,9 +21,10 @@ def evidence():
     return json.dumps(
         {
             "unit_price_usd": 20,
-            "evidence_reference": "owner-billing-record-1",
+            "evidence_reference": "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf",
             "verified_by": "fixture-owner",
             "verified_at": datetime.now(UTC).isoformat(),
+            "region": "AWS_US_WEST_2",
         }
     )
 
@@ -63,17 +65,21 @@ class Cursor:
         return [(key,) for key in self.warehouse]
 
     def fetchone(self):
-        return (
+        identity = (
             "OH_LYME_DEV_PIPELINE_SVC",
             "OH_LYME_DEV_RUNTIME",
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
             "OH_LYME_DEV_INGEST_XS_WH",
         )
+        return (*identity, "AWS_US_WEST_2") if "CURRENT_REGION" in self.sql else identity
 
     def fetchall(self):
         if self.sql.startswith("SHOW"):
             return [tuple(self.warehouse.values())]
         return [(QID, "FAIL", 10, 0, 0)]
+
+    def get_result_batches(self):
+        return []
 
 
 @pytest.fixture
@@ -83,6 +89,7 @@ def setup(monkeypatch):
     import snowflake.connector
 
     cursor = Cursor()
+    monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time())))
     parameters = []
     closed = []
 
@@ -133,7 +140,7 @@ def test_failure_retains_exact_stage_query_and_role_without_driver_text(
 def test_assumptions_fail_before_source_read(setup, monkeypatch, tmp_path, mutation):
     cursor, _, _ = setup
     if mutation == "generation":
-        cursor.warehouse["generation"] = "2"
+        cursor.warehouse["generation"] = "unsupported"
     elif mutation == "acceleration":
         cursor.warehouse["enable_query_acceleration"] = True
     elif mutation == "clusters":
@@ -169,6 +176,95 @@ def test_actual_connector_retry_context_cannot_advance_to_retry():
     context = TimeoutBackoffCtx(backoff_generator=diag.no_retry_backoff())
     with pytest.raises(diag.DiagnosticStop, match="AUTOMATIC_RETRY_PROHIBITED"):
         context.increment()
+
+
+def test_previous_success_is_not_relabelled_as_failed_transport_query():
+    cursor = Cursor()
+    receipt = {"statements": 0}
+    bounded = diag.BoundedCursor(cursor, diag.time.monotonic(), receipt)
+    bounded.execute("SELECT 1")
+
+    def network_failure(*_, **__):
+        raise RuntimeError("private-network-message")
+
+    cursor.execute = network_failure
+    with pytest.raises(diag.DiagnosticStop, match="READ_FAILED"):
+        bounded.execute("SELECT r.source_manifest FROM PRESENTATION.test")
+    assert receipt["failure"]["query_id"] is None
+    assert receipt["failure"]["stage"] == "ANNUAL_DONOR"
+    assert diag.failure_query_id(RuntimeError("fetch"), cursor, QID) is None
+    error = RuntimeError("statement failure")
+    error.sfqid = QID
+    assert diag.failure_query_id(error, cursor, QID) == QID
+
+
+def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
+    setup, monkeypatch, tmp_path
+):
+    cursor, _, _ = setup
+    cursor.warehouse["generation"] = "2"
+    value = json.loads(evidence()) | {
+        "unit_price_usd": 4,
+        "evidence_reference": "https://www.snowflake.com/en/pricing-options/",
+        "region": "AWS_US_WEST_2",
+    }
+
+    def freeze(_cursor, path, _sha):
+        path.write_text("verified")
+        return {"writes_performed": False}
+
+    monkeypatch.setattr(diag, "freeze_membership", freeze)
+    report = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, json.dumps(value))
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert report["status"] == "READ_ONLY_EXPORT_SUCCEEDED"
+    assert receipt["published_warehouse_credits_per_hour"] == 1.35
+    assert 30 <= receipt["runtime_limit_seconds"] <= 240
+    assert receipt["compute_and_cloud_services_forecast_ceiling_usd"] + 1 <= 5
+    assert receipt["forecast_basis"] == "OFFICIAL_PUBLIC_PRICE_FORECAST_NOT_ACCOUNT_INVOICE"
+    assert receipt["billing"]["actual_billed_unit_price_usd"] is None
+
+
+def test_high_price_shortens_runtime_to_preserve_same_total_cap():
+    seconds = diag.budget_runtime(20)
+    assert 30 <= seconds < 300
+    assert ((seconds * 5.75 / 3600 + 1.35 / 60) * 20) + 1 <= 5
+
+
+def test_late_job_stops_before_connection_but_retains_receipt(setup, monkeypatch, tmp_path):
+    _, parameters, _ = setup
+    monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time()) - 240))
+    report = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    assert report["status"] == "BLOCKED" and not parameters
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert receipt["failure"]["category"] == "INSUFFICIENT_JOB_TIME_FOR_RECEIPT"
+
+
+def test_private_billing_reference_is_rejected_in_log_visible_input():
+    value = json.loads(evidence()) | {"evidence_reference": "private-account-invoice"}
+    with pytest.raises(diag.DiagnosticStop, match="PUBLIC_PRICING_ONLY"):
+        diag.budget_evidence(json.dumps(value))
+
+
+def test_actual_remote_result_batch_cannot_start_chunk_download(monkeypatch):
+    from snowflake.connector.result_batch import JSONResultBatch, RemoteChunkInfo
+
+    batch = JSONResultBatch(
+        1, {}, RemoteChunkInfo("https://example.invalid/chunk", 1, 1), [], [], False
+    )
+    raw = Cursor()
+    raw.get_result_batches = lambda: [batch]
+    downloads = []
+
+    def download(*_, **__):
+        downloads.append(True)
+        pytest.fail("remote chunk GET is prohibited in this diagnostic")
+
+    monkeypatch.setattr(batch, "_download", download)
+    raw.fetchmany = lambda _: list(batch.create_iter())
+    bounded = diag.BoundedCursor(raw, diag.time.monotonic(), {"statements": 0})
+    with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
+        bounded.fetchmany(1000)
+    assert downloads == []
 
 
 def test_oversize_diagnostic_output_preserves_previous_artifact(setup, monkeypatch, tmp_path):
