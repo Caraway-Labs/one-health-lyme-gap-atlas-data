@@ -1,8 +1,9 @@
 # January consumer dependency, separate from history
 
-Baseline DATA main `819dde4974d4bd0c6acc3235dfaeeb146098233a`.
-No Snowflake query, source download, ingestion, grant or deployment was executed
-for this reconciliation. Existing evidence is dated, not a fresh database proof.
+Initial planning baseline DATA main `819dde4974d4bd0c6acc3235dfaeeb146098233a`.
+That planning reconciliation executed no Snowflake query, source download,
+ingestion, grant or deployment. Subsequent diagnostic evidence is recorded below;
+the dated API handoff is not a new consumer readback.
 
 API #84's October 6 handoff reports 45 reader/probe tests and intended PROD_READ
 identity verification. Exact metadata-view read failed `002003`; public discovery
@@ -33,12 +34,60 @@ does not establish that the January export now works. V071's recorded grants
 separate presentation owner/migration from runtime; this is a possible boundary,
 not proof of which statement failed in the live run.
 
-Smallest next authorized diagnostic: add finite failed-stage and allowlisted
+The original next diagnostic increment was to add finite failed-stage and allowlisted
 SDK error-category evidence to the existing exporter, with privacy regression
 tests; independently review it before any bounded paid read. Verify that exact
 source-specific boundary using the existing approved identity. A grant request
 requires a proven object/owner and principal/privilege tuple; none is established
 by the generic export failure or API `002003` alone.
+
+## Morning checkpoint after the bounded diagnostic
+
+Matthew's actual January product approval remains: "Yes, I approve ingesting the
+data, making sure it's in Snowflake, getting it modeled correctly in Snowflake,
+and then exposing it through our API." It authorizes the bounded January product
+work; it supplies no missing checksum, lineage, provenance, reader grant or PROD
+publication evidence. Historical expansion remains deferred.
+
+PR #616 merged `ef0aa357f7b79cc002233f64475eb16f65aeb3e6`; exact-main CI
+`37420820267` passed 3,301 tests. Its one approved read-only workflow run
+`37421002704` completed, but the diagnostic receipt is `BLOCKED` at `PREFLIGHT`,
+`WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED`: two identity/SHOW statements, 1.659 seconds.
+No membership query or export occurred. The original receipt did not retain the
+SHOW fields or the failed predicate; the exact mismatch cannot be recovered.
+Do not infer an SDK defect, missing object or missing grant.
+
+PR #620 merged `f8e0626fbff3af9d0588251cfa4bbd10e3a1acb4`; exact-main CI
+`37423114986` passed 3,312 tests. It preserves all six warehouse predicates,
+records safe preflight fields/types and failed checks, and caps a possible
+follow-up using the existing watchdog/cursor deadline at fifty execution seconds.
+The five-minute job window and sixty-second cleanup reserve remain intact. No
+source/membership guards, identity, warehouse setting or grants were changed.
+
+The corrected paid dispatch was rejected by automatic approval review before
+launch: the reviewer interpreted end-user authorization as covering only the
+already-completed single diagnostic and did not accept parent-agent instructions
+as expanding that scope. No second run, retry or alternate route occurred.
+Batch the specific additional-approval request for morning: one additional paid
+read-only January diagnostic, maximum fifty execution seconds, preserving all
+guards and no retries, within the original US$5 aggregate modeled reservation.
+No routine user wake-up is needed; obtain the explicit approval before dispatch.
+
+The original full reservation is US$3.3295833333. At the verified public
+US$6/credit forecast the proposed follow-up reservation is US$1.6141666667,
+aggregate US$4.94375. These include separate noncompute reserves and an idle tail;
+they are forecasts, not actual charges or a statement of remaining budget.
+Actual billed dollars remain null. Usage history was not queried because the
+preflight failed. The original private receipt, query IDs, public-price evidence,
+prepared exact dispatch inputs and rejection record are preserved outside Git.
+Another execution must first verify reviewed current main and its exact CI; stale
+SHA, pricing or runtime evidence blocks it.
+
+API #84 still needs verified frozen membership/digest and donor manifest, the
+reviewed January extension, target parity/storage proof, and the existing protected
+publication/reader-readback path. Neither merged diagnostic PR establishes full
+January publication, PROD object absence, consumer availability or API acceptance.
+Keep DATA #443 and API #84 open; no Web changes or historical execution are included.
 
 After verified full ordered IDs and five-tuple digest, preserve the actual annual
 donor manifest, assemble and review the exact January extension, prove target
