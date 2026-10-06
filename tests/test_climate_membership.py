@@ -176,15 +176,14 @@ def test_unsafe_donor_is_rejected_before_membership_read_or_artifact_creation(
     assert not any("ORDER BY capture_record_id" in sql for sql, _ in cursor.calls)
 
 
-def test_sdk_failure_does_not_emit_message_or_misclassify_absence(monkeypatch, tmp_path):
+def test_missing_budget_never_connects_and_retains_closed_receipt(monkeypatch, tmp_path):
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
 
-    def unavailable(_settings):
-        raise RuntimeError("private-connection-message")
+    import snowflake.connector
 
-    monkeypatch.setattr(pilot, "connect", unavailable)
-    with pytest.raises(
-        pilot.MeasurementError, match="FROZEN_MEMBERSHIP_READ_UNAVAILABLE"
-    ) as failure:
-        pilot.frozen_membership_report(membership.RUN_ID)
-    assert "private-connection-message" not in str(failure.value)
+    monkeypatch.delenv("JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE", raising=False)
+    monkeypatch.setattr(snowflake.connector, "connect", lambda **_: pytest.fail("must not connect"))
+    result = pilot.frozen_membership_report(membership.RUN_ID)
+    assert result["status"] == "BLOCKED" and result["statements"] == 0
+    receipt = json.loads((tmp_path / result["receipt_name"]).read_text())
+    assert receipt["failure"]["category"] == "BILLING_PRICE_RECEIPT_REQUIRED"
