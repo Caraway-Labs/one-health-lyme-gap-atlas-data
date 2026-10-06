@@ -1058,7 +1058,19 @@ def source_run(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    state = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run).run(
+    if loaded.adapter_kind is AdapterKind.RSS_ATOM and selected_tier is Tier.B and not dry_run:
+        from .ingestion.intelligence_runtime import canonical_pilot
+
+        if resolved_fixture is not None:
+            raise typer.BadParameter("Live feed pilots do not accept fixture overrides")
+        try:
+            orchestrator, loaded = canonical_pilot(loaded)
+        except Exception:
+            typer.echo("INTELLIGENCE_PILOT_PREFLIGHT_BLOCKED", err=True)
+            raise typer.Exit(code=1) from None
+    else:
+        orchestrator = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run)
+    state = orchestrator.run(
         loaded,
         tier=selected_tier,
         dry_run=dry_run,
@@ -1343,7 +1355,17 @@ def runs_resume(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    state = _orchestrator_for_run(run_id, resolved_fixture).resume(run_id, definition=loaded)
+    if loaded.adapter_kind is AdapterKind.RSS_ATOM and resolved_fixture is None:
+        from .ingestion.intelligence_runtime import canonical_pilot
+
+        try:
+            orchestrator, loaded = canonical_pilot(loaded)
+        except Exception:
+            typer.echo("INTELLIGENCE_PILOT_PREFLIGHT_BLOCKED", err=True)
+            raise typer.Exit(code=1) from None
+    else:
+        orchestrator = _orchestrator_for_run(run_id, resolved_fixture)
+    state = orchestrator.resume(run_id, definition=loaded)
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
         raise typer.Exit(code=1)

@@ -1,0 +1,13 @@
+resource_key: nih-news-releases
+source_id: nih-news-releases
+definition_version: 1
+platform_type: rss_atom
+endpoint_template: https://www.nih.gov/news-releases/feed.xml
+deterministic_order_clause: publisher_document_order
+incremental_strategy: CONTENT_REVISION
+geography_semantics: Publication; no inferred geography
+temporal_semantics: Publisher chronology; missing remains unknown
+destination: PRESENTATION.INTELLIGENCE_FEED_V
+expected_refresh_cadence: daily
+artifact_policy: REVIEW_REQUIRED
+maximum_rows: 250
