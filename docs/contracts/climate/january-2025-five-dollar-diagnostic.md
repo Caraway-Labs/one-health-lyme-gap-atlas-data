@@ -89,6 +89,24 @@ cost-assumption failure. No settings are altered and no extra query is introduce
 Another paid dispatch requires a separate release; this correction cannot recover
 the original missing SHOW values.
 
+The proposed follow-up is additionally capped at fifty execution seconds by the
+existing POSIX watchdog and monotonic cursor deadline. The separate five-minute
+job clock and sixty-second cleanup/upload reserve stay intact. The runtime budget
+calculation reserves the completed dispatch's full US$3.3295833333 forecast, plus
+another US$1 noncompute reserve, from the original US$5 total. At the verified
+public US$6/credit forecast the follow-up ceiling is US$1.6141666667 and aggregate
+US$4.94375. A higher price can shorten the deadline or block before connection;
+the original full reservation is never reduced using unbilled elapsed time.
+The receipt labels both reservations as forecasts, not paid or billed amounts.
+
+The retained 1.659-second identity/SHOW execution supports usefulness for preflight
+evidence within fifty seconds, without guaranteeing remote SQL latency. If preflight
+passes, existing selected-run, artifact and donor probes run under the same deadline.
+Membership/source guards, fifteen-second statement bounds, forty-statement ceiling,
+single-session policy and remote-chunk refusal remain intact. A timeout is a finite
+diagnostic result, not membership acceptance. This code change does not release a
+second paid dispatch.
+
 The configured runtime was 229 seconds. Its retained forecast ceiling is
 US$2.3295833333 compute/cloud services plus US$1 reserve, US$3.3295833333 total.
 These are maximum modeled amounts, not actual charges or remaining budget.

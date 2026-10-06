@@ -20,7 +20,7 @@ QID = "00000000-0000-0000-0000-000000000001"
 def evidence():
     return json.dumps(
         {
-            "unit_price_usd": 20,
+            "unit_price_usd": 6,
             "evidence_reference": "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf",
             "verified_by": "fixture-owner",
             "verified_at": datetime.now(UTC).isoformat(),
@@ -259,10 +259,27 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_high_price_shortens_runtime_to_preserve_same_total_cap():
-    seconds = diag.budget_runtime(20)
-    assert 30 <= seconds < 300
-    assert ((seconds * 5.75 / 3600 + 1.35 / 60) * 20) + 1 <= 5
+def test_combined_reservations_never_exceed_original_total_cap():
+    seconds = diag.budget_runtime(6)
+    assert seconds == 50
+    aggregate = diag.PRIOR_DIAGNOSTIC_FORECAST_USD + ((seconds * 5.75 / 3600 + 1.35 / 60) * 6) + 1
+    assert aggregate == pytest.approx(4.94375) and aggregate <= 5
+    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_FIVE_DOLLAR_CAP"):
+        diag.budget_runtime(20)
+
+
+def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
+    setup, monkeypatch, tmp_path
+):
+    timers = []
+    monkeypatch.setattr(diag.signal, "setitimer", lambda *args: timers.append(args))
+    monkeypatch.setattr(diag, "freeze_membership", lambda *_: None)
+    diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert timers[0][1] == receipt["runtime_limit_seconds"] == 50
+    assert receipt["cleanup_upload_reserved_seconds"] == 60 and diag.MAX_SECONDS == 300
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(4.94375)
+    assert receipt["billing"]["actual_billed_usd"] is None
 
 
 def test_late_job_stops_before_connection_but_retains_receipt(setup, monkeypatch, tmp_path):
