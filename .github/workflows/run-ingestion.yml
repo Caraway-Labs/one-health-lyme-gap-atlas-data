@@ -145,7 +145,7 @@ jobs:
     if: inputs.operation != 'spaces-readiness'
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || 360 }}
+    timeout-minutes: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || startsWith(inputs.source_definition, 'config/sources/intelligence_') && 6 || 360 }}
     environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
