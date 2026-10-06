@@ -177,9 +177,18 @@ partition rows for that run; immutable captures were also zero. LOAD remained
 pending, and no semantic publication occurred. No recapture or blind retry is
 warranted.
 
+Read-only resume preflight also found `Stored payload checkpoint checksum
+mismatch` in the acquired convenience VARIANT checkpoint. The authoritative
+captured artifact retains the exact original bytes and checksum. For this adapter
+only, resume prioritizes the existing verified SOURCE_PAYLOAD artifact reader
+over that convenience checkpoint. Its fourteen normalized rows reuse the existing
+`canonical-json-v1` encoding to preserve exact floating-point JSON through
+Snowflake VARIANT. Existing checkpoint rows are preserved, not rewritten.
+
 The narrow recovery removes streaming from this new fixed-size adapter and uses
-the already existing normalized-row path. It changes no scientific artifact,
-source definition, normalization transform, generic orchestrator, production
+the already existing normalized-row path. Its scoped replay and encoding changes
+retain the existing orchestration and checkpoint framework. It changes no
+scientific artifact, source definition, normalization transform, production
 stage, relation or grant. Independently review and test that fix, then resume
 the same retained run with the exact reviewed main commit and existing real
 source/decision IDs through `run-prod-ingestion.yml`. Reconcile actual captures,

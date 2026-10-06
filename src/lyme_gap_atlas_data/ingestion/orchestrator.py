@@ -252,7 +252,20 @@ class IngestionOrchestrator:
             and not (member_adapter and has_members)
             and isinstance(self.store, PayloadStore)
         ):
-            payload = self.store.load_payload(state.ingestion_run_id)
+            if (
+                definition.adapter_kind is AdapterKind.RETAINED_ANNUAL_NLCD_AGGREGATE
+                and restore_feed
+                and isinstance(self.store, RawArtifactStore)
+            ):
+                # Snowflake VARIANT can alter decimal serialization in the old
+                # convenience checkpoint. Replay the real, checksum-verified
+                # captured artifact for this exact retained scientific cohort.
+                source_bytes = self.store.load_source_artifact(state.ingestion_run_id)
+                if source_bytes is None:
+                    raise ValueError("Retained NLCD source artifact is missing or ambiguous")
+                payload = adapter.restore_raw_payload(definition, source_bytes)
+            else:
+                payload = self.store.load_payload(state.ingestion_run_id)
         if (
             payload is None
             and (not retained_feed or restore_feed)

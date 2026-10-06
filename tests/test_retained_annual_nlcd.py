@@ -15,7 +15,7 @@ from lyme_gap_atlas_data.ingestion.adapters import (
     StreamingSourceAdapter,
     get_adapter,
 )
-from lyme_gap_atlas_data.ingestion.checkpoints import FileCheckpointStore
+from lyme_gap_atlas_data.ingestion.checkpoints import FileCheckpointStore, SnowflakeCheckpointStore
 from lyme_gap_atlas_data.ingestion.orchestrator import IngestionOrchestrator
 from lyme_gap_atlas_data.ingestion.retained_annual_nlcd import RetainedAnnualNLCDAggregateAdapter
 from lyme_gap_atlas_data.ingestion.runtime import (
@@ -91,6 +91,63 @@ def test_durable_restart_replays_capture_without_reacquisition(tmp_path: Path) -
     restored = store.load_payload(first.ingestion_run_id)
     assert isinstance(restored, dict)
     assert restored["records"] == json.loads(ARTIFACT.read_bytes())["records"]
+
+
+def test_resume_uses_exact_raw_artifact_instead_of_variant_payload(tmp_path: Path) -> None:
+    definition = load_source_definition(DEFINITION)
+    (tmp_path / ARTIFACT.name).write_bytes(ARTIFACT.read_bytes())
+    store = FileCheckpointStore(tmp_path / "checkpoints")
+    first = IngestionOrchestrator(store, fixture_dir=tmp_path).run(
+        definition, tier=Tier.A, fail_after_stage="VALIDATE"
+    )
+    assert first.status is RunStatus.FAILED
+    store.load_source_artifact = Mock(return_value=ARTIFACT.read_bytes())
+    store.load_payload = Mock(side_effect=ValueError("Stored payload checkpoint checksum mismatch"))
+    adapter = RetainedAnnualNLCDAggregateAdapter()
+    adapter.acquire = Mock(side_effect=AssertionError("Do not recapture"))
+    (tmp_path / ARTIFACT.name).unlink()
+    resumed = IngestionOrchestrator(store, fixture_dir=tmp_path, adapter=adapter).resume(
+        first.ingestion_run_id, definition=definition
+    )
+    assert resumed.status is RunStatus.SUCCEEDED
+    store.load_source_artifact.assert_called_once_with(first.ingestion_run_id)
+    store.load_payload.assert_not_called()
+    assert [row["record"] for row in store.load_normalized(first.ingestion_run_id) or []] == (
+        json.loads(ARTIFACT.read_bytes())["records"]
+    )
+
+
+def test_nlcd_row_checkpoint_preserves_exact_float_json() -> None:
+    definition = load_source_definition(DEFINITION)
+    adapter = RetainedAnnualNLCDAggregateAdapter()
+    records = adapter.normalize(definition, adapter.acquire(definition).payload).records
+    cursor = Mock()
+    cursor.__enter__ = Mock(return_value=cursor)
+    cursor.__exit__ = Mock(return_value=False)
+    connection = Mock()
+    connection.__enter__ = Mock(return_value=connection)
+    connection.__exit__ = Mock(return_value=False)
+    connection.cursor.return_value = cursor
+    captured = {}
+
+    def execute(sql, params):
+        if sql.startswith("MERGE"):
+            captured.update(document=params[1], digest=params[2])
+
+    cursor.execute.side_effect = execute
+    cursor.fetchone.side_effect = lambda: (captured["digest"],)
+    store = SnowflakeCheckpointStore(connection_factory=lambda: connection)
+    store.save_normalized("fixture-run", records)
+    stored = json.loads(captured["document"])
+    assert stored["format"] == "canonical-json-v1"
+    assert json.loads(stored["canonical_json"]) == records
+    cursor.fetchone.side_effect = lambda: (captured["document"], captured["digest"])
+    assert store.load_normalized("fixture-run") == records
+    corrupted = json.loads(captured["document"])
+    corrupted["canonical_json"] += " "
+    cursor.fetchone.side_effect = lambda: (json.dumps(corrupted), captured["digest"])
+    with pytest.raises(ValueError, match="checkpoint checksum mismatch"):
+        store.load_normalized("fixture-run")
 
 
 @pytest.mark.parametrize("mutation", ["value", "duplicate", "revision", "distribution", "county"])
