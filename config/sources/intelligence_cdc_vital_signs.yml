@@ -7,7 +7,7 @@ deterministic_order_clause: publisher_document_order
 incremental_strategy: CONTENT_REVISION
 geography_semantics: Publication; no inferred geography
 temporal_semantics: Publisher chronology; missing remains unknown
-destination: PRESENTATION.INTELLIGENCE_FEED_V
+destination: PRESENTATION.INTELLIGENCE_FEED_V2
 expected_refresh_cadence: daily
 artifact_policy: REVIEW_REQUIRED
 maximum_rows: 250

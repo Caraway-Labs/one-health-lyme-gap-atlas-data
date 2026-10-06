@@ -93,6 +93,42 @@ and a 300-second process deadline. The canonical job has a six-minute hard stop
 for these definition paths. The deadline also guards registry lookup and replay.
 No warehouse resize, suspension or other session cancellation occurs.
 
+The CLI additionally starts an owned-process watchdog before composition and
+cancels it only after run/resume returns: blocked connector setup, implicit
+transaction SQL and Spaces SDK calls cannot extend that process beyond five
+minutes. Connector commit/autocommit/rollback are explicitly deadline-checked
+and counted; the runtime session has a 30-second statement limit and detached
+query abort enabled. Existing stores' 120-second session setting is clamped
+for this pilot only. SDK-internal cleanup queries are not claimed to be fully
+counted by the wrapper, and Spaces is not claimed to have a 30-second per-call
+limit. The process watchdog, plus server/session limits, bounds those paths.
+
+## Independent review fixes and consumer projection prerequisite
+
+An incomplete ACQUIRE checkpoint no longer permits refetch when the immutable
+Snowflake payload is already committed. The checkpoint store first checks the
+durable binding and guarded immutable payload. The adapter verifies the original
+capture, and the existing intelligence store verifies the actual run/artifact
+and acquisition context. Resume completes ACQUIRE without HTTP, raw PUT, payload
+overwrite, changed attempt IDs, or lease/expiry renewal. The regression executes
+the actual Snowflake JSON save/load methods against an immutable SQL seam and
+injects the post-payload stage-checkpoint failure; file overwrite is not its
+payload implementation.
+
+These definitions now target the existing
+`PRESENTATION.INTELLIGENCE_FEED_V2` contract. Publication rejects a version that
+does not match its projection. V135's original unfiltered v1 view is insufficient
+for native-v2 consumer acceptance. Before live v2 LOAD, parent must reconcile
+actual view definitions and coordinate the already-prepared
+`docs/contracts/intelligence/v2/presentation-projection.sql` delta: replace the
+legacy view with its `contract_version='1.0.0'` filter using COPY GRANTS; create
+the version-filtered V2 view exposing canonical publisher metadata and empty
+derived metadata; preserve private native/XML/rights receipts; grant the existing
+READ role SELECT on V2. No table/column change is needed. This is a proposed
+view/SELECT-grant delta, not an executed grant or reserved migration. Actual
+objects/grants are unverified until approved preflight. Existing API v1 contracts
+are not relabelled or changed, and intended-reader V2 readback remains required.
+
 This bounds owned work, not an account-wide charge or invoice. Parent must
 track the already-approved six-request/$5 aggregate, prior preflight and idle
 time across dispatches. No paid run is released by this PR. Initial and repeat

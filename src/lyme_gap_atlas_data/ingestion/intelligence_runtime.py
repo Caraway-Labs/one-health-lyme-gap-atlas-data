@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import re
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -35,6 +38,23 @@ ENDPOINTS = {
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
+
+
+@contextmanager
+def pilot_watchdog() -> Iterator[None]:
+    """Stop this CLI process after five minutes, including blocked SDK calls.
+
+    Covers connection setup, implicit transaction SQL and Spaces operations
+    which cannot all be intercepted by the cursor wrapper. No other process,
+    warehouse or session is cancelled. The outer Actions limit is six minutes.
+    """
+    timer = threading.Timer(300, os._exit, args=(124,))
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
 
 
 class PilotBudget:
@@ -102,6 +122,14 @@ class _Cursor:
         if self.budget.queries >= 2500:
             raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
         self.budget.queries += 1
+        # Existing stores set a 120-second session limit. Preserve their other
+        # settings, but keep implicit connector transaction SQL bounded too.
+        statement = re.sub(
+            r"STATEMENT_TIMEOUT_IN_SECONDS\s*=\s*\d+",
+            f"STATEMENT_TIMEOUT_IN_SECONDS={min(30, math.ceil(remaining))}",
+            statement,
+            flags=re.IGNORECASE,
+        )
         # Connector cancellation is for this owned query, never the warehouse.
         kwargs["timeout"] = min(kwargs.get("timeout", 30), 30, math.ceil(remaining))
         result = self.raw.execute(statement, *args, **kwargs)
@@ -121,8 +149,22 @@ class _Connection:
         return _Cursor(self.raw.cursor(*args, **kwargs), self.budget)
 
     def commit(self) -> Any:
+        return self._transaction("commit")
+
+    def rollback(self) -> Any:
+        return self._transaction("rollback")
+
+    def autocommit(self, value: bool) -> Any:
+        return self._transaction("autocommit", value)
+
+    def _transaction(self, operation: str, *args: Any) -> Any:
         self.budget.remaining()
-        return self.raw.commit()
+        if self.budget.queries >= 2500:
+            raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
+        self.budget.queries += 1
+        result = getattr(self.raw, operation)(*args)
+        self.budget.remaining()
+        return result
 
 
 class PilotFeedAdapter(IntelligenceFeedAdapter):
@@ -171,7 +213,7 @@ def compose_pilot(
         or definition.adapter_kind is not AdapterKind.RSS_ATOM
         or definition.source_id != definition.resource_key
         or ENDPOINTS.get(definition.source_id) != definition.endpoint_template
-        or definition.destination != "PRESENTATION.INTELLIGENCE_FEED_V"
+        or definition.destination != "PRESENTATION.INTELLIGENCE_FEED_V2"
         or definition.quality_rules
     ):
         raise PermissionError("INTELLIGENCE_PILOT_DEFINITION_REQUIRED")
@@ -198,6 +240,10 @@ def compose_pilot(
         with connection_factory() as raw:
             connection = _Connection(raw, budget)
             with connection.cursor() as cursor:
+                cursor.execute(
+                    "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=30, "
+                    "STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=5, ABORT_DETACHED_QUERY=TRUE"
+                )
                 cursor.execute(
                     "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
                 )

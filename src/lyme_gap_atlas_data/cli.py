@@ -1059,23 +1059,30 @@ def source_run(
         if candidate.exists():
             resolved_fixture = candidate
     if loaded.adapter_kind is AdapterKind.RSS_ATOM and selected_tier is Tier.B and not dry_run:
-        from .ingestion.intelligence_runtime import canonical_pilot
+        from .ingestion.intelligence_runtime import canonical_pilot, pilot_watchdog
 
         if resolved_fixture is not None:
             raise typer.BadParameter("Live feed pilots do not accept fixture overrides")
         try:
-            orchestrator, loaded = canonical_pilot(loaded)
+            with pilot_watchdog():
+                orchestrator, loaded = canonical_pilot(loaded)
+                state = orchestrator.run(
+                    loaded,
+                    tier=selected_tier,
+                    dry_run=dry_run,
+                    fail_after_stage=fail_after_stage,
+                )
         except Exception:
             typer.echo("INTELLIGENCE_PILOT_PREFLIGHT_BLOCKED", err=True)
             raise typer.Exit(code=1) from None
     else:
         orchestrator = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run)
-    state = orchestrator.run(
-        loaded,
-        tier=selected_tier,
-        dry_run=dry_run,
-        fail_after_stage=fail_after_stage,
-    )
+        state = orchestrator.run(
+            loaded,
+            tier=selected_tier,
+            dry_run=dry_run,
+            fail_after_stage=fail_after_stage,
+        )
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
         raise typer.Exit(code=1)
@@ -1356,16 +1363,18 @@ def runs_resume(
         if candidate.exists():
             resolved_fixture = candidate
     if loaded.adapter_kind is AdapterKind.RSS_ATOM and resolved_fixture is None:
-        from .ingestion.intelligence_runtime import canonical_pilot
+        from .ingestion.intelligence_runtime import canonical_pilot, pilot_watchdog
 
         try:
-            orchestrator, loaded = canonical_pilot(loaded)
+            with pilot_watchdog():
+                orchestrator, loaded = canonical_pilot(loaded)
+                state = orchestrator.resume(run_id, definition=loaded)
         except Exception:
             typer.echo("INTELLIGENCE_PILOT_PREFLIGHT_BLOCKED", err=True)
             raise typer.Exit(code=1) from None
     else:
         orchestrator = _orchestrator_for_run(run_id, resolved_fixture)
-    state = orchestrator.resume(run_id, definition=loaded)
+        state = orchestrator.resume(run_id, definition=loaded)
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
         raise typer.Exit(code=1)

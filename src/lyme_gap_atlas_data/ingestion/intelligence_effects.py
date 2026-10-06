@@ -48,7 +48,8 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         source = definition.extra.get("intelligence_registry")
         if (
             definition.adapter_kind is not AdapterKind.RSS_ATOM
-            or definition.destination != "PRESENTATION.INTELLIGENCE_FEED_V"
+            or definition.destination
+            not in {"PRESENTATION.INTELLIGENCE_FEED_V", "PRESENTATION.INTELLIGENCE_FEED_V2"}
             or definition.quality_rules
             or not isinstance(source, dict)
         ):
@@ -102,12 +103,50 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         )
         return receipt
 
+    def recover_acquisition(
+        self, definition: SourceDefinition, state: RunState, payload: Any
+    ) -> dict[str, Any]:
+        """Verify the committed lineage without fetching/PUT or renewing raw bytes."""
+        source = self._definition(definition)
+        retention = self.feed_retention
+        if retention is None:
+            raise PermissionError("INTELLIGENCE_RAW_RETENTION_REQUIRED")
+        lease = retention.verify_payload(payload)
+        if lease.sha256 != retention.require_run(state.ingestion_run_id).sha256:
+            raise PermissionError("INTELLIGENCE_RAW_CAPTURE_MISMATCH")
+        lineage = payload.get("_acquisition_lineage")
+        if (
+            not isinstance(lineage, dict)
+            or lineage.get("ingestion_run_id") != state.ingestion_run_id
+            or not isinstance(lineage.get("artifact_id"), str)
+        ):
+            raise PermissionError("INTELLIGENCE_RAW_CAPTURE_MISMATCH")
+        # Existing store verifies the actual run/RAW-artifact reference and
+        # replays the immutable acquisition context under the existing guard.
+        self.store.record_acquisition(
+            source_id=source["source_id"],
+            registry_version=source["registry_version"],
+            resource_key=definition.resource_key,
+            run_id=state.ingestion_run_id,
+            artifact_id=lineage["artifact_id"],
+            context=payload["source_context"],
+        )
+        return {
+            "artifact_id": lineage["artifact_id"],
+            "artifact_sha256": lease.artifact_sha256,
+            "media_type": "application/xml",
+            "recovered_committed_acquisition": True,
+        }
+
     def materialize_normalized(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
         self._definition(definition)
+        expected = "2.0.0" if definition.destination.endswith("_V2") else "1.0.0"
         for item in records:
             validate_record("item", item)
+            if item["contract_version"] != expected:
+                raise PermissionError("INTELLIGENCE_PROJECTION_VERSION_REQUIRED")
         return {"record_count": len(records), "wrote": False, "mode": "validated_intelligence"}
 
     def load(
@@ -145,8 +184,11 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
         self._definition(definition)
+        expected = "2.0.0" if definition.destination.endswith("_V2") else "1.0.0"
+        if any(record.get("contract_version") != expected for record in records):
+            raise PermissionError("INTELLIGENCE_PROJECTION_VERSION_REQUIRED")
         return {
-            "target_relation": "PRESENTATION.INTELLIGENCE_FEED_V",
+            "target_relation": definition.destination,
             "record_count": len(records),
             "wrote": False,
             "status": "APPROVED_PROJECTION",

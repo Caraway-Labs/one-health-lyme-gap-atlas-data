@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -49,6 +51,7 @@ def selected() -> tuple[Any, dict[str, Any], list[dict[str, Any]]]:
         definition(source),
         endpoint_template=source["fetch_location"],
         definition_version=1,
+        destination="PRESENTATION.INTELLIGENCE_FEED_V2",
         extra={},
         artifact_policy="REVIEW_REQUIRED",
     )
@@ -59,7 +62,10 @@ class PilotCursor(AcquisitionCursor):
     def execute(self, statement: str, params: tuple[Any, ...] = (), **kwargs: Any) -> None:
         assert 0 < kwargs["timeout"] <= 30
         sql = " ".join(statement.split()).upper()
-        if sql.startswith("SELECT CURRENT_USER()"):
+        if sql.startswith("ALTER SESSION SET STATEMENT_TIMEOUT"):
+            assert "STATEMENT_TIMEOUT_IN_SECONDS=30" in sql
+            assert "ABORT_DETACHED_QUERY=TRUE" in sql
+        elif sql.startswith("SELECT CURRENT_USER()"):
             self.rows = [
                 (
                     "OH_LYME_DEV_PIPELINE_SVC",
@@ -184,6 +190,71 @@ def test_checked_in_definitions_and_policy_receipts_are_not_registry_approvals()
         assert configured.endpoint_template == runtime.ENDPOINTS[configured.source_id]
         assert "intelligence_registry" not in configured.extra
         assert configured.artifact_policy == "REVIEW_REQUIRED"
+        assert configured.destination == "PRESENTATION.INTELLIGENCE_FEED_V2"
+
+
+def test_watchdog_covers_entire_owned_process_and_cancels_on_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = []
+
+    class Timer:
+        def __init__(self, seconds: int, callback: Any, args: Any) -> None:
+            assert seconds == 300 and callback is runtime.os._exit and args == (124,)
+            self.daemon = False
+
+        def start(self) -> None:
+            assert self.daemon
+            observed.append("start")
+
+        def cancel(self) -> None:
+            observed.append("cancel")
+
+    monkeypatch.setattr(runtime.threading, "Timer", Timer)
+    with pytest.raises(RuntimeError), runtime.pilot_watchdog():
+        observed.append("inside")
+        raise RuntimeError("blocked provider setup")
+    assert observed == ["start", "inside", "cancel"]
+
+
+def test_implicit_transaction_calls_are_counted_and_expiry_stops_before_provider() -> None:
+    now = [0.0]
+    budget = runtime.PilotBudget(lambda: now[0])
+    observed = []
+
+    class Connection:
+        def commit(self) -> None:
+            observed.append("commit")
+
+        def rollback(self) -> None:
+            observed.append("rollback")
+
+        def autocommit(self, value: bool) -> None:
+            observed.append(value)
+
+    connection = runtime._Connection(Connection(), budget)
+    connection.autocommit(False)
+    connection.commit()
+    connection.rollback()
+    assert observed == [False, "commit", "rollback"] and budget.queries == 3
+    now[0] = 300
+    with pytest.raises(PermissionError, match="DEADLINE"):
+        connection.commit()
+    assert len(observed) == 3
+
+
+def test_watchdog_stops_a_process_blocked_outside_wrapped_cursor() -> None:
+    code = """
+import threading, time
+from lyme_gap_atlas_data.ingestion.intelligence_runtime import pilot_watchdog
+timer = threading.Timer
+threading.Timer = lambda seconds, callback, args: timer(0.1, callback, args=args)
+with pilot_watchdog():
+    time.sleep(5)
+raise AssertionError('Blocked provider escaped process watchdog')
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=10)
+    assert result.returncode == 124
 
 
 def test_composed_run_repoll_and_fresh_resume_preserve_native_capture_provenance(
@@ -232,6 +303,7 @@ def test_composed_run_repoll_and_fresh_resume_preserve_native_capture_provenance
     first, loaded = compose()
     state = first.run(loaded, tier=Tier.B)
     assert state.status.value == "SUCCEEDED"
+    assert state.stages[-1].detail["target_relation"] == "PRESENTATION.INTELLIGENCE_FEED_V2"
     assert len(calls) == len(ledger.captures) == len(ledger.revisions) == 1
     second, loaded = compose()
     assert second.run(loaded, tier=Tier.B).status.value == "SUCCEEDED"
