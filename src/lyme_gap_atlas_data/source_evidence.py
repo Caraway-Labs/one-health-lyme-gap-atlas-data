@@ -20,12 +20,13 @@ from typing import Any
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from lyme_gap_atlas_shared.snowflake import connect
+
+from lyme_gap_atlas_data.sql_sessions import connect
 
 from .artifacts import create_artifact
 from .ingestion.adapters import get_adapter
 from .ingestion.source_definition import load_source_definition
-from .ingestion.types import SourceDefinition
+from .ingestion.types import AdapterKind, SourceDefinition
 from .redaction import redact_mapping
 from .settings import PipelineSettings
 
@@ -45,7 +46,7 @@ def _spaces_client(settings: PipelineSettings) -> Any:
 
 def _definition_payload(definition: SourceDefinition) -> dict[str, object]:
     """Persist only reviewable configuration; never credentials or raw rows."""
-    return {
+    payload: dict[str, object] = {
         "resource_key": definition.resource_key,
         "source_id": definition.source_id,
         "dataset_id": definition.dataset_id,
@@ -59,6 +60,22 @@ def _definition_payload(definition: SourceDefinition) -> dict[str, object]:
         "required_columns": list(definition.required_columns),
         "restrictions": list(definition.restrictions),
     }
+    if definition.adapter_kind is AdapterKind.RETAINED_ANNUAL_NLCD_AGGREGATE:
+        payload.update(
+            {
+                name: definition.extra[name]
+                for name in (
+                    "aggregate_artifact_sha256",
+                    "calculation_run_id",
+                    "calculation_code_revision",
+                    "maximum_artifact_bytes",
+                    "county_fips",
+                    "mapping_year",
+                )
+            }
+        )
+        payload["maximum_rows"] = definition.maximum_rows
+    return payload
 
 
 def collect_routine_public_source_evidence(

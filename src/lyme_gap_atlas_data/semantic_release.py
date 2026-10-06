@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from lyme_gap_atlas_shared.snowflake import connect
 
+from lyme_gap_atlas_data.sql_sessions import connect
+
+from . import nlcd_release
 from .climate_release import validate_extension, verify_extension, verify_persisted_extension
 from .svi_context import TRANSFORMATION_VERSION as SVI_TRANSFORMATION
 from .svi_context import numeric_value as svi_numeric_value
@@ -128,6 +130,8 @@ def load_manifest(path: Path | str) -> SemanticManifest:
         raise SemanticReleaseBlocked("Unsupported semantic release manifest schema")
     if "climate_extension" in document:
         validate_extension(document["climate_extension"])
+    if "nlcd_extension" in document:
+        nlcd_release.validate_extension(document["nlcd_extension"])
 
     release_id = _required_text(document, "release_id")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,80}", release_id):
@@ -156,6 +160,26 @@ def load_manifest(path: Path | str) -> SemanticManifest:
             "Manifest is missing source slots: " + ", ".join(sorted(missing))
         )
     sources_by_key = {source.source_key: source for source in sources}
+    if "nlcd_extension" in document:
+        extension = document["nlcd_extension"]
+        source = sources_by_key.get(nlcd_release.SOURCE_KEY)
+        if source is None or any(
+            actual != expected
+            for actual, expected in (
+                (source.resource_key, nlcd_release.RESOURCE),
+                (source.data_source_version_id, extension["source_version_id"]),
+                (source.ingestion_run_id, extension["ingestion_run_id"]),
+                (source.artifact_id, extension["artifact_id"]),
+                (source.artifact_sha256, nlcd_release.SHA),
+                (source.source_id, "mrlc_annual_nlcd_derived_county_aggregates"),
+                (source.dataset_id, "annual-nlcd-c1v2-2025-reviewed-demo-cohort"),
+                (source.vintage, "C1V2-2025"),
+                (source.definition_version, 1),
+            )
+        ):
+            raise SemanticReleaseBlocked("NLCD extension must match its governed source slot")
+    elif nlcd_release.SOURCE_KEY in sources_by_key:
+        raise SemanticReleaseBlocked("NLCD source requires its bounded extension contract")
     if sources_by_key["tick"].resource_key == sources_by_key["pathogen"].resource_key:
         raise SemanticReleaseBlocked("Tick and pathogen must be distinct source resources")
 
@@ -184,6 +208,11 @@ def build_semantic_release(
                 _assert_release_absent(cursor, manifest.release_id)
                 if "climate_extension" in manifest.raw:
                     verify_extension(cursor, manifest.raw["climate_extension"])
+                nlcd_captures = (
+                    nlcd_release.verify_extension(cursor, manifest.raw["nlcd_extension"])
+                    if "nlcd_extension" in manifest.raw
+                    else []
+                )
                 use_dev_tick_evidence_exception = (
                     settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
                 )
@@ -229,8 +258,16 @@ def build_semantic_release(
                         f"found {len(counties)}"
                     )
                 bundle_sha256 = _bundle_sha256(manifest, counties)
+                if nlcd_captures:
+                    observations.extend(
+                        nlcd_release.observation_rows(
+                            manifest.release_id, manifest.raw["nlcd_extension"], nlcd_captures
+                        )
+                    )
                 _insert_release(cursor, manifest, bundle_sha256)
                 _insert_hierarchy(cursor, manifest)
+                if nlcd_captures:
+                    nlcd_release.insert_hierarchy(cursor, manifest.release_id)
                 _insert_sources(cursor, manifest)
                 _insert_counties(cursor, manifest.release_id, counties)
                 _insert_observations(cursor, manifest.release_id, observations)
@@ -284,8 +321,13 @@ def publish_semantic_release(
                     )
                 cursor.execute(
                     """SELECT COUNT(*), COUNT(DISTINCT fips),
-                              (SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_OBSERVATIONS
-                               WHERE release_id=%s)
+                               (SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_OBSERVATIONS o
+                                WHERE o.release_id=%s AND (
+                                 source_key<>'context_nlcd_2025' OR NOT EXISTS (
+                                   SELECT 1 FROM PRESENTATION.SEMANTIC_RELEASES nr
+                                    WHERE nr.release_id=o.release_id
+                                     AND nr.source_manifest:nlcd_extension:contract_version::VARCHAR
+                                         ='atlas-mrlc-nlcd-reviewed-cohort-extension/1')))
                     FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS
                     WHERE release_id=%s""",
                     (release_id, release_id),

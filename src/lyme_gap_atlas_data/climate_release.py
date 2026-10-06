@@ -380,6 +380,10 @@ def verify_persisted_extension(cursor: Any, release_id: str) -> None:
     _require(isinstance(manifest, Mapping), "CLIMATE_RELEASE_MANIFEST")
     if "climate_extension" in manifest:
         verify_extension(cursor, manifest["climate_extension"])
+    if "nlcd_extension" in manifest:
+        from .nlcd_release import verify_persisted_extension as verify_nlcd
+
+        verify_nlcd(cursor, release_id, manifest=manifest)
 
 
 def verified_climate_metadata_revisions(cursor: Any, extension: Any) -> set[str]:
