@@ -43,6 +43,10 @@ on:
         description: Exact reviewed main SHA for bounded January registration or frozen membership
         required: false
         type: string
+      diagnostic_budget_evidence:
+        description: January read-only billing price receipt JSON; never credentials
+        required: false
+        type: string
       registration_phase:
         description: Factual January bindings only; never approve or publish
         required: false
@@ -141,7 +145,7 @@ jobs:
     if: inputs.operation != 'spaces-readiness'
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.operation == 'january-source-registration' && 15 || 360 }}
+    timeout-minutes: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || 360 }}
     environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
@@ -240,6 +244,7 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
           MEASUREMENT_ACTION: ${{ inputs.measurement_action }}
+          JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: ${{ inputs.diagnostic_budget_evidence }}
           REGISTRATION_PHASE: ${{ inputs.registration_phase }}
         run: |
           set -euo pipefail
@@ -281,6 +286,8 @@ jobs:
           # this ephemeral process environment and never print the key.
           export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
 
+          # The bounded exporter verifies identity in its single session.
+          if [ "$MEASUREMENT_ACTION" != "frozen-membership" ] || [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ]; then
           uv run python - <<'PY'
           import os
 
@@ -318,7 +325,7 @@ jobs:
                   f"{expected_user}/{expected_role} identity."
               )
           PY
-
+          fi
           if [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then
             uv run python scripts/nclimgrid_bulk_transport_canary.py
           elif [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then
@@ -352,12 +359,14 @@ jobs:
               --definition "$SOURCE_DEFINITION"
           fi
       - name: Retain read-only pilot inspection artifact
-        if: inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership'
+        if: always() && inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership'
         uses: actions/upload-artifact@v4
         with:
           name: source-pilot-inspection
-          path: ${{ runner.temp }}/source-pilot-inspection-artifact.json
-          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/source-pilot-inspection-artifact.json
+            ${{ runner.temp }}/january-membership-diagnostic-receipt.json
+          if-no-files-found: warn
           retention-days: 14
       - name: Inspect definition
         if: inputs.operation == 'inspect'
