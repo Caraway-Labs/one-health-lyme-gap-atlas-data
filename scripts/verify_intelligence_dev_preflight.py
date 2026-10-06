@@ -72,17 +72,38 @@ def value(row: dict[str, Any], key: str) -> Any:
 
 
 def table_matches(name: str, columns: list[dict[str, Any]]) -> bool:
-    actual = tuple(
-        (
-            str(value(row, "name")).upper(),
-            str(value(row, "type")).upper().replace(" ", ""),
-            str(value(row, "null?")).upper() == "Y",
-            str(value(row, "default") or "").upper().replace(" ", ""),
+    actual = []
+    for row in columns:
+        fields = {key.lower(): item for key, item in row.items()}
+        required = {"name", "type", "null?", "default", "kind"}
+        if not required <= fields.keys():
+            return False
+        column = fields["name"]
+        type_name = fields["type"]
+        nullable = fields["null?"]
+        default = fields["default"]
+        if (
+            fields["kind"] != "COLUMN"
+            or not isinstance(column, str)
+            or not isinstance(type_name, str)
+            or not type_name
+            or nullable not in ("Y", "N")
+            or (default is not None and not isinstance(default, str))
+        ):
+            return False
+        # Snowflake preserves quoted identifier case. Only exact approved names
+        # are reusable; lower-case quoted columns are different identifiers.
+        # An explicitly returned NULL default means no default. A missing key
+        # is unknown metadata and must never be treated as that NULL.
+        actual.append(
+            (
+                column,
+                type_name.upper().replace(" ", ""),
+                nullable == "Y",
+                (default or "").upper().replace(" ", ""),
+            )
         )
-        for row in columns
-        if str(value(row, "kind")).upper() == "COLUMN"
-    )
-    return actual == TABLE_SHAPES[name]
+    return tuple(actual) == TABLE_SHAPES[name]
 
 
 def privileges_match(name: str, grants: list[dict[str, Any]]) -> dict[str, bool]:
