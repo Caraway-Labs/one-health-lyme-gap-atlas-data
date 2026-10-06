@@ -13,7 +13,6 @@ from .adapters import (
     AcquireResult,
     AcquisitionError,
     NormalizeResult,
-    StreamingNormalizeResult,
     _normalized_record,
 )
 from .types import AdapterKind, FailureCategory, SourceDefinition, ValidationIssue, ValidationResult
@@ -103,7 +102,11 @@ def _checked_records(definition: SourceDefinition, payload: Any) -> list[dict[st
 
 
 class RetainedAnnualNLCDAggregateAdapter:
-    """Capture the real retained aggregate envelope, never reacquire rasters."""
+    """Use the existing row path for this fixed 14-row retained cohort.
+
+    The streaming protocol selects bulk transport, whose stage is DEV-only.
+    This bounded adapter requires no bulk stage or new production grants.
+    """
 
     kind = AdapterKind.RETAINED_ANNUAL_NLCD_AGGREGATE
 
@@ -176,11 +179,3 @@ class RetainedAnnualNLCDAggregateAdapter:
         payload = json.loads(raw_payload)
         _checked_records(definition, payload)
         return payload
-
-    def normalize_iter(
-        self, definition: SourceDefinition, payload: Any
-    ) -> StreamingNormalizeResult:
-        normalized = self.normalize(definition, payload)
-        return StreamingNormalizeResult(
-            iter(normalized.records), normalized.transformation_version, normalized.detail
-        )

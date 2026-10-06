@@ -10,7 +10,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError, get_adapter
+from lyme_gap_atlas_data.ingestion.adapters import (
+    AcquisitionError,
+    StreamingSourceAdapter,
+    get_adapter,
+)
 from lyme_gap_atlas_data.ingestion.checkpoints import FileCheckpointStore
 from lyme_gap_atlas_data.ingestion.orchestrator import IngestionOrchestrator
 from lyme_gap_atlas_data.ingestion.retained_annual_nlcd import RetainedAnnualNLCDAggregateAdapter
@@ -48,7 +52,7 @@ def test_exact_fourteen_records_survive_both_canonical_load_shapes() -> None:
     assert acquired.row_count == 14
     records = adapter.normalize(definition, acquired.payload).records
     assert [row["record"] for row in records] == acquired.payload["records"]
-    assert list(adapter.normalize_iter(definition, acquired.payload).records) == records
+    assert not isinstance(adapter, StreamingSourceAdapter)
     state = RunState("fixture-run", definition.resource_key, 1, Tier.A, RunStatus.RUNNING)
     rows = _lineage_rows(definition, state, records)
     assert len(rows) == len({row[0] for row in rows}) == 14
@@ -66,6 +70,7 @@ def test_durable_restart_replays_capture_without_reacquisition(tmp_path: Path) -
     definition = load_source_definition(DEFINITION)
     (tmp_path / ARTIFACT.name).write_bytes(ARTIFACT.read_bytes())
     store = FileCheckpointStore(tmp_path / "checkpoints")
+    store.save_partition = Mock(side_effect=AssertionError("DEV-only bulk path selected"))
     adapter = RetainedAnnualNLCDAggregateAdapter()
     first = IngestionOrchestrator(store, fixture_dir=tmp_path, adapter=adapter).run(
         definition, tier=Tier.A, fail_after_stage="NORMALIZE"
@@ -74,14 +79,15 @@ def test_durable_restart_replays_capture_without_reacquisition(tmp_path: Path) -
     checkpoint = first.checkpoint(Stage.ACQUIRE)
     assert checkpoint and checkpoint.artifact_id
     assert checkpoint.artifact_sha256 == definition.extra["aggregate_artifact_sha256"]
-    (tmp_path / ARTIFACT.name).unlink()  # Resume must use retained bytes and partitions.
+    (tmp_path / ARTIFACT.name).unlink()  # Resume must use retained bytes and normalized rows.
     runner = IngestionOrchestrator(store, fixture_dir=tmp_path, adapter=adapter)
     resumed = runner.resume(first.ingestion_run_id, definition=definition)
     assert resumed.status is RunStatus.SUCCEEDED
     assert (
         runner.resume(first.ingestion_run_id, definition=definition).status is RunStatus.SUCCEEDED
     )
-    assert sum(len(part.records) for part in store.iter_partitions(first.ingestion_run_id)) == 14
+    assert len(store.load_normalized(first.ingestion_run_id) or []) == 14
+    store.save_partition.assert_not_called()
     restored = store.load_payload(first.ingestion_run_id)
     assert isinstance(restored, dict)
     assert restored["records"] == json.loads(ARTIFACT.read_bytes())["records"]
