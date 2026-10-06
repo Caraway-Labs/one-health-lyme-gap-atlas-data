@@ -1,6 +1,6 @@
 # 0039: nClimGrid longitudinal window and bounded execution
 
-Status: Proposed for protected review under #443
+Status: Revised for independent review under #443 (2026-10-06)
 Date: 2026-09-26
 Decision owner: Atlas data stewardship and engineering
 
@@ -8,10 +8,10 @@ Decision owner: Atlas data stewardship and engineering
 
 PR #434 proved January 2025 through the canonical #198/#424/#426/#432 path.
 NOAA publishes scaled nClimGrid-Daily v1.0.0 monthly NetCDF files from 1951.
-Data #110/#113 require measured historical depth and point-in-time evidence,
-while machine-learning #23 has not approved a target, horizon, or split. A
-short model-specific slice would preempt those decisions. The current
-per-month partition design also makes the full historical cost material.
+DATA #443 now selects environmental context from 1985-01 through the latest
+complete supported scaled month. Supervised labels are not an execution gate;
+Tier 1 ML does not wait for climate. Historical as-of eligibility and ML feature
+admission remain separate decisions.
 
 ## Decision proposed for review
 
@@ -35,12 +35,13 @@ one run per month. The #424 county/grid weights may be reused only in process
 when the verified TIGER and grid identities match. The cache is disposable;
 artifact replay remains run pinned.
 
-The [window and checkpoint assessment](../operations/nclimgrid-window-and-checkpoint-assessment.md)
-proposes 2008-01 through 2025-12 as a provisional initial Atlas candidate,
-with alternatives and exact estimates. The read-only DEV role cannot inspect
-conformed county-year rows, so this is pending steward verification of label
-continuity and #110/#113/#23 decisions. Older NOAA history remains an optional
-future extension.
+The Atlas target is **1985-01 through a frozen approved end month**, presently
+2026-08 (500 months). Source availability from 1951 remains unchanged for
+retained replay. The September 26 assessment is historical, superseded as a
+selection gate; it does not limit the new target to supervised-label overlap.
+The first proposed proof is exactly two singleton DEV scopes: 198501, then
+202608 after acceptance of the first. This is not permission to ingest 500 months.
+See the [bounded plan](../operations/nclimgrid-1985-proof-plan.json).
 
 ## Cost and execution gate
 
@@ -82,12 +83,13 @@ and Snowflake V103 physical storage are unknown. [Snowflake documents](https://d
 time does not measure DEV warehouse active time, account credit price, or
 compressed storage. A DEV cost budget needs a measured protected pilot.
 
-**Any longitudinal DEV execution is pending a reviewed label/window and
-checkpoint-cost decision and the protected application of V103.** The read-only DEV migration ledger
-contained V101/V102 but no V103 on 2026-09-26. The current read role cannot
-inspect the source-run ledger. Do not infer that the 908 NOAA months have
-been ingested or that a retrospective NOAA observation was available at a
-historical prediction cutoff.
+**New execution remains blocked on exact runtime/storage/spend authority**,
+not label availability or an obsolete missing-V103 claim. V103/V117 and current
+identity, active workers, ledger reuse and resource headroom must be verified
+before dispatch. ADR 0040 retains 64-partition recovery groups. Existing DEV
+January and 2008 proofs are retained evidence, not permission to recapture them.
+The accepted January benchmark is 25m38.119s, 815 queries and 233 MERGEs;
+warehouse active time, peak RSS and physical-storage cost are separate facts.
 
 ## Consequences
 
@@ -103,17 +105,17 @@ HTTP Last-Modified, NetCDF date_modified, or current retrieval time.
 ## Alternatives considered
 
 - Treating all NOAA availability as the initial Atlas backfill: no approved
-  target or demonstrated pre-2008 label overlap justifies the checkpoint cost.
+  bounded spend authorization covers the whole availability range.
 - One all-history blob or run: violates independent monthly capture and
   bounded #426 replay.
 - Preliminary substitution: changes the approved source product.
-- Immediate full DEV backfill: V103 is not deployed in DEV, and the measured
+- Immediate full DEV backfill: the measured
   footprint requires cost and retention review first.
 
 ## Acceptance and rollout
 
-Review county-year label coverage, candidate window, projected footprint,
-retention feasibility, and DEV migration before any Tier B execution. A
+Review the exact finite plan, runtime/spend/storage bounds, retained capture
+reuse, resource headroom and deployed prerequisites before any Tier B execution. A
 measured single-month Tier B checkpoint pilot is the recommended prerequisite.
 Execute one to twelve months at a time through the nClimGrid-only operation
 of the protected ingestion workflow. Re-run a
