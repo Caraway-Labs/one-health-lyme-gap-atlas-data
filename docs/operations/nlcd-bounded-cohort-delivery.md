@@ -24,8 +24,10 @@ calculation code identity. Every selected scientific record is unchanged. The
 new ingestion capture is the real derived JSON envelope; it is not a raster
 capture, a synthetic S3 tile, or a claim of USGS object-version lineage.
 
-The adapter uses the existing source validation, capture, bounded partitions,
-compressed internal-stage load, immutable V103 revisions and run resume path.
+The fixed fourteen-row adapter uses existing source validation, capture,
+normalized-row checkpoints, bounded row MERGEs, immutable V103 revisions and
+run resume. It deliberately does not implement the streaming adapter protocol:
+that protocol selects bulk transport, whose V117 stage is DEV-only.
 There are no new workflows, relations, roles or grants. Loads fail before a
 connection is opened if the ACQUIRE artifact ID/checksum is absent or differs
 from the reviewed envelope. The new normalization version describes adding the
@@ -41,7 +43,7 @@ not Lyme risk estimates or automatically admitted ML features.
 
 ## Protected execution
 
-Source admission is pending execution. Matthew authorized this bounded PROD
+Matthew authorized this bounded PROD
 delivery and up to **US$15 total for Snowflake load, staging, verification and
 retries** on 2026-10-06 at 00:55 UTC. This separate authorization supersedes the
 earlier proposed $1 limit; it does not consume or expand the prior acquisition
@@ -114,8 +116,8 @@ Cloud-services adjustments and account-level usage are not assumed to be free.
 
 The unchanged derived artifact is 29,058 bytes. Candidate capture writes two
 small private evidence/config objects; canonical ingestion retains one captured
-envelope and bounded internal-stage transport, without copying ZIP/TIFF rasters.
-Temporary stage transport is removed by the existing loader. The semantic build
+envelope and bounded normalized rows, without copying ZIP/TIFF rasters.
+The semantic build
 retains the existing baseline plus fourteen rows, so storage includes its normal
 release tables, not merely the small envelope. Record actual artifact sizes,
 query IDs, elapsed windows and available credits separately from forecasts.
@@ -153,3 +155,41 @@ After the separately reviewed semantic release, use `ATLAS_PROD_READ` and the
 existing presentation query to prove all fourteen values and their lineage are
 consumer-queryable. Retain query IDs and effective role; no such consumer proof
 has yet been executed.
+
+## Reconciled first execution and recovery
+
+On 2026-10-06, reviewed PR #610 merged as
+`9db4ce3d98037f89b1f207248cd82b17f5aa7dda`; V138 and V139 applied through the
+existing checksum runner. Protected evidence capture
+[37402361474](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37402361474)
+completed with the exact retained artifact. The owner procedure recorded
+conditional source version `e503ef24-6d16-4778-8350-2b76eac6e07a` and decision
+`f94e1789-4d94-466e-8693-6bf6cfc8189c`.
+
+Protected ingestion
+[37402818297](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37402818297)
+acquired the same artifact and validated it, then failed at NORMALIZE for run
+`26ee1f3b-e503-45bc-9333-6892f85ad4fd`. Runtime audit returned a concrete missing
+or unauthorized `GOVERNANCE.INGESTION_BULK_STAGE` error; V117 is explicitly
+excluded from PROD. Runtime audit query
+`01c78a14-040b-e9a9-0064-2d070113f5ee` returned zero RAW, STAGING, CONFORMED and
+partition rows for that run; immutable captures were also zero. LOAD remained
+pending, and no semantic publication occurred. No recapture or blind retry is
+warranted.
+
+Read-only resume preflight also found `Stored payload checkpoint checksum
+mismatch` in the acquired convenience VARIANT checkpoint. The authoritative
+captured artifact retains the exact original bytes and checksum. For this adapter
+only, resume prioritizes the existing verified SOURCE_PAYLOAD artifact reader
+over that convenience checkpoint. Its fourteen normalized rows reuse the existing
+`canonical-json-v1` encoding to preserve exact floating-point JSON through
+Snowflake VARIANT. Existing checkpoint rows are preserved, not rewritten.
+
+The narrow recovery removes streaming from this new fixed-size adapter and uses
+the already existing normalized-row path. Its scoped replay and encoding changes
+retain the existing orchestration and checkpoint framework. It changes no
+scientific artifact, source definition, normalization transform, production
+stage, relation or grant. Independently review and test that fix, then resume
+the same retained run with the exact reviewed main commit and existing real
+source/decision IDs through `run-prod-ingestion.yml`. Reconcile actual captures,
+values, revision identities and cost before continuing semantic publication.
