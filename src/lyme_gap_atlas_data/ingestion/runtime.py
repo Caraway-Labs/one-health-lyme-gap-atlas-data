@@ -373,6 +373,7 @@ class SnowflakeStageEffects:
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
         rows = _lineage_rows(definition, state, records)
+        _require_retained_aggregate_receipt(definition, state)
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
@@ -410,6 +411,7 @@ class SnowflakeStageEffects:
             raise ValueError("Load batch exceeds eight partitions")
         if not partitions:
             return
+        _require_retained_aggregate_receipt(definition, state)
         artifact = state.checkpoint(Stage.ACQUIRE)
         normalization = state.checkpoint(Stage.NORMALIZE)
         with self._connection_factory() as connection:
@@ -467,6 +469,7 @@ class SnowflakeStageEffects:
         documents = _bulk_lineage_documents(definition, state, partitions)
         if not documents:
             return
+        _require_retained_aggregate_receipt(definition, state)
         artifact = state.checkpoint(Stage.ACQUIRE)
         normalization = state.checkpoint(Stage.NORMALIZE)
         with self._connection_factory() as connection:
@@ -776,6 +779,17 @@ def evaluate_quality_rules_streaming(
             }
         )
     return results
+
+
+def _require_retained_aggregate_receipt(definition: SourceDefinition, state: RunState) -> None:
+    """A retained cohort cannot succeed without its immutable revision receipt."""
+    if definition.adapter_kind is not AdapterKind.RETAINED_ANNUAL_NLCD_AGGREGATE:
+        return
+    artifact = state.checkpoint(Stage.ACQUIRE)
+    if artifact is None or not artifact.artifact_id or not artifact.artifact_sha256:
+        raise ValueError("Retained aggregate requires an ACQUIRE artifact ID and checksum")
+    if artifact.artifact_sha256 != definition.extra.get("aggregate_artifact_sha256"):
+        raise ValueError("Retained aggregate ACQUIRE checksum differs from reviewed capture")
 
 
 def _acquisition_artifacts(

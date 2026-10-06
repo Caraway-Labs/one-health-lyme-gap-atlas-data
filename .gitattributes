@@ -1,1 +1,2 @@
 scripts/run_nlcd_storage_once.sh text eol=lf
+src/lyme_gap_atlas_data/data/annual-nlcd-2025-demo-cohort.json text eol=lf

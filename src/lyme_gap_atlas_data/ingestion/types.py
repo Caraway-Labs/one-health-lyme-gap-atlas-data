@@ -23,6 +23,7 @@ class AdapterKind(StrEnum):
     NEON_RELEASE_PACKAGE = "neon_release_package"
     NCLIMGRID_DAILY = "nclimgrid_daily"
     ANNUAL_NLCD = "annual_nlcd"
+    RETAINED_ANNUAL_NLCD_AGGREGATE = "retained_annual_nlcd_aggregate"
     MODIS_VEGETATION = "modis_vegetation"
 
 
