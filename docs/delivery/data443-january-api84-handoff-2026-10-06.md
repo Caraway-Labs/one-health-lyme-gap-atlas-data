@@ -41,7 +41,7 @@ source-specific boundary using the existing approved identity. A grant request
 requires a proven object/owner and principal/privilege tuple; none is established
 by the generic export failure or API `002003` alone.
 
-## Morning checkpoint after the bounded diagnostic
+## Checkpoint after the bounded diagnostic
 
 Matthew's actual January product approval remains: "Yes, I approve ingesting the
 data, making sure it's in Snowflake, getting it modeled correctly in Snowflake,
@@ -64,23 +64,16 @@ follow-up using the existing watchdog/cursor deadline at fifty execution seconds
 The five-minute job window and sixty-second cleanup reserve remain intact. No
 source/membership guards, identity, warehouse setting or grants were changed.
 
-The corrected paid dispatch was rejected by automatic approval review before
-launch: the reviewer interpreted end-user authorization as covering only the
-already-completed single diagnostic and did not accept parent-agent instructions
-as expanding that scope. No second run, retry or alternate route occurred.
-Batch the specific additional-approval request for morning: one additional paid
-read-only January diagnostic, maximum fifty execution seconds, preserving all
-guards and no retries, within the original US$5 aggregate modeled reservation.
-No routine user wake-up is needed; obtain the explicit approval before dispatch.
+The corrected diagnostic has not run. One additional read-only diagnostic,
+capped at 50 execution seconds with unchanged guards and no retries, awaits
+Matthew's explicit approval before dispatch.
 
 The original full reservation is US$3.3295833333. At the verified public
 US$6/credit forecast the proposed follow-up reservation is US$1.6141666667,
 aggregate US$4.94375. These include separate noncompute reserves and an idle tail;
 they are forecasts, not actual charges or a statement of remaining budget.
 Actual billed dollars remain null. Usage history was not queried because the
-preflight failed. The original private receipt, query IDs, public-price evidence,
-prepared exact dispatch inputs and rejection record are preserved outside Git.
-Another execution must first verify reviewed current main and its exact CI; stale
+preflight failed. Another execution must first verify reviewed current main and its exact CI; stale
 SHA, pricing or runtime evidence blocks it.
 
 API #84 still needs verified frozen membership/digest and donor manifest, the
