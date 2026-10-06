@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -343,3 +344,44 @@ def test_committed_immutable_payload_recovers_before_refetch_and_keeps_original_
     with pytest.raises(ValueError, match="checkpoint checksum mismatch"):
         fresh.save_payload(first.ingestion_run_id, changed)
     assert sql.rows == committed
+
+
+def test_completed_normalize_replay_rejects_wrong_projection_before_store_write(
+    tmp_path: Path,
+) -> None:
+    database = AcquisitionLedger()
+    source = database.sources[0]
+    raw = (FIXTURES / "rss/sample.xml").read_bytes()
+    adapter, calls = fetch_adapter(source, [FeedResponse(200, {}, raw)])
+    original_acquire = adapter.acquire
+    adapter.acquire = lambda selected, **kwargs: original_acquire(selected)
+    checkpoints = FailingCheckpoints(tmp_path, database, "")
+    adapter.feed_retention = checkpoints.feed_retention
+    effects = IntelligenceStageEffects(
+        connection_factory=database.connect,
+        spaces_client=Objects(),
+        retention_allowed=lambda ref: True,
+        artifact_policy_allowed=lambda ref, policy: True,
+        feed_retention=checkpoints.feed_retention,
+    )
+    first = IngestionOrchestrator(
+        store=checkpoints,
+        adapter=adapter,
+        fixture_dir=FIXTURES / "rss",
+        effects=effects,
+    ).run(definition(source), tier=Tier.A, fail_after_stage="NORMALIZE")
+    assert first.status.value == "FAILED" and len(calls) == 1
+    assert first.checkpoint(Stage.NORMALIZE).status is StageStatus.COMPLETED
+    saved = checkpoints.load_normalized(first.ingestion_run_id)
+    assert saved and all(item["contract_version"] == "1.0.0" for item in saved)
+    assert not database.revisions and not database.captures
+    target = replace(definition(source), destination="PRESENTATION.INTELLIGENCE_FEED_V2")
+    resumed = IngestionOrchestrator(store=checkpoints, adapter=adapter, effects=effects).resume(
+        first.ingestion_run_id,
+        definition=target,
+    )
+    assert resumed.status.value == "FAILED" and len(calls) == 1
+    assert resumed.checkpoint(Stage.NORMALIZE).status is StageStatus.COMPLETED
+    assert resumed.checkpoint(Stage.LOAD).status is StageStatus.FAILED
+    assert not database.revisions and not database.captures
+    assert checkpoints.load_normalized(first.ingestion_run_id) == saved

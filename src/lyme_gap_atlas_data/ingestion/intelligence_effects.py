@@ -152,6 +152,9 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
     def load(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        # Resume may skip a completed NORMALIZE checkpoint. Validate its saved
+        # rows here before any write, rather than waiting for QUALITY/PUBLISH.
+        self.materialize_normalized(definition, state, records)
         source = self._definition(definition)
         receipt = self.store.write(
             source_id=source["source_id"],
