@@ -27,3 +27,10 @@ safe evidence, public input surface and workflow branch ordering. Hosted Quality
 remains required. No live query, grant, DDL, deployment or paid feed execution.
 Source/native policy, exact schema/definition review and physical-retention
 prerequisites remain separately gated.
+
+The readiness follow-up compares all returned table columns against fixed approved
+names/types/nullability/defaults, and each target role's privileges against its
+fixed expected set. Missing privileges, extras and grant option are separate
+booleans; no raw metadata is emitted or automatically repaired. The three newly
+approved scopes remain documents SELECT/INSERT, audit INSERT and V2 READ SELECT.
+Comparisons reuse existing DESCRIBE/SHOW GRANTS results and add no queries.
