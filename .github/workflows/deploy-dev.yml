@@ -6,6 +6,16 @@ on:
         description: Reviewed exact pending version/filename/sha256 JSON array; required for mutation, [] for none
         required: false
         type: string
+      diagnose_intelligence_dev:
+        description: Fixed read-only feed metadata preflight; private artifact, no migrations
+        required: false
+        type: boolean
+        default: false
+      feed_preflight_accounting_confirmed:
+        description: Confirm privately reconciled aggregate $5/six-request ledger covers this bounded probe; no private values
+        required: false
+        type: boolean
+        default: false
       diagnose_query_id:
         description: Optional failed migration DDL query ID; inspect only, without applying migrations
         required: false
@@ -68,6 +78,16 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]; then
+            if [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ] || [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ] || { [ -n "$EXPECTED_PENDING_JSON" ] && [ "$EXPECTED_PENDING_JSON" != '[]' ]; }; then
+              echo 'Choose intelligence read-only mode without migrations or another diagnostic.' >&2
+              exit 2
+            fi
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            uv run python scripts/verify_intelligence_dev_preflight.py
+            exit 0
+          fi
           snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
           if [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ]; then
@@ -117,6 +137,8 @@ jobs:
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
         env:
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
+          FEED_PREFLIGHT_ACCOUNTING_CONFIRMED: ${{ inputs.feed_preflight_accounting_confirmed }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
