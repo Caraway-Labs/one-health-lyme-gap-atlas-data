@@ -1,5 +1,9 @@
 # #443 initial-window and checkpoint assessment (2026-09-26)
 
+> Historical September 26 assessment. Its 2008 target and label-panel/missing-V103
+> selection gates are superseded by DATA #443 on 2026-10-06: 1985 to a frozen
+> complete supported endpoint. Measurements remain historical evidence.
+
 This is a read-only planning assessment. It does not authorize V103, Tier B
 backfill, PROD mutation, or ML feature admission.
 

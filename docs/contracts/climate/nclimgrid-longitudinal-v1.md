@@ -1,7 +1,7 @@
 # NOAA nClimGrid-Daily longitudinal county panel v1
 
-Status: proposed for #443 review; initial Atlas execution is pending the
-label/window, checkpoint-cost, and DEV migration gates in [ADR 0039](../../adr/0039-nclimgrid-longitudinal-window-and-bounded-execution.md).
+Status: scope reconciled on 2026-10-06; execution requires the separately
+approved finite plan and runtime/storage/spend bounds in ADR 0039.
 Owner: Atlas data stewardship and engineering.
 
 ## Frozen NOAA source-availability window (not the Atlas execution target)
@@ -26,13 +26,16 @@ availability evidence, not a capture or checksum. A later 404 or corrupt
 artifact is recorded as a failed monthly run and never silently replaced by
 preliminary data.
 
-The 908 months describe listed NOAA availability and the bounds of generated
-definitions, **not** an approved Atlas backfill. Data #110/#113 require
-eligible county-period counts and historical as-of evidence; machine-learning
-#23 has no approved target or horizon. The [window and checkpoint assessment](../../operations/nclimgrid-window-and-checkpoint-assessment.md)
-sets out a provisional 2008-01 through 2025-12 initial candidate and smaller
-and larger alternatives. No candidate is ML feature admission or approval to
-ingest. Older NOAA history remains an optional future extension.
+The 908 months are source availability and replay bounds, not dispatch authority.
+The Atlas target is **198501 through the reviewed latest complete supported
+scaled month**, currently 202608: 500 calendar months. A fresh October 6
+2026 index check found only January-August scaled links. No source bytes were
+downloaded and later months remain rejected by LAST_MONTH until reviewed.
+`atlas_target_months(approved_end_month, as_of=...)` explicitly separates this
+selection from older replay definitions and rejects incomplete/current or future
+months. This does not alter definition hashes, existing captures or publication.
+Supervised labels are not a climate dependency; Tier 1 ML proceeds independently.
+The first proposed new proof is two singleton months, not automatic continuation.
 
 ## Representative source-backed schema evidence
 
@@ -143,7 +146,15 @@ MB of NOAA/TIGER artifacts. January 1951 alone used 635.7 MB of partitions
 and 146.3 MB of artifacts. A simple linear footprint is about 579 GB of
 partition JSON plus about 132 GB of independently retained artifacts, before
 Snowflake V103 physical rows, recaptures, and overhead. These figures do not
-make the 908 months an Atlas target. The smaller candidate volumes and V103
-retention/query implications are in the linked assessment. DEV's missing V103
-migration requires human review before any Tier B backfill. No PROD
+make the 908 months an Atlas target. Those older candidate comparisons are historical. Current execution requires
+verified V103/V117 applicability and a reviewed finite cost/resource plan; it
+does not depend on a supervised label panel. No PROD
 or consumer execution is authorized by this contract.
+
+## Publication remains independent
+
+Captured report states are not published coverage. Preserve the existing annual
+source slots and January-only `atlas-january-climate-release-extension-v1`;
+historical ingestion cannot widen its fixed month/run/digest guards. Additional
+months require a reviewed version of that contract, exact source authority and
+target parity. API #84 can finish retained January independently of history.
