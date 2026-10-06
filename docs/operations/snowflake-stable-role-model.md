@@ -1,10 +1,10 @@
 # Stable Snowflake role model (Epic #223 / Story #229; consolidated by Epic #294 / ADR 0030)
 
-## DATA #604 semantic lineage audit route (pending DEV/PROD acceptance)
+## DATA #604 semantic lineage audit route (DEV/PROD accepted 2026-10-05)
 
-V137 proposes one secure internal view, `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V`, with object-level `SELECT` for `OH_LYME_{ENV}_READ`. It adds no base-table grant or new role. Use the environment's READ connection for routine semantic-lineage validation after its migration and effective grant are verified. `ATLAS_DEV_READ` is the existing DEV connection; a named PROD READ PAT connection must be provisioned and verified before PROD acceptance. See [the bounded contract](../contracts/semantic-domain/data-604-lineage-audit-v1.md) for the query and failure checks.
+V137 creates one secure internal view, `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V`, with object-level `SELECT` for `OH_LYME_{ENV}_READ`. It adds no base-table grant or new role. Use `ATLAS_DEV_READ` for DEV and the verified `ATLAS_PROD_READ` PAT connection bound to `OH_LYME_PROD_READ` for routine PROD semantic-lineage validation. Select `ONE_HEALTH_LYME_GAP_ATLAS_PROD` and `COMPUTE_WH` explicitly. See [the bounded contract](../contracts/semantic-domain/data-604-lineage-audit-v1.md) for the query and failure checks.
 
-**ACCOUNTADMIN is prohibited for normal lineage verification.** OWNER, RUNTIME, and MIGRATION_DEPLOYER are also not routine audit identities. This proposal does not establish live DEV or PROD acceptance until protected migrations and single-identity lineage proofs pass.
+**ACCOUNTADMIN is prohibited for normal lineage verification.** OWNER, RUNTIME, and MIGRATION_DEPLOYER are also not routine audit identities. Protected DEV and PROD migrations and READ-only live SVI/RUCC lineage proofs passed. In PROD, 22,008 observations yielded 22,008 authoritative conformed matches with no duplicate observations, missing required source-version/run/artifact/conformed-record/release anchors, or source-row-hash mismatches. This representative proof does not claim generic V069/V103 record matches for source-specific human/tick/pathogen authorities.
 
 ## Current model (as of Story #297, DEV; Story #298 mirrors this to PROD)
 

@@ -1,8 +1,8 @@
 # `snow` CLI connection-surface audit and reconciliation (Epic #294, Stories #295 and #300)
 
-## DATA #604 pending lineage-audit connection
+## DATA #604 production lineage-audit connection
 
-After V137 is deployed and its effective grant verified, routine semantic-lineage validation uses `ATLAS_DEV_READ` in DEV and a named PAT connection bound to `OH_LYME_PROD_READ` in PROD. No PROD READ connection is listed in the reconciled inventory below; provisioning and identity verification remain required before PROD acceptance. The bounded query and contract are in [DATA #604 lineage audit v1](../contracts/semantic-domain/data-604-lineage-audit-v1.md). **ACCOUNTADMIN is prohibited for normal lineage verification.** Do not use `ATLAS_PROD_RUNTIME_AUDIT`, `ATLAS_PROD_OWNER`, or `ATLAS_PROD_MIGRATOR` as the routine audit route.
+Routine semantic-lineage validation uses `ATLAS_DEV_READ` in DEV and `ATLAS_PROD_READ` in PROD. The latter is a named PAT connection verified on 2026-10-05 as `MATTHEWCARAWAY` / `OH_LYME_PROD_READ` / `ONE_HEALTH_LYME_GAP_ATLAS_PROD` / `COMPUTE_WH` (with the warehouse explicitly selected for audit queries). Protected PROD run [37390492459](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37390492459) applied V137 and verified its checksum. The bounded query and contract are in [DATA #604 lineage audit v1](../contracts/semantic-domain/data-604-lineage-audit-v1.md). **ACCOUNTADMIN is prohibited for normal lineage verification.** Do not use `ATLAS_PROD_RUNTIME_AUDIT`, `ATLAS_PROD_OWNER`, or `ATLAS_PROD_MIGRATOR` as the routine audit route.
 
 Story #295 captured the pre-consolidation inventory on 2026-09-16 (12 named
 connections). Story #300 reconciled the client-side `snow` connection surface
@@ -13,13 +13,16 @@ described below (a client-authorized action, not a governance-scoped
 role/grant change); everything else was local `connections.toml` editing and
 documentation.
 
-## Final connection surface (10 named connections, down from 12)
+## Story #300 connection surface (10 named connections, down from 12)
+
+The table below is the Story #300 historical reconciliation. DATA #604 subsequently verified `ATLAS_PROD_READ` as an additional named connection, making the current known surface 11.
 
 | Connection | Role (verified live) | Purpose |
 |---|---|---|
 | `MM06468` | interactive human | Personal interactive login, second account (out of scope for this epic) |
 | `BVB26657` | interactive human | Personal interactive login, primary account |
 | `ATLAS_DEV_READ` | `OH_LYME_DEV_READ` (verified live) | **Default for routine agent-initiated DEV read/inspection work** (PMC/migration-ledger audit, general read checks) |
+| `ATLAS_PROD_READ` | `OH_LYME_PROD_READ` (verified live 2026-10-05) | **Routine PROD semantic-lineage audit through V137 secure view**; select `COMPUTE_WH` explicitly |
 | `ATLAS_DEV_OWNER` | `OH_LYME_DEV_OWNER` (verified live) | DEV owner-rights: Streamlit deploy, governed-view/budget-procedure ownership, literature/paper-review steward decisions |
 | `ATLAS_PROD_MIGRATOR` | `OH_LYME_PROD_MIGRATION_DEPLOYER` (verified live) | PROD schema migration deploys |
 | `ATLAS_PROD_OWNER` | `OH_LYME_PROD_OWNER` (verified live) | PROD owner-rights: Streamlit deploy (confirmed via `SHOW STREAMLITS` returning both apps through the nested `STREAMLIT_OWNER` role grant), governed-view/budget-procedure ownership, literature/paper-review |
@@ -33,6 +36,7 @@ documentation.
 | Task | Connection |
 |---|---|
 | Routine DEV read/inspection (PMC audit, migration-ledger check, general `SELECT`) | `ATLAS_DEV_READ` |
+| Routine PROD semantic-lineage validation | `ATLAS_PROD_READ` with `--database ONE_HEALTH_LYME_GAP_ATLAS_PROD --warehouse COMPUTE_WH`; query `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V` |
 | DEV Streamlit app deploy, governed-view/budget-procedure owner action, literature/paper-review decision | `ATLAS_DEV_OWNER` |
 | DEV schema migration | Protected `deploy-dev.yml` workflow (service credential, not a personal `snow` connection) |
 | PROD schema migration | `ATLAS_PROD_MIGRATOR` |
