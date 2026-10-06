@@ -155,6 +155,41 @@ def test_assumptions_fail_before_source_read(setup, monkeypatch, tmp_path, mutat
     )
 
 
+@pytest.mark.parametrize(
+    "field,value,missing",
+    [
+        ("enable_query_acceleration", "false", False),
+        ("generation", None, True),
+        ("auto_suspend", None, False),
+        ("max_cluster_count", 2, False),
+    ],
+)
+def test_cost_failure_receipt_identifies_field_and_result_type_without_weakening_guard(
+    setup, monkeypatch, tmp_path, field, value, missing
+):
+    cursor, parameters, _ = setup
+    if missing:
+        del cursor.warehouse[field]
+    else:
+        cursor.warehouse[field] = value
+    cursor.warehouse["comment"] = "private-account-details"
+    monkeypatch.setattr(diag, "freeze_membership", lambda *_: pytest.fail("no source reads"))
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    receipt_text = (tmp_path / diag.RECEIPT_NAME).read_text()
+    receipt = json.loads(receipt_text)
+    assert result["status"] == "BLOCKED"
+    assert receipt["failure"]["category"] == "WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED"
+    assert receipt["warehouse_cost_failed_fields"] == [field]
+    assert receipt["warehouse_cost_observation"][field] == {
+        "present": not missing,
+        "python_type": type(value).__name__,
+        "value": value,
+    }
+    assert "private-account-details" not in receipt_text
+    assert len(parameters) == 1 and len(cursor.calls) == 2
+    assert receipt["usage_state"] == "NOT_QUERIED"
+
+
 def test_statement_runtime_and_write_limits_prevent_execution(monkeypatch):
     raw = Cursor()
     receipt = {"statements": 40}

@@ -65,3 +65,36 @@ dollars remain null until genuine billing evidence is available. Principal and
 query IDs remain in the internal receipt, not stdout. A BLOCKED receipt must be
 reported separately from workflow completion. No dispatch occurred in preparation;
 merge is serialized after independent exact-head review and CI.
+
+## Executed diagnostic and retained-evidence limit
+
+The one approved dispatch, run `37421002704` on merged main
+`ef0aa357f7b79cc002233f64475eb16f65aeb3e6`, completed its workflow but returned
+`BLOCKED` at `PREFLIGHT`, `WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED`. It executed
+the identity SELECT and warehouse SHOW only: two statements, 1.659 seconds.
+No source membership query, export, warehouse write, publication or retry occurred.
+
+The original receipt stores neither the returned SHOW cost fields nor the failed
+predicate. The retained workflow logs contain neither. It therefore cannot identify
+which field was missing or mismatched, or prove an SDK/result-shape defect instead
+of an unverified runtime setting. Official [SHOW WAREHOUSES documentation](https://docs.snowflake.com/en/sql-reference/sql/show-warehouses)
+defines the fields but does not recover this historical result. Do not infer
+`false` text, absent generation, or a changed warehouse setting as the actual cause.
+
+The narrow receipt correction retains only six cost fields, their presence and
+Python types, safe enum/numeric values, and each failed check before stopping.
+All acceptance predicates remain unchanged; a textual `false` is still blocked.
+Missing/null/malformed auto-suspend remains unverified and receives the finite
+cost-assumption failure. No settings are altered and no extra query is introduced.
+Another paid dispatch requires a separate release; this correction cannot recover
+the original missing SHOW values.
+
+The configured runtime was 229 seconds. Its retained forecast ceiling is
+US$2.3295833333 compute/cloud services plus US$1 reserve, US$3.3295833333 total.
+These are maximum modeled amounts, not actual charges or remaining budget.
+Actual billed unit price and dollars are null; usage state is `NOT_QUERIED`
+because warehouse verification stopped before the optional usage read. The
+retained artifact was 1,065 bytes with fourteen-day retention. Statement count,
+wall time and artifact size are observed quantities, not a Snowflake invoice or
+an attributed GitHub charge. No further Snowflake connection was made to diagnose
+this failure.

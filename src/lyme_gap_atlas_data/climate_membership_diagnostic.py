@@ -296,14 +296,59 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 raise DiagnosticStop("WAREHOUSE_VISIBILITY")
             warehouse = rows[0]
             generation = str(warehouse.get("generation")).upper()
-            if (
-                warehouse.get("size") != "X-Small"
-                or warehouse.get("type") != "STANDARD"
-                or generation not in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2")
-                or warehouse.get("max_cluster_count") != 1
-                or warehouse.get("enable_query_acceleration") is not False
-                or not 0 < int(warehouse.get("auto_suspend", 0)) <= 60
-            ):
+            cost_fields = (
+                "size",
+                "type",
+                "generation",
+                "max_cluster_count",
+                "enable_query_acceleration",
+                "auto_suspend",
+            )
+            safe_strings = {
+                "X-Small",
+                "STANDARD",
+                "1",
+                "GEN_1",
+                "GEN1",
+                "2",
+                "GEN_2",
+                "GEN2",
+                "true",
+                "false",
+                "TRUE",
+                "FALSE",
+                "60",
+            }
+            receipt["warehouse_cost_observation"] = {
+                key: {
+                    "present": key in warehouse,
+                    "python_type": type(warehouse.get(key)).__name__,
+                    "value": value
+                    if value is None
+                    or type(value) in (bool, int, float)
+                    or isinstance(value, str)
+                    and value in safe_strings
+                    else "UNRECOGNIZED_REDACTED",
+                }
+                for key in cost_fields
+                for value in (warehouse.get(key),)
+            }
+            try:
+                suspend_verified = 0 < int(warehouse.get("auto_suspend", 0)) <= 60
+            except (TypeError, ValueError, OverflowError):
+                suspend_verified = False
+            checks = {
+                "size": warehouse.get("size") == "X-Small",
+                "type": warehouse.get("type") == "STANDARD",
+                "generation": generation in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2"),
+                "max_cluster_count": warehouse.get("max_cluster_count") == 1,
+                "enable_query_acceleration": warehouse.get("enable_query_acceleration") is False,
+                "auto_suspend": suspend_verified,
+            }
+            receipt["warehouse_cost_failed_fields"] = [
+                key for key, passed in checks.items() if not passed
+            ]
+            if receipt["warehouse_cost_failed_fields"]:
                 raise DiagnosticStop("WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED")
             cloud = str(region).split("_", 1)[0]
             if cloud not in {"AWS", "AZURE", "GCP"}:
