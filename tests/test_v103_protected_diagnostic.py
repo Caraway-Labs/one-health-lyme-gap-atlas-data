@@ -248,6 +248,9 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "diagnose_query_id",
         "diagnose_climate_dev",
         "diagnose_climate_views",
+        "diagnose_intelligence_dev",
+        "feed_preflight_budget_json",
+        "feed_evidence_public_key",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
