@@ -51,6 +51,7 @@ jobs:
     environment: production
     env:
       TOPX_ENV: prod
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && '60' || '' }}
       ENABLE_PRODUCTION_EXECUTION: "true"
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
@@ -84,6 +85,7 @@ jobs:
       - name: Validate definition
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
       - name: Verify protected PROD runtime identity and approved source decision
+        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 3 || 360 }}
         run: |
           set -euo pipefail
           for required_var in \
@@ -114,7 +116,7 @@ jobs:
           from pathlib import Path
 
           from lyme_gap_atlas_shared.settings import SnowflakeSettings
-          from lyme_gap_atlas_shared.snowflake import connect
+          from lyme_gap_atlas_data.sql_sessions import connect
           from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 
           settings = SnowflakeSettings()
@@ -164,6 +166,7 @@ jobs:
               )
           PY
       - name: Execute canonical Tier C run or resume
+        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.operation }}" = "run" ]; then

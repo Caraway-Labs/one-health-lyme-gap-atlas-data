@@ -51,6 +51,11 @@ on:
         required: false
         default: false
         type: boolean
+      bounded_delivery:
+        description: Apply 60-second SQL and five-minute execution-step limits for the reviewed NLCD cohort
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -66,6 +71,7 @@ jobs:
     environment: ${{ inputs.environment_name }}
     env:
       TOPX_ENV: ${{ inputs.environment_name == 'production' && 'prod' || 'dev' }}
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ inputs.bounded_delivery && '60' || '' }}
       ENABLE_PRODUCTION_EXECUTION: ${{ inputs.environment_name == 'production' && 'true' || '' }}
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -124,6 +130,7 @@ jobs:
             exit 1
           fi
       - name: Configure and verify the protected Snowflake connection
+        timeout-minutes: ${{ inputs.bounded_delivery && 5 || 360 }}
         run: |
           set -euo pipefail
           key_file="$RUNNER_TEMP/oh-lyme-semantic-release-key.p8"
@@ -159,6 +166,7 @@ jobs:
           uv run atlas-data pipeline apply-migrations \
             --database "$SNOWFLAKE_DATABASE" --commit "${{ inputs.release_commit }}" --confirm
       - name: Build, publish, or rollback the semantic release and prove state
+        timeout-minutes: ${{ inputs.bounded_delivery && 5 || 360 }}
         env:
           OPERATION: ${{ inputs.operation }}
           MANIFEST_PATH: ${{ inputs.manifest_path }}
@@ -204,9 +212,13 @@ jobs:
             uv run atlas-data pipeline semantic-release-rollback \
               --release-id "$RELEASE_ID" --reason "$REASON" --confirm
           fi
+          sql_limits=''
+          if [[ "${{ inputs.bounded_delivery }}" == "true" ]]; then
+            sql_limits="ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=60, STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=10, ABORT_DETACHED_QUERY=TRUE, QUERY_TAG='DATA594_BOUNDED_COHORT_DELIVERY'; "
+          fi
           snow --config-file "$config_file" sql -c oh_lyme_semantic \
-            -q "SELECT release_id,status,bundle_sha256,current_release_id,county_count,observation_count,missing_observation_lineage FROM PRESENTATION.SEMANTIC_RELEASE_STATUS_V WHERE release_id='$RELEASE_ID'" --format JSON
+            -q "${sql_limits}SELECT release_id,status,bundle_sha256,current_release_id,county_count,observation_count,missing_observation_lineage FROM PRESENTATION.SEMANTIC_RELEASE_STATUS_V WHERE release_id='$RELEASE_ID'" --format JSON
           if [[ "${{ inputs.operation }}" != "build" ]]; then
             snow --config-file "$config_file" sql -c oh_lyme_semantic \
-              -q "SELECT release_id, schema_version, methodology_version, bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V" --format JSON
+              -q "${sql_limits}SELECT release_id, schema_version, methodology_version, bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V" --format JSON
           fi

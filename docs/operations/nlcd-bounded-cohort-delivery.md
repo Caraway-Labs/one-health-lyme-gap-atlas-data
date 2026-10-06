@@ -39,33 +39,94 @@ source measurements. Connecticut 09110 uses the 2025 planning-region geography;
 there is no historical county crosswalk. These are land-cover context measures,
 not Lyme risk estimates or automatically admitted ML features.
 
-## Protected execution and remaining decisions
+## Protected execution
 
-Source admission is pending. After independent review and an owner-recorded
-source decision, use the existing `run-prod-ingestion.yml` workflow with this
+Source admission is pending execution. Matthew authorized this bounded PROD
+delivery and up to **US$15 total for Snowflake load, staging, verification and
+retries** on 2026-10-06 at 00:55 UTC. This separate authorization supersedes the
+earlier proposed $1 limit; it does not consume or expand the prior acquisition
+budget. No raster acquisition or national replay is authorized by this step.
+
+After independent review, capture the candidate with the existing protected
+`capture-prod-routine-public-evidence.yml`. V139 extends the existing owner-rights
+review procedure to exactly this resource and immutable cohort evidence. Call
+that procedure as the existing owner, recording Matthew's decision, the cohort
+conditions and the independent review URL. The procedure generates the real
+decision and source-version UUIDs. Its correlation ID permits an identical retry
+to recover the first IDs; conflicting retries fail. Before a retry, reconcile
+the actual correlation/run receipts. No user-supplied placeholder UUIDs are used.
+
+The owner inherits the pre-existing Streamlit owner role with the required
+INSERT/UPDATE table privileges; COPY GRANTS preserves procedure access. NLCD
+approval requires GLOBAL, exact-resource or matching-catalog stewardship;
+CDC/USDA domain stewardship alone cannot approve it. No grants are added.
+
+Use the existing `run-prod-ingestion.yml` workflow with this
 definition, exact reviewed `release_commit`, active `source_version_id` and
 matching `source_decision_id`. That workflow requires the dedicated existing
 PROD pipeline identity and protected production environment. A laptop audit
 connection is not a substitute for that protected service identity. Runtime
 must never approve its own source.
 
-The acquisition/staging forecast is $9.805236073 against the shared $10 cap,
-leaving $0.194763927 unallocated. The existing $2.29 uncertainty contingency is
-already reserved and is not permission for a new run. Effective Snowflake
-USD/credit is unknown. Proposed separate decision for the owner: permit at most
-0.1 compute credits and $1 attributable new delivery spend, funded by an explicit
-reallocation of existing contingency, only after confirming the credit price
-keeps the total within $10. This is a proposal, not an executed budget change.
-The observed existing warehouse is STANDARD_GEN_2 X-Small with 60-second
-auto-suspend. No warehouse/resource/credential changes are proposed.
+Build and publish using the existing `publish-semantic-release.yml`, with
+`bounded_delivery=true`, an exact reviewed commit and a source-pinned manifest.
+The additional `context_nlcd_2025` slot and `nlcd_extension` bind the actual
+decision/version/run/artifact receipts, envelope checksum and independent review.
+The existing 3,144-county / 44,016-observation baseline and restricted-source
+publication attestations remain mandatory. The fourteen additional NLCD values
+are context observations; they do not alter baseline scores or county identity.
+Both publication and rollback validate all fourteen immutable V103 captures,
+quality results, hashes, revisions and persisted semantic values before changing
+the current-release pointer. V138 extends the existing consumer view using COPY
+GRANTS, retaining its previous human rows. The 2025 planning-region observations
+do not require or imply a crosswalk to the baseline 2022 geography.
+
+## Bounded cost and runtime
+
+Live metadata on 2026-10-06 confirms AWS_US_WEST_2 and existing single-cluster
+STANDARD Gen2 X-Small ingest/approval warehouses, each with 60-second auto-suspend.
+The documented consumer connection `ATLAS_PROD_READ` uses existing `COMPUTE_WH`,
+an X-Small warehouse with 600-second auto-suspend. The consumer cannot use the
+ingest warehouse; do not add a warehouse grant. Batch consumer readback into one
+session and include its ten-minute idle period in the budget.
+
+The [Snowflake consumption table](https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf)
+effective 2026-10-02 specifies **1.35 credits/hour for AWS Gen2 X-Small** and a
+60-second minimum per warehouse resume. Account-effective USD/credit is not
+visible through the scoped connections. Forecast conservatively at the published
+AWS Oregon VPS on-demand rate of **$6/credit**, also charging consumer time at the
+higher 1.35-credit rate. This is a forecast, not an observed invoice or contract
+price. Stop if an effective price above this ceiling or unbounded acceleration
+or cluster expansion is observed; do not change warehouse configuration.
+
+Bounded source operations set a 60-second statement timeout, ten-second queue
+timeout and ABORT_DETACHED_QUERY in each canonical connection before writes.
+Existing non-NLCD executions retain their current settings. SQL execution steps
+stop after five minutes (identity checks after three); semantic operations opt
+into the same limits. Laptop SQL must set the same session limits explicitly.
+The operator must keep an attributable runtime ledger across attempts, with no
+automatic retry. Stop at **40 minutes cumulative warehouse-active time plus
+15 minutes of idle/resume allowance**, across all delivery sessions and retries:
+55/60 * 1.35 * $6 = **$7.425 warehouse-compute forecast**. Reserve the remaining
+**$7.575** of the authorized $15 for cloud services, request/storage charges and
+uncertainty. Do not spend that reserve on another run without reconciling usage.
+Cloud-services adjustments and account-level usage are not assumed to be free.
+
+The unchanged derived artifact is 29,058 bytes. Candidate capture writes two
+small private evidence/config objects; canonical ingestion retains one captured
+envelope and bounded internal-stage transport, without copying ZIP/TIFF rasters.
+Temporary stage transport is removed by the existing loader. The semantic build
+retains the existing baseline plus fourteen rows, so storage includes its normal
+release tables, not merely the small envelope. Record actual artifact sizes,
+query IDs, elapsed windows and available credits separately from forecasts.
+Metadata-only inspection is not evidence of zero billed cloud-services cost.
 
 RAW/STAGING/CONFORMED load success and PUBLISH_STAGE's `STAGED` receipt are not
-consumer publication. The existing Annual NLCD semantic mapping requires named
-USGS tile TIFF/XML members; the real MRLC mosaic lineage cannot satisfy that
-contract. A reviewed MRLC semantic mapping through the existing release machinery
-is still required before consumer presentation. The observed PROD_READ grants
-cover presentation views, not direct RAW/STAGING/CONFORMED or revision tables.
-Do not bypass this boundary by inventing tile IDs or adding grants.
+consumer publication. This MRLC extension preserves the original scientific
+transformation and full mosaic lineage through the existing release machinery.
+It does not claim to satisfy the separate USGS tile contract. Existing PROD_READ
+grants cover both the county-observation presentation view and the secure V137
+semantic-lineage audit view. Verify those two consumer surfaces after publication.
 
 ## Required readback proof after an authorized run
 

@@ -18,7 +18,8 @@ from typing import Any, Protocol
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from lyme_gap_atlas_shared.snowflake import connect
+
+from lyme_gap_atlas_data.sql_sessions import connect
 
 from ..artifacts import create_artifact
 from ..redaction import redact_mapping

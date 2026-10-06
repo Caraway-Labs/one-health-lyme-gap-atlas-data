@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from lyme_gap_atlas_shared.snowflake import connect
 from snowflake.connector.cursor import SnowflakeCursor
 from snowflake.connector.errors import ProgrammingError
+
+from .sql_sessions import connect
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
@@ -335,7 +336,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128"}:
+    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138", "V139"}:
         if migration.version == "V117" and database != DEV_DATABASE:
             raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"

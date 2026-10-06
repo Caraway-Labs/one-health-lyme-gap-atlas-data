@@ -15,7 +15,8 @@ from urllib.parse import urlsplit
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from lyme_gap_atlas_shared.snowflake import connect
+
+from lyme_gap_atlas_data.sql_sessions import connect
 
 from ..settings import PipelineSettings
 from .artifact_replay import ArtifactMember, resolve_member, validate_members
