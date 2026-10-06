@@ -65,8 +65,11 @@ def test_migration_hashes_row_json_and_compares_both_fips_directions() -> None:
     assert "q('ROLLBACK')" in source
 
 
-def test_publisher_sql_literal_preserves_apostrophes() -> None:
+def test_publisher_sql_literal_preserves_apostrophes_and_nested_json() -> None:
     assert publisher.sql_literal("publisher's row") == "'publisher''s row'"
+    rows = [publisher.canonical_row({"county_fips": "01001", "reasons": []})]
+    stage_payload = json.dumps(rows, separators=(",", ":"))
+    assert publisher.sql_literal(stage_payload) == "'" + stage_payload.replace("\\", "\\\\") + "'"
 
 
 def test_lost_acknowledgment_response_recognizes_approved_batch() -> None:

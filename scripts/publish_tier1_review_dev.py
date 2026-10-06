@@ -82,7 +82,7 @@ def verify_artifacts(directory: Path) -> tuple[dict[str, Any], list[str]]:
 
 
 def sql_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+    return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
 
 
 def snow_query(connection: str, sql: str) -> list[dict[str, Any]]:
