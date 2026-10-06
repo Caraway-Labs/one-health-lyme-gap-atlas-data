@@ -83,6 +83,12 @@ def _classify(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tuple[st
         ):
             return "unknown", "QUALIFYING_TEST_UNPROVEN"
         proofs = output.get("normalization", {}).get("mappings", {})
+        # Legacy records may omit these optional fields; explicit evidence must
+        # agree with the individual negative test rather than be ignored.
+        if (
+            "testing_scope" in output and output["testing_scope"] != "INDIVIDUAL_PATHOGEN_TEST"
+        ) or ("test_result" in output and output["test_result"] != "NOT_DETECTED"):
+            return "unknown", "CONTRADICTORY_OR_UNPROVEN_TEST_EVIDENCE"
         candidates = []
         for proof in proofs.values():
             if not isinstance(proof, Mapping):
@@ -97,6 +103,8 @@ def _classify(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tuple[st
                 dataset_id="DP1.10092.001",
                 source_version="RELEASE-2026",
             )
+            if proof.get("canonical_id") == "DETECTED" or expected.canonical_id == "DETECTED":
+                return "unknown", "CONTRADICTORY_OR_UNPROVEN_TEST_EVIDENCE"
             if expected.canonical_id == "NOT_DETECTED" and proof == expected.as_contract_value():
                 candidates.append(proof)
         if len(candidates) == 1:

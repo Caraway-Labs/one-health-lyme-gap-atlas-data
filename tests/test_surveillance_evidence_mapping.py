@@ -1,8 +1,11 @@
 """DATA429 source-rule and canonical/semantic/consumer compatibility fixtures."""
 
 import copy
+import json
+from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 from test_semantic_source_mappings import REGISTRY, _case
 
 from lyme_gap_atlas_data.semantic_domain import meaning_signature
@@ -48,6 +51,30 @@ def negative():
         source_testing_id="fixture-test", source_sample_id="fixture-tick"
     )
     output["quality_flags"] = []
+    output.update(
+        tick_species="Ixodes scapularis",
+        method_version="tick-surveillance-v1.2",
+        pathogen_name="Borrelia burgdorferi sensu lato",
+        reported_or_derived="HARMONIZED",
+        source_geography={
+            "source_location_id": "BLAN",
+            "geography_kind": "SITE",
+            "coordinate_reference_system": None,
+            "longitude": None,
+            "latitude": None,
+            "spatial_uncertainty_meters": None,
+        },
+    )
+    output["county_relationship"].update(
+        mapping_status="UNMAPPED",
+        mapping_method=None,
+        mapping_version=None,
+        mapping_artifact_id=None,
+        representativeness="NOT_COUNTY_REPRESENTATIVE",
+    )
+    output["normalization"].update(
+        registry_id="tick-surveillance-normalization-v1", registry_version="1.0.4"
+    )
     proof = normalize_value(
         field="test_result",
         source_value="negative",
@@ -94,6 +121,63 @@ def test_negative_test_requires_actual_source_result_and_remains_site_native():
     assert result["surveillance_evidence"]["state"] == "sampled_not_detected"
     assert result["observation"]["value_state"] == "ZERO"
     assert result["observation"]["geography"]["representativeness"] == "NOT_COUNTY_REPRESENTATIVE"
+
+
+def validate_canonical(data):
+    schema = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "docs/contracts/tick-surveillance/canonical-tick-surveillance-v1.schema.json"
+        ).read_text()
+    )
+    Draft202012Validator(schema).validate(data[0]["source_output"])
+
+
+@pytest.mark.parametrize("source_value", ["positive", "Positive"])
+def test_conflicting_valid_result_proofs_abstain(source_value):
+    data = negative()
+    proof = normalize_value(
+        field="test_result",
+        source_value=source_value,
+        publisher="NSF NEON",
+        dataset_id="DP1.10092.001",
+        source_version="RELEASE-2026",
+    ).as_contract_value()
+    data[0]["source_output"]["normalization"]["mappings"][proof["mapping_rule_id"]] = proof
+    validate_canonical(data)
+    before = copy.deepcopy(data)
+    legacy = map_record(*data, REGISTRY, fixture_mode=True)
+    result = run(data)
+    assert result["surveillance_evidence"]["state"] == "unknown"
+    assert {key: result[key] for key in legacy} == legacy
+    assert data == before
+
+
+@pytest.mark.parametrize("result", ["DETECTED", "positive", "UNKNOWN", None])
+def test_explicit_incompatible_test_result_abstains(result):
+    data = negative()
+    data[0]["source_output"]["test_result"] = result
+    validate_canonical(data)
+    assert run(data)["surveillance_evidence"]["state"] == "unknown"
+
+
+@pytest.mark.parametrize("scope", ["MIXED", "AGGREGATE", "UNKNOWN", None])
+def test_explicit_nonindividual_testing_scope_abstains(scope):
+    data = negative()
+    data[0]["source_output"]["testing_scope"] = scope
+    validate_canonical(data)
+    assert run(data)["surveillance_evidence"]["state"] == "unknown"
+
+
+def test_explicit_consistent_individual_negative_and_legacy_negative_remain_valid():
+    data = negative()
+    validate_canonical(data)
+    assert run(data)["surveillance_evidence"]["state"] == "sampled_not_detected"
+    data[0]["source_output"].update(
+        testing_scope="INDIVIDUAL_PATHOGEN_TEST", test_result="NOT_DETECTED"
+    )
+    validate_canonical(data)
+    assert run(data)["surveillance_evidence"]["state"] == "sampled_not_detected"
 
 
 @pytest.mark.parametrize(
