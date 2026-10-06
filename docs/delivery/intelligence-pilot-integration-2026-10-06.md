@@ -44,12 +44,19 @@ any execution. Runtime must not populate or approve the registry.
 | NIH News Releases | Official [news-release page](https://www.nih.gov/news-events/news-releases) links news-releases/feed.xml; October 6 browser fetch reported RSS content type, not parsed XML | No genuine accepted fixture yet; historical desktop 403 is not a new success/failure claim | Bounded actual adapter capture and verified mapping |
 | NIAID News | Official news-events page returned 403 to browser research October 6 | BLOCKED: exact publisher feed endpoint and genuine fixture not established | Publisher endpoint evidence; no guessed URL or denial bypass |
 | CDC Vital Signs | Official [digital-media page](https://www.cdc.gov/vitalsigns/digitalmedia.html) links media/275866.rss; browser fetch reported XML content type | Endpoint documented; genuine native inventory/fixture/mapping not captured here | Bounded actual adapter capture and verified mapping |
-| WHO Newsroom | [Global newsroom](https://www.who.int/news-room) verified; no exact global newsroom feed link established | BLOCKED: exact endpoint and genuine fixture/mapping unresolved; regional/outbreak feeds are not substitutes | Exact publisher feed and source-specific rights evidence |
+| WHO Newsroom | Parent-coordinated endpoint research verified https://www.who.int/rss-feeds/news-english.xml: HTTP 200, RSS 2.0, 25 items, 140,955 bytes | STALE/INCOMPLETE: newest item February 25, 2026 despite October newsroom updates; accepted native fixture/mapping still outstanding | Excluded from first DEV pass; explicit stale/incomplete health/coverage limitation and source-specific rights required before integration; no outbreak substitute |
 
 Availability research is not accepted ingestion. No raw XML was persisted or
 source run executed in this preparation. WHO's [copyright guidance](https://www.who.int/about/policies/publishing/copyright)
 distinguishes licences, third-party content and commercial-use permissions;
 it does not establish an Atlas raw-retention or excerpt grant.
+WHO's October 5 HTTP Last-Modified is transport metadata, not publisher item
+freshness. The snapshot now records its verified endpoint; source approval and
+endpoint resolution do not make it eligible for current-coverage claims.
+Do not run every snapshot entry merely because preparation finds registry
+authority: the initial execution scope is CDC Vital Signs, then NIH if eligible.
+The parent-coordinated researcher owns the WHO raw endpoint capture evidence;
+this work has neither copied that XML nor claimed a successful DEV ingestion.
 
 ## Proposed DEV execution bound, awaiting permission/budget verification
 

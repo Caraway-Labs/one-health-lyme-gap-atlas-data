@@ -27,7 +27,7 @@
     {
       "source_id": "who-newsroom",
       "decision": "approved",
-      "fetch_location": null
+      "fetch_location": "https://www.who.int/rss-feeds/news-english.xml"
     }
   ]
 }
