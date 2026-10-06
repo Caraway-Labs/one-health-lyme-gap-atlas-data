@@ -21,6 +21,7 @@ import yaml  # type: ignore[import-untyped]
 
 FIRST_MONTH = "195101"
 LAST_MONTH = "202608"
+ATLAS_FIRST_MONTH = "198501"
 BASE_MONTH = "202501"
 SOURCE_ROOT = "https://www.ncei.noaa.gov/data/nclimgrid-daily/access/grids"
 EXPECTED_GRID_ID = "f6759ec770aa79789cb9e38f170bdb7b820d1c19e89eb734fc66720c392f0c95"
@@ -53,6 +54,18 @@ def expected_days(year_month: str) -> int:
     """The calendar-day denominator for one source month."""
     _month(year_month)
     return monthrange(int(year_month[:4]), int(year_month[4:]))[1]
+
+
+def atlas_target_months(approved_end_month: str, *, as_of: date) -> tuple[str, ...]:
+    """Plan the product range without changing source/replay identity or dispatch.
+
+    The caller supplies the reviewed scaled endpoint and planning date. An index
+    link is availability evidence, never execution or publication permission.
+    """
+    end = _month(approved_end_month)
+    if end >= as_of.replace(day=1):
+        raise ValueError("Atlas target excludes the current incomplete month and future months")
+    return months(ATLAS_FIRST_MONTH, approved_end_month)
 
 
 def batch_definition_specs(value: str, *, maximum: int = 12) -> tuple[str, ...]:

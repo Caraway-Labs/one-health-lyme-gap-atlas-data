@@ -83,6 +83,25 @@ def test_frozen_months_are_ordered_and_month_pins_are_unique() -> None:
         months("202609", "202609")
 
 
+def test_atlas_target_is_separate_from_replay_availability_and_requires_frozen_end() -> None:
+    from datetime import date
+
+    from lyme_gap_atlas_data.ingestion.nclimgrid_longitudinal import atlas_target_months
+
+    selected = atlas_target_months("202608", as_of=date(2026, 10, 6))
+    assert len(selected) == 500 and selected[0] == "198501" and selected[-1] == "202608"
+    assert months()[0] == "195101"  # Existing early captures remain replayable.
+    assert batch_definition_specs("nclimgrid:198501..198501") == ("nclimgrid:198501",)
+    assert batch_definition_specs("nclimgrid:202608..202608") == ("nclimgrid:202608",)
+    for end in ("198412", "202609"):
+        with pytest.raises(ValueError, match="outside"):
+            atlas_target_months(end, as_of=date(2026, 10, 6))
+    with pytest.raises(ValueError, match="incomplete"):
+        atlas_target_months("202608", as_of=date(2026, 8, 31))
+    with pytest.raises(ValueError, match="twelve"):
+        batch_definition_specs("nclimgrid:198501..202608")
+
+
 def test_batch_specs_are_bounded_and_reject_duplicate_registration(tmp_path: Path) -> None:
     assert batch_definition_specs("nclimgrid:195101..195103") == (
         "nclimgrid:195101",
