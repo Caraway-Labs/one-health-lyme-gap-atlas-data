@@ -64,6 +64,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V122",
     "V125",
     "V136",
+    "V140",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",
@@ -311,6 +312,10 @@ def migration_authority_preflight(settings: SnowflakeSettings, database: str) ->
 def migration_execution_role(migration: Migration, database: str) -> str | None:
     """Return a narrowly-scoped owner role for a migration that needs one."""
     match = DATABASE_PATTERN.fullmatch(database)
+    if migration.version == "V140":
+        if database != DEV_DATABASE:
+            raise ValueError("Pinned Tier 1 publication migration is DEV-only")
+        return "OH_LYME_DEV_TIER1_PUBLICATION_OWNER"
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     if migration.version in {"V044", "V053"}:
