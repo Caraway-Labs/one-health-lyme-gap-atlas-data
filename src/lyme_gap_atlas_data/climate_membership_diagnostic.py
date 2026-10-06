@@ -21,6 +21,9 @@ from .climate_membership import ARTIFACT_NAME, MembershipBlocked, freeze_members
 RECEIPT_NAME = "january-membership-diagnostic-receipt.json"
 MAX_STATEMENTS = 40
 MAX_SECONDS = 300
+MAX_EXECUTION_SECONDS = 50
+# Preserve the completed run's full reservation; do not infer charges from elapsed time.
+PRIOR_DIAGNOSTIC_FORECAST_USD = 3.3295833333333333
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
 
@@ -91,10 +94,11 @@ def budget_runtime(price: float) -> int:
     # Published maximum Gen2 XS (AWS/GCP): 1.35 credits/hour. Cloud services:
     # 4.4 credits/hour, conservatively without the daily adjustment. Include
     # one minute of warehouse suspension tail and US$1 noncompute reserve.
-    seconds = math.floor(((4 / price - 1.35 / 60) * 3600) / (1.35 + 4.4))
+    remaining_compute_usd = 5 - PRIOR_DIAGNOSTIC_FORECAST_USD - 1
+    seconds = math.floor(((remaining_compute_usd / price - 1.35 / 60) * 3600) / (1.35 + 4.4))
     if seconds < 30:
         raise DiagnosticStop("FORECAST_EXCEEDS_FIVE_DOLLAR_CAP")
-    return min(MAX_SECONDS, seconds)
+    return min(MAX_EXECUTION_SECONDS, seconds)
 
 
 def stage_for(sql: str) -> str:
@@ -132,7 +136,7 @@ class BoundedCursor:
         self.prior_query_id: str | None = None
 
     def check(self) -> float:
-        remaining = float(self.receipt.get("runtime_limit_seconds", MAX_SECONDS)) - (
+        remaining = float(self.receipt.get("runtime_limit_seconds", MAX_EXECUTION_SECONDS)) - (
             time.monotonic() - self.started
         )
         if remaining <= 1:
@@ -245,6 +249,12 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             runtime_limit * 5.75 / 3600 + 1.35 / 60
         ) * evidence["unit_price_usd"]
         receipt["noncompute_reserve_usd"] = 1
+        receipt["prior_diagnostic_full_forecast_reserved_usd"] = PRIOR_DIAGNOSTIC_FORECAST_USD
+        receipt["aggregate_forecast_ceiling_usd"] = (
+            PRIOR_DIAGNOSTIC_FORECAST_USD
+            + receipt["compute_and_cloud_services_forecast_ceiling_usd"]
+            + 1
+        )
         if shutil.disk_usage(output.parent).free < 1024**3:
             raise DiagnosticStop("TEMP_DISK_HEADROOM")
         if alarm_signal is None or set_timer is None or real_timer is None:
@@ -296,14 +306,59 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 raise DiagnosticStop("WAREHOUSE_VISIBILITY")
             warehouse = rows[0]
             generation = str(warehouse.get("generation")).upper()
-            if (
-                warehouse.get("size") != "X-Small"
-                or warehouse.get("type") != "STANDARD"
-                or generation not in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2")
-                or warehouse.get("max_cluster_count") != 1
-                or warehouse.get("enable_query_acceleration") is not False
-                or not 0 < int(warehouse.get("auto_suspend", 0)) <= 60
-            ):
+            cost_fields = (
+                "size",
+                "type",
+                "generation",
+                "max_cluster_count",
+                "enable_query_acceleration",
+                "auto_suspend",
+            )
+            safe_strings = {
+                "X-Small",
+                "STANDARD",
+                "1",
+                "GEN_1",
+                "GEN1",
+                "2",
+                "GEN_2",
+                "GEN2",
+                "true",
+                "false",
+                "TRUE",
+                "FALSE",
+                "60",
+            }
+            receipt["warehouse_cost_observation"] = {
+                key: {
+                    "present": key in warehouse,
+                    "python_type": type(warehouse.get(key)).__name__,
+                    "value": value
+                    if value is None
+                    or type(value) in (bool, int, float)
+                    or isinstance(value, str)
+                    and value in safe_strings
+                    else "UNRECOGNIZED_REDACTED",
+                }
+                for key in cost_fields
+                for value in (warehouse.get(key),)
+            }
+            try:
+                suspend_verified = 0 < int(warehouse.get("auto_suspend", 0)) <= 60
+            except (TypeError, ValueError, OverflowError):
+                suspend_verified = False
+            checks = {
+                "size": warehouse.get("size") == "X-Small",
+                "type": warehouse.get("type") == "STANDARD",
+                "generation": generation in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2"),
+                "max_cluster_count": warehouse.get("max_cluster_count") == 1,
+                "enable_query_acceleration": warehouse.get("enable_query_acceleration") is False,
+                "auto_suspend": suspend_verified,
+            }
+            receipt["warehouse_cost_failed_fields"] = [
+                key for key, passed in checks.items() if not passed
+            ]
+            if receipt["warehouse_cost_failed_fields"]:
                 raise DiagnosticStop("WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED")
             cloud = str(region).split("_", 1)[0]
             if cloud not in {"AWS", "AZURE", "GCP"}:
@@ -351,7 +406,8 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             connection is not None
             and bounded is not None
             and "warehouse_assumptions" in receipt
-            and time.monotonic() - started < receipt.get("runtime_limit_seconds", MAX_SECONDS) - 16
+            and time.monotonic() - started
+            < receipt.get("runtime_limit_seconds", MAX_EXECUTION_SECONDS) - 16
             and receipt["statements"] < MAX_STATEMENTS
         ):
             try:
