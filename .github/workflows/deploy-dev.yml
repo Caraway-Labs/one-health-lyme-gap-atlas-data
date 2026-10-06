@@ -11,14 +11,11 @@ on:
         required: false
         type: boolean
         default: false
-      feed_preflight_budget_json:
-        description: Private cost receipt accounting (spent_usd/reserved_usd/usd_per_credit/feed_http_requests_used/evidence_ref/billing_reconciled)
+      feed_preflight_accounting_confirmed:
+        description: Confirm privately reconciled aggregate $5/six-request ledger covers this bounded probe; no private values
         required: false
-        type: string
-      feed_evidence_public_key:
-        description: Reviewer RSA public key PEM for encrypted evidence; no private key
-        required: false
-        type: string
+        type: boolean
+        default: false
       diagnose_query_id:
         description: Optional failed migration DDL query ID; inspect only, without applying migrations
         required: false
@@ -141,8 +138,7 @@ jobs:
         env:
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
-          FEED_EVIDENCE_PUBLIC_KEY: ${{ inputs.feed_evidence_public_key }}
-          FEED_PREFLIGHT_BUDGET_JSON: ${{ inputs.feed_preflight_budget_json }}
+          FEED_PREFLIGHT_ACCOUNTING_CONFIRMED: ${{ inputs.feed_preflight_accounting_confirmed }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
@@ -154,12 +150,3 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
-
-      - name: Retain private intelligence preflight evidence
-        if: always() && inputs.diagnose_intelligence_dev
-        uses: actions/upload-artifact@v4
-        with:
-          name: intelligence-dev-preflight-private-${{ github.run_id }}
-          path: ${{ runner.temp }}/feed-preflight-private.encrypted.json
-          retention-days: 1
-          if-no-files-found: error

@@ -1,36 +1,29 @@
-# DATA132/135 fixed protected DEV metadata preflight
+# Fixed protected DEV intelligence metadata preflight
 
-The existing DEV workflow has no intelligence object/owner inspection mode.
-Add one fixed read-only option using the existing protected migration service and
-warehouse; it exits before migration application and refuses mixed modes.
+Add one read-only option to the existing DEV workflow using its existing service
+identity and warehouse. It exits before migration application and refuses mixed
+modes. Targets are two retention metadata tables, source-version registry, and
+V1/V2 feed views. Missing visibility remains unknown rather than presumed absent.
+No registry rows or documents, source HTTP requests, source approval, source
+registration, DDL, grants, or cleanup operations are included.
 
-Targets are the two raw-retention metadata tables, source-version registry, and
-V1/V2 feed views only. Hidden objects remain unknown rather than presumed absent.
-Only the two pilot sources' latest version/hash receipts are read; no registry
-payload, approval mutation, source HTTP request, source registration, DDL, grants,
-or cleanup operation is included.
+Only public-safe fixed target tokens and boolean inspection/owner/version-literal and exact reviewed-definition
+statuses are emitted. Actual owners, columns, grants and view DDL remain transient
+in process memory. Presence of a version literal is preliminary evidence requiring
+exact definition review; a separate conservative token comparison checks the reviewed body without exporting SQL. No artifacts,
+encryption keys or credentials are added. Completed safe object observations are
+emitted progressively and retained if a later inspection fails. The 50-second watchdog exits without evidence I/O, independently of blocked/broken output. Statements
+have ten-second limits. No exception message is emitted.
 
-Execution requires independently reviewed code, reconciled aggregate pilot cost
-accounting (including prior/idle/service cost), positive contracted USD/credit,
-a conservative total forecast including those overheads, and actual prior feed
-request accounting within the six-request cap. It does not establish invoice
-truth from caller assertions. Unknown billing or an unknown research-request
-count blocks execution. A 50-second process watchdog and 10-second statements
-bound the probe; the warehouse is existing infrastructure and remains unchanged.
+The public boolean accounting input confirms independently reconciled private
+aggregate $5/six-request pilot accounting covers this bounded diagnostic, including
+idle/service overhead and other reserved spend. It contains no dollars, pricing,
+private evidence references or request receipts. This is an attestation gate, not
+a billing meter. Unknown prior request counts or charges block confirmation; the
+private financial evidence stays with the authorized reviewer outside Actions.
 
-Public logs contain no inventory. An existing reviewer's RSA public key (2048+
-bit) encrypts a random one-use AES-GCM evidence key with RSA-OAEP-SHA256. This is
-artifact encryption, not a service credential. No key is created or installed.
-The encrypted artifact expires after one day; only its intended reviewer can
-recover the private JSON. The watchdog preserves a failure receipt before exit.
-
-Validation: six offline tests cover wrong-identity refusal, reconciled budget,
-request reuse, unknown metadata visibility, encrypted evidence recovery, and
-workflow branch ordering. Hosted Quality checks remain required. No live query,
-DDL application, grant, migration number, image deployment, or paid feed run.
-
-Follow-up: independently review the separately prepared exact minimal DDL/grant
-delta, reserve the shared migration slot with parent, inspect actual state via
-this mode after budget reconciliation, then select only reviewed required SQL.
-Cleanup/purge authority remains separate. Source/native policy and physical
-retention prerequisites still gate the first live feed proof.
+Offline tests cover wrong identity, accounting gate, unknown visibility, partial
+safe evidence, public input surface and workflow branch ordering. Hosted Quality
+remains required. No live query, grant, DDL, deployment or paid feed execution.
+Source/native policy, exact schema/definition review and physical-retention
+prerequisites remain separately gated.

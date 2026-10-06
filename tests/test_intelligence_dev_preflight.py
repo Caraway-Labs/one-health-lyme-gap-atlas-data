@@ -1,5 +1,4 @@
 import importlib.util
-import json
 from pathlib import Path
 
 import pytest
@@ -12,48 +11,18 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-def test_budget_requires_reconciled_actual_cost():
-    with pytest.raises(ValueError, match="UNRECONCILED"):
-        module.budget('{"billing_reconciled":false}')
-    with pytest.raises(ValueError, match="EXHAUSTED"):
-        module.budget(
-            json.dumps(
-                {
-                    "billing_reconciled": True,
-                    "spent_usd": 5,
-                    "reserved_usd": 0,
-                    "usd_per_credit": 3,
-                    "forecast_total_usd": "0.1",
-                    "feed_http_requests_used": 2,
-                    "evidence_ref": "private-receipt",
-                }
-            )
-        )
-
-
-def test_budget_counts_prior_requests_without_consuming_another():
-    result = module.budget(
-        json.dumps(
-            {
-                "billing_reconciled": True,
-                "spent_usd": 0.1,
-                "reserved_usd": 0,
-                "usd_per_credit": 3,
-                "forecast_total_usd": "0.1",
-                "feed_http_requests_used": 6,
-                "evidence_ref": "private-receipt",
-            }
-        )
-    )
-    assert result["new_feed_http_requests"] == 0
-    assert result["forecast_usd"] == "0.1"
+def test_budget_requires_public_safe_confirmation_only():
+    for value in ("false", "", '{"spent_usd":0}'):
+        with pytest.raises(ValueError, match="CONFIRMATION_REQUIRED"):
+            module.budget(value)
+    assert module.budget("true") is None
 
 
 class Cursor:
     def __init__(self, identity):
         self.identity = identity
         self.sql = []
-        self.description = [("name",)]
+        self.description = [("name",), ("owner",)]
 
     def execute(self, sql, **kwargs):
         self.sql.append(sql)
@@ -68,48 +37,104 @@ class Cursor:
 def test_wrong_identity_stops_before_object_inspection():
     cursor = Cursor((module.USER, "ACCOUNTADMIN", module.DEV, module.WAREHOUSE))
     with pytest.raises(ValueError, match="IDENTITY"):
-        module.inspect(cursor)
+        module.inspect(cursor, {})
     assert len(cursor.sql) == 2
 
 
-def test_hidden_objects_are_unknown_and_no_registration_read_or_mutation():
+def test_hidden_objects_remain_unknown_no_registry_records():
     cursor = Cursor((module.USER, module.ROLE, module.DEV, module.WAREHOUSE))
-    result = module.inspect(cursor)
-    assert len(result["objects"]) == 5
-    assert all(item["state"] == "NOT_VISIBLE_NOT_PROOF_OF_ABSENCE" for item in result["objects"])
+    report = {}
+    module.inspect(cursor, report)
+    assert len(report["objects"]) == 5
+    assert all(item["state"] == "NOT_VISIBLE_NOT_PROOF_OF_ABSENCE" for item in report["objects"])
     assert len(cursor.sql) == 7
-    assert not any("GET_DDL" in sql or "registry_sha256" in sql for sql in cursor.sql)
-    assert result["writes"] is False
+    assert not any("registry_sha256" in sql or "registry_document" in sql for sql in cursor.sql)
 
 
-def test_evidence_is_encrypted_for_reviewer_only():
-    import base64
+def test_partial_completed_safe_observations_survive_later_failure():
+    class Failing(Cursor):
+        def execute(self, sql, **kwargs):
+            super().execute(sql, **kwargs)
+            if "INTELLIGENCE_RAW_RETENTION_AUDIT" in sql:
+                raise RuntimeError("private failure text")
 
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import padding, rsa
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    sealed = module.seal({"private_inventory": "sensitive"}, private.public_key())
-    assert "sensitive" not in sealed
-    envelope = json.loads(sealed)
-    key = private.decrypt(
-        base64.b64decode(envelope["key"]),
-        padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-    )
-    payload = AESGCM(key).decrypt(
-        base64.b64decode(envelope["nonce"]),
-        base64.b64decode(envelope["ciphertext"]),
-        b"feed-dev-preflight-v1",
-    )
-    assert json.loads(payload) == {"private_inventory": "sensitive"}
+    cursor = Failing((module.USER, module.ROLE, module.DEV, module.WAREHOUSE))
+    report = {}
+    with pytest.raises(RuntimeError):
+        module.inspect(cursor, report)
+    assert len(report["objects"]) == 1
+    assert report["objects"][0]["inspection_complete"] is True
+    assert "private failure" not in str(report)
 
 
-def test_workflow_exits_private_mode_before_identity_stdout_and_migrations():
+def test_workflow_public_safe_input_and_exit_before_migration():
     workflow = (Path(__file__).parents[1] / ".github/workflows/deploy-dev.yml").read_text()
     branch = workflow.index('if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]')
     execute = workflow.index("uv run python scripts/verify_intelligence_dev_preflight.py", branch)
-    exit_position = workflow.index("exit 0", execute)
-    assert branch < execute < exit_position < workflow.index("SELECT CURRENT_ACCOUNT()")
-    assert "feed-preflight-private.encrypted.json" in workflow
-    assert "retention-days: 1" in workflow
+    assert workflow.index("exit 0", execute) < workflow.index("SELECT CURRENT_ACCOUNT()")
+    for private_surface in (
+        "BUDGET_JSON",
+        "PUBLIC_KEY",
+        "upload-artifact",
+        "spent_usd",
+        "evidence_ref",
+    ):
+        assert private_surface not in workflow
+
+
+def test_definition_comparison_detects_version_and_private_projection_changes():
+    source = (
+        Path(__file__).parents[1] / "docs/contracts/intelligence/v2/presentation-projection.sql"
+    ).read_text()
+    start = source.index("CREATE VIEW IF NOT EXISTS PRESENTATION.INTELLIGENCE_FEED_V2")
+    ddl = source[start:].split(";", 1)[0]
+    assert module.view_matches("INTELLIGENCE_FEED_V2", ddl)
+    assert not module.view_matches("INTELLIGENCE_FEED_V2", ddl.replace("'2.0.0'", "'1.0.0'"))
+    assert not module.view_matches(
+        "INTELLIGENCE_FEED_V2",
+        ddl.replace(
+            "OBJECT_CONSTRUCT() AS derived_metadata", "c.item_document AS derived_metadata"
+        ),
+    )
+
+
+def test_watchdog_exit_is_unconditional_when_evidence_output_fails(monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError("output failed")
+
+    class Exited(BaseException):
+        pass
+
+    exits = []
+
+    def leave(code):
+        exits.append(code)
+        raise Exited
+
+    monkeypatch.setattr("builtins.print", broken)
+    monkeypatch.setattr(module.os, "_exit", leave)
+    with pytest.raises(Exited):
+        module.terminate({"objects": []})
+    assert exits == [124]
+
+
+def test_catalog_and_owner_status_survive_describe_denial():
+    class Denied(Cursor):
+        def fetchall(self):
+            return [("INTELLIGENCE_RAW_RETENTION_DOCUMENTS", module.ROLE)]
+
+        def execute(self, sql, **kwargs):
+            super().execute(sql, **kwargs)
+            if sql.startswith("DESCRIBE"):
+                raise PermissionError("private details")
+
+    report = {}
+    cursor = Denied((module.USER, module.ROLE, module.DEV, module.WAREHOUSE))
+    with pytest.raises(PermissionError):
+        module.inspect(cursor, report)
+    assert report["identity_matches_expected"] is True
+    observed = report["objects"][0]
+    assert observed["state"] == "VISIBLE"
+    assert observed["owner_matches_expected"] is True
+    assert observed["inspection_complete"] is False
+    assert module.ROLE not in str(report)
