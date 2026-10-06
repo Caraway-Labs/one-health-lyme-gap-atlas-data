@@ -13,6 +13,7 @@ from lyme_gap_atlas_data.semantic_metadata import metadata_revision_id
 from lyme_gap_atlas_data.semantic_source_mappings import SemanticMappingError, map_record
 from lyme_gap_atlas_data.surveillance_evidence import STATES as V1_STATES
 from lyme_gap_atlas_data.surveillance_evidence_mapping import (
+    CONTRACT_VERSION,
     STATES,
     map_surveillance_evidence,
     project_surveillance_evidence,
@@ -88,6 +89,87 @@ def negative():
 
 def run(data):
     return map_surveillance_evidence(*data, REGISTRY, fixture_mode=True)
+
+
+def reported():
+    """Synthetic authority for the exact source tuple, never live approval."""
+    record, metadata, authority = case("county_tick_status", "Reported")
+    source = "cdc_arbonet_tick_module"
+    dataset = "cdc-ixodes-county-status-2025"
+    digest = "e35a5066a7c77b2e79c50f315a18e042405ab7baa8a414a1a907792bb25d2adc"
+    for edge in record["edges"]:
+        edge.update(source_id=source, publisher=source, dataset_id=dataset, artifact_sha256=digest)
+        authority["source_versions"][edge["source_version_id"]].update(
+            source_id=source, publisher=source, dataset_id=dataset
+        )
+        authority["runs"][edge["ingestion_run_id"]]["dataset_id"] = dataset
+        authority["artifacts"][edge["artifact_id"]]["sha256"] = digest
+    for key, value in (("source_id", source), ("publisher", source), ("dataset_id", dataset)):
+        metadata["provenance"][key]["value"] = value
+    metadata["revision_id"] = metadata_revision_id(metadata)
+    return record, metadata, authority
+
+
+def test_pinned_reported_label_preserves_legacy_and_missing_sampling_detail():
+    data = reported()
+    before = copy.deepcopy(data)
+    legacy = map_record(*data, REGISTRY, fixture_mode=True)
+    result = run(data)
+    evidence = result["surveillance_evidence"]
+    assert evidence["contract_version"] == CONTRACT_VERSION == "atlas-surveillance-evidence-v3"
+    assert evidence["state"] == "detected_below_establishment"
+    assert evidence["source_rule_id"] == "county_tick_status:evidence-v3"
+    assert (
+        "Detected; establishment criteria not documented as met in the source."
+        in evidence["limitations"]
+    )
+    assert {key: result[key] for key in legacy} == legacy
+    assert data == before
+    assert result["observation"]["value"] == "Reported"
+    assert result["observation"]["temporal"] == {
+        "semantics": "CUMULATIVE_THROUGH_DATE",
+        "date": "2025-12-31",
+    }
+    assert (
+        not {"ticks_collected", "life_stage", "observation_date", "collection_effort_value"}
+        & data[0]["source_output"].keys()
+    )
+
+
+def test_reported_consumer_companion_keeps_qualified_meaning_and_version():
+    data = reported()
+    data[1]["visibility"] = "CONSUMER_SAFE"
+    data[1]["revision_id"] = metadata_revision_id(data[1])
+    payload = project_surveillance_evidence(*data, REGISTRY, fixture_mode=True)
+    assert payload["surveillance_evidence"]["state"] == "detected_below_establishment"
+    assert "establishment criteria not documented" in str(
+        payload["surveillance_evidence"]["limitations"]
+    )
+    assert payload["semantic"]["observation"]["value"] == "Reported"
+    with pytest.raises(SemanticMappingError, match="unreviewed"):
+        map_surveillance_evidence(*reported(), REGISTRY)
+
+
+@pytest.mark.parametrize("change", ["artifact", "dataset", "source", "date"])
+def test_reported_rule_abstains_outside_pinned_evidence(change):
+    data = reported()
+    record, metadata, authority = data
+    if change == "artifact":
+        for edge in record["edges"]:
+            edge["artifact_sha256"] = "f" * 64
+            authority["artifacts"][edge["artifact_id"]]["sha256"] = "f" * 64
+    elif change == "date":
+        record["temporal"]["date"] = "2024-12-31"
+    else:
+        key = "dataset_id" if change == "dataset" else "source_id"
+        for edge in record["edges"]:
+            edge[key] = "other-source-tuple"
+            authority["source_versions"][edge["source_version_id"]][key] = edge[key]
+            if change == "dataset":
+                authority["runs"][edge["ingestion_run_id"]][key] = edge[key]
+        metadata["provenance"][key]["value"] = "other-source-tuple"
+        metadata["revision_id"] = metadata_revision_id(metadata)
+    assert run(data)["surveillance_evidence"]["state"] == "unknown"
 
 
 @pytest.mark.parametrize(

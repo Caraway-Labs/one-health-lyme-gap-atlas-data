@@ -1,5 +1,9 @@
 # DATA429 source-supported evidence interpretation v2
 
+Historical v2 contract: PR614's implementation. The subsequent
+[v3 candidate](surveillance-evidence-v3.md) documents an explicit, source-bound
+Reported rule transition; the v2 abstention described below remains historical.
+
 Baseline: main `819dde4974d4bd0c6acc3235dfaeeb146098233a`, 2026-10-06.
 Status: implementation candidate; no production/public activation or live
 acceptance claimed. The merged PR562 v1 fixture remains unchanged.

@@ -19,7 +19,8 @@ from .semantic_source_mappings import map_record
 from .surveillance_evidence import STATES as FIXTURE_STATES
 from .tick_normalization import normalize_value
 
-CONTRACT_VERSION = "atlas-surveillance-evidence-v2"
+CONTRACT_VERSION = "atlas-surveillance-evidence-v3"
+_REPORTED_ARTIFACT_SHA256 = "e35a5066a7c77b2e79c50f315a18e042405ab7baa8a414a1a907792bb25d2adc"
 STATES = (FIXTURE_STATES - {"detected_below_establishment_criteria"}) | {
     "detected_below_establishment"
 }
@@ -56,6 +57,15 @@ def _classify(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tuple[st
             return "no_qualifying_record", "PUBLISHER_NO_RECORDS"
         if identity == "county_tick_status" and raw == "Established":
             return "established", "PUBLISHER_ESTABLISHED"
+        if identity == "county_tick_status" and raw == "Reported":
+            if not record.get("edges") or not all(
+                edge.get("source_id") == "cdc_arbonet_tick_module"
+                and edge.get("dataset_id") == "cdc-ixodes-county-status-2025"
+                and edge.get("artifact_sha256") == _REPORTED_ARTIFACT_SHA256
+                for edge in record["edges"]
+            ):
+                return "unknown", "REPORTED_SOURCE_PROOF_UNSUPPORTED"
+            return "detected_below_establishment", "PUBLISHER_REPORTED_ESTABLISHMENT_NOT_DOCUMENTED"
         if raw in ("Reported", "Present"):
             return "unknown", "DETECTION_ESTABLISHMENT_RELATION_UNPROVEN"
         return "unknown", "SOURCE_STATE_UNSUPPORTED"
@@ -146,16 +156,26 @@ def map_surveillance_evidence(
         "revision_id": observation["revision_id"],
         "lineage_id": mapped["lineage_id"],
         "value_state": observation["value_state"],
-        "source_rule_id": f"{record['mapping_id']}:evidence-v2",
+        "source_rule_id": f"{record['mapping_id']}:evidence-v3",
         "limitations": list(_LIMITATIONS),
     }
+    if state == "detected_below_establishment":
+        evidence["limitations"].extend(
+            [
+                "Detected; establishment criteria not documented as met in the source.",
+                "Publisher cumulative Reported label for Ixodes scapularis through 2025-12-31; "
+                "not a 2025 collection event.",
+                "No tick count, life stage, collection date, effort, current ecological "
+                "non-establishment or sampling completeness is inferred.",
+            ]
+        )
     # Bind all canonical evidence (including private method/test/quality proof)
     # through a digest rather than copying private payload fields to consumers.
     evidence["canonical_evidence_sha256"] = hashlib.sha256(
         json.dumps(record["source_output"], sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     evidence["evidence_revision_id"] = (
-        "evidence:v2:"
+        "evidence:v3:"
         + hashlib.sha256(
             json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
