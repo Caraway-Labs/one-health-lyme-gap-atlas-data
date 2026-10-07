@@ -92,6 +92,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V132",
     "V133",
     "V139",
+    "V141",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -316,6 +317,10 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != DEV_DATABASE:
             raise ValueError("Pinned Tier 1 publication migration is DEV-only")
         return "OH_LYME_DEV_TIER1_PUBLICATION_OWNER"
+    if migration.version == "V141":
+        if database != PROD_DATABASE:
+            raise ValueError("Pinned Tier 1 production publication migration is PROD-only")
+        return "OH_LYME_PROD_TIER1_PUBLICATION_OWNER"
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     if migration.version in {"V044", "V053"}:
