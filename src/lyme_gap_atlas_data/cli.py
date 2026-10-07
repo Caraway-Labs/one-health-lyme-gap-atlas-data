@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from functools import wraps
 from pathlib import Path
 from time import monotonic
@@ -645,13 +645,24 @@ def apply_reviewed_dev_migrations_command(
     if database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
         raise typer.BadParameter("Reviewed DEV migrations require the isolated DEV database")
     reviewed = parse_reviewed_pending_set(expected_pending_json)
-    settings = _settings()
-    actual = pending_migration_plan(settings, database)
-    typer.echo(json.dumps({"pending_migrations": actual}))
-    require_reviewed_pending_set(actual, reviewed)
-    reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
-    applied = apply_migrations(settings, database, commit, expected_pending=reviewed)
-    typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
+    from .ingestion.intelligence_runtime import (
+        INTELLIGENCE_PREREQUISITE_SHA256,
+        prerequisite_batch_deadline,
+    )
+
+    feed_batch = any(item["sha256"] == INTELLIGENCE_PREREQUISITE_SHA256 for item in reviewed)
+    if feed_batch and len(reviewed) != 1:
+        raise typer.BadParameter("The reviewed intelligence prerequisite batch must run alone")
+    # Exact bytes select this bound; parent still assigns the migration number.
+    # Start before settings, pending inspection, reconciliation and application.
+    with prerequisite_batch_deadline() if feed_batch else nullcontext():
+        settings = _settings()
+        actual = pending_migration_plan(settings, database)
+        typer.echo(json.dumps({"pending_migrations": actual}))
+        require_reviewed_pending_set(actual, reviewed)
+        reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
+        applied = apply_migrations(settings, database, commit, expected_pending=reviewed)
+        typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 
 
 @pipeline_app.command("reconcile-legacy-dev-migrations")
