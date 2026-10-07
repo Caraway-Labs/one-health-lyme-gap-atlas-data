@@ -34,6 +34,11 @@ on:
           - bulk-transport-canary
           - january-source-registration
           - spaces-readiness
+      intelligence_acquisition_only:
+        description: Stop approved DEV feed run after ACQUIRE; intentional stop, no normalization/load/publish
+        required: false
+        type: boolean
+        default: false
       candidate_keys_json:
         description: At most 16 exact existing DEV object keys for metadata HEAD, JSON array
         required: false
@@ -103,7 +108,7 @@ concurrency:
 
 jobs:
   spaces_readiness:
-    if: inputs.operation == 'spaces-readiness'
+    if: inputs.operation == 'spaces-readiness' && !inputs.intelligence_acquisition_only
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: dev
@@ -142,11 +147,11 @@ jobs:
       - name: Read bounded Spaces metadata only
         run: uv run python -m lyme_gap_atlas_data.spaces_readiness
   ingest:
-    if: inputs.operation != 'spaces-readiness'
+    if: inputs.operation != 'spaces-readiness' || inputs.intelligence_acquisition_only
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || startsWith(inputs.source_definition, 'config/sources/intelligence_') && 6 || 360 }}
-    environment: ${{ inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
+    timeout-minutes: ${{ inputs.intelligence_acquisition_only && 6 || inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || startsWith(inputs.source_definition, 'config/sources/intelligence_') && 6 || 360 }}
+    environment: ${{ inputs.intelligence_acquisition_only && 'dev' || inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -198,11 +203,24 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
         run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'january-source-registration'
+        if: inputs.intelligence_acquisition_only || inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'january-source-registration'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           MEASUREMENT_RUN_ID: ${{ inputs.run_id }}
+          INTELLIGENCE_ACQUISITION_ONLY: ${{ inputs.intelligence_acquisition_only }}
         run: |
+          if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" = "true" ]; then
+            test "${{ inputs.operation }}" = "run"
+            test "${{ inputs.environment_name }}" = "dev"
+            test "${{ inputs.tier }}" = "B"
+            test -z "$MEASUREMENT_RUN_ID"
+            test "${{ inputs.recapture }}" = "false"
+            test "${{ inputs.publish }}" = "false"
+            case "$SOURCE_DEFINITION" in
+              config/sources/intelligence_cdc_vital_signs.yml|config/sources/intelligence_nih_news_releases.yml) ;;
+              *) echo 'Acquisition-only requires an approved DEV feed definition' >&2; exit 2 ;;
+            esac
+          fi
           if [ "${{ inputs.tier }}" = "B" ] && [ "${{ inputs.environment_name }}" != "dev" ]; then
             echo "::error::Tier B runs are limited to the dev GitHub Environment."
             exit 1
@@ -246,6 +264,7 @@ jobs:
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
+          INTELLIGENCE_ACQUISITION_ONLY: ${{ inputs.intelligence_acquisition_only }}
           MEASUREMENT_ACTION: ${{ inputs.measurement_action }}
           JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: ${{ inputs.diagnostic_budget_evidence }}
           REGISTRATION_PHASE: ${{ inputs.registration_phase }}
@@ -290,7 +309,7 @@ jobs:
           export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
 
           # The bounded exporter verifies identity in its single session.
-          if [ "$MEASUREMENT_ACTION" != "frozen-membership" ] || [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ]; then
+          if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" != "true" ] && { [ "$MEASUREMENT_ACTION" != "frozen-membership" ] || [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ]; }; then
           uv run python - <<'PY'
           import os
 
@@ -344,9 +363,13 @@ jobs:
             uv run python scripts/reconcile_january_climate_inputs.py --phase "$REGISTRATION_PHASE"
             uv run python scripts/reconcile_january_climate_inputs.py --phase inspect
           elif [ "${{ inputs.operation }}" = "run" ]; then
+            extra_args=()
+            if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" = "true" ]; then
+              extra_args+=(--fail-after-stage ACQUIRE)
+            fi
             uv run atlas-data source run \
               --definition "$SOURCE_DEFINITION" \
-              --tier "${{ inputs.tier }}"
+              --tier "${{ inputs.tier }}" "${extra_args[@]}"
           elif [ "${{ inputs.operation }}" = "nclimgrid-batch" ]; then
             extra_args=()
             if [ "${{ inputs.recapture }}" = "true" ]; then
@@ -381,3 +404,4 @@ jobs:
         run: |
           echo "Tier C publish remains on protected promote-prod / publication controls."
           echo "This workflow invokes the same orchestrator entry point as the CLI."
+

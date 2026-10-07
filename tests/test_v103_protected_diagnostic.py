@@ -264,7 +264,9 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     assert "apply-migrations" not in branch
     assert "source run" not in branch
     assert "PROD" not in branch
-    assert shell.index('if [ "$DIAGNOSE_V103_STATE" = "true" ]; then') < shell.index(
+    assert shell.index('if [ "$DIAGNOSE_V103_STATE" = "true" ]; then') < shell.rindex(
         "apply-reviewed-dev-migrations"
     )
+    early = shell.split('if [ "$feed_batch" = "true" ]; then', 1)[1].split("exit 0", 1)[0]
+    assert 'test "$DIAGNOSE_V103_STATE" != "true"' in early
     assert "QUERY_HISTORY_BY_USER" in shell

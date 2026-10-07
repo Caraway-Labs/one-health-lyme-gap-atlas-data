@@ -86,6 +86,21 @@ def prerequisite_batch_deadline() -> Iterator[None]:
                 os.environ["ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS"] = previous
 
 
+def verify_prerequisite_identity(settings: SnowflakeSettings) -> None:
+    """Verify the protected service inside the prerequisite process/session caps."""
+    with connect(settings) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
+        )
+        if tuple(cursor.fetchone()) != (
+            "OH_LYME_DEV_MIGRATION_DEPLOY_SVC",
+            "OH_LYME_DEV_MIGRATION_DEPLOYER",
+            "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+            "OH_LYME_DEV_INGEST_XS_WH",
+        ):
+            raise PermissionError("INTELLIGENCE_PREREQUISITE_IDENTITY")
+
+
 class PilotBudget:
     """One invocation, one complete feed request, five minutes of owned work.
 

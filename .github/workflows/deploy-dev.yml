@@ -88,6 +88,32 @@ jobs:
             uv run python scripts/verify_intelligence_dev_preflight.py
             exit 0
           fi
+          # Detect the one exact reviewed feed batch locally, before any SQL.
+          feed_batch="$(uv run python - <<'PY'
+          import os
+          from lyme_gap_atlas_data.ingestion.intelligence_runtime import INTELLIGENCE_PREREQUISITE_SHA256
+          from lyme_gap_atlas_data.migrations import parse_reviewed_pending_set
+          raw = os.environ.get("EXPECTED_PENDING_JSON", "")
+          reviewed = parse_reviewed_pending_set(raw) if raw else []
+          selected = any(row["sha256"] == INTELLIGENCE_PREREQUISITE_SHA256 for row in reviewed)
+          if selected and len(reviewed) != 1:
+              raise SystemExit("Exact feed batch must run alone")
+          print("true" if selected else "false")
+          PY
+          )"
+          if [ "$feed_batch" = "true" ]; then
+            test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" = "true"
+            test "$DIAGNOSE_CLIMATE_VIEWS" != "true"
+            test "$DIAGNOSE_CLIMATE_DEV" != "true"
+            test "$DIAGNOSE_V103_STATE" != "true"
+            test -z "$DIAGNOSE_QUERY_ID"
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            uv run atlas-data pipeline apply-reviewed-dev-migrations \
+              --expected-pending-json "$EXPECTED_PENDING_JSON" \
+              --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
+            exit 0
+          fi
           snow --config-file "$config_file" sql -c oh_lyme_dev \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
           if [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ]; then
