@@ -43,6 +43,7 @@ def timer(monkeypatch, events):
 def test_deadline_covers_settings_guards_apply_and_cleanup(monkeypatch):
     events = []
     timer(monkeypatch, events)
+    monkeypatch.setattr(runtime, "verify_prerequisite_identity", lambda *_: None)
     monkeypatch.setenv("ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS", "30")
 
     def settings():
@@ -109,6 +110,7 @@ def test_mixed_batch_is_rejected_before_settings_or_connection(monkeypatch):
 def test_pending_mismatch_still_cannot_mutate_and_restores_environment(monkeypatch):
     events = []
     timer(monkeypatch, events)
+    monkeypatch.setattr(runtime, "verify_prerequisite_identity", lambda *_: None)
     monkeypatch.delenv("ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(cli, "_settings", Mock())
     monkeypatch.setattr(cli, "pending_migration_plan", lambda *_: [])

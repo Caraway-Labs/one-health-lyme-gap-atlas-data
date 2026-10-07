@@ -648,6 +648,7 @@ def apply_reviewed_dev_migrations_command(
     from .ingestion.intelligence_runtime import (
         INTELLIGENCE_PREREQUISITE_SHA256,
         prerequisite_batch_deadline,
+        verify_prerequisite_identity,
     )
 
     feed_batch = any(item["sha256"] == INTELLIGENCE_PREREQUISITE_SHA256 for item in reviewed)
@@ -657,6 +658,8 @@ def apply_reviewed_dev_migrations_command(
     # Start before settings, pending inspection, reconciliation and application.
     with prerequisite_batch_deadline() if feed_batch else nullcontext():
         settings = _settings()
+        if feed_batch:
+            verify_prerequisite_identity(settings)
         actual = pending_migration_plan(settings, database)
         typer.echo(json.dumps({"pending_migrations": actual}))
         require_reviewed_pending_set(actual, reviewed)

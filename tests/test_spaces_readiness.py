@@ -106,4 +106,7 @@ def test_workflow_probe_job_has_no_snowflake_identity_or_ingestion_step() -> Non
     assert 'test "$GITHUB_SHA" = "$REVIEWED_COMMIT"' in commands
     assert "python -m lyme_gap_atlas_data.spaces_readiness" in commands
     assert "source run" not in commands
-    assert workflow["jobs"]["ingest"]["if"] == "inputs.operation != 'spaces-readiness'"
+    assert (
+        workflow["jobs"]["ingest"]["if"]
+        == "inputs.operation != 'spaces-readiness' || inputs.intelligence_acquisition_only"
+    )
