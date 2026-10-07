@@ -34,7 +34,7 @@ from .orchestrator import IngestionOrchestrator
 from .types import AdapterKind, SourceDefinition
 
 ENDPOINTS = {
-    "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
+    "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")

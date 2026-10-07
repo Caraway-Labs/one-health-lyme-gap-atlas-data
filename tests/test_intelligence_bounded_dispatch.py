@@ -87,6 +87,7 @@ def guard_script(inputs):
     [
         {},
         {"definition": "config/sources/intelligence_nih_news_releases.yml"},
+        {"definition": "config/sources/intelligence_cdc_vital_signs.yml"},
         {"operation": "resume"},
         {"operation": "validate"},
         {"operation": "spaces-readiness"},
@@ -107,7 +108,7 @@ def test_capture_validation_executes_without_any_provider_operation(override):
         "publish": "false",
         "recapture": "false",
         "run_id": "",
-        "definition": "config/sources/intelligence_cdc_vital_signs.yml",
+        "definition": "config/sources/intelligence_cdc_eid_expedited.yml",
     } | override
     bash = Path("C:/Program Files/Git/bin/bash.exe")
     executable = str(bash) if bash.exists() else shutil.which("bash")

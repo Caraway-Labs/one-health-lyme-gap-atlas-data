@@ -34,9 +34,9 @@ from lyme_gap_atlas_data.settings import PipelineSettings
 
 def selected() -> tuple[Any, dict[str, Any], list[dict[str, Any]]]:
     source = approved()
-    source.update(source_id="cdc-vital-signs", registry_version=7)
-    source["fetch_location"] = runtime.ENDPOINTS["cdc-vital-signs"]
-    source["approved_hosts"] = ["tools.cdc.gov", "example.org"]
+    source.update(source_id="cdc-eid-expedited", registry_version=7)
+    source["fetch_location"] = runtime.ENDPOINTS["cdc-eid-expedited"]
+    source["approved_hosts"] = ["wwwnc.cdc.gov", "example.org"]
     receipt = {
         "source_id": source["source_id"],
         "registry_version": 7,
@@ -185,7 +185,7 @@ def test_replay_size_and_owned_query_deadline_precede_io() -> None:
 
 def test_checked_in_definitions_and_policy_receipts_are_not_registry_approvals() -> None:
     assert json.loads(runtime.RECEIPTS.read_text())["receipts"] == []
-    for name in ("cdc_vital_signs", "nih_news_releases"):
+    for name in ("cdc_eid_expedited", "nih_news_releases"):
         configured = load_source_definition(Path(f"config/sources/intelligence_{name}.yml"))
         assert configured.endpoint_template == runtime.ENDPOINTS[configured.source_id]
         assert "intelligence_registry" not in configured.extra
