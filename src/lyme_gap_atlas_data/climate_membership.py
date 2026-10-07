@@ -22,6 +22,7 @@ ARTIFACT_NAME = "source-pilot-inspection-artifact.json"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 DONOR_CONTRACT = "atlas-january-reviewed-donor-v1"
 MAX_DONOR_BYTES = 64 * 1024
+DONOR_WAREHOUSE = "OH_LYME_DEV_INGEST_XS_WH"
 
 
 class MembershipBlocked(ValueError):
@@ -175,30 +176,42 @@ def validate_donor(donor: Any, donor_id: Any) -> None:
                 text(name)
 
 
-def export_donor_handoff(cursor: Any, output: Path, code_sha: str) -> dict[str, Any]:
+def export_donor_handoff(
+    cursor: Any, output: Path, code_sha: str, expected_account_sha256: str, expected_region: str
+) -> dict[str, Any]:
     """Called only within an independently bounded protected DEV operator read.
 
     No connection, grant, migration or publication is performed here. The caller
     must enforce timeout/no-retry/cost limits and retain the operator-run receipt.
     """
     require(re.fullmatch(r"[0-9a-f]{40}", code_sha) is not None, "MEMBERSHIP_CODE_SHA")
-    cursor.execute("SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()")
+    require(HEX.fullmatch(expected_account_sha256) is not None, "MEMBERSHIP_DONOR_ACCOUNT_BINDING")
+    cursor.execute(
+        "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE(),"
+        "CURRENT_REGION(),CURRENT_ACCOUNT()"
+    )
     context = cursor.fetchone()
     require(
         isinstance(context, tuple)
-        and len(context) == 4
+        and len(context) == 6
         and context[:3]
         == (
             "OH_LYME_DEV_MIGRATION_DEPLOY_SVC",
             "OH_LYME_DEV_MIGRATION_DEPLOYER",
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
         )
-        and isinstance(context[3], str)
-        and bool(context[3]),
+        and context[3] == DONOR_WAREHOUSE,
         "MEMBERSHIP_DONOR_OPERATOR_IDENTITY",
     )
+    require(
+        isinstance(context[5], str)
+        and hashlib.sha256(context[5].upper().encode()).hexdigest() == expected_account_sha256
+        and context[4] == expected_region,
+        "MEMBERSHIP_DONOR_ACCOUNT_BINDING",
+    )
     cursor.execute(
-        "SELECT p.current_release_id,r.status,r.bundle_sha256,r.source_manifest "
+        "SELECT p.current_release_id,r.status,r.bundle_sha256,"
+        f"IFF(OCTET_LENGTH(TO_JSON(r.source_manifest))<={MAX_DONOR_BYTES},r.source_manifest,NULL) "
         "FROM PRESENTATION.SEMANTIC_RELEASE_POINTER p "
         "JOIN PRESENTATION.SEMANTIC_RELEASES r ON r.release_id=p.current_release_id "
         "WHERE p.pointer_key='ATLAS' LIMIT 2"
@@ -219,6 +232,8 @@ def export_donor_handoff(cursor: Any, output: Path, code_sha: str) -> dict[str, 
         "producer_code_sha": code_sha,
         "produced_at": datetime.now(UTC).isoformat(),
         "operator_role": context[1],
+        "account_locator_sha256": expected_account_sha256,
+        "region": expected_region,
         "release_id": release_id,
         "bundle_sha256": bundle_sha,
         "annual_manifest": manifest,
@@ -247,7 +262,8 @@ def read_donor_handoff(path: Path, expected_sha256: str) -> dict[str, Any]:
     """Expected digest comes from independent review of the operator artifact."""
     require(HEX.fullmatch(expected_sha256) is not None, "MEMBERSHIP_DONOR_DIGEST_REQUIRED")
     require(path.is_file() and path.stat().st_size <= MAX_DONOR_BYTES, "MEMBERSHIP_DONOR_SIZE")
-    payload = path.read_bytes()
+    with path.open("rb") as handle:
+        payload = handle.read(MAX_DONOR_BYTES + 1)
     require(len(payload) <= MAX_DONOR_BYTES, "MEMBERSHIP_DONOR_SIZE")
     require(hashlib.sha256(payload).hexdigest() == expected_sha256, "MEMBERSHIP_DONOR_DIGEST")
     try:
@@ -267,6 +283,8 @@ def validate_donor_handoff(document: Any) -> None:
             "producer_code_sha",
             "produced_at",
             "operator_role",
+            "account_locator_sha256",
+            "region",
             "release_id",
             "bundle_sha256",
             "annual_manifest",
@@ -277,7 +295,9 @@ def validate_donor_handoff(document: Any) -> None:
         document["contract_version"] == DONOR_CONTRACT
         and document["operator_role"] == "OH_LYME_DEV_MIGRATION_DEPLOYER"
         and re.fullmatch(r"[0-9a-f]{40}", str(document["producer_code_sha"])) is not None
-        and HEX.fullmatch(str(document["bundle_sha256"])) is not None,
+        and HEX.fullmatch(str(document["bundle_sha256"])) is not None
+        and HEX.fullmatch(str(document["account_locator_sha256"])) is not None
+        and re.fullmatch(r"AWS_[A-Z0-9_]+", str(document["region"])) is not None,
         "MEMBERSHIP_DONOR_HANDOFF_IDENTITY",
     )
     try:
@@ -302,16 +322,29 @@ def freeze_membership(
     if donor_handoff is None:
         raise MembershipBlocked("MEMBERSHIP_DONOR_HANDOFF_REQUIRED")
     validate_donor_handoff(donor_handoff)
-    cursor.execute("SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()")
+    cursor.execute(
+        "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE(),"
+        "CURRENT_REGION(),CURRENT_ACCOUNT()"
+    )
+    context = cursor.fetchone()
     require(
-        cursor.fetchone()
+        isinstance(context, tuple)
+        and len(context) == 6
+        and context[:4]
         == (
             "OH_LYME_DEV_PIPELINE_SVC",
             "OH_LYME_DEV_RUNTIME",
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
-            "OH_LYME_DEV_INGEST_XS_WH",
+            DONOR_WAREHOUSE,
         ),
         "MEMBERSHIP_IDENTITY",
+    )
+    require(
+        isinstance(context[5], str)
+        and hashlib.sha256(context[5].upper().encode()).hexdigest()
+        == donor_handoff["account_locator_sha256"]
+        and context[4] == donor_handoff["region"],
+        "MEMBERSHIP_DONOR_ACCOUNT_BINDING",
     )
     require(re.fullmatch(r"[0-9a-f]{40}", code_sha) is not None, "MEMBERSHIP_CODE_SHA")
     cursor.execute(

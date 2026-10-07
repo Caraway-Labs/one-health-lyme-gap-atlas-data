@@ -18,6 +18,8 @@ class Cursor:
             "OH_LYME_DEV_RUNTIME",
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
             "OH_LYME_DEV_INGEST_XS_WH",
+            "AWS_US_WEST_2",
+            "FIXTURE_ACCOUNT",
         )
         self.rows = [
             ("a" * 64, "revision-1", "record-1", "c" * 64, "d" * 64),
@@ -70,6 +72,8 @@ def handoff(cursor):
         "producer_code_sha": "1" * 40,
         "produced_at": datetime.now(UTC).isoformat(),
         "operator_role": "OH_LYME_DEV_MIGRATION_DEPLOYER",
+        "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+        "region": "AWS_US_WEST_2",
         "release_id": "current-annual",
         "bundle_sha256": "c" * 64,
         "annual_manifest": cursor.donor,
@@ -209,7 +213,9 @@ class OperatorCursor(Cursor):
             "OH_LYME_DEV_MIGRATION_DEPLOY_SVC",
             "OH_LYME_DEV_MIGRATION_DEPLOYER",
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
-            "protected-warehouse",
+            membership.DONOR_WAREHOUSE,
+            "AWS_US_WEST_2",
+            "FIXTURE_ACCOUNT",
         )
 
     def fetchall(self):
@@ -221,7 +227,9 @@ class OperatorCursor(Cursor):
 def test_protected_operator_handoff_is_digest_pinned_and_read_only(tmp_path):
     cursor = OperatorCursor()
     output = tmp_path / "donor.json"
-    report = membership.export_donor_handoff(cursor, output, "1" * 40)
+    report = membership.export_donor_handoff(
+        cursor, output, "1" * 40, hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(), "AWS_US_WEST_2"
+    )
     document = membership.read_donor_handoff(output, report["artifact_sha256"])
     assert document["annual_manifest"] == cursor.donor
     assert not report["writes_performed"]
@@ -231,7 +239,10 @@ def test_protected_operator_handoff_is_digest_pinned_and_read_only(tmp_path):
         membership.read_donor_handoff(output, "0" * 64)
 
 
-@pytest.mark.parametrize("mutation", ["role", "missing_identity", "pointer", "manifest"])
+@pytest.mark.parametrize(
+    "mutation",
+    ["role", "missing_identity", "pointer", "manifest", "warehouse", "account", "region"],
+)
 def test_operator_failure_preserves_reviewed_file(tmp_path, mutation):
     cursor = OperatorCursor()
     if mutation == "role":
@@ -240,12 +251,22 @@ def test_operator_failure_preserves_reviewed_file(tmp_path, mutation):
         cursor.identity = None
     elif mutation == "pointer":
         cursor.pointer_changed = True
+    elif mutation in {"warehouse", "region", "account"}:
+        values = list(cursor.identity)
+        values[{"warehouse": 3, "region": 4, "account": 5}[mutation]] = "wrong"
+        cursor.identity = tuple(values)
     else:
         cursor.donor["sources"] = []
     output = tmp_path / "donor.json"
     output.write_text("existing")
     with pytest.raises(membership.MembershipBlocked):
-        membership.export_donor_handoff(cursor, output, "1" * 40)
+        membership.export_donor_handoff(
+            cursor,
+            output,
+            "1" * 40,
+            hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+            "AWS_US_WEST_2",
+        )
     assert output.read_text() == "existing"
     assert list(tmp_path.iterdir()) == [output]
 
