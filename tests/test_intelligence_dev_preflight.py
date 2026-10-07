@@ -138,3 +138,130 @@ def test_catalog_and_owner_status_survive_describe_denial():
     assert observed["owner_matches_expected"] is True
     assert observed["inspection_complete"] is False
     assert module.ROLE not in str(report)
+
+
+def test_table_reuse_requires_exact_columns_types_nullability_and_defaults():
+    name = "INTELLIGENCE_RAW_RETENTION_DOCUMENTS"
+    columns = [
+        {
+            "name": column,
+            "type": kind,
+            "kind": "COLUMN",
+            "null?": "Y" if nullable else "N",
+            "default": default or None,
+        }
+        for column, kind, nullable, default in module.TABLE_SHAPES[name]
+    ]
+    assert module.table_matches(name, columns)
+    assert not module.table_matches(
+        name,
+        columns + [{"name": "PRIVATE_BODY", "type": "VARIANT", "kind": "COLUMN", "null?": "Y"}],
+    )
+    for key, wrong in (("type", "VARCHAR(1024)"), ("null?", "Y"), ("default", "'invented'")):
+        changed = [dict(row) for row in columns]
+        changed[0][key] = wrong
+        assert not module.table_matches(name, changed)
+
+
+def test_three_approved_scopes_reject_extra_runtime_access_and_grant_option():
+    for name in (
+        "INTELLIGENCE_RAW_RETENTION_DOCUMENTS",
+        "INTELLIGENCE_RAW_RETENTION_AUDIT",
+        "INTELLIGENCE_FEED_V2",
+    ):
+        role, privileges = module.ROLE_PRIVILEGES[name]
+        grants = [
+            {
+                "grantee_name": role,
+                "granted_to": "ROLE",
+                "privilege": privilege,
+                "grant_option": "false",
+            }
+            for privilege in privileges
+        ]
+        assert module.privileges_match(name, grants)["target_role_privileges_exact"] is True
+        assert module.privileges_match(name, [])["required_privileges_present"] is False
+        changed = grants + [
+            {
+                "grantee_name": role,
+                "granted_to": "ROLE",
+                "privilege": "DELETE",
+                "grant_option": "false",
+            }
+        ]
+        assert module.privileges_match(name, changed)["unexpected_target_role_privileges"] is True
+        changed = [dict(row, grant_option="true") for row in grants]
+        assert module.privileges_match(name, changed)["target_role_grant_option_present"] is True
+
+
+@pytest.mark.parametrize("column_index", [0, -1])
+@pytest.mark.parametrize("field", ["name", "type", "kind", "null?", "default"])
+def test_table_shape_rejects_missing_metadata_even_for_no_default(column_index, field):
+    name = "INTELLIGENCE_RAW_RETENTION_DOCUMENTS"
+    columns = [
+        {
+            "name": column,
+            "type": kind,
+            "kind": "COLUMN",
+            "null?": "Y" if nullable else "N",
+            "default": default or None,
+        }
+        for column, kind, nullable, default in module.TABLE_SHAPES[name]
+    ]
+    del columns[column_index][field]
+    assert not module.table_matches(name, columns)
+
+
+@pytest.mark.parametrize("flag", [None, "", "UNKNOWN", "n", False, 0])
+@pytest.mark.parametrize("column_index", [0, -1])
+def test_table_shape_rejects_unknown_nullability_for_required_and_nullable_columns(
+    flag, column_index
+):
+    name = "INTELLIGENCE_RAW_RETENTION_DOCUMENTS"
+    columns = [
+        {
+            "name": column,
+            "type": kind,
+            "kind": "COLUMN",
+            "null?": "Y" if nullable else "N",
+            "default": default or None,
+        }
+        for column, kind, nullable, default in module.TABLE_SHAPES[name]
+    ]
+    columns[column_index]["null?"] = flag
+    assert not module.table_matches(name, columns)
+
+
+def test_table_shape_preserves_exact_identifier_case_and_explicit_null_default():
+    name = "INTELLIGENCE_RAW_RETENTION_DOCUMENTS"
+    columns = [
+        {
+            "name": column,
+            "type": kind,
+            "kind": "COLUMN",
+            "null?": "Y" if nullable else "N",
+            "default": default or None,
+        }
+        for column, kind, nullable, default in module.TABLE_SHAPES[name]
+    ]
+    assert columns[0]["default"] is None
+    assert module.table_matches(name, columns)
+    columns[0]["name"] = columns[0]["name"].lower()
+    assert not module.table_matches(name, columns)
+
+
+@pytest.mark.parametrize("default", [False, 0, {}, []])
+def test_table_shape_rejects_non_string_default_metadata(default):
+    name = "INTELLIGENCE_RAW_RETENTION_DOCUMENTS"
+    columns = [
+        {
+            "name": column,
+            "type": kind,
+            "kind": "COLUMN",
+            "null?": "Y" if nullable else "N",
+            "default": default or None,
+        }
+        for column, kind, nullable, default in module.TABLE_SHAPES[name]
+    ]
+    columns[0]["default"] = default
+    assert not module.table_matches(name, columns)

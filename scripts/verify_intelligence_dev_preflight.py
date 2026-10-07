@@ -37,6 +37,93 @@ def rows(cursor: Any) -> list[dict[str, Any]]:
     ]
 
 
+TABLE_SHAPES = {
+    "INTELLIGENCE_RAW_RETENTION_DOCUMENTS": (
+        ("DOCUMENT_TYPE", "VARCHAR(32)", False, ""),
+        ("DOCUMENT_KEY", "VARCHAR(256)", False, ""),
+        ("DOCUMENT_SHA256", "VARCHAR(64)", False, ""),
+        ("DOCUMENT", "VARIANT", False, ""),
+        ("REGISTERED_AT", "TIMESTAMP_TZ(9)", True, "CURRENT_TIMESTAMP()"),
+    ),
+    "INTELLIGENCE_RAW_RETENTION_AUDIT": (
+        ("RECEIPT_SHA256", "VARCHAR(64)", False, ""),
+        ("DOCUMENT", "VARIANT", False, ""),
+        ("REGISTERED_AT", "TIMESTAMP_TZ(9)", True, "CURRENT_TIMESTAMP()"),
+    ),
+    "INTELLIGENCE_SOURCE_VERSIONS": (
+        ("SOURCE_ID", "VARCHAR(200)", False, ""),
+        ("REGISTRY_VERSION", "NUMBER(38,0)", False, ""),
+        ("REGISTRY_SHA256", "VARCHAR(64)", False, ""),
+        ("REGISTRY_DOCUMENT", "VARIANT", False, ""),
+        ("RECORDED_AT", "TIMESTAMP_LTZ(9)", True, "CURRENT_TIMESTAMP()"),
+    ),
+}
+ROLE_PRIVILEGES = {
+    "INTELLIGENCE_RAW_RETENTION_DOCUMENTS": ("OH_LYME_DEV_RUNTIME", {"SELECT", "INSERT"}),
+    "INTELLIGENCE_RAW_RETENTION_AUDIT": ("OH_LYME_DEV_RUNTIME", {"INSERT"}),
+    "INTELLIGENCE_SOURCE_VERSIONS": ("OH_LYME_DEV_RUNTIME", {"SELECT"}),
+    "INTELLIGENCE_FEED_V": ("OH_LYME_DEV_READ", {"SELECT"}),
+    "INTELLIGENCE_FEED_V2": ("OH_LYME_DEV_READ", {"SELECT"}),
+}
+
+
+def value(row: dict[str, Any], key: str) -> Any:
+    return next((item for name, item in row.items() if name.lower() == key.lower()), None)
+
+
+def table_matches(name: str, columns: list[dict[str, Any]]) -> bool:
+    actual = []
+    for row in columns:
+        fields = {key.lower(): item for key, item in row.items()}
+        required = {"name", "type", "null?", "default", "kind"}
+        if not required <= fields.keys():
+            return False
+        column = fields["name"]
+        type_name = fields["type"]
+        nullable = fields["null?"]
+        default = fields["default"]
+        if (
+            fields["kind"] != "COLUMN"
+            or not isinstance(column, str)
+            or not isinstance(type_name, str)
+            or not type_name
+            or nullable not in ("Y", "N")
+            or (default is not None and not isinstance(default, str))
+        ):
+            return False
+        # Snowflake preserves quoted identifier case. Only exact approved names
+        # are reusable; lower-case quoted columns are different identifiers.
+        # An explicitly returned NULL default means no default. A missing key
+        # is unknown metadata and must never be treated as that NULL.
+        actual.append(
+            (
+                column,
+                type_name.upper().replace(" ", ""),
+                nullable == "Y",
+                (default or "").upper().replace(" ", ""),
+            )
+        )
+    return tuple(actual) == TABLE_SHAPES[name]
+
+
+def privileges_match(name: str, grants: list[dict[str, Any]]) -> dict[str, bool]:
+    role, expected = ROLE_PRIVILEGES[name]
+    scoped = [
+        row
+        for row in grants
+        if value(row, "grantee_name") == role and value(row, "granted_to") == "ROLE"
+    ]
+    actual = {str(value(row, "privilege")).upper() for row in scoped}
+    return {
+        "required_privileges_present": expected <= actual,
+        "target_role_privileges_exact": actual == expected,
+        "unexpected_target_role_privileges": bool(actual - expected),
+        "target_role_grant_option_present": any(
+            str(value(row, "grant_option")).lower() == "true" for row in scoped
+        ),
+    }
+
+
 def view_matches(name: str, actual: str) -> bool:
     source = (
         Path(__file__).parents[1] / "docs/contracts/intelligence/v2/presentation-projection.sql"
@@ -95,10 +182,13 @@ def inspect(cursor: Any, report: dict[str, Any]) -> None:
             cursor.execute(f"DESCRIBE {kind} {qualified}", timeout=10)
             columns = rows(cursor)
             entry["columns_inspected"] = bool(columns)
+            if kind == "TABLE":
+                entry["exact_approved_table_shape_matches"] = table_matches(name, columns)
             print(json.dumps(report, sort_keys=True), flush=True)
             cursor.execute(f"SHOW GRANTS ON {kind} {qualified}", timeout=10)
             grants = rows(cursor)
             entry["grants_inspected"] = bool(grants)
+            entry.update(privileges_match(name, grants))
             print(json.dumps(report, sort_keys=True), flush=True)
             # Do not expose names, privileges, definitions, source records or hashes.
             if kind == "VIEW":
