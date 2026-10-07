@@ -52,6 +52,14 @@ on:
         description: Official pricing forecast and optional redacted Standard-edition evidence JSON; no private identifiers or credentials
         required: false
         type: string
+      january_donor_handoff_path:
+        description: Reviewed digest-pinned JSON under docs/contracts/climate/reviewed-donors; frozen-membership only
+        required: false
+        type: string
+      january_donor_handoff_sha256:
+        description: Independently reviewed SHA-256 of protected-operator donor artifact
+        required: false
+        type: string
       registration_phase:
         description: Factual January bindings only; never approve or publish
         required: false
@@ -267,6 +275,8 @@ jobs:
           INTELLIGENCE_ACQUISITION_ONLY: ${{ inputs.intelligence_acquisition_only }}
           MEASUREMENT_ACTION: ${{ inputs.measurement_action }}
           JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: ${{ inputs.diagnostic_budget_evidence }}
+          JANUARY_DONOR_HANDOFF_PATH: ${{ inputs.january_donor_handoff_path }}
+          JANUARY_DONOR_HANDOFF_SHA256: ${{ inputs.january_donor_handoff_sha256 }}
           REGISTRATION_PHASE: ${{ inputs.registration_phase }}
         run: |
           set -euo pipefail

@@ -16,14 +16,19 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .climate_membership import ARTIFACT_NAME, MembershipBlocked, freeze_membership
+from .climate_membership import (
+    ARTIFACT_NAME,
+    MembershipBlocked,
+    freeze_membership,
+    read_donor_handoff,
+)
 
 RECEIPT_NAME = "january-membership-diagnostic-receipt.json"
 MAX_STATEMENTS = 40
 MAX_SECONDS = 300
 MAX_EXECUTION_SECONDS = 50
 # Preserve the completed run's full reservation; do not infer charges from elapsed time.
-PRIOR_DIAGNOSTIC_FORECAST_USD = 4.94375
+PRIOR_DIAGNOSTIC_FORECAST_USD = 6.836666666666667
 APPROVED_TOTAL_FORECAST_USD = 7
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
@@ -128,10 +133,9 @@ def budget_evidence(document: str) -> dict[str, Any]:
 
 
 def budget_runtime(price: float) -> int:
-    # Published maximum Gen2 XS (AWS/GCP): 1.35 credits/hour. Cloud services:
-    # 4.4 credits/hour, conservatively without the daily adjustment. Include
-    # Conservatively retain the approved 15-second property allowance and two
-    # one-minute idle tails even though Standard evidence needs no extra GET.
+    # Gen2 XS: 1.35 credits/hour; cloud services: 4.4, without daily adjustment.
+    # Retain the approved 15-second allowance and two one-minute warehouse idle
+    # tails (1.35/30 credits), even though Standard needs no extra property GET.
     remaining_compute_usd = APPROVED_TOTAL_FORECAST_USD - PRIOR_DIAGNOSTIC_FORECAST_USD - 1
     seconds = math.floor(((remaining_compute_usd / price - 1.35 / 30) * 3600) / 5.75) - 15
     if seconds < 30:
@@ -144,6 +148,8 @@ def stage_for(sql: str) -> str:
         return "IDENTITY"
     if "r.source_manifest" in sql:
         return "ANNUAL_DONOR"
+    if "CURRENT_RELEASE_V" in sql:
+        return "CURRENT_RELEASE_RECHECK"
     if "SEMANTIC_RELEASE_POINTER" in sql:
         return "POINTER_RECHECK"
     if "RAW_ARTIFACTS" in sql:
@@ -172,6 +178,7 @@ class BoundedCursor:
         self.cursor, self.started, self.receipt = cursor, started, receipt
         self.stage = "PREFLIGHT"
         self.prior_query_id: str | None = None
+        self.active_statement = False
 
     def check(self) -> float:
         remaining = float(self.receipt.get("runtime_limit_seconds", MAX_EXECUTION_SECONDS)) - (
@@ -183,7 +190,9 @@ class BoundedCursor:
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         remaining = self.check()
-        if self.receipt["statements"] >= MAX_STATEMENTS:
+        if self.receipt["statements"] >= min(
+            MAX_STATEMENTS, self.receipt.get("statement_limit", MAX_STATEMENTS)
+        ):
             raise DiagnosticStop("STATEMENT_LIMIT")
         if not sql.startswith(("SELECT ", "SHOW ")):
             raise DiagnosticStop("READ_ONLY_REQUIRED")
@@ -191,7 +200,12 @@ class BoundedCursor:
         self.receipt["statements"] += 1
         self.prior_query_id = safe_query_id(getattr(self.cursor, "sfqid", None))
         try:
-            self.cursor.execute(sql, params, timeout=min(15, int(remaining)))
+            self.active_statement = True
+            self.cursor.execute(
+                sql,
+                params,
+                timeout=min(15, self.receipt.get("statement_timeout_seconds", 15), int(remaining)),
+            )
         except Exception as error:
             self.receipt.setdefault(
                 "failure",
@@ -202,6 +216,8 @@ class BoundedCursor:
                 },
             )
             raise DiagnosticStop("READ_FAILED") from None
+        finally:
+            self.active_statement = False
         self.receipt.setdefault("query_ids", []).append(
             safe_query_id(getattr(self.cursor, "sfqid", None))
         )
@@ -240,6 +256,117 @@ def failure_query_id(error: Exception, cursor: Any, prior: str | None) -> str | 
     return direct or (current if current != prior else None)
 
 
+def verify_donor_account_binding(donor: dict[str, Any], identity: Any) -> None:
+    if (
+        not isinstance(identity, tuple)
+        or len(identity) != 6
+        or not isinstance(identity[5], str)
+        or hashlib.sha256(identity[5].upper().encode()).hexdigest()
+        != donor.get("account_locator_sha256")
+        or identity[4] != donor.get("region")
+    ):
+        raise DiagnosticStop("MEMBERSHIP_DONOR_ACCOUNT_BINDING")
+
+
+def validate_warehouse_cost(
+    warehouse: dict[str, Any], evidence: dict[str, Any], region: str, receipt: dict[str, Any]
+) -> None:
+    """Shared observed XS bounds; Standard entitlement never fabricates settings."""
+    capability = evidence.get("standard_capability_evidence")
+    generation = str(warehouse.get("generation")).upper()
+    cost_fields = (
+        "size",
+        "type",
+        "generation",
+        "max_cluster_count",
+        "min_cluster_count",
+        "enable_query_acceleration",
+        "auto_suspend",
+    )
+    safe_strings = {
+        "X-Small",
+        "STANDARD",
+        "1",
+        "GEN_1",
+        "GEN1",
+        "2",
+        "GEN_2",
+        "GEN2",
+        "true",
+        "false",
+        "TRUE",
+        "FALSE",
+        "60",
+    }
+    receipt["warehouse_cost_observation"] = {
+        key: {
+            "present": key in warehouse,
+            "python_type": type(warehouse.get(key)).__name__,
+            "value": value
+            if value is None
+            or type(value) in (bool, int, float)
+            or isinstance(value, str)
+            and value in safe_strings
+            else "UNRECOGNIZED_REDACTED",
+        }
+        for key in cost_fields
+        for value in (warehouse.get(key),)
+    }
+    try:
+        suspend_verified = 0 < int(warehouse.get("auto_suspend", 0)) <= 60
+    except (TypeError, ValueError, OverflowError):
+        suspend_verified = False
+    checks = {
+        "size": warehouse.get("size") == "X-Small",
+        "type": warehouse.get("type") == "STANDARD",
+        "generation": generation in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2"),
+        "max_cluster_count": type(warehouse.get("max_cluster_count")) is int
+        and warehouse.get("max_cluster_count") == 1,
+        "enable_query_acceleration": warehouse.get("enable_query_acceleration") is False,
+        "auto_suspend": suspend_verified,
+    }
+    if capability:
+        # Edition entitlement bounds costs; this is NOT a conversion of
+        # missing/zero SHOW fields into observed settings. Contradictory
+        # positive settings still fail closed.
+        clusters = warehouse.get("max_cluster_count")
+        minimum = warehouse.get("min_cluster_count")
+        acceleration = warehouse.get("enable_query_acceleration")
+        checks["max_cluster_count"] = clusters is None or (
+            type(clusters) is int and clusters in (0, 1)
+        )
+        checks["min_cluster_count"] = minimum is None or (
+            type(minimum) is int and minimum in (0, 1)
+        )
+        checks["enable_query_acceleration"] = acceleration is None or acceleration is False
+        receipt["edition_cost_capabilities"] = {
+            "basis": "OWNER_VERIFIED_STANDARD_EDITION",
+            "multicluster": "UNAVAILABLE",
+            "query_acceleration": "UNAVAILABLE",
+            "compute_cluster_cost_bound": 1,
+            "references": [
+                "https://docs.snowflake.com/en/user-guide/warehouses-multicluster",
+                "https://docs.snowflake.com/en/user-guide/query-acceleration-service",
+            ],
+        }
+    receipt["warehouse_cost_failed_fields"] = [key for key, passed in checks.items() if not passed]
+    if receipt["warehouse_cost_failed_fields"]:
+        raise DiagnosticStop("WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED")
+    cloud = str(region).split("_", 1)[0]
+    if cloud not in {"AWS", "AZURE", "GCP"}:
+        raise DiagnosticStop("WAREHOUSE_CLOUD_RATE_UNVERIFIED")
+    receipt["published_warehouse_credits_per_hour"] = (
+        1 if generation in ("1", "GEN_1", "GEN1") else 1.25 if cloud == "AZURE" else 1.35
+    )
+    receipt["consumption_reference"] = (
+        "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
+    )
+    receipt["warehouse_assumptions"] = {
+        key: warehouse.get(key)
+        for key in ("size", "type", "generation", "max_cluster_count", "auto_suspend")
+    }
+
+
 def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, Any]:
     """No second connection, role switch, new object, source acquisition or retry."""
     from lyme_gap_atlas_shared.settings import SnowflakeSettings
@@ -267,6 +394,25 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
     previous_log_level = connector_logger.level
     pending_output = output.with_name("pending-" + ARTIFACT_NAME)
     try:
+        donor_path = os.environ.get("JANUARY_DONOR_HANDOFF_PATH", "")
+        donor_digest = os.environ.get("JANUARY_DONOR_HANDOFF_SHA256", "")
+        if not donor_path:
+            raise DiagnosticStop("MEMBERSHIP_DONOR_HANDOFF_REQUIRED")
+        path = Path(donor_path)
+        checkout = Path.cwd().resolve()
+        # Keep the lexical boundary under canonical checkout: resolving it could
+        # follow a symlink outward and silently redefine the permitted directory.
+        allowed = checkout / "docs/contracts/climate/reviewed-donors"
+        candidate = path.resolve()
+        if (
+            path.suffix != ".json"
+            or candidate.suffix != ".json"
+            or not candidate.is_relative_to(allowed)
+        ):
+            raise DiagnosticStop("MEMBERSHIP_DONOR_HANDOFF_PATH")
+        donor = read_donor_handoff(candidate, donor_digest)
+        receipt["reviewed_donor_handoff_sha256"] = donor_digest
+        receipt["donor_bundle_sha256"] = donor["bundle_sha256"]
         evidence = budget_evidence(supplied_budget)
         try:
             job_started = int(os.environ["JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX"])
@@ -325,8 +471,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             capability = evidence.get("standard_capability_evidence")
             bounded.execute(
                 "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),"
-                "CURRENT_WAREHOUSE(),CURRENT_REGION()"
-                + (",CURRENT_ACCOUNT()" if capability else "")
+                "CURRENT_WAREHOUSE(),CURRENT_REGION(),CURRENT_ACCOUNT()"
             )
             identity = bounded.fetchone()
             if identity[:4] != (
@@ -336,7 +481,12 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 "OH_LYME_DEV_INGEST_XS_WH",
             ):
                 raise DiagnosticStop("IDENTITY_MISMATCH")
-            receipt["effective_context"] = list(identity)
+            receipt["effective_context"] = list(identity[:5])
+            verify_donor_account_binding(donor, identity)
+            receipt["donor_account_binding"] = {
+                "account_locator_sha256": donor["account_locator_sha256"],
+                "region": donor["region"],
+            }
             region = identity[4]
             if "region" in evidence and evidence["region"] != region:
                 raise DiagnosticStop("PUBLIC_PRICE_REGION_MISMATCH")
@@ -358,100 +508,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             warehouse = rows[0]
             if warehouse.get("name") != "OH_LYME_DEV_INGEST_XS_WH":
                 raise DiagnosticStop("WAREHOUSE_VISIBILITY")
-            generation = str(warehouse.get("generation")).upper()
-            cost_fields = (
-                "size",
-                "type",
-                "generation",
-                "max_cluster_count",
-                "min_cluster_count",
-                "enable_query_acceleration",
-                "auto_suspend",
-            )
-            safe_strings = {
-                "X-Small",
-                "STANDARD",
-                "1",
-                "GEN_1",
-                "GEN1",
-                "2",
-                "GEN_2",
-                "GEN2",
-                "true",
-                "false",
-                "TRUE",
-                "FALSE",
-                "60",
-            }
-            receipt["warehouse_cost_observation"] = {
-                key: {
-                    "present": key in warehouse,
-                    "python_type": type(warehouse.get(key)).__name__,
-                    "value": value
-                    if value is None
-                    or type(value) in (bool, int, float)
-                    or isinstance(value, str)
-                    and value in safe_strings
-                    else "UNRECOGNIZED_REDACTED",
-                }
-                for key in cost_fields
-                for value in (warehouse.get(key),)
-            }
-            try:
-                suspend_verified = 0 < int(warehouse.get("auto_suspend", 0)) <= 60
-            except (TypeError, ValueError, OverflowError):
-                suspend_verified = False
-            checks = {
-                "size": warehouse.get("size") == "X-Small",
-                "type": warehouse.get("type") == "STANDARD",
-                "generation": generation in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2"),
-                "max_cluster_count": type(warehouse.get("max_cluster_count")) is int
-                and warehouse.get("max_cluster_count") == 1,
-                "enable_query_acceleration": warehouse.get("enable_query_acceleration") is False,
-                "auto_suspend": suspend_verified,
-            }
-            if capability:
-                # Edition entitlement bounds costs; this is NOT a conversion of
-                # missing/zero SHOW fields into observed settings. Contradictory
-                # positive settings still fail closed.
-                clusters = warehouse.get("max_cluster_count")
-                minimum = warehouse.get("min_cluster_count")
-                acceleration = warehouse.get("enable_query_acceleration")
-                checks["max_cluster_count"] = clusters is None or (
-                    type(clusters) is int and clusters in (0, 1)
-                )
-                checks["min_cluster_count"] = minimum is None or (
-                    type(minimum) is int and minimum in (0, 1)
-                )
-                checks["enable_query_acceleration"] = acceleration is None or acceleration is False
-                receipt["edition_cost_capabilities"] = {
-                    "basis": "OWNER_VERIFIED_STANDARD_EDITION",
-                    "multicluster": "UNAVAILABLE",
-                    "query_acceleration": "UNAVAILABLE",
-                    "compute_cluster_cost_bound": 1,
-                    "references": [
-                        "https://docs.snowflake.com/en/user-guide/warehouses-multicluster",
-                        "https://docs.snowflake.com/en/user-guide/query-acceleration-service",
-                    ],
-                }
-            receipt["warehouse_cost_failed_fields"] = [
-                key for key, passed in checks.items() if not passed
-            ]
-            if receipt["warehouse_cost_failed_fields"]:
-                raise DiagnosticStop("WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED")
-            cloud = str(region).split("_", 1)[0]
-            if cloud not in {"AWS", "AZURE", "GCP"}:
-                raise DiagnosticStop("WAREHOUSE_CLOUD_RATE_UNVERIFIED")
-            receipt["published_warehouse_credits_per_hour"] = (
-                1 if generation in ("1", "GEN_1", "GEN1") else 1.25 if cloud == "AZURE" else 1.35
-            )
-            receipt["consumption_reference"] = (
-                "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
-            )
-            receipt["warehouse_assumptions"] = {
-                key: warehouse.get(key)
-                for key in ("size", "type", "generation", "max_cluster_count", "auto_suspend")
-            }
+            validate_warehouse_cost(warehouse, evidence, region, receipt)
             receipt["storage_assumptions"] = {
                 "incremental_warehouse_bytes": 0,
                 "minimum_free_temp_bytes": 1024**3,
@@ -460,7 +517,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 "source_downloads": False,
             }
             receipt["status"] = "READING_EXISTING_MEMBERSHIP"
-            result = freeze_membership(bounded, pending_output, code_sha)
+            result = freeze_membership(bounded, pending_output, code_sha, donor)
             if pending_output.stat().st_size > MAX_ARTIFACT_BYTES:
                 raise DiagnosticStop("ARTIFACT_SIZE_LIMIT")
             bounded.check()

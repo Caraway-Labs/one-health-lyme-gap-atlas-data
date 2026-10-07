@@ -93,6 +93,21 @@ def setup(monkeypatch):
     import snowflake.connector
 
     cursor = Cursor()
+    # Operational tests simulate an earlier affordable reservation; production remains exhausted.
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 4.94375)
+    monkeypatch.setenv(
+        "JANUARY_DONOR_HANDOFF_PATH", "docs/contracts/climate/reviewed-donors/test.json"
+    )
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", "a" * 64)
+    monkeypatch.setattr(
+        diag,
+        "read_donor_handoff",
+        lambda *_: {
+            "bundle_sha256": "b" * 64,
+            "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+            "region": "AWS_US_WEST_2",
+        },
+    )
     monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time())))
     parameters = []
     closed = []
@@ -248,7 +263,7 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
         "region": "AWS_US_WEST_2",
     }
 
-    def freeze(_cursor, path, _sha):
+    def freeze(_cursor, path, _sha, _donor):
         path.write_text("verified")
         return {"writes_performed": False}
 
@@ -263,16 +278,11 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_combined_reservations_preserve_both_runs_under_approved_total_cap():
-    seconds = diag.budget_runtime(6)
-    assert seconds == 50
-    aggregate = (
-        diag.PRIOR_DIAGNOSTIC_FORECAST_USD + (((seconds + 15) * 5.75 / 3600 + 1.35 / 30) * 6) + 1
-    )
-    assert diag.PRIOR_DIAGNOSTIC_FORECAST_USD == 4.94375
-    assert aggregate == pytest.approx(6.836666666666667) and aggregate <= 7
-    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
-        diag.budget_runtime(20)
+def test_consumed_reservations_block_another_run_under_approved_total_cap():
+    assert pytest.approx(6.836666666666667) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
+    for price in (6, 20):
+        with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
+            diag.budget_runtime(price)
 
 
 def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
@@ -331,7 +341,7 @@ def test_standard_capability_bound_preserves_unknown_or_zero_settings(
     else:
         cursor.warehouse["max_cluster_count"] = clusters
 
-    def freeze(_cursor, path, _sha):
+    def freeze(_cursor, path, _sha, _donor):
         path.write_text("fixture membership")
         return {"writes_performed": False}
 
@@ -420,7 +430,7 @@ def test_oversize_diagnostic_output_preserves_previous_artifact(setup, monkeypat
     output.write_text("previous")
     monkeypatch.setattr(diag, "MAX_ARTIFACT_BYTES", 1)
 
-    def freeze(_cursor, path, _sha):
+    def freeze(_cursor, path, _sha, _donor):
         path.write_text("oversize")
         return {}
 
@@ -473,3 +483,143 @@ def test_actual_workflow_skips_separate_identity_session_for_diagnostic(tmp_path
         "run atlas-data source nclimgrid-pilot-measure --action frozen-membership --run-id fixture"
     ]
     assert not (tmp_path / "oh-lyme-ingestion-key.p8").exists()
+
+
+@pytest.mark.parametrize(
+    "path", ["", "outside/donor.json", "docs/contracts/climate/reviewed-donors/donor.txt"]
+)
+def test_missing_or_out_of_contract_donor_never_connects(setup, monkeypatch, tmp_path, path):
+    _, parameters, _ = setup
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_PATH", path)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    assert result["status"] == "BLOCKED"
+    assert not parameters
+
+
+def test_current_consumed_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
+    _, parameters, _ = setup
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    assert result["status"] == "BLOCKED"
+    assert not parameters
+
+
+@pytest.mark.parametrize("escape", ["allowed_directory", "ancestor", "nested", "file"])
+def test_symlink_escape_rejected_before_file_consumption_or_connection(
+    setup, monkeypatch, tmp_path, escape
+):
+    _, parameters, _ = setup
+    checkout = tmp_path / "checkout"
+    outside = tmp_path / "outside"
+    checkout.mkdir()
+    outside.mkdir()
+    (outside / "donor.json").write_text("outside content must not be consumed")
+    allowed = checkout / "docs/contracts/climate/reviewed-donors"
+    if escape == "ancestor":
+        target = checkout / "docs"
+        candidate = allowed / "donor.json"
+        external_allowed = outside / "contracts/climate/reviewed-donors"
+        external_allowed.mkdir(parents=True)
+        (external_allowed / "donor.json").write_text("outside content must not be consumed")
+    elif escape == "allowed_directory":
+        target = allowed
+        candidate = allowed / "donor.json"
+    else:
+        allowed.mkdir(parents=True)
+        target = allowed / ("nested" if escape == "nested" else "donor.json")
+        candidate = target / "donor.json" if escape == "nested" else target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(
+            outside / "donor.json" if escape == "file" else outside,
+            target_is_directory=escape != "file",
+        )
+    except OSError:
+        pytest.skip("platform does not permit symlink creation; Linux CI runs this gate")
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_PATH", str(candidate))
+    monkeypatch.setattr(diag, "read_donor_handoff", lambda *_: pytest.fail("must not consume file"))
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert result["status"] == "BLOCKED" and not parameters
+    assert receipt["failure"]["category"] == "MEMBERSHIP_DONOR_HANDOFF_PATH"
+
+
+def real_donor_document():
+    manifest = json.loads(
+        Path("docs/contracts/semantic-release/governed-2026-09-15-manifest.json").read_text()
+    )
+    return {
+        "contract_version": "atlas-january-reviewed-donor-v1",
+        "producer_code_sha": "1" * 40,
+        "produced_at": datetime.now(UTC).isoformat(),
+        "operator_role": "OH_LYME_DEV_MIGRATION_DEPLOYER",
+        "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+        "region": "AWS_US_WEST_2",
+        "release_id": manifest["release_id"],
+        "bundle_sha256": "b" * 64,
+        "annual_manifest": manifest,
+    }
+
+
+@pytest.mark.parametrize("control", ["valid", "digest", "oversize"])
+def test_confined_real_donor_controls_before_exhausted_budget(
+    setup, monkeypatch, tmp_path, control
+):
+    from lyme_gap_atlas_data.climate_membership import MAX_DONOR_BYTES, read_donor_handoff
+
+    _, parameters, _ = setup
+    document = real_donor_document()
+    checkout = tmp_path / "checkout"
+    allowed = checkout / "docs/contracts/climate/reviewed-donors"
+    allowed.mkdir(parents=True)
+    path = allowed / "donor.json"
+    payload = (
+        json.dumps(document).encode() if control != "oversize" else b"x" * (MAX_DONOR_BYTES + 1)
+    )
+    path.write_bytes(payload)
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv(
+        "JANUARY_DONOR_HANDOFF_PATH", "docs/contracts/climate/reviewed-donors/donor.json"
+    )
+    digest = hashlib.sha256(payload).hexdigest() if control != "digest" else "0" * 64
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
+    monkeypatch.setattr(diag, "read_donor_handoff", read_donor_handoff)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    if control == "oversize":
+        original_open = Path.open
+
+        def open_path(candidate, *args, **kwargs):
+            if candidate == path:
+                pytest.fail("must not consume oversized file")
+            return original_open(candidate, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", open_path)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    expected = {
+        "valid": "FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP",
+        "digest": "MEMBERSHIP_DONOR_DIGEST",
+        "oversize": "MEMBERSHIP_DONOR_SIZE",
+    }[control]
+    assert result["status"] == "BLOCKED" and not parameters
+    assert receipt["failure"]["category"] == expected
+
+
+@pytest.mark.parametrize(
+    "field,value", [("account_locator_sha256", "0" * 64), ("region", "AWS_US_EAST_1")]
+)
+def test_producer_consumer_binding_mismatch_blocks_before_warehouse_or_export(
+    setup, monkeypatch, tmp_path, field, value
+):
+    cursor, _, _ = setup
+    donor = {
+        "bundle_sha256": "b" * 64,
+        "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+        "region": "AWS_US_WEST_2",
+        field: value,
+    }
+    monkeypatch.setattr(diag, "read_donor_handoff", lambda *_: donor)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    assert result["status"] == "BLOCKED"
+    assert len(cursor.calls) == 1
