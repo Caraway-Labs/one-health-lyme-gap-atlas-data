@@ -8,6 +8,17 @@ The two raw-retention tables and `INTELLIGENCE_FEED_V2` were not visible, which
 does not prove physical absence. The existing V1 view was visible but its
 definition did not match the reviewed version filter.
 
+The follow-up protected branch run
+[37700662663](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37700662663)
+passed its job and reported `direct_describe_succeeded=false` for the same
+three objects, `ABSENT` for EID and NIH registry rows, and no writes. A separate
+bounded read-only check with the documented `ATLAS_DEV_OWNER` PAT connection
+verified `OH_LYME_DEV_OWNER` / DEV / DEV ingest warehouse, then found zero
+matching rows in `INFORMATION_SCHEMA.TABLES`. `GOVERNANCE` schema ownership is
+held by `ACCOUNTADMIN`, while the migration role has scoped CREATE privileges.
+These facts do not prove that an object invisible to both permitted roles is
+physically absent. No ACCOUNTADMIN check was performed.
+
 This change adds only the EID SourceDefinition, selects EID in the existing
 bounded runtime/workflow path instead of deferred Vital Signs, and adds an exact
 direct `DESCRIBE` check to the protected migration-identity diagnostic. A
