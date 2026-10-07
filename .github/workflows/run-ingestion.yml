@@ -209,7 +209,7 @@ jobs:
           MEASUREMENT_RUN_ID: ${{ inputs.run_id }}
           INTELLIGENCE_ACQUISITION_ONLY: ${{ inputs.intelligence_acquisition_only }}
         run: |
-          if [ "$INTELLIGENCE_ACQUISITION_ONLY" = "true" ]; then
+          if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" = "true" ]; then
             test "${{ inputs.operation }}" = "run"
             test "${{ inputs.environment_name }}" = "dev"
             test "${{ inputs.tier }}" = "B"
@@ -309,7 +309,7 @@ jobs:
           export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
 
           # The bounded exporter verifies identity in its single session.
-          if [ "$INTELLIGENCE_ACQUISITION_ONLY" != "true" ] && { [ "$MEASUREMENT_ACTION" != "frozen-membership" ] || [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ]; }; then
+          if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" != "true" ] && { [ "$MEASUREMENT_ACTION" != "frozen-membership" ] || [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ]; }; then
           uv run python - <<'PY'
           import os
 
@@ -364,7 +364,7 @@ jobs:
             uv run python scripts/reconcile_january_climate_inputs.py --phase inspect
           elif [ "${{ inputs.operation }}" = "run" ]; then
             extra_args=()
-            if [ "$INTELLIGENCE_ACQUISITION_ONLY" = "true" ]; then
+            if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" = "true" ]; then
               extra_args+=(--fail-after-stage ACQUIRE)
             fi
             uv run atlas-data source run \

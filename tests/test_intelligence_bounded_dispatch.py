@@ -40,7 +40,7 @@ def guard_script(inputs):
     script = next(
         step["run"] for step in steps if step.get("name") == "Enforce environment and tier boundary"
     )
-    start = script.index('if [ "$INTELLIGENCE_ACQUISITION_ONLY" = "true" ]')
+    start = script.index('if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" = "true" ]')
     script = script[start : script.index("\nfi\n", start) + 4]
     for name, value in inputs.items():
         script = script.replace("${{ inputs." + name + " }}", value)
@@ -109,7 +109,7 @@ def test_capture_stop_reuses_cli_and_skips_untimed_identity_probe():
         for step in steps
         if step.get("name") == "Execute orchestrator operation with ephemeral Snowflake key"
     )
-    assert 'if [ "$INTELLIGENCE_ACQUISITION_ONLY" != "true" ]' in script
+    assert 'if [ "${INTELLIGENCE_ACQUISITION_ONLY:-false}" != "true" ]' in script
     assert "extra_args+=(--fail-after-stage ACQUIRE)" in script
     assert '--tier "${{ inputs.tier }}" "${extra_args[@]}"' in script
     assert "|| true" not in script
