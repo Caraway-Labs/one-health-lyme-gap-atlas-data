@@ -49,7 +49,7 @@ on:
         required: false
         type: string
       diagnostic_budget_evidence:
-        description: Public official pricing forecast JSON only; never private billing or credentials
+        description: Official pricing forecast and optional redacted Standard-edition evidence JSON; no private identifiers or credentials
         required: false
         type: string
       registration_phase:

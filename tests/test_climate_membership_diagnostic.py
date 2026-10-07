@@ -1,5 +1,6 @@
 """Actual bounded adapter and single-session connector behavior, no database."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -37,6 +38,7 @@ class Cursor:
         self.calls = []
         self.fail_donor = False
         self.warehouse = {
+            "name": "OH_LYME_DEV_INGEST_XS_WH",
             "size": "X-Small",
             "type": "STANDARD",
             "generation": "1",
@@ -71,6 +73,8 @@ class Cursor:
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
             "OH_LYME_DEV_INGEST_XS_WH",
         )
+        if "CURRENT_ACCOUNT()" in self.sql:
+            return (*identity, "AWS_US_WEST_2", "FIXTURE_ACCOUNT")
         return (*identity, "AWS_US_WEST_2") if "CURRENT_REGION" in self.sql else identity
 
     def fetchall(self):
@@ -259,12 +263,15 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_combined_reservations_never_exceed_original_total_cap():
+def test_combined_reservations_preserve_both_runs_under_approved_total_cap():
     seconds = diag.budget_runtime(6)
     assert seconds == 50
-    aggregate = diag.PRIOR_DIAGNOSTIC_FORECAST_USD + ((seconds * 5.75 / 3600 + 1.35 / 60) * 6) + 1
-    assert aggregate == pytest.approx(4.94375) and aggregate <= 5
-    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_FIVE_DOLLAR_CAP"):
+    aggregate = (
+        diag.PRIOR_DIAGNOSTIC_FORECAST_USD + (((seconds + 15) * 5.75 / 3600 + 1.35 / 30) * 6) + 1
+    )
+    assert diag.PRIOR_DIAGNOSTIC_FORECAST_USD == 4.94375
+    assert aggregate == pytest.approx(6.836666666666667) and aggregate <= 7
+    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
         diag.budget_runtime(20)
 
 
@@ -278,7 +285,7 @@ def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
     receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
     assert timers[0][1] == receipt["runtime_limit_seconds"] == 50
     assert receipt["cleanup_upload_reserved_seconds"] == 60 and diag.MAX_SECONDS == 300
-    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(4.94375)
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(6.836666666666667)
     assert receipt["billing"]["actual_billed_usd"] is None
 
 
@@ -294,6 +301,95 @@ def test_late_job_stops_before_connection_but_retains_receipt(setup, monkeypatch
 def test_private_billing_reference_is_rejected_in_log_visible_input():
     value = json.loads(evidence()) | {"evidence_reference": "private-account-invoice"}
     with pytest.raises(diag.DiagnosticStop, match="PUBLIC_PRICING_ONLY"):
+        diag.budget_evidence(json.dumps(value))
+
+
+def standard_evidence():
+    return json.dumps(
+        json.loads(evidence())
+        | {
+            "standard_capability_evidence": {
+                "edition": "STANDARD",
+                "cloud": "AWS",
+                "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+                "verified_by": "fixture-owner",
+                "verified_at": datetime.now(UTC).isoformat(),
+                "evidence_reference": "OWNER_SNOWSIGHT_ACCOUNT_DETAILS",
+            }
+        }
+    )
+
+
+@pytest.mark.parametrize("clusters", [None, 0, 1])
+def test_standard_capability_bound_preserves_unknown_or_zero_settings(
+    setup, monkeypatch, tmp_path, clusters
+):
+    cursor, parameters, _ = setup
+    cursor.warehouse.pop("enable_query_acceleration")
+    if clusters is None:
+        cursor.warehouse.pop("max_cluster_count")
+    else:
+        cursor.warehouse["max_cluster_count"] = clusters
+
+    def freeze(_cursor, path, _sha):
+        path.write_text("fixture membership")
+        return {"writes_performed": False}
+
+    monkeypatch.setattr(diag, "freeze_membership", freeze)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, standard_evidence())
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert result["status"] == "READ_ONLY_EXPORT_SUCCEEDED"
+    assert receipt["warehouse_cost_observation"]["max_cluster_count"]["value"] == clusters
+    assert receipt["warehouse_cost_observation"]["enable_query_acceleration"]["present"] is False
+    assert receipt["warehouse_assumptions"]["max_cluster_count"] == clusters
+    assert receipt["edition_cost_capabilities"]["query_acceleration"] == "UNAVAILABLE"
+    assert receipt["edition_cost_capabilities"]["compute_cluster_cost_bound"] == 1
+    assert len(parameters) == 1
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("max_cluster_count", 2),
+        ("max_cluster_count", True),
+        ("enable_query_acceleration", True),
+        ("enable_query_acceleration", "false"),
+    ],
+)
+def test_standard_entitlement_does_not_hide_contradictory_properties(
+    setup, monkeypatch, tmp_path, field, value
+):
+    cursor, _, _ = setup
+    cursor.warehouse[field] = value
+    monkeypatch.setattr(diag, "freeze_membership", lambda *_: pytest.fail("no membership read"))
+    assert (
+        diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, standard_evidence())["status"]
+        == "BLOCKED"
+    )
+
+
+def test_standard_evidence_must_match_live_account_before_show(setup, monkeypatch, tmp_path):
+    cursor, _, _ = setup
+    value = json.loads(standard_evidence())
+    value["standard_capability_evidence"]["account_locator_sha256"] = "a" * 64
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, json.dumps(value))
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert result["status"] == "BLOCKED"
+    assert receipt["failure"]["category"] == "STANDARD_CAPABILITY_ACCOUNT_MISMATCH"
+    assert len(cursor.calls) == 1
+
+
+@pytest.mark.parametrize("mutation", ["edition", "stale", "private_field"])
+def test_standard_capability_receipt_rejects_unsupported_or_unreviewed_evidence(mutation):
+    value = json.loads(standard_evidence())
+    capability = value["standard_capability_evidence"]
+    if mutation == "edition":
+        capability["edition"] = "ENTERPRISE"
+    elif mutation == "stale":
+        capability["verified_at"] = "2025-01-01T00:00:00Z"
+    else:
+        capability["account_identifier"] = "private-account"
+    with pytest.raises(diag.DiagnosticStop, match="STANDARD_CAPABILITY_EVIDENCE"):
         diag.budget_evidence(json.dumps(value))
 
 

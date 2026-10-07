@@ -23,7 +23,8 @@ MAX_STATEMENTS = 40
 MAX_SECONDS = 300
 MAX_EXECUTION_SECONDS = 50
 # Preserve the completed run's full reservation; do not infer charges from elapsed time.
-PRIOR_DIAGNOSTIC_FORECAST_USD = 3.3295833333333333
+PRIOR_DIAGNOSTIC_FORECAST_USD = 4.94375
+APPROVED_TOTAL_FORECAST_USD = 7
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
 
@@ -44,15 +45,21 @@ def budget_evidence(document: str) -> dict[str, Any]:
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_REQUIRED") from None
     if (
         not isinstance(value, dict)
-        or set(value)
-        != {
+        or not {
             "unit_price_usd",
             "evidence_reference",
             "verified_by",
             "verified_at",
+        }.issubset(value)
+        or set(value)
+        - {
+            "unit_price_usd",
+            "evidence_reference",
+            "verified_by",
+            "verified_at",
+            "region",
+            "standard_capability_evidence",
         }
-        and set(value)
-        != {"unit_price_usd", "evidence_reference", "verified_by", "verified_at", "region"}
     ):
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_REQUIRED")
     price = value["unit_price_usd"]
@@ -87,17 +94,48 @@ def budget_evidence(document: str) -> dict[str, Any]:
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_REQUIRED") from None
     if verified.tzinfo is None or not 0 <= (datetime.now(UTC) - verified).total_seconds() <= 604800:
         raise DiagnosticStop("BILLING_PRICE_RECEIPT_STALE")
+    if "standard_capability_evidence" in value:
+        capability = value["standard_capability_evidence"]
+        if (
+            not isinstance(capability, dict)
+            or set(capability)
+            != {
+                "edition",
+                "cloud",
+                "account_locator_sha256",
+                "verified_by",
+                "verified_at",
+                "evidence_reference",
+            }
+            or capability.get("edition") != "STANDARD"
+            or capability.get("cloud") != "AWS"
+            or re.fullmatch(r"[0-9a-f]{64}", str(capability.get("account_locator_sha256"))) is None
+            or not isinstance(capability.get("verified_by"), str)
+            or re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", str(capability.get("verified_by"))) is None
+            or capability.get("evidence_reference") != "OWNER_SNOWSIGHT_ACCOUNT_DETAILS"
+        ):
+            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_REQUIRED")
+        try:
+            checked = datetime.fromisoformat(capability["verified_at"].replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_REQUIRED") from None
+        if (
+            checked.tzinfo is None
+            or not 0 <= (datetime.now(UTC) - checked).total_seconds() <= 86400
+        ):
+            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_STALE")
     return value
 
 
 def budget_runtime(price: float) -> int:
     # Published maximum Gen2 XS (AWS/GCP): 1.35 credits/hour. Cloud services:
     # 4.4 credits/hour, conservatively without the daily adjustment. Include
-    # one minute of warehouse suspension tail and US$1 noncompute reserve.
-    remaining_compute_usd = 5 - PRIOR_DIAGNOSTIC_FORECAST_USD - 1
-    seconds = math.floor(((remaining_compute_usd / price - 1.35 / 60) * 3600) / (1.35 + 4.4))
+    # Conservatively retain the approved 15-second property allowance and two
+    # one-minute idle tails even though Standard evidence needs no extra GET.
+    remaining_compute_usd = APPROVED_TOTAL_FORECAST_USD - PRIOR_DIAGNOSTIC_FORECAST_USD - 1
+    seconds = math.floor(((remaining_compute_usd / price - 1.35 / 30) * 3600) / 5.75) - 15
     if seconds < 30:
-        raise DiagnosticStop("FORECAST_EXCEEDS_FIVE_DOLLAR_CAP")
+        raise DiagnosticStop("FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP")
     return min(MAX_EXECUTION_SECONDS, seconds)
 
 
@@ -246,10 +284,11 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         receipt["forecast_basis"] = evidence["basis"]
         receipt["billing"]["actual_billed_unit_price_usd"] = None
         receipt["compute_and_cloud_services_forecast_ceiling_usd"] = (
-            runtime_limit * 5.75 / 3600 + 1.35 / 60
+            (runtime_limit + 15) * 5.75 / 3600 + 1.35 / 30
         ) * evidence["unit_price_usd"]
         receipt["noncompute_reserve_usd"] = 1
         receipt["prior_diagnostic_full_forecast_reserved_usd"] = PRIOR_DIAGNOSTIC_FORECAST_USD
+        receipt["approved_total_forecast_usd"] = APPROVED_TOTAL_FORECAST_USD
         receipt["aggregate_forecast_ceiling_usd"] = (
             PRIOR_DIAGNOSTIC_FORECAST_USD
             + receipt["compute_and_cloud_services_forecast_ceiling_usd"]
@@ -283,9 +322,11 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         connection = connect(**parameters)
         with connection.cursor() as cursor:
             bounded = BoundedCursor(cursor, started, receipt)
+            capability = evidence.get("standard_capability_evidence")
             bounded.execute(
                 "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),"
                 "CURRENT_WAREHOUSE(),CURRENT_REGION()"
+                + (",CURRENT_ACCOUNT()" if capability else "")
             )
             identity = bounded.fetchone()
             if identity[:4] != (
@@ -299,18 +340,31 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             region = identity[4]
             if "region" in evidence and evidence["region"] != region:
                 raise DiagnosticStop("PUBLIC_PRICE_REGION_MISMATCH")
+            if capability:
+                if (
+                    len(identity) != 6
+                    or not isinstance(identity[5], str)
+                    or hashlib.sha256(identity[5].upper().encode()).hexdigest()
+                    != capability["account_locator_sha256"]
+                    or not str(region).startswith(capability["cloud"] + "_")
+                ):
+                    raise DiagnosticStop("STANDARD_CAPABILITY_ACCOUNT_MISMATCH")
+                receipt["standard_capability_evidence"] = capability
             bounded.execute("SHOW WAREHOUSES LIKE 'OH_LYME_DEV_INGEST_XS_WH'")
             columns = [str(c[0]).lower() for c in cursor.description]
             rows = [dict(zip(columns, row, strict=True)) for row in bounded.fetchall()]
             if len(rows) != 1:
                 raise DiagnosticStop("WAREHOUSE_VISIBILITY")
             warehouse = rows[0]
+            if warehouse.get("name") != "OH_LYME_DEV_INGEST_XS_WH":
+                raise DiagnosticStop("WAREHOUSE_VISIBILITY")
             generation = str(warehouse.get("generation")).upper()
             cost_fields = (
                 "size",
                 "type",
                 "generation",
                 "max_cluster_count",
+                "min_cluster_count",
                 "enable_query_acceleration",
                 "auto_suspend",
             )
@@ -351,10 +405,35 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 "size": warehouse.get("size") == "X-Small",
                 "type": warehouse.get("type") == "STANDARD",
                 "generation": generation in ("1", "GEN_1", "GEN1", "2", "GEN_2", "GEN2"),
-                "max_cluster_count": warehouse.get("max_cluster_count") == 1,
+                "max_cluster_count": type(warehouse.get("max_cluster_count")) is int
+                and warehouse.get("max_cluster_count") == 1,
                 "enable_query_acceleration": warehouse.get("enable_query_acceleration") is False,
                 "auto_suspend": suspend_verified,
             }
+            if capability:
+                # Edition entitlement bounds costs; this is NOT a conversion of
+                # missing/zero SHOW fields into observed settings. Contradictory
+                # positive settings still fail closed.
+                clusters = warehouse.get("max_cluster_count")
+                minimum = warehouse.get("min_cluster_count")
+                acceleration = warehouse.get("enable_query_acceleration")
+                checks["max_cluster_count"] = clusters is None or (
+                    type(clusters) is int and clusters in (0, 1)
+                )
+                checks["min_cluster_count"] = minimum is None or (
+                    type(minimum) is int and minimum in (0, 1)
+                )
+                checks["enable_query_acceleration"] = acceleration is None or acceleration is False
+                receipt["edition_cost_capabilities"] = {
+                    "basis": "OWNER_VERIFIED_STANDARD_EDITION",
+                    "multicluster": "UNAVAILABLE",
+                    "query_acceleration": "UNAVAILABLE",
+                    "compute_cluster_cost_bound": 1,
+                    "references": [
+                        "https://docs.snowflake.com/en/user-guide/warehouses-multicluster",
+                        "https://docs.snowflake.com/en/user-guide/query-acceleration-service",
+                    ],
+                }
             receipt["warehouse_cost_failed_fields"] = [
                 key for key, passed in checks.items() if not passed
             ]
@@ -370,7 +449,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
             )
             receipt["warehouse_assumptions"] = {
-                key: warehouse[key]
+                key: warehouse.get(key)
                 for key in ("size", "type", "generation", "max_cluster_count", "auto_suspend")
             }
             receipt["storage_assumptions"] = {
