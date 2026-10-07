@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       feed_preflight_accounting_confirmed:
-        description: Confirm privately reconciled aggregate $5/six-request ledger covers this bounded probe; no private values
+        description: Confirm forward-only US$8 allowance covers this bounded probe; historical charges remain separate
         required: false
         type: boolean
         default: false

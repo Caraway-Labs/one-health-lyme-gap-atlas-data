@@ -41,20 +41,49 @@ RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 
 
 @contextmanager
-def pilot_watchdog() -> Iterator[None]:
-    """Stop this CLI process after five minutes, including blocked SDK calls.
+def pilot_watchdog(*, seconds: int = 300) -> Iterator[None]:
+    """Stop the owned CLI at its deadline, including blocked SDK calls.
 
     Covers connection setup, implicit transaction SQL and Spaces operations
     which cannot all be intercepted by the cursor wrapper. No other process,
-    warehouse or session is cancelled. The outer Actions limit is six minutes.
+    warehouse or session is cancelled. The feed default is five minutes; the
+    exact prerequisite batch uses fifty seconds.
     """
-    timer = threading.Timer(300, os._exit, args=(124,))
+    timer = threading.Timer(seconds, os._exit, args=(124,))
     timer.daemon = True
     timer.start()
     try:
         yield
     finally:
         timer.cancel()
+
+
+INTELLIGENCE_PREREQUISITE_SHA256 = (
+    "23342cd593efc32e9d7fdf206bfcef134a66dc8bc5e32efbf140a3c50c721526"
+)
+
+
+@contextmanager
+def prerequisite_batch_deadline() -> Iterator[None]:
+    """Bound the exact reviewed DEV feed batch, including all connections/cleanup.
+
+    Reuse the SQL-session limit surface; no new identity or warehouse changes.
+    The process exits independently of evidence I/O. Server statements may have
+    a bounded tail after process exit; DDL is not transactional or rolled back.
+    """
+    with pilot_watchdog(seconds=50):
+        previous = os.environ.get("ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS")
+        existing_timeout = int(previous) if previous is not None else 10
+        if not 1 <= existing_timeout <= 60:
+            raise ValueError("Invalid existing SQL statement timeout")
+        os.environ["ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS"] = str(min(existing_timeout, 10))
+        try:
+            yield
+        finally:
+            if previous is None:
+                os.environ.pop("ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS", None)
+            else:
+                os.environ["ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS"] = previous
 
 
 class PilotBudget:

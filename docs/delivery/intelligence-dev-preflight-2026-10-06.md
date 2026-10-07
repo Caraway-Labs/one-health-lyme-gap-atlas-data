@@ -16,10 +16,10 @@ emitted progressively and retained if a later inspection fails. The 50-second wa
 have ten-second limits. No exception message is emitted.
 
 The public boolean accounting input confirms independently reconciled private
-aggregate $5/six-request pilot accounting covers this bounded diagnostic, including
+forward-only allowance covers this bounded diagnostic, including
 idle/service overhead and other reserved spend. It contains no dollars, pricing,
 private evidence references or request receipts. This is an attestation gate, not
-a billing meter. Unknown prior request counts or charges block confirmation; the
+a billing meter. Historical charges are separately unreconciled and are not asserted by this forward-only confirmation; the
 private financial evidence stays with the authorized reviewer outside Actions.
 
 Offline tests cover wrong identity, accounting gate, unknown visibility, partial
