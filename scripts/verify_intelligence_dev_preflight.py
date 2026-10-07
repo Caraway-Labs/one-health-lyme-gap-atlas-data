@@ -22,6 +22,9 @@ SOURCE_ENDPOINTS = {
 }
 MAX_SOURCE_BYTES = 65536
 RECEIPTS = Path(__file__).parents[1] / "config/intelligence/pilot-policy-receipts.json"
+# Exact restricted policy identifiers admitted by independent code review.
+# No real identifier has yet been admitted; a runtime receipt cannot approve one.
+REVIEWED_RESTRICTED_ARTIFACT_POLICIES: dict[str, str] = {}
 
 
 def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -100,12 +103,11 @@ def source_result(
     if len(selected) != 1:
         return fail("REVIEWED_CANDIDATE_REQUIRED")
     receipt = selected[0]
-    # The trusted candidate is admitted through normal code review, never from
-    # query results, fixtures, workflow inputs or a runtime-generated approval.
+    # Version/hash pins come from privately reviewed owner evidence and normal
+    # code review, never fixtures or runtime output. Hash equality binds the full
+    # reviewed document (including rights/review references) without publishing it.
     if (
-        receipt.get("reviewed_source_document") != source
-        or identity_hash(receipt.get("reviewed_source_document")) != checksum
-        or type(receipt.get("registry_version")) is not int
+        type(receipt.get("registry_version")) is not int
         or receipt.get("registry_version") != version
         or receipt.get("source_sha256") != checksum
     ):
@@ -116,9 +118,22 @@ def source_result(
         receipt.get("raw_policy_ref") != "intelligence-raw-30d-v1"
         or not receipt.get("retention_policy_ref")
         or access["content_retention_policy_ref"] != receipt["retention_policy_ref"]
-        or receipt.get("artifact_policy") in (None, "", "PUBLIC_SEVEN_YEAR")
     ):
         return fail("RETENTION_MISMATCH")
+    artifact_policy = receipt.get("artifact_policy")
+    reviewed_policy = REVIEWED_RESTRICTED_ARTIFACT_POLICIES.get(source_id)
+    if (
+        not isinstance(reviewed_policy, str)
+        or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}", reviewed_policy)
+        or reviewed_policy == "PUBLIC_SEVEN_YEAR"
+    ):
+        return fail("ARTIFACT_POLICY_REVIEW_REQUIRED")
+    if (
+        not isinstance(artifact_policy, str)
+        or not artifact_policy
+        or artifact_policy != reviewed_policy
+    ):
+        return fail("ARTIFACT_POLICY_MISMATCH")
     try:
         native_doc = receipt["native_policy"]
         native = NativeMetadataPolicy(
@@ -337,6 +352,10 @@ def inspect(
     report["identity_matches_expected"] = True
     objects: list[dict[str, Any]] = []
     report["objects"] = objects
+    # Preserve critical source evidence before an independent object DESCRIBE
+    # denial or timeout. Each source result remains safe incremental evidence.
+    if receipts is not None:
+        inspect_sources(cursor, report, receipts)
     for kind, schema, name in TARGETS:
         qualified = f"{DEV}.{schema}.{name}"
         cursor.execute(f"SHOW {kind}S LIKE '{name}' IN SCHEMA {DEV}.{schema}", timeout=10)
@@ -386,8 +405,6 @@ def inspect(
         is True
         for entry in objects
     )
-    if receipts is not None:
-        inspect_sources(cursor, report, receipts)
     report["all_prerequisites_passed"] = report["object_prerequisites_passed"] and report.get(
         "source_prerequisites_passed", False
     )

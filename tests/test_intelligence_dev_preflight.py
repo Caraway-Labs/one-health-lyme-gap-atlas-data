@@ -14,6 +14,15 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+@pytest.fixture(autouse=True)
+def synthetic_reviewed_artifact_policy(monkeypatch):
+    monkeypatch.setattr(
+        module,
+        "REVIEWED_RESTRICTED_ARTIFACT_POLICIES",
+        {source_id: "SYNTHETIC_REVIEWED" for source_id in module.SOURCE_ENDPOINTS},
+    )
+
+
 def synthetic_registry_case(source_id="cdc-eid-expedited"):
     source = json.loads(
         (Path(__file__).parent / "fixtures/intelligence/v1/candidate-source.json").read_text()
@@ -48,7 +57,6 @@ def synthetic_registry_case(source_id="cdc-eid-expedited"):
         "source_id": source_id,
         "registry_version": source["registry_version"],
         "source_sha256": checksum,
-        "reviewed_source_document": copy.deepcopy(source),
         "decision_ref": "synthetic-technical-review",
         "raw_policy_ref": "intelligence-raw-30d-v1",
         "retention_policy_ref": "synthetic-longterm",
@@ -162,6 +170,50 @@ def test_absent_duplicate_unreviewed_and_receipt_policy_mismatch():
     assert module.source_result(sid, [row], [changed])["reason"] == "NATIVE_POLICY_MISMATCH"
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        False,
+        True,
+        None,
+        0,
+        [],
+        {},
+        ["SYNTHETIC_REVIEWED"],
+        "",
+        "PUBLIC_SEVEN_YEAR",
+        "arbitrary-policy",
+    ],
+)
+def test_artifact_policy_requires_exact_reviewed_restricted_string(bad):
+    source, receipt = synthetic_registry_case()
+    receipt["artifact_policy"] = bad
+    assert (
+        module.source_result(source["source_id"], [registry_row(source)], [receipt])["reason"]
+        == "ARTIFACT_POLICY_MISMATCH"
+    )
+
+
+def test_unadmitted_artifact_policy_stays_blocked(monkeypatch):
+    source, receipt = synthetic_registry_case()
+    monkeypatch.setattr(module, "REVIEWED_RESTRICTED_ARTIFACT_POLICIES", {})
+    assert (
+        module.source_result(source["source_id"], [registry_row(source)], [receipt])["reason"]
+        == "ARTIFACT_POLICY_REVIEW_REQUIRED"
+    )
+
+
+@pytest.mark.parametrize("bad", ["PUBLIC_SEVEN_YEAR", " ", " bad-policy ", False, []])
+def test_invalid_reviewed_policy_identifier_cannot_authorize_artifact(monkeypatch, bad):
+    source, receipt = synthetic_registry_case()
+    receipt["artifact_policy"] = bad
+    monkeypatch.setattr(module, "REVIEWED_RESTRICTED_ARTIFACT_POLICIES", {source["source_id"]: bad})
+    assert (
+        module.source_result(source["source_id"], [registry_row(source)], [receipt])["reason"]
+        == "ARTIFACT_POLICY_REVIEW_REQUIRED"
+    )
+
+
 @pytest.mark.parametrize("bad", [None, "UNKNOWN", "FALSE", "", 0, {}, []])
 def test_grant_option_missing_or_unrecognized_never_passes(bad):
     row = {
@@ -200,6 +252,40 @@ def test_wrong_identity_cannot_reach_registry_with_receipts():
     with pytest.raises(ValueError, match="IDENTITY"):
         module.inspect(cursor, {}, receipts=[])
     assert len(cursor.sql) == 2
+
+
+def test_registry_proof_precedes_object_describe_denial_with_nih_blocked(capsys):
+    source, receipt = synthetic_registry_case()
+    row = registry_row(source)
+
+    class DeniedObject(Cursor):
+        def execute(self, sql, **kwargs):
+            super().execute(sql, **kwargs)
+            if "nih-news-releases" in sql:
+                raise PermissionError("private NIH detail")
+            if "AS source_document_json" in sql:
+                self.description = [(key,) for key in row]
+            elif sql.startswith("SHOW"):
+                self.description = [("name",), ("owner",)]
+            elif sql.startswith("DESCRIBE"):
+                assert len([s for s in self.sql if "AS source_document_json" in s]) == 2
+                raise PermissionError("private object detail")
+
+        def fetchall(self):
+            if "AS source_document_json" in self.sql[-1]:
+                return [tuple(row.values())]
+            return [("INTELLIGENCE_RAW_RETENTION_DOCUMENTS", module.ROLE)]
+
+    report = {}
+    cursor = DeniedObject((module.USER, module.ROLE, module.DEV, module.WAREHOUSE))
+    with pytest.raises(PermissionError):
+        module.inspect(cursor, report, receipts=[receipt])
+    assert report["sources"][0]["passed"]
+    assert report["sources"][1]["reason"] == "UNKNOWN_QUERY_FAILED"
+    assert not report["objects"][0]["inspection_complete"]
+    output = capsys.readouterr().out
+    assert "private" not in output and receipt["source_sha256"] not in output
+    assert source["approval"]["owner"] not in output
 
 
 def test_main_deadline_starts_before_connection_and_timeout_is_redacted(
