@@ -110,3 +110,57 @@ remain in private operational records, not an instruction to execute. First
 capture would be durable ACQUIRE only; normalization/load, idempotent repoll and
 reader proof remain additional DATA #135 acceptance work. DATA #132 still needs
 three approved feeds and truthful status of all relevant candidates.
+
+## Concrete existing owner path
+
+The existing protected `deploy-dev.yml` input `diagnose_intelligence_dev=true`
+invokes `scripts/verify_intelligence_dev_preflight.py` with the established DEV
+migration-service credential, verifies its exact user/role/database/warehouse,
+and exits before all migration application. This is the intended owner metadata
+route, not a laptop role override after the reader denial. It requires no new
+role, grant, credential or SQL file execution. The DEV environment currently has
+no required-reviewer protection rule; check again before dispatch. Existing
+authorization covers bounded read-only reconciliation, subject to its private
+accounting confirmation. No new spending/access approval is requested.
+
+Exact existing invocation, after accounting confirmation by the coordinating
+operator, is:
+
+```powershell
+gh workflow run deploy-dev.yml --repo Caraway-Labs/one-health-lyme-gap-atlas-data --ref main -f diagnose_intelligence_dev=true -f expected_pending_json='[]' -f feed_preflight_accounting_confirmed=true
+```
+
+Keep all other diagnostics false/empty. Inspect its final safe boolean report for
+the source-version table, two retention tables and V1/V2 views: visibility,
+expected owner, exact columns/definition, exact expected role privileges and no
+grant option. No returned absence/denial alone proves physical absence. The path
+already compares documents runtime SELECT/INSERT, audit runtime INSERT and V2
+reader SELECT; it never applies them. This proposal has not dispatched it.
+
+Important limitation: this fixed diagnostic intentionally does **not** SELECT
+registry documents. It cannot prove actual source versions or source-policy
+bindings. The concrete missing read is the latest complete registry document,
+stored checksum and version for only `cdc-eid-expedited` and `nih-news-releases`
+from DEV.GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS (maximum two records). Under the
+same verified migration-service identity, calculate these checks in memory:
+stored hash equals identity_hash(document), source IDs/hosts/endpoints match the
+committed approved selection, trust/approval reviewer attribution and dates are
+real, daily cadence, metadata-only rights, actual retention binding and bounded
+limits. Return fixed source IDs plus PASS/BLOCKED/UNKNOWN booleans only; do not
+log documents, actual reviewers, versions/hashes or raw metadata. A missing row
+must be reported separately from visibility denied. No INSERT/UPDATE is part of
+this read.
+
+There is currently no existing workflow input performing that row check. Parent
+can run the existing object diagnostic now within reconciled remaining budget;
+the inability to complete source reconciliation is a fixed diagnostic coverage
+gap, not a claim that parent lacks owner authority. To complete it through the
+same credential route, independently review a small fixed-target extension of
+this diagnostic (still 50-second aggregate/10-second statements, no arbitrary SQL
+input, no new identity/access, no writes). Do not use ACCOUNTADMIN, change the
+personal read-role credentials, or silently execute a prepared registration SQL.
+
+The companion nonexecutable `eid-expedited-receipt-candidate-2026-10-07.json`
+contains the actual inventory and conservative permitted paths. Null registry
+and policy fields deliberately prevent treating it as a runtime receipt. Only
+fill them from independently reviewed actual state and delegated technical review.
