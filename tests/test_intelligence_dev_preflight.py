@@ -1,4 +1,7 @@
+import copy
 import importlib.util
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -9,6 +12,281 @@ spec = importlib.util.spec_from_file_location(
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+
+def synthetic_registry_case(source_id="cdc-eid-expedited"):
+    source = json.loads(
+        (Path(__file__).parent / "fixtures/intelligence/v1/candidate-source.json").read_text()
+    )
+    endpoint = module.SOURCE_ENDPOINTS[source_id]
+    source.update(
+        source_id=source_id,
+        fetch_location=endpoint,
+        canonical_location=endpoint,
+        approved_hosts=[endpoint.split("/")[2]],
+        state="active",
+        topics=[],
+        geographies=[],
+        trust_classification="official_public_health",
+    )
+    source["cadence"].update(poll_seconds=86400)
+    source["limits"].update(maximum_bytes=2097152, maximum_items=250, timeout_seconds=30)
+    for key in ("approval", "trust_review"):
+        source[key].update(
+            status="approved",
+            decision_ref="synthetic-technical-review",
+            reviewed_at="2026-10-03T03:06:52Z",
+            owner="synthetic-delegated-reviewer",
+        )
+    source["access_use"].update(
+        terms_location="https://www.cdc.gov/other/agencymaterials.html",
+        availability_verified_at="2026-10-03T03:06:52Z",
+        content_retention_policy_ref="synthetic-longterm",
+    )
+    checksum = module.identity_hash(source)
+    receipt = {
+        "source_id": source_id,
+        "registry_version": source["registry_version"],
+        "source_sha256": checksum,
+        "reviewed_source_document": copy.deepcopy(source),
+        "decision_ref": "synthetic-technical-review",
+        "raw_policy_ref": "intelligence-raw-30d-v1",
+        "retention_policy_ref": "synthetic-longterm",
+        "artifact_policy": "SYNTHETIC_REVIEWED",
+        "native_policy": {
+            "policy_ref": "synthetic-native-review",
+            "source_sha256": checksum,
+            "inventory": ["item/title", "item/link", "item/pubDate"],
+            "permitted_paths": ["item/title", "item/link", "item/pubDate"],
+            "required_paths": [],
+            "published_path": "item/pubDate",
+            "published_format": "rfc822",
+            "updated_path": None,
+        },
+    }
+    return source, receipt
+
+
+def registry_row(source):
+    return {
+        "SOURCE_ID": source["source_id"],
+        "REGISTRY_VERSION": source["registry_version"],
+        "REGISTRY_SHA256": module.identity_hash(source),
+        "SOURCE_DOCUMENT_JSON": json.dumps(source),
+    }
+
+
+@pytest.mark.parametrize("source_id", module.SOURCE_ENDPOINTS)
+def test_exact_reviewed_registry_proof_is_boolean_and_redacted(source_id):
+    source, receipt = synthetic_registry_case(source_id)
+    result = module.source_result(source_id, [registry_row(source)], [receipt])
+    assert result == {
+        "source_id": source_id,
+        "passed": True,
+        "exact_reviewed_source_matches": True,
+        "reason": "PASS",
+    }
+    assert source["approval"]["owner"] not in json.dumps(result)
+    assert receipt["source_sha256"] not in json.dumps(result)
+    assert "registry_version" not in result
+
+
+@pytest.mark.parametrize(
+    "key,bad,reason",
+    [
+        ("SOURCE_ID", "private-source", "SOURCE_ID_MISMATCH"),
+        ("REGISTRY_VERSION", 99, "VERSION_MISMATCH"),
+        ("REGISTRY_VERSION", True, "VERSION_MISMATCH"),
+        ("REGISTRY_SHA256", "0" * 64, "HASH_MISMATCH"),
+        ("SOURCE_DOCUMENT_JSON", "{", "INVALID_DOCUMENT"),
+        ("SOURCE_DOCUMENT_JSON", '{"source_id":"a","source_id":"b"}', "INVALID_DOCUMENT"),
+        ("SOURCE_DOCUMENT_JSON", "x" * 65537, "OVERSIZED_OR_MISSING_DOCUMENT"),
+        ("SOURCE_DOCUMENT_JSON", None, "OVERSIZED_OR_MISSING_DOCUMENT"),
+    ],
+    ids=lambda value: "oversized" if isinstance(value, str) and len(value) > 128 else None,
+)
+def test_invalid_registry_row_fails_with_fixed_reason(key, bad, reason):
+    source, receipt = synthetic_registry_case()
+    row = registry_row(source)
+    row[key] = bad
+    assert module.source_result(source["source_id"], [row], [receipt])["reason"] == reason
+
+
+@pytest.mark.parametrize(
+    "field,key,bad,reason",
+    [
+        (None, "fetch_location", "https://wwwnc.cdc.gov/wrong.xml", "ENDPOINT_MISMATCH"),
+        (None, "approved_hosts", ["private.example"], "HOST_MISMATCH"),
+        ("cadence", "poll_seconds", 3600, "CADENCE_MISMATCH"),
+        ("limits", "maximum_items", 5000, "LIMITS_MISMATCH"),
+        (None, "topics", ["tick-borne"], "INFERRED_CLASSIFICATION"),
+        ("approval", "status", "pending", "INVALID_DOCUMENT"),
+        ("access_use", "public_excerpt_permitted", True, "RIGHTS_OR_AVAILABILITY_MISMATCH"),
+        ("access_use", "availability_verified_at", None, "INVALID_DOCUMENT"),
+        ("trust_review", "decision_ref", "unreviewed-reference", "REVIEWED_CANDIDATE_MISMATCH"),
+        (
+            "access_use",
+            "content_retention_policy_ref",
+            "unreviewed-policy",
+            "REVIEWED_CANDIDATE_MISMATCH",
+        ),
+    ],
+)
+def test_source_semantics_and_exact_review_bindings(field, key, bad, reason):
+    source, receipt = synthetic_registry_case()
+    target = source[field] if field else source
+    target[key] = bad
+    assert (
+        module.source_result(source["source_id"], [registry_row(source)], [receipt])["reason"]
+        == reason
+    )
+
+
+def test_absent_duplicate_unreviewed_and_receipt_policy_mismatch():
+    source, receipt = synthetic_registry_case()
+    sid = source["source_id"]
+    row = registry_row(source)
+    assert module.source_result(sid, [], [receipt])["reason"] == "ABSENT"
+    assert module.source_result(sid, [row, row], [receipt])["reason"] == "DUPLICATE_LATEST"
+    assert module.source_result(sid, [row], [])["reason"] == "REVIEWED_CANDIDATE_REQUIRED"
+    for key, value, expected in [
+        ("decision_ref", "wrong-review", "REVIEW_REFERENCE_MISMATCH"),
+        ("raw_policy_ref", "PUBLIC_SEVEN_YEAR", "RETENTION_MISMATCH"),
+        ("retention_policy_ref", "wrong-policy", "RETENTION_MISMATCH"),
+    ]:
+        changed = copy.deepcopy(receipt)
+        changed[key] = value
+        assert module.source_result(sid, [row], [changed])["reason"] == expected
+    changed = copy.deepcopy(receipt)
+    changed["native_policy"]["permitted_paths"].append("item/description")
+    assert module.source_result(sid, [row], [changed])["reason"] == "NATIVE_POLICY_MISMATCH"
+
+
+@pytest.mark.parametrize("bad", [None, "UNKNOWN", "FALSE", "", 0, {}, []])
+def test_grant_option_missing_or_unrecognized_never_passes(bad):
+    row = {
+        "grantee_name": "OH_LYME_DEV_RUNTIME",
+        "granted_to": "ROLE",
+        "privilege": "INSERT",
+        "grant_option": bad,
+    }
+    result = module.privileges_match("INTELLIGENCE_RAW_RETENTION_AUDIT", [row])
+    assert not result["grant_option_metadata_valid"]
+    assert not result["required_privileges_present"]
+    assert not result["target_role_privileges_exact"]
+    assert result["target_role_grant_option_present"]
+
+
+def test_fixed_registry_reads_distinguish_absent_denied_and_preserve_safe_progress(capsys):
+    class RegistryCursor(Cursor):
+        def execute(self, sql, **kwargs):
+            super().execute(sql, **kwargs)
+            assert kwargs["timeout"] == 10
+            assert "LIMIT 2" in sql and "DENSE_RANK" in sql
+            assert not any(word in sql for word in ("INSERT", "UPDATE", "GRANT", "CREATE"))
+            if "nih-news-releases" in sql:
+                raise PermissionError("private-document-and-reviewer")
+
+    cursor = RegistryCursor(None)
+    report = {}
+    module.inspect_sources(cursor, report, [])
+    assert [r["reason"] for r in report["sources"]] == ["ABSENT", "UNKNOWN_QUERY_FAILED"]
+    assert not report["source_prerequisites_passed"]
+    assert "private-document-and-reviewer" not in capsys.readouterr().out
+
+
+def test_wrong_identity_cannot_reach_registry_with_receipts():
+    cursor = Cursor((module.USER, "ACCOUNTADMIN", module.DEV, module.WAREHOUSE))
+    with pytest.raises(ValueError, match="IDENTITY"):
+        module.inspect(cursor, {}, receipts=[])
+    assert len(cursor.sql) == 2
+
+
+def test_main_deadline_starts_before_connection_and_timeout_is_redacted(
+    monkeypatch, tmp_path, capsys
+):
+    events = []
+
+    class Timer:
+        daemon = False
+
+        def __init__(self, seconds, callback):
+            assert seconds == 50
+            self.callback = callback
+
+        def start(self):
+            events.append("watchdog_started")
+
+        def cancel(self):
+            events.append("watchdog_cancelled")
+
+    def timed_out(settings):
+        assert events == ["watchdog_started"]
+        raise TimeoutError("private timeout account/document")
+
+    receipts = tmp_path / "reviewed.json"
+    receipts.write_text('{"receipts":[]}')
+    monkeypatch.setenv("FEED_PREFLIGHT_ACCOUNTING_CONFIRMED", "true")
+    monkeypatch.setattr(module, "RECEIPTS", receipts)
+    monkeypatch.setattr(module.threading, "Timer", Timer)
+    monkeypatch.setattr(module, "connect", timed_out)
+    with pytest.raises(SystemExit, match="FEED_PREFLIGHT_FAILED"):
+        module.main()
+    output = capsys.readouterr().out
+    assert "DIAGNOSTIC_FAILED" in output and "private" not in output
+    assert events == ["watchdog_started", "watchdog_cancelled"]
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        "INTELLIGENCE_RAW_RETENTION_DOCUMENTS",
+        "INTELLIGENCE_RAW_RETENTION_AUDIT",
+        "INTELLIGENCE_SOURCE_VERSIONS",
+    ],
+)
+def test_approved_ddl_timestamp_not_null_matches_and_nullable_drift_fails(table):
+    root = Path(__file__).parents[1]
+    ddl_path = (
+        next((root / "migrations").glob("V135*.sql"))
+        if table == "INTELLIGENCE_SOURCE_VERSIONS"
+        else root / "docs/contracts/intelligence/v2/dev-minimum-access-reviewed.sql"
+    )
+    ddl = ddl_path.read_text(encoding="utf-8")
+    body = re.search(
+        rf"CREATE TABLE(?: IF NOT EXISTS)? GOVERNANCE\.{table} \((.*?)\n\);",
+        ddl,
+        re.S | re.I,
+    )
+    assert body is not None
+    # Generate DESCRIBE rows from the approved DDL, not diagnostic expectations.
+    columns = []
+    for name, kind, not_null, default in re.findall(
+        r"^\s*(\w+)\s+(VARCHAR\(\d+\)|NUMBER|VARIANT|TIMESTAMP_TZ|TIMESTAMP_LTZ)"
+        r"(\s+NOT NULL)?(?:\s+DEFAULT (CURRENT_TIMESTAMP\(\)))?[,]?\s*$",
+        body[1],
+        re.M | re.I,
+    ):
+        kind = kind.upper()
+        kind = {
+            "NUMBER": "NUMBER(38,0)",
+            "TIMESTAMP_TZ": "TIMESTAMP_TZ(9)",
+            "TIMESTAMP_LTZ": "TIMESTAMP_LTZ(9)",
+        }.get(kind, kind)
+        columns.append(
+            {
+                "name": name.upper(),
+                "type": kind,
+                "kind": "COLUMN",
+                "null?": "N" if not_null else "Y",
+                "default": default or None,
+            }
+        )
+    timestamp = next(row for row in columns if row["name"] in {"REGISTERED_AT", "RECORDED_AT"})
+    assert timestamp["null?"] == "N"
+    assert module.table_matches(table, columns)
+    timestamp["null?"] = "Y"
+    assert not module.table_matches(table, columns)
 
 
 def test_budget_requires_public_safe_confirmation_only():

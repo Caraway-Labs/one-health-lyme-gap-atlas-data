@@ -13,6 +13,171 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
 from lyme_gap_atlas_data.climate_dev_validation import DEV, ROLE, USER, WAREHOUSE
+from lyme_gap_atlas_data.intelligence_items import identity_hash, validate_record
+from lyme_gap_atlas_data.intelligence_metadata import NativeMetadataPolicy
+
+SOURCE_ENDPOINTS = {
+    "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+    "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
+}
+MAX_SOURCE_BYTES = 65536
+RECEIPTS = Path(__file__).parents[1] / "config/intelligence/pilot-policy-receipts.json"
+
+
+def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in result:
+            raise ValueError("DUPLICATE_JSON_KEY")
+        result[key] = item
+    return result
+
+
+def source_result(
+    source_id: str, records: list[dict[str, Any]], receipts: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Pure validation: no runtime identity guard, SQL, approval or output of values."""
+    result = {"source_id": source_id, "passed": False, "exact_reviewed_source_matches": False}
+
+    def fail(reason: str) -> dict[str, Any]:
+        return {**result, "reason": reason}
+
+    if not records:
+        return fail("ABSENT")
+    if len(records) != 1:
+        return fail("DUPLICATE_LATEST")
+    row = records[0]
+    text = value(row, "source_document_json")
+    if not isinstance(text, str) or len(text.encode("utf-8")) > MAX_SOURCE_BYTES:
+        return fail("OVERSIZED_OR_MISSING_DOCUMENT")
+    try:
+        source = json.loads(text, object_pairs_hook=no_duplicate_keys)
+        validate_record("source", source)
+    except (ValueError, TypeError, AttributeError):
+        return fail("INVALID_DOCUMENT")
+    if value(row, "source_id") != source_id or source["source_id"] != source_id:
+        return fail("SOURCE_ID_MISMATCH")
+    version = value(row, "registry_version")
+    if type(version) is not int or version != source["registry_version"]:
+        return fail("VERSION_MISMATCH")
+    checksum = identity_hash(source)
+    if value(row, "registry_sha256") != checksum:
+        return fail("HASH_MISMATCH")
+    if source["fetch_location"] != SOURCE_ENDPOINTS[source_id] or source["transport"] != "rss":
+        return fail("ENDPOINT_MISMATCH")
+    if source["approved_hosts"] != [SOURCE_ENDPOINTS[source_id].split("/")[2]]:
+        return fail("HOST_MISMATCH")
+    if (
+        source["cadence"]["poll_seconds"] != 86400
+        or source["cadence"]["expected_item_seconds"] is not None
+    ):
+        return fail("CADENCE_MISMATCH")
+    expected_limits = {
+        "maximum_bytes": 2097152,
+        "maximum_items": 250,
+        "timeout_seconds": 30,
+        "maximum_redirects": 0,
+        "maximum_attempts": 1,
+    }
+    if source["limits"] != expected_limits:
+        return fail("LIMITS_MISMATCH")
+    if source["geographies"] or source["topics"]:
+        return fail("INFERRED_CLASSIFICATION")
+    if (
+        source["state"] not in {"active", "manual"}
+        or source["trust_classification"] != "official_public_health"
+        or any(source[key]["status"] != "approved" for key in ("approval", "trust_review"))
+    ):
+        return fail("REVIEW_REQUIRED")
+    access = source["access_use"]
+    if (
+        access["public_excerpt_permitted"]
+        or access["excerpt_max_chars"] != 0
+        or not access["availability_verified_at"]
+    ):
+        return fail("RIGHTS_OR_AVAILABILITY_MISMATCH")
+    selected = [r for r in receipts if r.get("source_id") == source_id]
+    if len(selected) != 1:
+        return fail("REVIEWED_CANDIDATE_REQUIRED")
+    receipt = selected[0]
+    # The trusted candidate is admitted through normal code review, never from
+    # query results, fixtures, workflow inputs or a runtime-generated approval.
+    if (
+        receipt.get("reviewed_source_document") != source
+        or identity_hash(receipt.get("reviewed_source_document")) != checksum
+        or type(receipt.get("registry_version")) is not int
+        or receipt.get("registry_version") != version
+        or receipt.get("source_sha256") != checksum
+    ):
+        return fail("REVIEWED_CANDIDATE_MISMATCH")
+    if receipt.get("decision_ref") != source["approval"]["decision_ref"]:
+        return fail("REVIEW_REFERENCE_MISMATCH")
+    if (
+        receipt.get("raw_policy_ref") != "intelligence-raw-30d-v1"
+        or not receipt.get("retention_policy_ref")
+        or access["content_retention_policy_ref"] != receipt["retention_policy_ref"]
+        or receipt.get("artifact_policy") in (None, "", "PUBLIC_SEVEN_YEAR")
+    ):
+        return fail("RETENTION_MISMATCH")
+    try:
+        native_doc = receipt["native_policy"]
+        native = NativeMetadataPolicy(
+            **{
+                **native_doc,
+                **{
+                    k: frozenset(native_doc[k])
+                    for k in ("inventory", "permitted_paths", "required_paths")
+                },
+            }
+        )
+        native.validate(source)
+        safe_paths = {
+            "feed/language",
+            "feed/link",
+            "feed/title",
+            "item/link",
+            "item/pubDate",
+            "item/title",
+        }
+        if (
+            not native.policy_ref
+            or not native.permitted_paths <= safe_paths
+            or native.published_path != "item/pubDate"
+            or native.published_format != "rfc822"
+            or native.updated_path is not None
+        ):
+            return fail("NATIVE_POLICY_MISMATCH")
+    except (KeyError, TypeError, ValueError):
+        return fail("NATIVE_POLICY_MISMATCH")
+    return {**result, "passed": True, "exact_reviewed_source_matches": True, "reason": "PASS"}
+
+
+def inspect_sources(cursor: Any, report: dict[str, Any], receipts: list[dict[str, Any]]) -> None:
+    report["sources"] = []
+    report["source_prerequisites_passed"] = False
+    for source_id in SOURCE_ENDPOINTS:
+        # LIMIT 2 preserves duplicate-latest detection while bounding row count.
+        sql = f"""SELECT source_id, registry_version, registry_sha256,
+            IFF(OCTET_LENGTH(TO_JSON(registry_document)) <= {MAX_SOURCE_BYTES},
+                TO_JSON(registry_document), NULL) AS source_document_json
+            FROM {DEV}.GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS
+            WHERE source_id = '{source_id}'
+            QUALIFY DENSE_RANK() OVER (ORDER BY registry_version DESC) = 1
+            LIMIT 2"""
+        try:
+            cursor.execute(sql, timeout=10)
+            result = source_result(source_id, rows(cursor), receipts)
+        except Exception:
+            result = {
+                "source_id": source_id,
+                "passed": False,
+                "exact_reviewed_source_matches": False,
+                "reason": "UNKNOWN_QUERY_FAILED",
+            }
+        report["sources"].append(result)
+        print(json.dumps(report, sort_keys=True), flush=True)
+    report["source_prerequisites_passed"] = all(result["passed"] for result in report["sources"])
+
 
 TARGETS = (
     ("TABLE", "GOVERNANCE", "INTELLIGENCE_RAW_RETENTION_DOCUMENTS"),
@@ -43,19 +208,19 @@ TABLE_SHAPES = {
         ("DOCUMENT_KEY", "VARCHAR(256)", False, ""),
         ("DOCUMENT_SHA256", "VARCHAR(64)", False, ""),
         ("DOCUMENT", "VARIANT", False, ""),
-        ("REGISTERED_AT", "TIMESTAMP_TZ(9)", True, "CURRENT_TIMESTAMP()"),
+        ("REGISTERED_AT", "TIMESTAMP_TZ(9)", False, "CURRENT_TIMESTAMP()"),
     ),
     "INTELLIGENCE_RAW_RETENTION_AUDIT": (
         ("RECEIPT_SHA256", "VARCHAR(64)", False, ""),
         ("DOCUMENT", "VARIANT", False, ""),
-        ("REGISTERED_AT", "TIMESTAMP_TZ(9)", True, "CURRENT_TIMESTAMP()"),
+        ("REGISTERED_AT", "TIMESTAMP_TZ(9)", False, "CURRENT_TIMESTAMP()"),
     ),
     "INTELLIGENCE_SOURCE_VERSIONS": (
         ("SOURCE_ID", "VARCHAR(200)", False, ""),
         ("REGISTRY_VERSION", "NUMBER(38,0)", False, ""),
         ("REGISTRY_SHA256", "VARCHAR(64)", False, ""),
         ("REGISTRY_DOCUMENT", "VARIANT", False, ""),
-        ("RECORDED_AT", "TIMESTAMP_LTZ(9)", True, "CURRENT_TIMESTAMP()"),
+        ("RECORDED_AT", "TIMESTAMP_LTZ(9)", False, "CURRENT_TIMESTAMP()"),
     ),
 }
 ROLE_PRIVILEGES = {
@@ -114,13 +279,18 @@ def privileges_match(name: str, grants: list[dict[str, Any]]) -> dict[str, bool]
         if value(row, "grantee_name") == role and value(row, "granted_to") == "ROLE"
     ]
     actual = {str(value(row, "privilege")).upper() for row in scoped}
+    options = [value(row, "grant_option") for row in scoped]
+    metadata_valid = all(
+        option in ("true", "false", True, False) and type(option) in (str, bool)
+        for option in options
+    )
     return {
-        "required_privileges_present": expected <= actual,
-        "target_role_privileges_exact": actual == expected,
+        "required_privileges_present": metadata_valid and expected <= actual,
+        "target_role_privileges_exact": metadata_valid and actual == expected,
         "unexpected_target_role_privileges": bool(actual - expected),
-        "target_role_grant_option_present": any(
-            str(value(row, "grant_option")).lower() == "true" for row in scoped
-        ),
+        "grant_option_metadata_valid": metadata_valid,
+        "target_role_grant_option_present": not metadata_valid
+        or any(option in ("true", True) for option in options),
     }
 
 
@@ -152,9 +322,12 @@ def view_matches(name: str, actual: str) -> bool:
     return tokens(actual) == tokens(proposal)
 
 
-def inspect(cursor: Any, report: dict[str, Any]) -> None:
+def inspect(
+    cursor: Any, report: dict[str, Any], *, receipts: list[dict[str, Any]] | None = None
+) -> None:
     cursor.execute(
-        "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=10, STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=2"
+        "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=10, "
+        "STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=2, ABORT_DETACHED_QUERY=TRUE"
     )
     cursor.execute(
         "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()", timeout=10
@@ -202,6 +375,22 @@ def inspect(cursor: Any, report: dict[str, Any]) -> None:
         print(json.dumps(report, sort_keys=True), flush=True)
     report["writes"] = False
     report["source_registration_authorized"] = False
+    report["object_prerequisites_passed"] = all(
+        entry.get("owner_matches_expected") is True
+        and entry.get("required_privileges_present") is True
+        and entry.get("target_role_privileges_exact") is True
+        and entry.get("target_role_grant_option_present") is False
+        and entry.get(
+            "exact_approved_table_shape_matches", entry.get("exact_reviewed_definition_matches")
+        )
+        is True
+        for entry in objects
+    )
+    if receipts is not None:
+        inspect_sources(cursor, report, receipts)
+    report["all_prerequisites_passed"] = report["object_prerequisites_passed"] and report.get(
+        "source_prerequisites_passed", False
+    )
 
 
 def terminate(report: dict[str, Any]) -> None:
@@ -221,11 +410,20 @@ def main() -> None:
     watchdog.daemon = True
     watchdog.start()
     try:
+        if RECEIPTS.stat().st_size > 1024 * 1024:
+            raise ValueError("REVIEWED_RECEIPTS_OVERSIZED")
+        receipts = json.loads(
+            RECEIPTS.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys
+        )["receipts"]
+        if not isinstance(receipts, list) or any(
+            not isinstance(receipt, dict) for receipt in receipts
+        ):
+            raise ValueError("REVIEWED_RECEIPTS_INVALID")
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
-            inspect(cursor, report)
+            inspect(cursor, report, receipts=receipts)
         report["state"] = "COMPLETE"
-    except Exception as exc:
-        report["error_type"] = type(exc).__name__
+    except Exception:
+        report["reason"] = "DIAGNOSTIC_FAILED"
         raise SystemExit("FEED_PREFLIGHT_FAILED") from None
     finally:
         print(json.dumps(report, sort_keys=True), flush=True)
