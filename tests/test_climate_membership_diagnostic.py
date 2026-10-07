@@ -93,6 +93,13 @@ def setup(monkeypatch):
     import snowflake.connector
 
     cursor = Cursor()
+    # Operational tests simulate an earlier affordable reservation; production remains exhausted.
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 4.94375)
+    monkeypatch.setenv(
+        "JANUARY_DONOR_HANDOFF_PATH", "docs/contracts/climate/reviewed-donors/test.json"
+    )
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", "a" * 64)
+    monkeypatch.setattr(diag, "read_donor_handoff", lambda *_: {"bundle_sha256": "b" * 64})
     monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time())))
     parameters = []
     closed = []
@@ -248,7 +255,7 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
         "region": "AWS_US_WEST_2",
     }
 
-    def freeze(_cursor, path, _sha):
+    def freeze(_cursor, path, _sha, _donor):
         path.write_text("verified")
         return {"writes_performed": False}
 
@@ -263,16 +270,11 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_combined_reservations_preserve_both_runs_under_approved_total_cap():
-    seconds = diag.budget_runtime(6)
-    assert seconds == 50
-    aggregate = (
-        diag.PRIOR_DIAGNOSTIC_FORECAST_USD + (((seconds + 15) * 5.75 / 3600 + 1.35 / 30) * 6) + 1
-    )
-    assert diag.PRIOR_DIAGNOSTIC_FORECAST_USD == 4.94375
-    assert aggregate == pytest.approx(6.836666666666667) and aggregate <= 7
-    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
-        diag.budget_runtime(20)
+def test_consumed_reservations_block_another_run_under_approved_total_cap():
+    assert pytest.approx(6.836666666666667) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
+    for price in (6, 20):
+        with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
+            diag.budget_runtime(price)
 
 
 def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
@@ -331,7 +333,7 @@ def test_standard_capability_bound_preserves_unknown_or_zero_settings(
     else:
         cursor.warehouse["max_cluster_count"] = clusters
 
-    def freeze(_cursor, path, _sha):
+    def freeze(_cursor, path, _sha, _donor):
         path.write_text("fixture membership")
         return {"writes_performed": False}
 
@@ -420,7 +422,7 @@ def test_oversize_diagnostic_output_preserves_previous_artifact(setup, monkeypat
     output.write_text("previous")
     monkeypatch.setattr(diag, "MAX_ARTIFACT_BYTES", 1)
 
-    def freeze(_cursor, path, _sha):
+    def freeze(_cursor, path, _sha, _donor):
         path.write_text("oversize")
         return {}
 
@@ -473,3 +475,22 @@ def test_actual_workflow_skips_separate_identity_session_for_diagnostic(tmp_path
         "run atlas-data source nclimgrid-pilot-measure --action frozen-membership --run-id fixture"
     ]
     assert not (tmp_path / "oh-lyme-ingestion-key.p8").exists()
+
+
+@pytest.mark.parametrize(
+    "path", ["", "outside/donor.json", "docs/contracts/climate/reviewed-donors/donor.txt"]
+)
+def test_missing_or_out_of_contract_donor_never_connects(setup, monkeypatch, tmp_path, path):
+    _, parameters, _ = setup
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_PATH", path)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    assert result["status"] == "BLOCKED"
+    assert not parameters
+
+
+def test_current_consumed_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
+    _, parameters, _ = setup
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    assert result["status"] == "BLOCKED"
+    assert not parameters

@@ -16,14 +16,19 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .climate_membership import ARTIFACT_NAME, MembershipBlocked, freeze_membership
+from .climate_membership import (
+    ARTIFACT_NAME,
+    MembershipBlocked,
+    freeze_membership,
+    read_donor_handoff,
+)
 
 RECEIPT_NAME = "january-membership-diagnostic-receipt.json"
 MAX_STATEMENTS = 40
 MAX_SECONDS = 300
 MAX_EXECUTION_SECONDS = 50
 # Preserve the completed run's full reservation; do not infer charges from elapsed time.
-PRIOR_DIAGNOSTIC_FORECAST_USD = 4.94375
+PRIOR_DIAGNOSTIC_FORECAST_USD = 6.836666666666667
 APPROVED_TOTAL_FORECAST_USD = 7
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
@@ -144,6 +149,8 @@ def stage_for(sql: str) -> str:
         return "IDENTITY"
     if "r.source_manifest" in sql:
         return "ANNUAL_DONOR"
+    if "CURRENT_RELEASE_V" in sql:
+        return "CURRENT_RELEASE_RECHECK"
     if "SEMANTIC_RELEASE_POINTER" in sql:
         return "POINTER_RECHECK"
     if "RAW_ARTIFACTS" in sql:
@@ -267,6 +274,17 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
     previous_log_level = connector_logger.level
     pending_output = output.with_name("pending-" + ARTIFACT_NAME)
     try:
+        donor_path = os.environ.get("JANUARY_DONOR_HANDOFF_PATH", "")
+        donor_digest = os.environ.get("JANUARY_DONOR_HANDOFF_SHA256", "")
+        if not donor_path:
+            raise DiagnosticStop("MEMBERSHIP_DONOR_HANDOFF_REQUIRED")
+        path = Path(donor_path)
+        allowed = (Path.cwd() / "docs/contracts/climate/reviewed-donors").resolve()
+        if path.suffix != ".json" or not path.resolve().is_relative_to(allowed):
+            raise DiagnosticStop("MEMBERSHIP_DONOR_HANDOFF_PATH")
+        donor = read_donor_handoff(path, donor_digest)
+        receipt["reviewed_donor_handoff_sha256"] = donor_digest
+        receipt["donor_bundle_sha256"] = donor["bundle_sha256"]
         evidence = budget_evidence(supplied_budget)
         try:
             job_started = int(os.environ["JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX"])
@@ -460,7 +478,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 "source_downloads": False,
             }
             receipt["status"] = "READING_EXISTING_MEMBERSHIP"
-            result = freeze_membership(bounded, pending_output, code_sha)
+            result = freeze_membership(bounded, pending_output, code_sha, donor)
             if pending_output.stat().st_size > MAX_ARTIFACT_BYTES:
                 raise DiagnosticStop("ARTIFACT_SIZE_LIMIT")
             bounded.check()
