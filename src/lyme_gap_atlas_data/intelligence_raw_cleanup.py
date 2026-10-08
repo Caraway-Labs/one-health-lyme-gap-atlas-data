@@ -143,7 +143,9 @@ class WarehouseRawDelete:
         ):
             raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
         if isinstance(self.gate.ledger, SnowflakeRawLedger):
-            return self.gate.ledger.purge_checkpoint(self.plan.sha256, run_id, copy.lease_sha256)
+            return self.gate.ledger.purge_checkpoint(
+                self.plan.sha256, run_id, copy.lease_sha256, copy.sha256
+            )
         with self.factory() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE()")
             if cursor.fetchall() != [
@@ -154,8 +156,8 @@ class WarehouseRawDelete:
             ]:
                 raise PermissionError("INTELLIGENCE_RAW_WRITER_CONTEXT_REQUIRED")
             cursor.execute(
-                "CALL GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(%s,%s,%s)",
-                (self.plan.sha256, run_id, copy.lease_sha256),
+                "CALL GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(%s,%s,%s,%s)",
+                (self.plan.sha256, run_id, copy.lease_sha256, copy.sha256),
             )
             rows = cursor.fetchall()
             if len(rows) != 1 or rows[0][0] not in {"deleted", "already_absent"}:

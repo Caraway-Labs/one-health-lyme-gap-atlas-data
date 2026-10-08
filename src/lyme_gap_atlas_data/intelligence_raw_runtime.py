@@ -255,11 +255,13 @@ class SnowflakeRawLedger:
             )
             connection.commit()
 
-    def purge_checkpoint(self, plan_sha256: str, run_id: str, lease_sha256: str) -> bool:
+    def purge_checkpoint(
+        self, plan_sha256: str, run_id: str, lease_sha256: str, copy_sha256: str
+    ) -> bool:
         with self.guard():
             self.local.cursor.execute(
-                "CALL GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(%s,%s,%s)",
-                (plan_sha256, run_id, lease_sha256),
+                "CALL GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(%s,%s,%s,%s)",
+                (plan_sha256, run_id, lease_sha256, copy_sha256),
             )
             rows = self.local.cursor.fetchall()
             if len(rows) != 1 or rows[0][0] not in {"deleted", "already_absent"}:

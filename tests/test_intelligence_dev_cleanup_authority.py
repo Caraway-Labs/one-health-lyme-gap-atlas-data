@@ -104,6 +104,9 @@ def test_migration_has_only_scoped_dev_authority() -> None:
     assert "DELETE FROM GOVERNANCE.INGESTION_RUN_NORMALIZED" not in sql
     assert "DATEADD(day,30" in sql
     assert "a.DOCUMENT:outcome::VARCHAR='pending'" in sql
+    assert "a.DOCUMENT:copy_sha256::VARCHAR=:P_COPY_SHA256" in sql
+    assert "c.value:source_id::VARCHAR='cdc-eid-expedited'" in sql
+    assert "l.DOCUMENT:source_id::VARCHAR='cdc-eid-expedited'" in sql
     assert "CREATE ROLE" not in sql
     assert "GRANT USAGE ON DATABASE" not in sql
     assert "GRANT USAGE ON SCHEMA GOVERNANCE" not in sql
