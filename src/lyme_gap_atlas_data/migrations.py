@@ -18,6 +18,11 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 PROD_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+INTELLIGENCE_PREREQUISITE_MIGRATION = {
+    "version": "V142",
+    "filename": "V142__dev_intelligence_retention_and_v2_view.sql",
+    "sha256": "093017fc1507a67452eb47d1cec4c3c49e7a5881e981feede61bb88246986a15",
+}
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
     "V037",
@@ -65,6 +70,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V125",
     "V136",
     "V140",
+    "V142",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",
@@ -175,6 +181,23 @@ def load_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
     if not migrations:
         raise ValueError("No migrations found")
     return migrations
+
+
+def is_intelligence_prerequisite_batch(reviewed: list[dict[str, str]]) -> bool:
+    """Select only the pinned numbered migration, never a review-template hash."""
+    pinned = INTELLIGENCE_PREREQUISITE_MIGRATION
+    selected = any(
+        item["version"] == pinned["version"]
+        or item["filename"] == pinned["filename"]
+        or item["sha256"] == pinned["sha256"]
+        for item in reviewed
+    )
+    if not selected:
+        return False
+    actual = next((item for item in load_migrations() if item.version == pinned["version"]), None)
+    if actual is None or _migration_metadata(actual) != pinned or reviewed != [pinned]:
+        raise ValueError("The reviewed intelligence prerequisite batch must be exact and alone")
+    return True
 
 
 def render_migration(migration: Migration, database: str) -> str:
@@ -598,6 +621,7 @@ def apply_migrations(
     commit: str | None = None,
     *,
     expected_pending: list[dict[str, str]] | None = None,
+    protected_intelligence_prerequisite: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
@@ -623,6 +647,22 @@ def apply_migrations(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    prerequisite = next(
+        (item for item in plan if item.version == INTELLIGENCE_PREREQUISITE_MIGRATION["version"]),
+        None,
+    )
+    if (
+        database == DEV_DATABASE
+        and prerequisite is not None
+        and prerequisite.version not in applied
+        and (
+            not protected_intelligence_prerequisite
+            or expected_pending is None
+            or not is_intelligence_prerequisite_batch(expected_pending)
+            or _migration_metadata(prerequisite) != INTELLIGENCE_PREREQUISITE_MIGRATION
+        )
+    ):
+        raise PermissionError("V142 requires the protected intelligence prerequisite path")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

@@ -91,13 +91,13 @@ jobs:
           # Detect the one exact reviewed feed batch locally, before any SQL.
           feed_batch="$(uv run python - <<'PY'
           import os
-          from lyme_gap_atlas_data.ingestion.intelligence_runtime import INTELLIGENCE_PREREQUISITE_SHA256
-          from lyme_gap_atlas_data.migrations import parse_reviewed_pending_set
+          from lyme_gap_atlas_data.migrations import (
+              is_intelligence_prerequisite_batch,
+              parse_reviewed_pending_set,
+          )
           raw = os.environ.get("EXPECTED_PENDING_JSON", "")
           reviewed = parse_reviewed_pending_set(raw) if raw else []
-          selected = any(row["sha256"] == INTELLIGENCE_PREREQUISITE_SHA256 for row in reviewed)
-          if selected and len(reviewed) != 1:
-              raise SystemExit("Exact feed batch must run alone")
+          selected = is_intelligence_prerequisite_batch(reviewed)
           print("true" if selected else "false")
           PY
           )"
@@ -111,7 +111,8 @@ jobs:
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             uv run atlas-data pipeline apply-reviewed-dev-migrations \
               --expected-pending-json "$EXPECTED_PENDING_JSON" \
-              --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
+              --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" \
+              --feed-preflight-accounting-confirmed --confirm
             exit 0
           fi
           snow --config-file "$config_file" sql -c oh_lyme_dev \

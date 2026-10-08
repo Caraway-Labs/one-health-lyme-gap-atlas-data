@@ -125,7 +125,30 @@ def test_apply_rechecks_scope_before_sql_or_commit(monkeypatch: pytest.MonkeyPat
         migrations.apply_migrations(Mock(), migrations.DEV_DATABASE, expected_pending=[])
     connection.execute_string.assert_not_called()
     connection.commit.assert_not_called()
+
     assert all(call.args[0].startswith(("SELECT", "USE")) for call in cursor.execute.call_args_list)
+
+
+def test_generic_runner_cannot_execute_actual_v142(monkeypatch: pytest.MonkeyPatch) -> None:
+    v142 = next(item for item in migrations.load_migrations() if item.version == "V142")
+    monkeypatch.setattr(migrations, "load_migrations", lambda: [v142])
+    cursor = Mock()
+    cursor.fetchall.return_value = []
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *_, **__: nullcontext(connection))
+    for reviewed in (None, [migrations.INTELLIGENCE_PREREQUISITE_MIGRATION]):
+        with pytest.raises(PermissionError, match="protected intelligence prerequisite"):
+            migrations.apply_migrations(Mock(), migrations.DEV_DATABASE, expected_pending=reviewed)
+    connection.execute_string.assert_not_called()
+    connection.commit.assert_not_called()
+    assert migrations.apply_migrations(
+        Mock(),
+        migrations.DEV_DATABASE,
+        expected_pending=[migrations.INTELLIGENCE_PREREQUISITE_MIGRATION],
+        protected_intelligence_prerequisite=True,
+    ) == ["V142"]
+    connection.execute_string.assert_called_once()
 
 
 @pytest.mark.parametrize("count", [0, 1, 2])
