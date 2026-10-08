@@ -23,6 +23,15 @@ INTELLIGENCE_PREREQUISITE_MIGRATION = {
     "filename": "V142__dev_intelligence_retention_and_v2_view.sql",
     "sha256": "093017fc1507a67452eb47d1cec4c3c49e7a5881e981feede61bb88246986a15",
 }
+INTELLIGENCE_CLEANUP_MIGRATION = {
+    "version": "V143",
+    "filename": "V143__dev_intelligence_raw_cleanup_authority.sql",
+    "sha256": "13f527ff5fac37c94c265058cf205488f1b0e7759523bfa02f3490d745048c0a",
+}
+PROTECTED_INTELLIGENCE_MIGRATIONS = (
+    INTELLIGENCE_PREREQUISITE_MIGRATION,
+    INTELLIGENCE_CLEANUP_MIGRATION,
+)
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
     "V037",
@@ -71,6 +80,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V136",
     "V140",
     "V142",
+    "V143",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",
@@ -184,20 +194,24 @@ def load_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
 
 
 def is_intelligence_prerequisite_batch(reviewed: list[dict[str, str]]) -> bool:
-    """Select only the pinned numbered migration, never a review-template hash."""
-    pinned = INTELLIGENCE_PREREQUISITE_MIGRATION
-    selected = any(
-        item["version"] == pinned["version"]
-        or item["filename"] == pinned["filename"]
-        or item["sha256"] == pinned["sha256"]
-        for item in reviewed
-    )
-    if not selected:
-        return False
-    actual = next((item for item in load_migrations() if item.version == pinned["version"]), None)
-    if actual is None or _migration_metadata(actual) != pinned or reviewed != [pinned]:
-        raise ValueError("The reviewed intelligence prerequisite batch must be exact and alone")
-    return True
+    """Route each pinned DEV intelligence migration through the bound envelope."""
+    for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
+        selected = any(
+            item["version"] == pinned["version"]
+            or item["filename"] == pinned["filename"]
+            or item["sha256"] == pinned["sha256"]
+            for item in reviewed
+        )
+        if selected:
+            actual = next(
+                (item for item in load_migrations() if item.version == pinned["version"]), None
+            )
+            if actual is None or _migration_metadata(actual) != pinned or reviewed != [pinned]:
+                raise ValueError(
+                    "The reviewed intelligence prerequisite batch must be exact and alone"
+                )
+            return True
+    return False
 
 
 def render_migration(migration: Migration, database: str) -> str:
@@ -647,22 +661,22 @@ def apply_migrations(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
-    prerequisite = next(
-        (item for item in plan if item.version == INTELLIGENCE_PREREQUISITE_MIGRATION["version"]),
-        None,
-    )
-    if (
-        database == DEV_DATABASE
-        and prerequisite is not None
-        and prerequisite.version not in applied
-        and (
-            not protected_intelligence_prerequisite
-            or expected_pending is None
-            or not is_intelligence_prerequisite_batch(expected_pending)
-            or _migration_metadata(prerequisite) != INTELLIGENCE_PREREQUISITE_MIGRATION
-        )
-    ):
-        raise PermissionError("V142 requires the protected intelligence prerequisite path")
+    for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
+        prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
+        if (
+            database == DEV_DATABASE
+            and prerequisite is not None
+            and prerequisite.version not in applied
+            and (
+                not protected_intelligence_prerequisite
+                or expected_pending is None
+                or not is_intelligence_prerequisite_batch(expected_pending)
+                or _migration_metadata(prerequisite) != pinned
+            )
+        ):
+            raise PermissionError(
+                f"{pinned['version']} requires the protected intelligence prerequisite path"
+            )
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

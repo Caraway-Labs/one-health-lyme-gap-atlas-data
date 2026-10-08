@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from lyme_gap_atlas_data.intelligence_items import permitted_text, validate_record
+from lyme_gap_atlas_data.intelligence_items import identity_hash, permitted_text, validate_record
 from lyme_gap_atlas_data.intelligence_metadata import (
     NativeMetadataPolicy,
     inventory_feed,
@@ -82,3 +82,45 @@ def test_actual_source_inventory_mapping_and_drift(source_id: str) -> None:
 def test_unresolved_approved_sources_have_no_invented_capture() -> None:
     for source_id in ("pubmed-lyme-borrelia", "pubmed-tick-borne", "nih-news-releases"):
         assert not (ROOT / (source_id + ".json")).exists()
+
+
+def test_eid_six_path_policy_withholds_populated_description() -> None:
+    packet = json.loads((ROOT / "cdc-eid-expedited.json").read_text(encoding="utf-8"))
+    source = packet["source_candidate"]
+    candidate = packet["mapping_policy_candidate"]
+    policy = NativeMetadataPolicy(
+        policy_ref="eid-six-path-negative-test",
+        source_sha256=identity_hash(source),
+        inventory=frozenset(candidate["inventory"]),
+        permitted_paths=frozenset(
+            {"feed/language", "feed/link", "feed/title", "item/link", "item/pubDate", "item/title"}
+        ),
+        required_paths=frozenset(),
+        published_path="item/pubDate",
+        published_format="rfc822",
+        updated_path=None,
+        updated_format="iso8601",
+    )
+    sample = packet["samples"][0]
+    root = ET.Element("rss", version="2.0")
+    channel = ET.SubElement(root, "channel")
+    for value in sample["native_metadata"]["feed"]:
+        channel.append(_element(value))
+    item = ET.SubElement(channel, "item")
+    for value in sample["native_metadata"]["item"]:
+        item.append(_element(value))
+    next(node for node in item if node.tag == "description").text = "Populated article description"
+    mapped = parse_native_feed(
+        ET.tostring(root), source, policy, base_url=packet["evidence"]["endpoint"]
+    )[0]
+    assert mapped["excerpt"] is None
+    assert (
+        next(node for node in mapped["native_metadata"]["item"] if node["name"] == "description")[
+            "value"
+        ]
+        is None
+    )
+    assert mapped["title"] == sample["canonical"]["title"]
+    assert mapped["url"] == sample["canonical"]["url"]
+    assert mapped["published_at"] == sample["canonical"]["published_at"]
+    assert mapped["publisher_metadata"]["language"] == "en-us"

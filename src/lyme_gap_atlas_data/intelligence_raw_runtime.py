@@ -135,10 +135,23 @@ class SnowflakeRawLedger:
     and suffixed database are checked before SQL; no Alpha or owner connection.
     """
 
-    def __init__(self, factory: Callable[[], Any], environment: Literal["DEV", "PROD"]) -> None:
+    def __init__(
+        self,
+        factory: Callable[[], Any],
+        environment: Literal["DEV", "PROD"],
+        *,
+        expected_role: str | None = None,
+    ) -> None:
         if environment not in {"DEV", "PROD"}:
             raise ValueError("INTELLIGENCE_RAW_ENVIRONMENT_INVALID")
         self.factory, self.environment = factory, environment
+        self.expected_role = expected_role or f"OH_LYME_{environment}_RUNTIME"
+        if self.expected_role not in {
+            f"OH_LYME_{environment}_RUNTIME",
+            "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP",
+            "OH_LYME_DEV_MIGRATION_DEPLOYER",
+        } or (environment != "DEV" and expected_role is not None):
+            raise ValueError("INTELLIGENCE_RAW_ROLE_INVALID")
         self.local = threading.local()
 
     def in_guard(self) -> bool:
@@ -153,14 +166,17 @@ class SnowflakeRawLedger:
             cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_TRANSACTION()")
             if cursor.fetchall() != [
                 (
-                    f"OH_LYME_{self.environment}_RUNTIME",
+                    self.expected_role,
                     f"ONE_HEALTH_LYME_GAP_ATLAS_{self.environment}",
                     None,
                 )
             ]:
                 raise PermissionError("INTELLIGENCE_RAW_WRITER_CONTEXT_REQUIRED")
             connection.autocommit(False)
-            cursor.execute("ALTER SESSION SET LOCK_TIMEOUT=5, STATEMENT_TIMEOUT_IN_SECONDS=120")
+            timeout = 120 if self.expected_role == f"OH_LYME_{self.environment}_RUNTIME" else 10
+            cursor.execute(
+                f"ALTER SESSION SET LOCK_TIMEOUT=5, STATEMENT_TIMEOUT_IN_SECONDS={timeout}"
+            )
             cursor.execute("BEGIN TRANSACTION")
             cursor.execute(
                 "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD "
@@ -226,7 +242,7 @@ class SnowflakeRawLedger:
             cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_TRANSACTION()")
             if cursor.fetchall() != [
                 (
-                    f"OH_LYME_{self.environment}_RUNTIME",
+                    self.expected_role,
                     f"ONE_HEALTH_LYME_GAP_ATLAS_{self.environment}",
                     None,
                 )
