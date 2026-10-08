@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -21,6 +22,7 @@ from lyme_gap_atlas_data.county_analysis_geometry import (
     GridCell,
     grid_intersection_weights,
 )
+from lyme_gap_atlas_data.ingestion import annual_nlcd
 from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
 from lyme_gap_atlas_data.ingestion.annual_nlcd import (
     _CRS,
@@ -174,10 +176,7 @@ def test_fractional_boundary_weights_match_424() -> None:
         MemoryFile(inputs.payloads[_name("H14V15", "LndCov", "tif")]) as memory,
         memory.open() as dataset,
     ):
-        native = transform(
-            Transformer.from_crs(4269, _CRS, always_xy=True).transform, county.geometry
-        )
-        weights = _pixel_weights(county, native, dataset, rasterio.windows.Window(0, 0, 2, 2))
+        weights = _pixel_weights(county, dataset, rasterio.windows.Window(0, 0, 2, 2))
     cells = [
         GridCell(f"{row}:{col}", box(col * 30, 30 - row * 30, (col + 1) * 30, 60 - row * 30), None)
         for row in range(2)
@@ -188,6 +187,23 @@ def test_fractional_boundary_weights_match_424() -> None:
         row, col = (int(piece) for piece in cell_id.split(":"))
         assert weights[row, col] == pytest.approx(area, rel=1e-9)
     assert weights[0, 1] == pytest.approx(weights[0, 0] / 2, rel=1e-5)
+
+
+def test_tile_weight_lineage_binds_helper_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    county, inputs = _county(), _inputs()
+    before = list(AnnualNLCDAdapter()._county_records(DEFINITION, county, 2025, inputs))
+    code_digest = hashlib.sha256(Path(annual_nlcd.__file__).read_bytes()).hexdigest()
+    assert all(row["record"]["weight_code_sha256"] == code_digest for row in before)
+    monkeypatch.setattr(
+        annual_nlcd,
+        "Path",
+        lambda _path: SimpleNamespace(read_bytes=lambda: b"changed helper implementation"),
+    )
+    after = list(AnnualNLCDAdapter()._county_records(DEFINITION, county, 2025, inputs))
+    for old, new in zip(before, after, strict=True):
+        assert old["record"]["value"] == new["record"]["value"]
+        assert old["record"]["weight_id"] != new["record"]["weight_id"]
+        assert old["record"]["weight_code_sha256"] != new["record"]["weight_code_sha256"]
 
 
 def test_categorical_and_impervious_county_year(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -16,8 +16,8 @@ from typing import Any, cast
 import boto3  # type: ignore[import-untyped]
 import httpx
 import numpy as np
+import shapely
 from pyproj import CRS, Transformer
-from rasterio.features import rasterize  # type: ignore[import-untyped]
 from rasterio.io import MemoryFile  # type: ignore[import-untyped]
 from rasterio.windows import Window, from_bounds  # type: ignore[import-untyped]
 from rasterio.windows import transform as window_transform
@@ -186,33 +186,46 @@ def _raster_metadata(dataset: Any, product: str, *, fixture: bool) -> None:
         raise ValueError(f"{product}: official tile dimensions changed")
 
 
-def _pixel_weights(
-    county: CountyAnalysisGeometry, native_county: Any, dataset: Any, window: Window
-) -> np.ndarray:
-    """Use #424 exact boundary intersections and projected areas for full cells."""
+def _pixel_weights(county: CountyAnalysisGeometry, dataset: Any, window: Window) -> np.ndarray:
+    """Use projected containment for full cells and #424 intersections otherwise.
+
+    Inspect every cell in the county-bounded window geometrically. Rasterizing a
+    polygon and its boundary separately can miss shallow boundary crossings,
+    incorrectly assigning a partial cell its full area.
+    """
     affine = window_transform(window, dataset.transform)
     shape = (int(window.height), int(window.width))
-    candidate = rasterize([(native_county, 1)], out_shape=shape, transform=affine, all_touched=True)
-    if not candidate.any():
-        return np.zeros(shape, dtype=np.float64)
-    boundary = rasterize(
-        [(native_county.boundary, 1)], out_shape=shape, transform=affine, all_touched=True
+    rows, cols = np.indices(shape)
+    flat_rows, flat_cols = rows.ravel(), cols.ravel()
+    left = affine.c + flat_cols * 30.0
+    top = affine.f - flat_rows * 30.0
+    converter = Transformer.from_crs(dataset.crs, county.analysis_crs, always_xy=True)
+    x0, y0 = converter.transform(left, top)
+    x1, y1 = converter.transform(left + 30.0, top)
+    x2, y2 = converter.transform(left + 30.0, top - 30.0)
+    x3, y3 = converter.transform(left, top - 30.0)
+    corners = np.empty((len(left), 5, 2), dtype=np.float64)
+    for index, (x, y) in enumerate(((x0, y0), (x1, y1), (x2, y2), (x3, y3))):
+        corners[:, index, 0] = x
+        corners[:, index, 1] = y
+    corners[:, 4] = corners[:, 0]
+    projected_cells = shapely.polygons(corners)
+    projected_county = project_geometry(
+        county.geometry, county.lineage.storage_crs, county.analysis_crs
     )
-    interior = (candidate != 0) & (boundary == 0)
+    shapely.prepare(projected_county)
+    full = shapely.covers(projected_county, projected_cells)
+    partial = shapely.intersects(projected_county, projected_cells) & ~full
     weights = np.zeros(shape, dtype=np.float64)
-    rows, cols = np.nonzero(interior)
-    if len(rows):
-        left = affine.c + cols * 30.0
-        top = affine.f - rows * 30.0
-        converter = Transformer.from_crs(dataset.crs, county.analysis_crs, always_xy=True)
-        x0, y0 = converter.transform(left, top)
-        x1, y1 = converter.transform(left + 30.0, top)
-        x2, y2 = converter.transform(left + 30.0, top - 30.0)
-        x3, y3 = converter.transform(left, top - 30.0)
-        weights[rows, cols] = 0.5 * np.abs(
-            x0 * y1 + x1 * y2 + x2 * y3 + x3 * y0 - y0 * x1 - y1 * x2 - y2 * x3 - y3 * x0
-        )
-    edge_rows, edge_cols = np.nonzero((candidate != 0) & (boundary != 0))
+    # Translate before taking cross products; large global projected coordinates
+    # caused avoidable cancellation in the original shoelace expression.
+    weights.ravel()[full] = 0.5 * np.abs(
+        (x1[full] - x0[full]) * (y2[full] - y0[full])
+        - (y1[full] - y0[full]) * (x2[full] - x0[full])
+        + (x2[full] - x0[full]) * (y3[full] - y0[full])
+        - (y2[full] - y0[full]) * (x3[full] - x0[full])
+    )
+    edge_rows, edge_cols = flat_rows[partial], flat_cols[partial]
     cells = [
         GridCell(
             f"{row}:{col}",
@@ -232,6 +245,23 @@ def _pixel_weights(
             row, col = (int(piece) for piece in cell_id.split(":"))
             weights[row, col] = area
     return weights
+
+
+def _validate_search_bounds(
+    weights: np.ndarray,
+    window: Window,
+    bounds: tuple[int, int, int, int],
+    dataset: Any,
+) -> None:
+    """Require an empty outer search halo unless clipped by the raster edge."""
+    col0, row0, col1, row1 = bounds
+    if (
+        (row0 > 0 and window.row_off == row0 and weights[0].any())
+        or (col0 > 0 and window.col_off == col0 and weights[:, 0].any())
+        or (row1 < dataset.height and window.row_off + window.height == row1 and weights[-1].any())
+        or (col1 < dataset.width and window.col_off + window.width == col1 and weights[:, -1].any())
+    ):
+        raise ValueError("Projected county reaches search halo; candidate coverage unverified")
 
 
 class AnnualNLCDAdapter:
@@ -506,6 +536,7 @@ class AnnualNLCDAdapter:
             county.geometry, county.lineage.storage_crs, county.analysis_crs
         )
         expected_area = county_shape.area
+        weight_code_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
         tile_footprints = []
         grid_ids: dict[str, str] = {}
         for tile in definition.extra["tile_ids"]:
@@ -529,16 +560,21 @@ class AnnualNLCDAdapter:
                 )
                 bounds = native_county.bounds
                 raw = from_bounds(*bounds, transform=reference.transform)
-                col0 = max(0, math.floor(raw.col_off))
-                row0 = max(0, math.floor(raw.row_off))
-                col1 = min(reference.width, math.ceil(raw.col_off + raw.width))
-                row1 = min(reference.height, math.ceil(raw.row_off + raw.height))
+                # Include neighboring cells at the outer window boundary. The
+                # projected polygon/cell test below decides their true weight.
+                col0 = max(0, math.floor(raw.col_off) - 1)
+                row0 = max(0, math.floor(raw.row_off) - 1)
+                col1 = min(reference.width, math.ceil(raw.col_off + raw.width) + 1)
+                row1 = min(reference.height, math.ceil(raw.row_off + raw.height) + 1)
                 for row in range(row0, row1, _WINDOW):
                     for col in range(col0, col1, _WINDOW):
                         window = Window(
                             col, row, min(_WINDOW, col1 - col), min(_WINDOW, row1 - row)
                         )
-                        weights = _pixel_weights(county, native_county, reference, window)
+                        weights = _pixel_weights(county, reference, window)
+                        _validate_search_bounds(
+                            weights, window, (col0, row0, col1, row1), reference
+                        )
                         if not weights.any():
                             continue
                         raster_values = {
@@ -594,7 +630,7 @@ class AnnualNLCDAdapter:
             valid[product] = min(valid[product], supported)
         weight_id = hashlib.sha256(
             f"{sorted(grid_ids.items())}:{county.lineage.normalized_geometry_sha256}:"
-            f"{county.lineage.artifact_sha256}:{WEIGHT_VERSION}".encode()
+            f"{county.lineage.artifact_sha256}:{WEIGHT_VERSION}:{weight_code_sha256}".encode()
         ).hexdigest()
         for measure in MEASURES:
             product = (
@@ -644,6 +680,7 @@ class AnnualNLCDAdapter:
                 inputs,
                 grid_ids,
                 weight_id,
+                weight_code_sha256,
             )
 
 
@@ -663,6 +700,7 @@ def _row(
     inputs: RetainedInputs,
     grid_ids: dict[str, str] | None = None,
     weight_id: str | None = None,
+    weight_code_sha256: str | None = None,
 ) -> dict[str, object]:
     record_id = f"{definition.resource_key}:{county.county_fips}:{year}:{measure}"
     product = (
@@ -707,6 +745,7 @@ def _row(
             "geometry_digest": county.lineage.normalized_geometry_sha256,
             "tiger_sha256": inputs.sha256[TIGER_MEMBER],
             "weight_version": WEIGHT_VERSION,
+            "weight_code_sha256": weight_code_sha256,
             "weight_id": weight_id,
             "grid_id_by_tile": grid_ids or {},
             "transformation_version": TRANSFORM_VERSION,
