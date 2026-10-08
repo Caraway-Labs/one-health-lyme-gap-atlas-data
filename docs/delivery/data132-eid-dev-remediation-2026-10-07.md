@@ -1,66 +1,17 @@
-# DATA #132/#135 EID Expedited DEV remediation checkpoint
+# DATA #132/#135 EID Expedited DEV checkpoint
 
-This follow-up starts from `origin/main` at `0765061e7ec16c44e4af6cec4a118169225cfa6f`.
-The protected read-only DEV run [37624314644](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37624314644)
-completed with no writes. The EID and NIH registry rows were `ABSENT`.
-`INTELLIGENCE_SOURCE_VERSIONS` matched its expected shape, owner, and grants.
-The two raw-retention tables and `INTELLIGENCE_FEED_V2` were not visible, which
-does not prove physical absence. The existing V1 view was visible but its
-definition did not match the reviewed version filter.
+PR #637 is rebased onto main containing V142 (`f0c8ce94555220729bbdf154b7eb37aa449e81b8`). The [protected deployment](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37719961099) applied only V142 with checksum `093017fc1507a67452eb47d1cec4c3c49e7a5881e981feede61bb88246986a15`; the V142 ledger row was verified. The read-only [protected diagnostic](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37720232103) found `object_prerequisites_passed=true`: both raw-retention tables, corrected V1, and V2 have the reviewed shapes/definitions, migration-deployer owner, and exact target-role grants without grant options. It made no writes. EID and NIH source registrations remain absent. NIH is not an EID prerequisite.
 
-The follow-up protected branch run
-[37700662663](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37700662663)
-passed its job and reported `direct_describe_succeeded=false` for the same
-three objects, `ABSENT` for EID and NIH registry rows, and no writes. A separate
-bounded read-only check with the documented `ATLAS_DEV_OWNER` PAT connection
-verified `OH_LYME_DEV_OWNER` / DEV / DEV ingest warehouse, then found zero
-matching rows in `INFORMATION_SCHEMA.TABLES`. `GOVERNANCE` schema ownership is
-held by `ACCOUNTADMIN`, while the migration role has scoped CREATE privileges.
-These facts do not prove that an object invisible to both permitted roles is
-physically absent. No ACCOUNTADMIN check was performed.
+This branch retains the EID SourceDefinition, bounded runtime/workflow route, and fixed protected diagnostic. The exact EID endpoint is `https://wwwnc.cdc.gov/eid/rss/expedited.xml` on a daily cadence. No EID registry row, runtime receipt, cleanup authority, or acquisition is introduced by the branch.
 
-This change adds only the EID SourceDefinition, selects EID in the existing
-bounded runtime/workflow path instead of deferred Vital Signs, and adds an exact
-direct `DESCRIBE` check to the protected migration-identity diagnostic. A
-successful direct describe proves an object exists even if `SHOW` omitted it;
-a failed describe leaves physical state unknown. Neither result alone qualifies
-the expected owner, shape, grants, or view definition. No source or policy
-receipt is added to the executable receipt set.
+## PR #631 review incorporated
 
-## Conditional forward-only DEV delta
+The accompanying `eid-expedited-receipt-candidate-2026-10-07.json` is copied as a **nonexecutable** design record. Its 16 observed native paths and six permitted paths are supported by the historical sanitized fixture and an exact-candidate regression. It withholds image values, descriptions, article text, and excerpts while retaining permitted title, link, language, and pubDate metadata; absent publisher dates stay unknown. CDC attribution, free-original links, nonendorsement, and third-party exceptions remain source-specific rights constraints. Fixture registry version/hash are not live facts. PR #631 can be closed as superseded once this integrated #637 work is independently reviewed; it must never be merged as an executable receipt.
 
-The following statements are the *maximum candidates*, not an executable
-batch. Select only after direct object evidence and an independently reviewed
-diff. No V-number is allocated while physical presence is unresolved.
+## Remaining 30-day enforcement gate
 
-1. If genuinely absent, create exactly `GOVERNANCE.INTELLIGENCE_RAW_RETENTION_DOCUMENTS`
-   and `GOVERNANCE.INTELLIGENCE_RAW_RETENTION_AUDIT` with the reviewed column
-   shapes in `docs/contracts/intelligence/v2/raw-runtime-schema-review.sql`.
-   Grant the existing DEV runtime role only `SELECT, INSERT` on documents and
-   `INSERT` on audit. Do not recreate or replace a visible but mismatched table.
-2. Replace the existing `PRESENTATION.INTELLIGENCE_FEED_V` with the reviewed
-   `contract_version='1.0.0'` filter using `COPY GRANTS`. Create V2 only if
-   absent, with the reviewed `contract_version='2.0.0'` projection from
-   `docs/contracts/intelligence/v2/presentation-projection.sql`; grant the
-   existing DEV read role `SELECT` on V2. An existing mismatched V2 requires
-   a separate exact-definition review before replacement.
-3. Raw-copy expiry remains an additional requirement: the reviewed cleanup
-   approvals/procedure and least-privilege owner path in
-   `raw-runtime-schema-review.sql` must be verified or delivered before a
-   capture that promises 30-day deletion. No direct runtime `DELETE` grant.
+V142 installed only the lease and audit tables. The Python raw runtime creates an immutable successful-capture lease, enforces `expires_at = captured_at + 30 days`, guards reads before byte loading, and binds checkpoint/cache/replay claims. `intelligence_raw_cleanup.py` has scoped, exact-plan, audited/idempotent cleanup adapters with offline tests. The reviewed `raw-runtime-schema-review.sql` contains an approval table and owner-rights checkpoint purge procedure, but it is explicitly unnumbered and unapplied. There is no installed/scheduled complete cleanup runner, approved plan path, or intended-role proof for warehouse, object-store, local checkpoint, cache, and artifact-member deletion. Expired reads fail closed, but physical copies are not yet proven to expire after 30 days. Therefore EID capture remains blocked until the narrow forward-only DEV cleanup migration, least-privilege owner/approval grants, exact-plan execution path, and bounded intended-role verification are reviewed and deployed. Normalized eligible metadata/provenance is outside cleanup scope.
 
-The source document must retain the exact approved endpoint, daily cadence,
-bounded one-request limits, no inferred topic/geography, metadata-only rights,
-and a real source-specific retention and technical review reference. PR #631's
-candidate is nonexecutable: its registry version/hash and policy/reviewer fields
-remain null. A historical fixture version or checksum is not a live registry
-allocation. The source record, source-specific native policy, restricted artifact
-policy, and checked-in runtime receipt must be reviewed as one pinned set before
-owner registration. `config/intelligence/pilot-policy-receipts.json` remains
-empty. The current diagnostic must then pass EID and all relevant objects on the
-actual deployed commit before one acquisition-only DEV attempt. NIH can remain
-blocked; it is not an EID gate.
+## Source admission gate
 
-No migration, grant, source registration, feed request, normalization, or load
-is authorized by this document itself. Keep both issues open until their actual
-acceptance evidence exists.
+The candidate receipt deliberately has null decision, live registry version/checksum, source-specific retention reference, restricted artifact identifier, native-policy reference, and technical-review attribution. An exact source document and identity hash must be reviewed as one set, then owner-registered in DEV through a governed path; runtime cannot self-approve. No ACCOUNTADMIN, NIH registration, PROD operation, or HTTP acquisition is in this step. `config/intelligence/pilot-policy-receipts.json` remains empty. The protected diagnostic must confirm EID on the exact deployed commit after registration before one bounded acquisition can be considered.
