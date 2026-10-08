@@ -11,9 +11,13 @@ from lyme_gap_atlas_data.intelligence_raw_cleanup import (
     ObjectRawDelete,
     approved_dev_plan,
     dev_cleanup_scope,
+    execute_reviewed_dev_plan,
     load_exact_plan,
+    verify_dev_cleanup_handoff,
 )
+from lyme_gap_atlas_data.intelligence_raw_runtime import SnowflakeRawLedger
 from lyme_gap_atlas_data.intelligence_retention import CleanupPlan, RawCopy, capture_lease
+from lyme_gap_atlas_data.migrations import load_migrations
 
 MIGRATION = (
     Path(__file__).parents[1] / "migrations/V143__dev_intelligence_raw_cleanup_authority.sql"
@@ -98,11 +102,13 @@ def test_migration_has_only_scoped_dev_authority() -> None:
     assert "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER" in sql
     assert "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP" in sql
     assert "GRANT SELECT, DELETE ON TABLE GOVERNANCE.INGESTION_RUN_PAYLOADS" not in sql
-    assert "GRANT USAGE ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT" in sql
+    assert "GRANT USAGE ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT" not in sql
+    assert "GRANT OWNERSHIP ON PROCEDURE" not in sql
     assert "OH_LYME_DEV_RUNTIME" not in sql
     assert "ONE_HEALTH_LYME_GAP_ATLAS_PROD" not in sql
     assert "DELETE FROM GOVERNANCE.INGESTION_RUN_NORMALIZED" not in sql
     assert "DATEADD(day,30" in sql
+    assert "INVOKER_ROLE() <> 'OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER'" in sql
     assert "a.DOCUMENT:outcome::VARCHAR='pending'" in sql
     assert "a.DOCUMENT:copy_sha256::VARCHAR=:P_COPY_SHA256" in sql
     assert "c.value:source_id::VARCHAR='cdc-eid-expedited'" in sql
@@ -110,6 +116,21 @@ def test_migration_has_only_scoped_dev_authority() -> None:
     assert "CREATE ROLE" not in sql
     assert "GRANT USAGE ON DATABASE" not in sql
     assert "GRANT USAGE ON SCHEMA GOVERNANCE" not in sql
+
+
+def test_security_owner_handoff_grants_usage_only_after_transfer() -> None:
+    path = (
+        Path(__file__).parents[1]
+        / "docs/contracts/intelligence/v2/dev-raw-cleanup-owner-handoff-review.sql"
+    )
+    sql = path.read_text(encoding="utf-8")
+    transfer = sql.index("GRANT OWNERSHIP ON PROCEDURE")
+    usage = sql.index("GRANT USAGE ON PROCEDURE")
+    assert "USE ROLE SECURITYADMIN" in sql
+    assert "REVOKE CURRENT GRANTS" in sql[transfer:usage]
+    assert "COPY CURRENT GRANTS" not in sql
+    assert transfer < usage
+    assert "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER" in sql
 
 
 def test_private_plan_file_requires_exact_canonical_checksum(tmp_path: Path) -> None:
@@ -162,3 +183,80 @@ def test_dev_scope_only_actual_eid_raw_surfaces() -> None:
         ),
         driver,
     )
+
+
+class HandoffConnection(Connection):
+    def __init__(
+        self,
+        *,
+        owner: str = "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER",
+        body: str | None = None,
+        grants: list[tuple[str, str, str, bool]] | None = None,
+        present: bool = True,
+    ) -> None:
+        super().__init__([], IDENTITY)
+        source = next(item.source for item in load_migrations() if item.version == "V143")
+        expected_body = source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+        self.procedure = (
+            [("(VARCHAR,VARCHAR,VARCHAR,VARCHAR)", owner, "SQL", body or expected_body)]
+            if present
+            else []
+        )
+        self.grants = (
+            grants
+            if grants is not None
+            else [
+                ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", False),
+                ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", False),
+            ]
+        )
+
+    def execute(self, sql: str, params: tuple[str, ...] = ()) -> None:
+        self.sql.append(sql)
+        if "CURRENT_USER" in sql:
+            self.result = [IDENTITY]
+        elif "INFORMATION_SCHEMA.PROCEDURES" in sql:
+            self.result = self.procedure
+        elif "RESULT_SCAN" in sql:
+            self.result = self.grants
+        else:
+            self.result = []
+
+
+def test_handoff_preflight_requires_exact_owner_definition_and_grants() -> None:
+    verify_dev_cleanup_handoff(lambda: HandoffConnection())
+    for connection in (
+        HandoffConnection(present=False),  # partial V143, no procedure
+        HandoffConnection(owner="OH_LYME_DEV_MIGRATION_DEPLOYER"),  # no handoff
+        HandoffConnection(body="BEGIN RETURN 'unexpected'; END;"),
+        HandoffConnection(grants=[]),  # handoff may have succeeded, USAGE missing
+        HandoffConnection(
+            grants=[
+                ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", False),
+                ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", False),
+                ("USAGE", "ROLE", "OH_LYME_DEV_RUNTIME", False),
+            ]
+        ),
+    ):
+        with pytest.raises(PermissionError, match="HANDOFF_REQUIRED"):
+            verify_dev_cleanup_handoff(lambda selected=connection: selected)
+
+
+def test_executor_refuses_partial_handoff_before_delete() -> None:
+    connection = HandoffConnection(owner="OH_LYME_DEV_MIGRATION_DEPLOYER")
+    gate = SimpleNamespace(
+        environment="DEV",
+        ledger=SnowflakeRawLedger(
+            lambda: connection, "DEV", expected_role="OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP"
+        ),
+    )
+    with pytest.raises(PermissionError, match="HANDOFF_REQUIRED"):
+        execute_reviewed_dev_plan(
+            gate,
+            plan(),
+            factory=lambda: connection,
+            spaces_client=object(),
+            bucket="one-health-lyme-gap-atlas-data-dev",
+            prefix="dev",
+        )
+    assert not any("DELETE" in sql or "CALL GOVERNANCE.PURGE" in sql for sql in connection.sql)

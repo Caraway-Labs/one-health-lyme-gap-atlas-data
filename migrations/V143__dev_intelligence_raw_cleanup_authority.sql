@@ -49,6 +49,12 @@ DECLARE
     deleted_count INTEGER;
     checkpoint_uri VARCHAR;
 BEGIN
+    -- Even an accidental early USAGE grant cannot activate a procedure still
+    -- owned by the migration deployer. INVOKER_ROLE is the effective owner in
+    -- an owner-rights procedure.
+    IF (INVOKER_ROLE() <> 'OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER') THEN
+        RAISE denied;
+    END IF;
     -- Caller retains this transaction/guard across the complete exact-plan
     -- cleanup. Direct unguarded/autocommit calls fail closed.
     IF (CURRENT_TRANSACTION() IS NULL) THEN
@@ -146,9 +152,6 @@ GRANT INSERT ON TABLE GOVERNANCE.INTELLIGENCE_RAW_RETENTION_AUDIT
     TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP;
 GRANT SELECT, UPDATE ON TABLE GOVERNANCE.INTELLIGENCE_WRITE_GUARD
     TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP;
-GRANT USAGE ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(VARCHAR,VARCHAR,VARCHAR,VARCHAR)
-    TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP;
-GRANT OWNERSHIP ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(VARCHAR,VARCHAR,VARCHAR,VARCHAR)
-    TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER COPY CURRENT GRANTS;
--- No user/service binding is made here; provision that separately under the
--- reviewed DEV identity path before allowing an execution workflow.
+-- Deliberately no procedure USAGE or OWNERSHIP handoff here. The separately
+-- reviewed SECURITYADMIN phase transfers ownership, verifies the definition
+-- and dependency grants, then grants exact executor USAGE last.

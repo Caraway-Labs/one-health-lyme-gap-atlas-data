@@ -21,6 +21,7 @@ from .intelligence_retention import (
     canonical_object_uri,
     execute_cleanup,
 )
+from .migrations import INTELLIGENCE_CLEANUP_MIGRATION, load_migrations
 
 
 class FileRawDelete:
@@ -207,6 +208,73 @@ def approved_dev_plan(factory: Callable[[], Any], plan: CleanupPlan) -> bool:
     return True
 
 
+def verify_dev_cleanup_handoff(factory: Callable[[], Any]) -> None:
+    """Fail closed on absent/partial ownership handoff before any raw mutation."""
+    migration = next(item for item in load_migrations() if item.version == "V143")
+    if migration.sha256 != INTELLIGENCE_CLEANUP_MIGRATION["sha256"]:
+        raise PermissionError("INTELLIGENCE_RAW_MIGRATION_CHANGED")
+    expected_body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+    signature = "(VARCHAR,VARCHAR,VARCHAR,VARCHAR)"
+    with factory() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
+        )
+        if cursor.fetchall() != [
+            (
+                "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP_SVC",
+                "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP",
+                "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+                "OH_LYME_DEV_INGEST_XS_WH",
+            )
+        ]:
+            raise PermissionError("INTELLIGENCE_RAW_CLEANUP_IDENTITY_REQUIRED")
+        cursor.execute(
+            "SELECT ARGUMENT_SIGNATURE,PROCEDURE_OWNER,PROCEDURE_LANGUAGE,"
+            "PROCEDURE_DEFINITION FROM INFORMATION_SCHEMA.PROCEDURES "
+            "WHERE PROCEDURE_SCHEMA='GOVERNANCE' "
+            "AND PROCEDURE_NAME='PURGE_INTELLIGENCE_RAW_CHECKPOINT'"
+        )
+        rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+        arguments, owner, language, body = rows[0]
+        parsed_arguments = (
+            arguments.strip()[1:-1].split(",")
+            if isinstance(arguments, str)
+            and arguments.strip().startswith("(")
+            and arguments.strip().endswith(")")
+            else []
+        )
+        if (
+            len(parsed_arguments) != 4
+            or any(
+                re.fullmatch(r"\s*(?:P_[A-Z_]+\s+)?VARCHAR(?:\(\d+\))?\s*", part.upper()) is None
+                for part in parsed_arguments
+            )
+            or owner != "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER"
+            or language != "SQL"
+            or not isinstance(body, str)
+            or body.replace("\r\n", "\n").strip() != expected_body.strip()
+        ):
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+        cursor.execute(
+            "SHOW GRANTS ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT" + signature
+        )
+        cursor.execute(
+            'SELECT "privilege","granted_to","grantee_name","grant_option" '
+            "FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+        )
+        grants = {
+            (str(privilege), str(granted_to), str(grantee), str(option).lower())
+            for privilege, granted_to, grantee, option in cursor.fetchall()
+        }
+        if grants != {
+            ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", "false"),
+            ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", "false"),
+        }:
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+
+
 def load_exact_plan(path: Path, checksum: str) -> CleanupPlan:
     """Parse one private reviewed plan; no extra fields or targets are inferred."""
     if not path.is_file() or path.stat().st_size > 1024 * 1024:
@@ -258,6 +326,7 @@ def execute_reviewed_dev_plan(
         or len(plan.copies) > 1000
     ):
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+    verify_dev_cleanup_handoff(factory)
     object_delete = ObjectRawDelete(gate, spaces_client, bucket=bucket, prefix=prefix)
     warehouse_delete = WarehouseRawDelete(gate, factory, plan)
 
