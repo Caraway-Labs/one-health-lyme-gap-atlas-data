@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Callable, Mapping
@@ -214,6 +215,7 @@ def verify_dev_cleanup_handoff(factory: Callable[[], Any]) -> None:
     if migration.sha256 != INTELLIGENCE_CLEANUP_MIGRATION["sha256"]:
         raise PermissionError("INTELLIGENCE_RAW_MIGRATION_CHANGED")
     expected_body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+    body_sha256 = hashlib.sha256(expected_body.strip().encode()).hexdigest()
     signature = "(VARCHAR,VARCHAR,VARCHAR,VARCHAR)"
     with factory() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -229,33 +231,47 @@ def verify_dev_cleanup_handoff(factory: Callable[[], Any]) -> None:
         ]:
             raise PermissionError("INTELLIGENCE_RAW_CLEANUP_IDENTITY_REQUIRED")
         cursor.execute(
-            "SELECT ARGUMENT_SIGNATURE,PROCEDURE_OWNER,PROCEDURE_LANGUAGE,"
-            "PROCEDURE_DEFINITION FROM INFORMATION_SCHEMA.PROCEDURES "
-            "WHERE PROCEDURE_SCHEMA='GOVERNANCE' "
-            "AND PROCEDURE_NAME='PURGE_INTELLIGENCE_RAW_CHECKPOINT'"
+            "SELECT MIGRATION_SHA256,PROCEDURE_BODY_SHA256,PROCEDURE_CREATED_ON,"
+            "OWNER_ROLE,HANDOFF_REF,ATTESTED_BY,ATTESTED_AT "
+            "FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS LIMIT 2"
         )
-        rows = cursor.fetchall()
-        if len(rows) != 1:
+        attestations = cursor.fetchall()
+        if len(attestations) != 1:
             raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
-        arguments, owner, language, body = rows[0]
-        parsed_arguments = (
-            arguments.strip()[1:-1].split(",")
-            if isinstance(arguments, str)
-            and arguments.strip().startswith("(")
-            and arguments.strip().endswith(")")
-            else []
-        )
+        migration_sha, attested_body_sha, created_on, owner, ref, attested_by, at = attestations[0]
         if (
-            len(parsed_arguments) != 4
-            or any(
-                re.fullmatch(r"\s*(?:P_[A-Z_]+\s+)?VARCHAR(?:\(\d+\))?\s*", part.upper()) is None
-                for part in parsed_arguments
-            )
+            migration_sha != migration.sha256
+            or attested_body_sha != body_sha256
             or owner != "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER"
-            or language != "SQL"
-            or not isinstance(body, str)
-            or body.replace("\r\n", "\n").strip() != expected_body.strip()
+            or created_on is None
+            or not isinstance(ref, str)
+            or not TOKEN.fullmatch(ref)
+            or not isinstance(attested_by, str)
+            or not attested_by
+            or attested_by == "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP_SVC"
+            or at is None
         ):
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+        cursor.execute(
+            "SHOW PROCEDURES LIKE 'PURGE_INTELLIGENCE_RAW_CHECKPOINT' "
+            "IN SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE"
+        )
+        cursor.execute(
+            'SELECT "created_on"::TIMESTAMP_LTZ,"name","catalog_name",'
+            '"schema_name","min_num_arguments","max_num_arguments" '
+            "FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+        )
+        procedures = cursor.fetchall()
+        if procedures != [
+            (
+                created_on,
+                "PURGE_INTELLIGENCE_RAW_CHECKPOINT",
+                "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+                "GOVERNANCE",
+                4,
+                4,
+            )
+        ]:
             raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
         cursor.execute(
             "SHOW GRANTS ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT" + signature
@@ -268,10 +284,15 @@ def verify_dev_cleanup_handoff(factory: Callable[[], Any]) -> None:
             (str(privilege), str(granted_to), str(grantee), str(option).lower())
             for privilege, granted_to, grantee, option in cursor.fetchall()
         }
-        if grants != {
-            ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", "false"),
-            ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", "false"),
-        }:
+        owner_grants = {
+            ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", value)
+            for value in ("false", "true")
+        }
+        if (
+            len(grants) != 2
+            or not any(owner_grant in grants for owner_grant in owner_grants)
+            or ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", "false") not in grants
+        ):
             raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
 
 

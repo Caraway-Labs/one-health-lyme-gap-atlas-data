@@ -1,5 +1,6 @@
 """Credential-free checks for the DEV exact-plan cleanup authority."""
 
+import hashlib
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -109,6 +110,11 @@ def test_migration_has_only_scoped_dev_authority() -> None:
     assert "DELETE FROM GOVERNANCE.INGESTION_RUN_NORMALIZED" not in sql
     assert "DATEADD(day,30" in sql
     assert "INVOKER_ROLE() <> 'OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER'" in sql
+    assert "IF (handoff_count <> 1) THEN RAISE denied; END IF;" in sql
+    assert (
+        "GRANT SELECT ON TABLE GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS\n"
+        "    TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER"
+    ) in sql
     assert "a.DOCUMENT:outcome::VARCHAR='pending'" in sql
     assert "a.DOCUMENT:copy_sha256::VARCHAR=:P_COPY_SHA256" in sql
     assert "c.value:source_id::VARCHAR='cdc-eid-expedited'" in sql
@@ -131,6 +137,10 @@ def test_security_owner_handoff_grants_usage_only_after_transfer() -> None:
     assert "COPY CURRENT GRANTS" not in sql
     assert transfer < usage
     assert "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER" in sql
+    migration = next(item for item in load_migrations() if item.version == "V143")
+    body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+    assert migration.sha256 in sql
+    assert hashlib.sha256(body.strip().encode()).hexdigest() in sql
 
 
 def test_private_plan_file_requires_exact_canonical_checksum(tmp_path: Path) -> None:
@@ -190,15 +200,46 @@ class HandoffConnection(Connection):
         self,
         *,
         owner: str = "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER",
-        body: str | None = None,
+        body_sha256: str | None = None,
         grants: list[tuple[str, str, str, bool]] | None = None,
         present: bool = True,
+        attested: bool = True,
+        created_on: str = "created-at",
+        duplicate_attestation: bool = False,
+        migration_sha256: str | None = None,
     ) -> None:
         super().__init__([], IDENTITY)
-        source = next(item.source for item in load_migrations() if item.version == "V143")
-        expected_body = source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+        migration = next(item for item in load_migrations() if item.version == "V143")
+        expected_body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+        body_hash = hashlib.sha256(expected_body.strip().encode()).hexdigest()
+        self.attestations = (
+            [
+                (
+                    migration_sha256 or migration.sha256,
+                    body_sha256 or body_hash,
+                    "created-at",
+                    owner,
+                    "approved-handoff-1",
+                    "reviewer-svc",
+                    "attested-at",
+                )
+            ]
+            if attested
+            else []
+        )
+        if duplicate_attestation:
+            self.attestations *= 2
         self.procedure = (
-            [("(VARCHAR,VARCHAR,VARCHAR,VARCHAR)", owner, "SQL", body or expected_body)]
+            [
+                (
+                    created_on,
+                    "PURGE_INTELLIGENCE_RAW_CHECKPOINT",
+                    "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+                    "GOVERNANCE",
+                    4,
+                    4,
+                )
+            ]
             if present
             else []
         )
@@ -215,7 +256,9 @@ class HandoffConnection(Connection):
         self.sql.append(sql)
         if "CURRENT_USER" in sql:
             self.result = [IDENTITY]
-        elif "INFORMATION_SCHEMA.PROCEDURES" in sql:
+        elif "INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS" in sql:
+            self.result = self.attestations
+        elif '"created_on"' in sql:
             self.result = self.procedure
         elif "RESULT_SCAN" in sql:
             self.result = self.grants
@@ -224,11 +267,25 @@ class HandoffConnection(Connection):
 
 
 def test_handoff_preflight_requires_exact_owner_definition_and_grants() -> None:
-    verify_dev_cleanup_handoff(lambda: HandoffConnection())
+    valid = HandoffConnection()
+    verify_dev_cleanup_handoff(lambda: valid)
+    assert not any("INFORMATION_SCHEMA.PROCEDURES" in sql or "GET_DDL" in sql for sql in valid.sql)
+    verify_dev_cleanup_handoff(
+        lambda: HandoffConnection(
+            grants=[
+                ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", True),
+                ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", False),
+            ]
+        )
+    )
     for connection in (
         HandoffConnection(present=False),  # partial V143, no procedure
-        HandoffConnection(owner="OH_LYME_DEV_MIGRATION_DEPLOYER"),  # no handoff
-        HandoffConnection(body="BEGIN RETURN 'unexpected'; END;"),
+        HandoffConnection(attested=False),  # missing handoff
+        HandoffConnection(duplicate_attestation=True),
+        HandoffConnection(migration_sha256="f" * 64),
+        HandoffConnection(owner="OH_LYME_DEV_MIGRATION_DEPLOYER"),
+        HandoffConnection(body_sha256="f" * 64),
+        HandoffConnection(created_on="replaced-at"),
         HandoffConnection(grants=[]),  # handoff may have succeeded, USAGE missing
         HandoffConnection(
             grants=[
@@ -243,7 +300,7 @@ def test_handoff_preflight_requires_exact_owner_definition_and_grants() -> None:
 
 
 def test_executor_refuses_partial_handoff_before_delete() -> None:
-    connection = HandoffConnection(owner="OH_LYME_DEV_MIGRATION_DEPLOYER")
+    connection = HandoffConnection(attested=False)
     gate = SimpleNamespace(
         environment="DEV",
         ledger=SnowflakeRawLedger(

@@ -23,6 +23,12 @@ GRANT SELECT, DELETE ON TABLE
   ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.INGESTION_RUN_PAYLOADS
   TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER;
 
+-- The existing SECURITYADMIN role inserts the post-handoff attestation into
+-- the V143-owned table. These container USAGE grants do not expose table data;
+-- V143 grants only SELECT, INSERT on that one attestation table to SECURITYADMIN.
+GRANT USAGE ON DATABASE ONE_HEALTH_LYME_GAP_ATLAS_DEV TO ROLE SECURITYADMIN;
+GRANT USAGE ON SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE TO ROLE SECURITYADMIN;
+
 -- Separately provision a dedicated cleanup service user, scoped PAT, and
 -- DEV Spaces delete credential. Grant the cleanup role only to that service
 -- user; never grant the purge-owner role to a user or the ingestion runtime.
