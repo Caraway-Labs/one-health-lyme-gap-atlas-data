@@ -26,7 +26,7 @@ INTELLIGENCE_PREREQUISITE_MIGRATION = {
 INTELLIGENCE_CLEANUP_MIGRATION = {
     "version": "V143",
     "filename": "V143__dev_intelligence_raw_cleanup_authority.sql",
-    "sha256": "e2b1b78e6d85eb76dd8e6768e0afdff6fbe3fa9b4a5ced40984eeb575f94445f",
+    "sha256": "a92157ddac0d7b087b6c93f7fff65c65a081dd1e1aea0b5918a4e604a2a52968",
 }
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,

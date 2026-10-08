@@ -111,6 +111,15 @@ def test_migration_has_only_scoped_dev_authority() -> None:
     assert "DATEADD(day,30" in sql
     assert "INVOKER_ROLE() <> 'OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER'" in sql
     assert "IF (handoff_count <> 1) THEN RAISE denied; END IF;" in sql
+    migration = next(item for item in load_migrations() if item.version == "V143")
+    body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+    body_sha256 = hashlib.sha256(body.strip().encode()).hexdigest()
+    assert "JOIN GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_EXPECTED_HANDOFF_V e" in body
+    assert "e.MIGRATION_SHA256=a.MIGRATION_SHA256" in body
+    assert "e.PROCEDURE_BODY_SHA256=a.PROCEDURE_BODY_SHA256" in body
+    assert f"'{body_sha256}'" in sql
+    assert "FROM GOVERNANCE.SCHEMA_MIGRATIONS" in sql
+    assert "WHERE VERSION='V143'" in sql
     assert (
         "GRANT SELECT ON TABLE GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS\n"
         "    TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER"
