@@ -28,6 +28,7 @@ GRANT SELECT, DELETE ON TABLE
 -- V143 grants only SELECT, INSERT on that one attestation table to SECURITYADMIN.
 GRANT USAGE ON DATABASE ONE_HEALTH_LYME_GAP_ATLAS_DEV TO ROLE SECURITYADMIN;
 GRANT USAGE ON SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE TO ROLE SECURITYADMIN;
+GRANT USAGE ON WAREHOUSE OH_LYME_DEV_INGEST_XS_WH TO ROLE SECURITYADMIN;
 
 -- Separately provision a dedicated cleanup service user, scoped PAT, and
 -- DEV Spaces delete credential. Grant the cleanup role only to that service
