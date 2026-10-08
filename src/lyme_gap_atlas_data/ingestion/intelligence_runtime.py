@@ -58,11 +58,6 @@ def pilot_watchdog(*, seconds: int = 300) -> Iterator[None]:
         timer.cancel()
 
 
-INTELLIGENCE_PREREQUISITE_SHA256 = (
-    "23342cd593efc32e9d7fdf206bfcef134a66dc8bc5e32efbf140a3c50c721526"
-)
-
-
 @contextmanager
 def prerequisite_batch_deadline() -> Iterator[None]:
     """Bound the exact reviewed DEV feed batch, including all connections/cleanup.

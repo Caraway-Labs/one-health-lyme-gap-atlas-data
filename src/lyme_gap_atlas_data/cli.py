@@ -51,6 +51,7 @@ from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracin
 from .metadata_cli import app as metadata_app
 from .migrations import (
     apply_migrations,
+    is_intelligence_prerequisite_batch,
     migration_authority_preflight,
     migration_plan,
     parse_reviewed_pending_set,
@@ -638,6 +639,9 @@ def apply_reviewed_dev_migrations_command(
     expected_pending_json: str = typer.Option(..., "--expected-pending-json"),
     commit: str | None = typer.Option(None, "--commit"),
     confirm: bool = typer.Option(False, "--confirm"),
+    feed_preflight_accounting_confirmed: bool = typer.Option(
+        False, "--feed-preflight-accounting-confirmed"
+    ),
 ) -> None:
     """Check reviewed DEV scope before legacy reconciliation or migration application."""
     if not confirm:
@@ -646,15 +650,14 @@ def apply_reviewed_dev_migrations_command(
         raise typer.BadParameter("Reviewed DEV migrations require the isolated DEV database")
     reviewed = parse_reviewed_pending_set(expected_pending_json)
     from .ingestion.intelligence_runtime import (
-        INTELLIGENCE_PREREQUISITE_SHA256,
         prerequisite_batch_deadline,
         verify_prerequisite_identity,
     )
 
-    feed_batch = any(item["sha256"] == INTELLIGENCE_PREREQUISITE_SHA256 for item in reviewed)
-    if feed_batch and len(reviewed) != 1:
-        raise typer.BadParameter("The reviewed intelligence prerequisite batch must run alone")
-    # Exact bytes select this bound; parent still assigns the migration number.
+    feed_batch = is_intelligence_prerequisite_batch(reviewed)
+    if feed_batch and not feed_preflight_accounting_confirmed:
+        raise typer.BadParameter("Intelligence prerequisite accounting confirmation is required")
+    # The actual numbered migration metadata selects this bound.
     # Start before settings, pending inspection, reconciliation and application.
     with prerequisite_batch_deadline() if feed_batch else nullcontext():
         settings = _settings()
@@ -664,7 +667,13 @@ def apply_reviewed_dev_migrations_command(
         typer.echo(json.dumps({"pending_migrations": actual}))
         require_reviewed_pending_set(actual, reviewed)
         reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
-        applied = apply_migrations(settings, database, commit, expected_pending=reviewed)
+        applied = apply_migrations(
+            settings,
+            database,
+            commit,
+            expected_pending=reviewed,
+            **({"protected_intelligence_prerequisite": True} if feed_batch else {}),
+        )
         typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 
 

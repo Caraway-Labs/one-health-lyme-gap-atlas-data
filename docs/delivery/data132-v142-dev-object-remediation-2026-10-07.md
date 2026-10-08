@@ -28,6 +28,16 @@ three new objects under the existing DEV migration deployer. It does not add
 source rows, acquisition, DELETE, cleanup approval, purge procedure, API
 reader rights, or PROD objects. These remain separately governed.
 
+The protected prerequisite selector pins V142's version, filename, and source
+SHA256 and verifies them against `load_migrations()`. Both `deploy-dev.yml` and
+the reviewed DEV CLI use that selector. The CLI requires explicit accounting
+confirmation, starts the 50-second process and 10-second statement bounds
+before settings/connection work, checks the exact migration-service identity,
+and rejects mixed or mismatched pending sets before reconciliation/application.
+The generic migration runner rejects a pending V142 before executing any DDL;
+only the protected reviewed route can pass its second execution guard. The
+historical unnumbered review-template checksum is no longer a dispatch key.
+
 `CREATE TABLE/VIEW IF NOT EXISTS`, `CREATE OR REPLACE VIEW ... COPY GRANTS`, and
 repeated exact grants make the SQL safe to rerun after a partial Snowflake DDL
 failure. `IF NOT EXISTS` does not validate an unexpected preexisting object:

@@ -1,8 +1,10 @@
 """Executable, offline validation of the bounded feed dispatch branches."""
 
+import json
 import os
 import shutil
 import subprocess
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock
@@ -11,6 +13,7 @@ import pytest
 import yaml
 
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
+from lyme_gap_atlas_data.migrations import load_migrations
 
 ROOT = Path(__file__).parents[1]
 
@@ -32,7 +35,38 @@ def test_exact_prerequisite_branch_exits_before_both_standalone_sql_reads():
     assert branch < apply < end < script.index("SELECT CURRENT_ACCOUNT()")
     assert end < script.index("SELECT version, filename, sha256, applied_at")
     assert 'test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" = "true"' in script[branch:end]
-    assert "selected and len(reviewed) != 1" in script
+    assert "selected = is_intelligence_prerequisite_batch(reviewed)" in script
+    assert "--feed-preflight-accounting-confirmed --confirm" in script[branch:end]
+
+
+def test_workflow_selector_uses_actual_v142_metadata_without_credentials():
+    steps = workflow("deploy-dev.yml")["jobs"]["deploy"]["steps"]
+    script = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Configure and verify the DEV Snowflake service connection"
+    )
+    selector = script.split("feed_batch=\"$(uv run python - <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    v142 = next(item for item in load_migrations() if item.version == "V142")
+    reviewed = [{"version": v142.version, "filename": v142.filename, "sha256": v142.sha256}]
+    environment = os.environ.copy()
+    environment["EXPECTED_PENDING_JSON"] = json.dumps(reviewed)
+    result = subprocess.run(
+        [sys.executable, "-c", selector],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "true"
+    environment["EXPECTED_PENDING_JSON"] = json.dumps(
+        reviewed + [{"version": "V141", "filename": "V141__other.sql", "sha256": "a" * 64}]
+    )
+    mixed = subprocess.run(
+        [sys.executable, "-c", selector], capture_output=True, text=True, env=environment
+    )
+    assert mixed.returncode != 0
 
 
 def guard_script(inputs):
