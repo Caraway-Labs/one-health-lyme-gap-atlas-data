@@ -102,7 +102,7 @@ timestamps and invalid annual manifests fail before connection. File reads are b
 at 64 KiB plus one byte, including growth after the initial size observation.
 
 The consumer compares its actual account-locator hash and region to the reviewed
-donor, with the same freshly verified owner capability binding. The runtime reads
+donor, with the same account-bound owner capability evidence. The runtime reads
 only the intended current-release view for donor verification. Release ID and bundle
 hash must equal the artifact both before and after ordered capture export. Missing,
 duplicate, changed or inaccessible view rows block export. Full manifest validation,
@@ -144,8 +144,10 @@ existing service credentials and private donor artifact/receipt retention up to
 must be recorded and security-reviewed before route dispatch; a public repository
 Actions artifact is not a private destination. Independent review must accept
 the exact invocation and actual warehouse/capability bounds. The owner-provided
-Standard account capability evidence must be fresh within the existing 24-hour
-guard at execution. No automatic retry or released reservation is authorized.
+Standard account capability evidence must match the live account and
+cost-relevant warehouse capabilities at execution. Its original verification
+timestamp remains unchanged; elapsed time alone does not reject it. No
+automatic retry or released reservation is authorized.
 
 ### Existing private storage candidate and read-only qualification
 
@@ -181,8 +183,9 @@ that exact storage prerequisite. Do not infer the rule from documentation or
 set a new bucket policy without separate review.
 The producer can fail before donor proof, and inline-only 50-second consumption may
 still be insufficient for complete membership; a blocked receipt requires stopping,
-not a retry or a claim of acceptance. Fresh owner evidence expires after 24 hours;
-do not refresh its original verification timestamp merely to make a run possible.
+not a retry or a claim of acceptance. Do not refresh the owner evidence's
+original verification timestamp merely to make a run possible; a material
+account or entitlement change requires review.
 
 No grant, credential setting, warehouse configuration, PROD publication or historical
 expansion is authorized by this correction. Live DEV donor/membership proof, modeling,

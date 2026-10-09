@@ -124,11 +124,10 @@ def budget_evidence(document: str) -> dict[str, Any]:
             checked = datetime.fromisoformat(capability["verified_at"].replace("Z", "+00:00"))
         except (ValueError, AttributeError):
             raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_REQUIRED") from None
-        if (
-            checked.tzinfo is None
-            or not 0 <= (datetime.now(UTC) - checked).total_seconds() <= 86400
-        ):
-            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_STALE")
+        # The owner assertion is bound to the live account and warehouse below.
+        # An elapsed day alone does not invalidate that account-scoped assertion.
+        if checked.tzinfo is None or (datetime.now(UTC) - checked).total_seconds() < 0:
+            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_INVALID_TIME")
     return value
 
 

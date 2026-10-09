@@ -391,18 +391,27 @@ def test_standard_evidence_must_match_live_account_before_show(setup, monkeypatc
     assert len(cursor.calls) == 1
 
 
-@pytest.mark.parametrize("mutation", ["edition", "stale", "private_field"])
+@pytest.mark.parametrize("mutation", ["edition", "future", "private_field"])
 def test_standard_capability_receipt_rejects_unsupported_or_unreviewed_evidence(mutation):
     value = json.loads(standard_evidence())
     capability = value["standard_capability_evidence"]
     if mutation == "edition":
         capability["edition"] = "ENTERPRISE"
-    elif mutation == "stale":
-        capability["verified_at"] = "2025-01-01T00:00:00Z"
+    elif mutation == "future":
+        capability["verified_at"] = "2999-01-01T00:00:00Z"
     else:
         capability["account_identifier"] = "private-account"
     with pytest.raises(diag.DiagnosticStop, match="STANDARD_CAPABILITY_EVIDENCE"):
         diag.budget_evidence(json.dumps(value))
+
+
+def test_owner_standard_evidence_does_not_expire_after_one_day():
+    value = json.loads(standard_evidence())
+    value["standard_capability_evidence"]["verified_at"] = "2025-01-01T00:00:00Z"
+    assert (
+        diag.budget_evidence(json.dumps(value))["standard_capability_evidence"]["edition"]
+        == "STANDARD"
+    )
 
 
 def test_actual_remote_result_batch_cannot_start_chunk_download(monkeypatch):

@@ -18,7 +18,8 @@ The existing `diagnostic_budget_evidence` input accepts an optional
 
 - `edition`: `STANDARD`; `cloud`: `AWS`
 - `account_locator_sha256`: SHA-256 of the uppercase verified account locator
-- `verified_by` and timezone-qualified `verified_at` (at most 24 hours old)
+- `verified_by` and timezone-qualified, non-future `verified_at`; elapsed time
+  alone does not expire the account-bound owner assertion
 - `evidence_reference`: `OWNER_SNOWSIGHT_ACCOUNT_DETAILS`
 
 Keep the actual account identifiers and owner verification privately. Independent
