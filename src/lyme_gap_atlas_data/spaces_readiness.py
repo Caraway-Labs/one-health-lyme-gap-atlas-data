@@ -91,9 +91,21 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
     client.head_bucket(Bucket=BUCKET)
     acl = client.get_bucket_acl(Bucket=BUCKET)
     grants = acl.get("Grants", [])
-    private = bool(grants) and all(
-        grant.get("Grantee", {}).get("Type") == "CanonicalUser" for grant in grants
+    owner_id = acl.get("Owner", {}).get("ID")
+    private = (
+        isinstance(owner_id, str)
+        and bool(owner_id)
+        and len(grants) == 1
+        and grants[0].get("Grantee", {}).get("Type") == "CanonicalUser"
+        and grants[0].get("Grantee", {}).get("ID") == owner_id
+        and grants[0].get("Permission") == "FULL_CONTROL"
     )
+    try:
+        client.get_bucket_policy(Bucket=BUCKET)
+        policy_absent = False
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        policy_absent = code in {"NoSuchBucketPolicy", "NoSuchBucketPolicyException"}
     try:
         lifecycle = client.get_bucket_lifecycle_configuration(Bucket=BUCKET)
     except ClientError as error:
@@ -108,7 +120,7 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
                 "prefix": JANUARY_PREFIX,
                 "private_bucket_acl": private,
                 "retention_days": None,
-                "metadata_requests": 3,
+                "metadata_requests": 4,
                 "payload_bytes_downloaded": 0,
                 "write_permission": "NOT_TESTED",
             }
@@ -121,20 +133,25 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
         and 0 < rule["Expiration"]["Days"] <= 14
     ]
     reason = (
-        "BUCKET_ACL_NOT_PRIVATE"
+        "BUCKET_ACL_NOT_OWNER_ONLY"
         if not private
+        else "BUCKET_POLICY_PRESENT_OR_UNVERIFIED"
+        if not policy_absent
         else "JANUARY_EXPIRY_RULE_MISSING_OR_TOO_LONG"
         if not matches
         else None
     )
     return {
-        "status": "PRIVATE_JANUARY_STORAGE_VERIFIED" if private and matches else "BLOCKED",
+        "status": "PRIVATE_JANUARY_STORAGE_VERIFIED"
+        if private and policy_absent and matches
+        else "BLOCKED",
         "reason": reason,
         "bucket": BUCKET,
         "prefix": JANUARY_PREFIX,
         "private_bucket_acl": private,
+        "bucket_policy_absent": policy_absent,
         "retention_days": min((r["Expiration"]["Days"] for r in matches), default=None),
-        "metadata_requests": 3,
+        "metadata_requests": 4,
         "payload_bytes_downloaded": 0,
         "write_permission": "NOT_TESTED",
     }

@@ -164,8 +164,9 @@ live access or upload success.
 Before enabling PUT/GET, run the existing protected DEV `spaces-readiness`
 operation with `january_donor_storage_preflight=true`, exact reviewed green
 main, Tier B, `publish=false`, `recapture=false`, and no candidate keys. Its
-three metadata requests inspect the actual bucket ACL and require an enabled
-prefix-specific expiration rule of at most 14 days. This operation does not
+four metadata requests inspect the actual owner-only bucket ACL, require no
+bucket policy, and require an enabled prefix-specific expiration rule of at most
+14 days. This operation does not
 change ACL, lifecycle, keys, objects, or Snowflake. If ACL/lifecycle inspection
 is inaccessible or the rule is absent, stop before donor execution and record
 that exact storage prerequisite. Do not infer the rule from documentation or

@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 import yaml
+from botocore.exceptions import ClientError
 
 from lyme_gap_atlas_data.settings import PipelineSettings
 from lyme_gap_atlas_data.spaces_readiness import (
@@ -33,7 +34,19 @@ class MetadataClient:
 
     def get_bucket_acl(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("acl", kwargs))
-        return {"Grants": [{"Grantee": {"Type": "CanonicalUser"}}]}
+        return {
+            "Owner": {"ID": "owner"},
+            "Grants": [
+                {
+                    "Grantee": {"Type": "CanonicalUser", "ID": "owner"},
+                    "Permission": "FULL_CONTROL",
+                }
+            ],
+        }
+
+    def get_bucket_policy(self, **kwargs: Any) -> None:
+        self.calls.append(("policy", kwargs))
+        raise ClientError({"Error": {"Code": "NoSuchBucketPolicy"}}, "GetBucketPolicy")
 
     def get_bucket_lifecycle_configuration(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("lifecycle", kwargs))
@@ -71,10 +84,12 @@ def test_existing_private_january_storage_requires_exact_expiry() -> None:
     report = inspect_january_donor_storage(settings(), client=client)
     assert report["status"] == "PRIVATE_JANUARY_STORAGE_VERIFIED"
     assert report["retention_days"] == 14
-    assert [name for name, _ in client.calls] == ["head_bucket", "acl", "lifecycle"]
+    assert [name for name, _ in client.calls] == ["head_bucket", "acl", "policy", "lifecycle"]
 
 
-@pytest.mark.parametrize("failure", ["public", "missing_rule", "too_long"])
+@pytest.mark.parametrize(
+    "failure", ["public", "foreign_canonical_user", "policy", "missing_rule", "too_long"]
+)
 def test_january_storage_fails_closed_without_private_fourteen_day_rule(
     failure: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -85,6 +100,22 @@ def test_january_storage_fails_closed_without_private_fourteen_day_rule(
             "get_bucket_acl",
             lambda **_: {"Grants": [{"Grantee": {"Type": "Group"}}]},
         )
+    elif failure == "foreign_canonical_user":
+        original_acl = client.get_bucket_acl
+
+        def foreign_acl(**kwargs: Any) -> dict[str, Any]:
+            result = original_acl(**kwargs)
+            result["Grants"].append(
+                {
+                    "Grantee": {"Type": "CanonicalUser", "ID": "other"},
+                    "Permission": "READ",
+                }
+            )
+            return result
+
+        monkeypatch.setattr(client, "get_bucket_acl", foreign_acl)
+    elif failure == "policy":
+        monkeypatch.setattr(client, "get_bucket_policy", lambda **_: {"Policy": "{}"})
     else:
         original = client.get_bucket_lifecycle_configuration
 
