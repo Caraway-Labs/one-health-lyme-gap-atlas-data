@@ -20,41 +20,40 @@ binding. A hash and role string do not authenticate the operator by themselves.
 The bounded callable is `climate_donor_diagnostic.producer`; its shell
 entrypoint is `scripts/verify_january_donor_dev.py`. It reuses the existing diagnostic
 bounded cursor, pricing validation, Standard capability and warehouse observations.
-It is **not yet wired into an authenticated workflow**. No connection, migration, grant,
-publication, live artifact or credential configuration occurred while preparing it.
+It is wired to the existing protected DEV `deploy-dev.yml` job only through the
+exclusive `diagnose_january_pair` read-only mode. No migration, grant or
+publication is part of that mode.
 The owner-approved $10 total guard is now checked in; tests use artificial
 prior reservations to exercise the offline transport and failure boundaries.
 
-### Exact reviewed invocation, not yet an available dispatch route
+### Same-job protected DEV invocation
 
-After independent security review records the private destination and reader
-audience, the authorized placement
-is an exclusive read-only branch of the existing protected DEV `deploy-dev.yml`
-diagnostic step, **before** its separate `snow sql` identity query and every migration
-command. Reuse that step's existing ephemeral key handling and DEV service credentials;
-never copy credentials to another environment or invoke the publish workflow.
-No workflow enablement or upload route is added by this PR.
+The branch runs before its separate `snow sql` identity query and every migration
+command. The protected DEV environment already holds both established service
+identities. The donor child process receives the migration-deployer credential;
+after that key file is removed, the membership child process receives the runtime
+credential. Each callable verifies its configured and effective identity, account,
+region and warehouse. Neither switches roles or copies credentials to another
+environment.
 
-The complete bounded call in that already-authorized protected runner would be:
+The workflow requires exact reviewed green `main`, `expected_pending_json=[]`,
+all other diagnostic modes off, and the existing redacted budget evidence. It
+sets one clock just before the pair. The sequence is:
 
 ```bash
-# Dispatch only after exact-head review and all execution prerequisites pass.
-# Existing protected DEV environment supplies service settings and ephemeral key.
-test "$(git rev-parse HEAD)" = "$REVIEWED_PRODUCER_SHA"
-test "$GITHUB_SHA" = "$REVIEWED_PRODUCER_SHA"
-export JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX="$(date +%s)"
-# JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: freshly reviewed redacted owner Standard
-# account-hash/region evidence and official public price ceiling; never secrets.
+# In one protected job, with separate child-process credentials:
 uv run python scripts/verify_january_donor_dev.py
+# Check the donor receipt digest against the actual private file, then run:
+uv run atlas-data source nclimgrid-pilot-measure --action frozen-membership \
+  --run-id c2eb2146-005d-44d2-bac4-e2805ca42577
 ```
 
-The proposed route must reject simultaneous diagnostics, publication and migrations;
-verify an exact reviewed main SHA; retain its existing five-minute execution-step
-limit; and retain the local safe donor/closed receipt through a specifically approved
-private artifact destination with 14-day retention. The receipt and artifact contain
-no raw account locator or connection secrets. The operator's actual identity and
-run provenance still need independent verification. The normal publish workflow
-can apply migrations and publish, and is prohibited for this read.
+The job creates a mode-0700 directory inside the ephemeral checkout's permitted
+`reviewed-donors` path. It verifies the donor receipt and SHA-256 before the
+runtime consumer starts, then verifies the consumer receipt, exact donor digest
+and 389,856 rows. Only bounded summary evidence goes to logs; the donor and
+capture-ID artifact are never printed or uploaded. The EXIT trap deletes all
+job-local files. The normal publish workflow is prohibited for this read.
 
 ### Enforced bounds in the offline callable
 
@@ -140,47 +139,24 @@ the proposed single-producer/single-consumer reservation is:
 
 The owner also authorized the reviewed protected DEV diagnostic route using
 existing service credentials and private donor artifact/receipt retention up to
-14 days. The exact private artifact destination and authorized reader audience
-must be recorded and security-reviewed before route dispatch; a public repository
-Actions artifact is not a private destination. Independent review must accept
+14 days. The same-job destination is the private, mode-0700 checkout directory
+used only by the protected DEV job, with deletion at job exit; no persistent
+storage or public repository Actions artifact is required. Independent review must accept
 the exact invocation and actual warehouse/capability bounds. The owner-provided
 Standard account capability evidence must match the live account and
 cost-relevant warehouse capabilities at execution. Its original verification
 timestamp remains unchanged; elapsed time alone does not reject it. No
 automatic retry or released reservation is authorized.
 
-### Existing private storage candidate and read-only qualification
+### Unused persistent storage candidate
 
-The existing `one-health-lyme-gap-atlas-data-dev` Space at
-`https://sfo3.digitaloceanspaces.com` is the candidate. The proposed exact
-object prefix is `dev/diagnostics/january-2025/`; the protected `dev` GitHub
-Environment already supplies its DEV-bucket read/write key. Only that protected
-workflow identity and authorized DigitalOcean bucket administrators would read
-the private object. No public URL, public ACL, repository artifact, or new key is
-part of this path. Producer would PUT the donor JSON and redacted receipt with
-private object ACLs under one immutable run key; the consumer would GET that
-exact key with a reviewed SHA-256 and the current release/account binding, then
-remove its ephemeral checkout copy. These are design constraints, not claims of
-live access or upload success.
+The following Spaces candidate was investigated before the same-job route was
+established. It is not a prerequisite or dispatch path for the January pair.
 
-Before enabling PUT/GET, run the existing protected DEV `spaces-readiness`
-operation with `january_donor_storage_preflight=true`, exact reviewed green
-main, Tier B, `publish=false`, `recapture=false`, and no candidate keys. Its
-five metadata requests inspect the actual owner-only bucket ACL, require no
-bucket policy, require a bucket that has never had versioning enabled, and
-require an enabled prefix-specific expiration rule of at most 14 days. A
-versioned or unknown bucket cannot pass on current-object expiry alone because
-older versions can remain retrievable. A lifecycle rule proves the configured
-expiry policy, not physical deletion by a strict deadline; the eventual
-producer/consumer route must delete and verify its exact keys promptly after
-review/consumption. The DATA protected-DEV execution operator owns an exact-key
-DELETE and post-delete HEAD check for any unconsumed donor before day 14. Do not
-dispatch a producer without that finite cleanup owner and check.
-This operation does not
-change ACL, lifecycle, keys, objects, or Snowflake. If ACL/lifecycle inspection
-is inaccessible or the rule is absent, stop before donor execution and record
-that exact storage prerequisite. Do not infer the rule from documentation or
-set a new bucket policy without separate review.
+The existing `one-health-lyme-gap-atlas-data-dev` Space was investigated as a
+possible separate-job transport. Its scoped runtime credential could not read
+bucket ACL metadata. No Spaces upload, download, permission change or retention
+configuration is part of the same-job route.
 The producer can fail before donor proof, and inline-only 50-second consumption may
 still be insufficient for complete membership; a blocked receipt requires stopping,
 not a retry or a claim of acceptance. Do not refresh the owner evidence's
