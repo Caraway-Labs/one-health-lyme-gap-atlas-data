@@ -17,18 +17,18 @@ size bound, validates all five annual source slots, and compares the donor to
 account and warehouse identifiers, and includes a redacted account hash/region
 binding. A hash and role string do not authenticate the operator by themselves.
 
-The proposed bounded callable is `climate_donor_diagnostic.producer`; its shell
+The bounded callable is `climate_donor_diagnostic.producer`; its shell
 entrypoint is `scripts/verify_january_donor_dev.py`. It reuses the existing diagnostic
 bounded cursor, pricing validation, Standard capability and warehouse observations.
-It is **not wired into an authenticated workflow**. No connection, migration, grant,
+It is **not yet wired into an authenticated workflow**. No connection, migration, grant,
 publication, live artifact or credential configuration occurred while preparing it.
-The existing $7 guard blocks it before connection; tests use explicitly artificial
+The owner-approved $10 total guard is now checked in; tests use artificial
 prior reservations to exercise the offline transport and failure boundaries.
 
-### Exact proposed invocation, not an available dispatch route
+### Exact reviewed invocation, not yet an available dispatch route
 
-After independent review, specific authorization for the authenticated route and
-artifact retention, and approval of a finite revised cost cap, the proposed placement
+After independent security review records the private destination and reader
+audience, the authorized placement
 is an exclusive read-only branch of the existing protected DEV `deploy-dev.yml`
 diagnostic step, **before** its separate `snow sql` identity query and every migration
 command. Reuse that step's existing ephemeral key handling and DEV service credentials;
@@ -38,7 +38,7 @@ No workflow enablement or upload route is added by this PR.
 The complete bounded call in that already-authorized protected runner would be:
 
 ```bash
-# FUTURE PROPOSAL ONLY: these placeholders are not approved execution inputs.
+# Dispatch only after exact-head review and all execution prerequisites pass.
 # Existing protected DEV environment supplies service settings and ephemeral key.
 test "$(git rev-parse HEAD)" = "$REVIEWED_PRODUCER_SHA"
 test "$GITHUB_SHA" = "$REVIEWED_PRODUCER_SHA"
@@ -110,12 +110,15 @@ selected-run/input hashes, row-count checks, capture digest and atomic replaceme
 remain required. The artifact is a read-only candidate, not approval, publication,
 DEV acceptance or API acceptance.
 
-## Conditional cost proposal, not approved
+## Owner-approved January diagnostic execution ceiling
 
-Preserve the full consumed forecast reservation of **$6.836666666666667** against
-the approved **$7 total cap**. Actual invoiced charges remain unknown. The remaining
-$0.163333333333333 does not authorize either producer or consumer. Both checked-in
-guards reject another paid attempt before connection; no runtime input raises the cap.
+On 2026-10-08, the owner approved a **$10 total January climate diagnostic forecast
+ceiling** for one bounded donor producer and one bounded membership consumer
+attempt. Preserve the full prior forecast reservation of **$6.836666666666667**;
+actual invoiced charges remain unknown. The checked-in guards reserve both new
+sessions and the shared uncertainty amount before connection. No runtime input
+raises the ceiling, and a failed attempt does not release its reservation or
+authorize an automatic retry.
 
 Only if both sessions use the exact observed Standard single-cluster XS warehouse,
 verified AWS region/account binding and a fresh official public ceiling of $6/credit,
@@ -131,13 +134,18 @@ the proposed single-producer/single-consumer reservation is:
 - Consumer: 50 seconds including connection plus 15 seconds cleanup:
   `(65 * 5.75 / 3600 + 1.35 / 30) * 6 = $0.892916666666667`.
 - Shared uncertainty reserve: $1. Additional reservation: **$2.737916666666667**.
-- Prior plus proposal: **$9.574583333333334**. A conditional **$10 total cap**
-  covers this pair under these assumptions; it is not authorization or invoice proof.
+- Prior plus pair: **$9.574583333333334** under the stated $6/credit ceiling.
+  The approved **$10 total cap** covers this pair under these assumptions; it is
+  a forecast guard, not invoice proof.
 
-Do not execute until Matthew approves the finite revised cap and authenticated
-producer/artifact route, and independent review accepts the exact invocation and
-both actual warehouse/capability bounds. Any cap change must be a separate reviewed
-change based on the actual approval, with no automatic retry or released reservations.
+The owner also authorized the reviewed protected DEV diagnostic route using
+existing service credentials and private donor artifact/receipt retention up to
+14 days. The exact private artifact destination and authorized reader audience
+must be recorded and security-reviewed before route dispatch; a public repository
+Actions artifact is not a private destination. Independent review must accept
+the exact invocation and actual warehouse/capability bounds. The owner-provided
+Standard account capability evidence must be fresh within the existing 24-hour
+guard at execution. No automatic retry or released reservation is authorized.
 The producer can fail before donor proof, and inline-only 50-second consumption may
 still be insufficient for complete membership; a blocked receipt requires stopping,
 not a retry or a claim of acceptance. Fresh owner evidence expires after 24 hours;

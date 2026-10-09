@@ -278,11 +278,12 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_consumed_reservations_block_another_run_under_approved_total_cap():
+def test_approved_pair_budget_reserves_donor_and_blocks_excess_price():
     assert pytest.approx(6.836666666666667) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
-    for price in (6, 20):
-        with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
-            diag.budget_runtime(price)
+    assert diag.producer_forecast(6) == pytest.approx(0.845)
+    assert diag.budget_runtime(6) == 50
+    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_APPROVED_TOTAL_CAP"):
+        diag.budget_runtime(20)
 
 
 def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
@@ -295,7 +296,8 @@ def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
     receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
     assert timers[0][1] == receipt["runtime_limit_seconds"] == 50
     assert receipt["cleanup_upload_reserved_seconds"] == 60 and diag.MAX_SECONDS == 300
-    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(6.836666666666667)
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(7.681666666666667)
+    assert receipt["producer_forecast_reserved_usd"] == pytest.approx(0.845)
     assert receipt["billing"]["actual_billed_usd"] is None
 
 
@@ -496,9 +498,9 @@ def test_missing_or_out_of_contract_donor_never_connects(setup, monkeypatch, tmp
     assert not parameters
 
 
-def test_current_consumed_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
+def test_exhausted_approved_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
     _, parameters, _ = setup
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 9.5)
     result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
     assert result["status"] == "BLOCKED"
     assert not parameters
@@ -585,7 +587,7 @@ def test_confined_real_donor_controls_before_exhausted_budget(
     digest = hashlib.sha256(payload).hexdigest() if control != "digest" else "0" * 64
     monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
     monkeypatch.setattr(diag, "read_donor_handoff", read_donor_handoff)
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 9.5)
     if control == "oversize":
         original_open = Path.open
 
@@ -598,7 +600,7 @@ def test_confined_real_donor_controls_before_exhausted_budget(
     result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
     receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
     expected = {
-        "valid": "FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP",
+        "valid": "FORECAST_EXCEEDS_APPROVED_TOTAL_CAP",
         "digest": "MEMBERSHIP_DONOR_DIGEST",
         "oversize": "MEMBERSHIP_DONOR_SIZE",
     }[control]
