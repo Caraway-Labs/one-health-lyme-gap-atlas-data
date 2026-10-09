@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -296,8 +299,53 @@ def test_january_pair_uses_separate_dev_identities_and_exits_before_migration() 
     assert 'test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"' in pair
     assert pair.index("verify_january_donor_dev.py") < pair.index("JANUARY_DONOR_HANDOFF_SHA256")
     assert "membership.artifact_sha256 == $sha" in pair
+    consumer = pair.split('if ! SNOWFLAKE_USER="$RUNTIME_USER"', 1)[1].split(
+        'if [ "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" = "true" ]; then', 1
+    )[0]
+    assert consumer.index("| {status, failure, code_sha}'") < consumer.index("exit 2")
+    assert consumer.count("| {status, failure, code_sha}'") == 2
+    assert consumer.count("exit 2") == 2
+    assert consumer.count("REDACTED_RECEIPT_UNAVAILABLE") == 2
+    assert 'if ! jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA"' in consumer
     assert "annual_manifest_sha256" in pair
     assert 'rm -f "$key_file"' in pair
     assert "env -u RUNTIME_USER -u RUNTIME_ROLE" in pair
     assert "trap cleanup EXIT" in pair
     assert "exit 0" in pair
+
+
+def test_january_blocked_receipt_emits_only_sanitized_reason(tmp_path: Path) -> None:
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("jq is required for the protected workflow")
+    receipt = tmp_path / "january-membership-diagnostic-receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "status": "BLOCKED",
+                "failure": {"stage": "PRE_CONNECTION", "category": "MEMBERSHIP_DONOR_HANDOFF_PATH"},
+                "code_sha": "a" * 40,
+                "account_binding": "SENSITIVE_ACCOUNT",
+                "donor": "SENSITIVE_DONOR",
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            jq,
+            "-e",
+            "-c",
+            'select(.status == "BLOCKED" and .failure != null) | {status, failure, code_sha}',
+            str(receipt),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(result.stdout) == {
+        "status": "BLOCKED",
+        "failure": {"stage": "PRE_CONNECTION", "category": "MEMBERSHIP_DONOR_HANDOFF_PATH"},
+        "code_sha": "a" * 40,
+    }
+    assert "SENSITIVE" not in result.stdout

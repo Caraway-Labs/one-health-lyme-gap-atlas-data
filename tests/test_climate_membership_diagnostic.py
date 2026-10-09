@@ -12,8 +12,42 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from lyme_gap_atlas_data import climate_membership_diagnostic as diag
+
+
+def test_blocked_membership_cli_exits_nonzero_for_workflow_receipt(monkeypatch):
+    from lyme_gap_atlas_data import cli
+    from lyme_gap_atlas_data.ingestion import nclimgrid_pilot_measurement as measurement
+
+    monkeypatch.setattr(
+        measurement,
+        "frozen_membership_report",
+        lambda _run_id: {
+            "status": "BLOCKED",
+            "statements": 0,
+            "receipt_name": diag.RECEIPT_NAME,
+        },
+    )
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "source",
+            "nclimgrid-pilot-measure",
+            "--action",
+            "frozen-membership",
+            "--run-id",
+            "c2eb2146-005d-44d2-bac4-e2805ca42577",
+        ],
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.stdout) == {
+        "status": "BLOCKED",
+        "statements": 0,
+        "receipt_name": diag.RECEIPT_NAME,
+    }
+
 
 QID = "00000000-0000-0000-0000-000000000001"
 
