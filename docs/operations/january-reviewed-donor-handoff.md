@@ -151,8 +151,8 @@ the per-pair reservation is:
   `(65 * 5.75 / 3600 + 1.35 / 30) * 6 = $0.892916666666667`.
 - Shared uncertainty reserve: $1. Additional reservation: **$2.737916666666667**.
 - Original prior plus first pair: **$9.574583333333334** under the stated
-  $6/credit ceiling. That first attempt is historical; the current cumulative
-  reservation and **$15 cap** are stated above. These are forecast guards,
+  $6/credit ceiling. The second attempt used the historical **$15 cap** stated
+  above; the later $20 decision is recorded below. These are forecast guards,
   not invoice proof.
 
 The owner also authorized the reviewed protected DEV diagnostic route using
@@ -165,6 +165,17 @@ Standard account capability evidence must match the live account and
 cost-relevant warehouse capabilities at execution. Its original verification
 timestamp remains unchanged; elapsed time alone does not reject it. No
 automatic retry or released reservation is authorized.
+
+On 2026-10-09, after the second pair's donor succeeded but the consumer stopped
+before its first application SQL statement, the owner authorized **one more**
+bounded donor-plus-consumer attempt under a **$20 cumulative forecast ceiling**.
+Both completed pairs retain their full reservations: **$12.3125** in total.
+At the same $6/credit public price ceiling and unchanged per-session limits,
+the new pair reserves **$2.737916666666667**, for a cumulative forecast of
+**$15.050416666666667**. Actual billed charges are not established by these
+reservations. The protected runtime-identity connection smoke succeeded in
+run 37884269860 without a January application query; it does not replace the
+required donor and frozen-membership validation.
 
 ### Unused persistent storage candidate
 

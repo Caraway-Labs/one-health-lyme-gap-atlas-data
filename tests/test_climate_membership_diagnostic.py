@@ -1,5 +1,6 @@
 """Actual bounded adapter and single-session connector behavior, no database."""
 
+import base64
 import hashlib
 import json
 import os
@@ -12,6 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from typer.testing import CliRunner
 
 from lyme_gap_atlas_data import climate_membership_diagnostic as diag
@@ -312,12 +315,15 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_approved_pair_budget_reserves_donor_and_blocks_excess_price():
-    assert pytest.approx(9.574583333333334) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
-    assert diag.APPROVED_TOTAL_FORECAST_USD == 15
+def test_approved_pair_budget_reserves_donor_and_blocks_excess_price(monkeypatch):
+    assert pytest.approx(12.3125) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
+    assert diag.APPROVED_TOTAL_FORECAST_USD == 20
     assert diag.producer_forecast(6) == pytest.approx(0.845)
     assert diag.budget_runtime(6) == 50
-    assert pytest.approx(12.3125) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667
+    assert pytest.approx(15.050416666666667) == (
+        diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667
+    )
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
     with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_APPROVED_TOTAL_CAP"):
         diag.budget_runtime(20)
 
@@ -545,7 +551,7 @@ def test_missing_or_out_of_contract_donor_never_connects(setup, monkeypatch, tmp
 
 def test_exhausted_approved_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
     _, parameters, _ = setup
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 14.5)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
     result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
     assert result["status"] == "BLOCKED"
     assert not parameters
@@ -630,6 +636,71 @@ def real_donor_document():
     }
 
 
+def test_real_preconnection_handoff_budget_settings_and_key_path(monkeypatch, tmp_path):
+    """Use the production validators and shared key parser; stop at mocked connect."""
+    import snowflake.connector
+
+    checkout = tmp_path / "checkout"
+    allowed = checkout / "docs/contracts/climate/reviewed-donors"
+    allowed.mkdir(parents=True)
+    path = allowed / "january-reviewed-donor.json"
+    payload = json.dumps(real_donor_document(), sort_keys=True, separators=(",", ":")).encode()
+    path.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_PATH", str(path))
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
+    monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time())))
+    budget = json.loads(evidence())
+    budget["standard_capability_evidence"] = {
+        "edition": "STANDARD",
+        "cloud": "AWS",
+        "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+        "verified_by": "fixture-owner",
+        "verified_at": datetime.now(UTC).isoformat(),
+        "evidence_reference": "OWNER_SNOWSIGHT_ACCOUNT_DETAILS",
+    }
+    password = b"fixture-password"
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(password),
+    )
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "FIXTURE_ACCOUNT")
+    monkeypatch.setenv("SNOWFLAKE_USER", "OH_LYME_DEV_PIPELINE_SVC")
+    monkeypatch.setenv("SNOWFLAKE_ROLE", "OH_LYME_DEV_RUNTIME")
+    monkeypatch.setenv("SNOWFLAKE_DATABASE", "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    monkeypatch.setenv("SNOWFLAKE_WAREHOUSE", "OH_LYME_DEV_INGEST_XS_WH")
+    monkeypatch.setenv("SNOWFLAKE_AUTH_METHOD", "key_pair")
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_B64", base64.b64encode(pem).decode())
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE", password.decode())
+    monkeypatch.setattr(diag.shutil, "disk_usage", lambda _: SimpleNamespace(free=1024**3))
+    monkeypatch.setattr(diag.signal, "SIGALRM", 14, raising=False)
+    monkeypatch.setattr(diag.signal, "ITIMER_REAL", 0, raising=False)
+    monkeypatch.setattr(diag.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(diag.signal, "setitimer", lambda *_: None, raising=False)
+    seen = []
+
+    def stop_at_connect(**parameters):
+        seen.append(parameters)
+        raise RuntimeError("synthetic connection stop")
+
+    monkeypatch.setattr(snowflake.connector, "connect", stop_at_connect)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, json.dumps(budget))
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert result["status"] == "BLOCKED"
+    assert receipt["reviewed_donor_handoff_sha256"] == digest
+    assert receipt["donor_bundle_sha256"] == "b" * 64
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(15.050416666666667)
+    assert receipt["failure"]["initialization_substage"] == "CONNECT"
+    assert receipt["failure"]["category"] == "READ_DEPENDENCY_UNAVAILABLE"
+    assert seen[0]["user"] == "OH_LYME_DEV_PIPELINE_SVC"
+    assert seen[0]["role"] == "OH_LYME_DEV_RUNTIME"
+    assert seen[0]["authenticator"] == "SNOWFLAKE_JWT"
+    assert "synthetic connection stop" not in (tmp_path / diag.RECEIPT_NAME).read_text()
+
+
 @pytest.mark.parametrize("control", ["valid", "digest", "oversize"])
 def test_confined_real_donor_controls_before_exhausted_budget(
     setup, monkeypatch, tmp_path, control
@@ -653,7 +724,7 @@ def test_confined_real_donor_controls_before_exhausted_budget(
     digest = hashlib.sha256(payload).hexdigest() if control != "digest" else "0" * 64
     monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
     monkeypatch.setattr(diag, "read_donor_handoff", read_donor_handoff)
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 14.5)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
     if control == "oversize":
         original_open = Path.open
 
