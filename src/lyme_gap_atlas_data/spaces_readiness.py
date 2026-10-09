@@ -9,12 +9,14 @@ from typing import Any
 
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
+from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
 from .settings import PipelineSettings
 
 ENDPOINT = "https://sfo3.digitaloceanspaces.com"
 BUCKET = "one-health-lyme-gap-atlas-data-dev"
 PREFIX = "dev/"
+JANUARY_PREFIX = "dev/diagnostics/january-2025/"
 MAX_KEYS = 100
 MAX_HEADS = 16
 
@@ -83,6 +85,87 @@ def inspect_spaces(
     }
 
 
+def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) -> dict[str, object]:
+    """Read the existing bucket ACL and expiration rule; never modify either."""
+    _validate(settings, ())
+    client.head_bucket(Bucket=BUCKET)
+    acl = client.get_bucket_acl(Bucket=BUCKET)
+    grants = acl.get("Grants", [])
+    owner_id = acl.get("Owner", {}).get("ID")
+    private = (
+        isinstance(owner_id, str)
+        and bool(owner_id)
+        and len(grants) == 1
+        and grants[0].get("Grantee", {}).get("Type") == "CanonicalUser"
+        and grants[0].get("Grantee", {}).get("ID") == owner_id
+        and grants[0].get("Permission") == "FULL_CONTROL"
+    )
+    try:
+        client.get_bucket_policy(Bucket=BUCKET)
+        policy_absent = False
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        policy_absent = code in {"NoSuchBucketPolicy", "NoSuchBucketPolicyException"}
+    try:
+        versioning = client.get_bucket_versioning(Bucket=BUCKET)
+        never_versioned = isinstance(versioning, dict) and set(versioning) <= {"ResponseMetadata"}
+    except ClientError:
+        never_versioned = False
+    try:
+        lifecycle = client.get_bucket_lifecycle_configuration(Bucket=BUCKET)
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        if code == "NoSuchLifecycleConfiguration":
+            lifecycle = {"Rules": []}
+        else:
+            return {
+                "status": "BLOCKED",
+                "reason": "LIFECYCLE_METADATA_INACCESSIBLE",
+                "bucket": BUCKET,
+                "prefix": JANUARY_PREFIX,
+                "private_bucket_acl": private,
+                "retention_days": None,
+                "metadata_requests": 5,
+                "payload_bytes_downloaded": 0,
+                "write_permission": "NOT_TESTED",
+            }
+    matches = [
+        rule
+        for rule in lifecycle.get("Rules", [])
+        if rule.get("Status") == "Enabled"
+        and rule.get("Filter", {}).get("Prefix", rule.get("Prefix")) == JANUARY_PREFIX
+        and type(rule.get("Expiration", {}).get("Days")) is int
+        and 0 < rule["Expiration"]["Days"] <= 14
+    ]
+    reason = (
+        "BUCKET_ACL_NOT_OWNER_ONLY"
+        if not private
+        else "BUCKET_POLICY_PRESENT_OR_UNVERIFIED"
+        if not policy_absent
+        else "BUCKET_VERSIONING_PRESENT_OR_UNVERIFIED"
+        if not never_versioned
+        else "JANUARY_EXPIRY_RULE_MISSING_OR_TOO_LONG"
+        if not matches
+        else None
+    )
+    return {
+        "status": "PRIVATE_JANUARY_POLICY_VERIFIED"
+        if private and policy_absent and never_versioned and matches
+        else "BLOCKED",
+        "reason": reason,
+        "bucket": BUCKET,
+        "prefix": JANUARY_PREFIX,
+        "private_bucket_acl": private,
+        "bucket_policy_absent": policy_absent,
+        "bucket_never_versioned": never_versioned,
+        "retention_days": min((r["Expiration"]["Days"] for r in matches), default=None),
+        "physical_deletion_by_day_14": "NOT_PROVEN_BY_POLICY",
+        "metadata_requests": 5,
+        "payload_bytes_downloaded": 0,
+        "write_permission": "NOT_TESTED",
+    }
+
+
 def main() -> int:
     try:
         settings = PipelineSettings()
@@ -105,9 +188,15 @@ def main() -> int:
                 s3={"addressing_style": "virtual"},
             ),
         )
-        report = inspect_spaces(settings, client=client, candidate_keys=keys)
+        if os.environ.get("JANUARY_DONOR_STORAGE_PREFLIGHT") == "true" and keys:
+            raise ValueError("January storage preflight accepts no object keys")
+        report = (
+            inspect_january_donor_storage(settings, client=client)
+            if os.environ.get("JANUARY_DONOR_STORAGE_PREFLIGHT") == "true"
+            else inspect_spaces(settings, client=client, candidate_keys=keys)
+        )
         print(json.dumps(report, sort_keys=True))
-        return 0
+        return 0 if report["status"] != "BLOCKED" else 1
     except Exception:
         # Provider exception text and configuration may contain sensitive data.
         print(json.dumps({"status": "BLOCKED", "reason": "CONFIG_OR_METADATA_CHECK_FAILED"}))

@@ -44,6 +44,11 @@ on:
         required: false
         default: '[]'
         type: string
+      january_donor_storage_preflight:
+        description: Inspect existing private DEV bucket ACL and 14-day January prefix expiry; no writes
+        required: false
+        default: false
+        type: boolean
       reviewed_commit:
         description: Exact reviewed main SHA for bounded January registration or frozen membership
         required: false
@@ -129,6 +134,7 @@ jobs:
       SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
       SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
       SPACES_CANDIDATE_KEYS_JSON: ${{ inputs.candidate_keys_json }}
+      JANUARY_DONOR_STORAGE_PREFLIGHT: ${{ inputs.january_donor_storage_preflight }}
     steps:
       - uses: actions/checkout@v4
       - name: Require reviewed green main and DEV-only request

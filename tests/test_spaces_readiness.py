@@ -4,9 +4,17 @@ from typing import Any
 
 import pytest
 import yaml
+from botocore.exceptions import ClientError
 
 from lyme_gap_atlas_data.settings import PipelineSettings
-from lyme_gap_atlas_data.spaces_readiness import BUCKET, ENDPOINT, inspect_spaces, main
+from lyme_gap_atlas_data.spaces_readiness import (
+    BUCKET,
+    ENDPOINT,
+    JANUARY_PREFIX,
+    inspect_january_donor_storage,
+    inspect_spaces,
+    main,
+)
 
 
 @dataclass
@@ -23,6 +31,38 @@ class MetadataClient:
     def head_object(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("head", kwargs))
         return {"ContentLength": 20, "ETag": "etag"}
+
+    def get_bucket_acl(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("acl", kwargs))
+        return {
+            "Owner": {"ID": "owner"},
+            "Grants": [
+                {
+                    "Grantee": {"Type": "CanonicalUser", "ID": "owner"},
+                    "Permission": "FULL_CONTROL",
+                }
+            ],
+        }
+
+    def get_bucket_policy(self, **kwargs: Any) -> None:
+        self.calls.append(("policy", kwargs))
+        raise ClientError({"Error": {"Code": "NoSuchBucketPolicy"}}, "GetBucketPolicy")
+
+    def get_bucket_versioning(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("versioning", kwargs))
+        return {}
+
+    def get_bucket_lifecycle_configuration(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("lifecycle", kwargs))
+        return {
+            "Rules": [
+                {
+                    "Status": "Enabled",
+                    "Filter": {"Prefix": JANUARY_PREFIX},
+                    "Expiration": {"Days": 14},
+                }
+            ]
+        }
 
 
 def settings(**changes: Any) -> PipelineSettings:
@@ -41,6 +81,89 @@ def test_metadata_requests_are_bounded_and_truncation_is_explicit() -> None:
     assert report["metadata_requests"] == 3
     assert report["write_permission"] == "NOT_TESTED"
     assert report["byte_identity"] == "NOT_VERIFIED_BY_METADATA"
+
+
+def test_existing_private_january_storage_requires_exact_expiry() -> None:
+    client = MetadataClient()
+    report = inspect_january_donor_storage(settings(), client=client)
+    assert report["status"] == "PRIVATE_JANUARY_POLICY_VERIFIED"
+    assert report["retention_days"] == 14
+    assert report["physical_deletion_by_day_14"] == "NOT_PROVEN_BY_POLICY"
+    assert [name for name, _ in client.calls] == [
+        "head_bucket",
+        "acl",
+        "policy",
+        "versioning",
+        "lifecycle",
+    ]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "public",
+        "foreign_canonical_user",
+        "policy",
+        "versioned",
+        "suspended_versioning",
+        "unknown_versioning",
+        "inaccessible_versioning",
+        "missing_rule",
+        "too_long",
+    ],
+)
+def test_january_storage_fails_closed_without_private_fourteen_day_rule(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = MetadataClient()
+    if failure == "public":
+        monkeypatch.setattr(
+            client,
+            "get_bucket_acl",
+            lambda **_: {"Grants": [{"Grantee": {"Type": "Group"}}]},
+        )
+    elif failure == "foreign_canonical_user":
+        original_acl = client.get_bucket_acl
+
+        def foreign_acl(**kwargs: Any) -> dict[str, Any]:
+            result = original_acl(**kwargs)
+            result["Grants"].append(
+                {
+                    "Grantee": {"Type": "CanonicalUser", "ID": "other"},
+                    "Permission": "READ",
+                }
+            )
+            return result
+
+        monkeypatch.setattr(client, "get_bucket_acl", foreign_acl)
+    elif failure == "policy":
+        monkeypatch.setattr(client, "get_bucket_policy", lambda **_: {"Policy": "{}"})
+    elif failure == "inaccessible_versioning":
+
+        def inaccessible(**_: Any) -> dict[str, Any]:
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetBucketVersioning")
+
+        monkeypatch.setattr(client, "get_bucket_versioning", inaccessible)
+    elif failure in {"versioned", "suspended_versioning", "unknown_versioning"}:
+        value = {
+            "versioned": {"Status": "Enabled"},
+            "suspended_versioning": {"Status": "Suspended"},
+            "unknown_versioning": {"Status": "UNKNOWN"},
+        }[failure]
+        monkeypatch.setattr(client, "get_bucket_versioning", lambda **_: value)
+    else:
+        original = client.get_bucket_lifecycle_configuration
+
+        def lifecycle(**kwargs: Any) -> dict[str, Any]:
+            result = original(**kwargs)
+            if failure == "missing_rule":
+                result["Rules"] = []
+            else:
+                result["Rules"][0]["Expiration"]["Days"] = 30
+            return result
+
+        monkeypatch.setattr(client, "get_bucket_lifecycle_configuration", lifecycle)
+    assert inspect_january_donor_storage(settings(), client=client)["status"] == "BLOCKED"
 
 
 @pytest.mark.parametrize(

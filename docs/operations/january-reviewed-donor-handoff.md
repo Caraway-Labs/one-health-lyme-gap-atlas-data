@@ -146,6 +146,39 @@ Actions artifact is not a private destination. Independent review must accept
 the exact invocation and actual warehouse/capability bounds. The owner-provided
 Standard account capability evidence must be fresh within the existing 24-hour
 guard at execution. No automatic retry or released reservation is authorized.
+
+### Existing private storage candidate and read-only qualification
+
+The existing `one-health-lyme-gap-atlas-data-dev` Space at
+`https://sfo3.digitaloceanspaces.com` is the candidate. The proposed exact
+object prefix is `dev/diagnostics/january-2025/`; the protected `dev` GitHub
+Environment already supplies its DEV-bucket read/write key. Only that protected
+workflow identity and authorized DigitalOcean bucket administrators would read
+the private object. No public URL, public ACL, repository artifact, or new key is
+part of this path. Producer would PUT the donor JSON and redacted receipt with
+private object ACLs under one immutable run key; the consumer would GET that
+exact key with a reviewed SHA-256 and the current release/account binding, then
+remove its ephemeral checkout copy. These are design constraints, not claims of
+live access or upload success.
+
+Before enabling PUT/GET, run the existing protected DEV `spaces-readiness`
+operation with `january_donor_storage_preflight=true`, exact reviewed green
+main, Tier B, `publish=false`, `recapture=false`, and no candidate keys. Its
+five metadata requests inspect the actual owner-only bucket ACL, require no
+bucket policy, require a bucket that has never had versioning enabled, and
+require an enabled prefix-specific expiration rule of at most 14 days. A
+versioned or unknown bucket cannot pass on current-object expiry alone because
+older versions can remain retrievable. A lifecycle rule proves the configured
+expiry policy, not physical deletion by a strict deadline; the eventual
+producer/consumer route must delete and verify its exact keys promptly after
+review/consumption. The DATA protected-DEV execution operator owns an exact-key
+DELETE and post-delete HEAD check for any unconsumed donor before day 14. Do not
+dispatch a producer without that finite cleanup owner and check.
+This operation does not
+change ACL, lifecycle, keys, objects, or Snowflake. If ACL/lifecycle inspection
+is inaccessible or the rule is absent, stop before donor execution and record
+that exact storage prerequisite. Do not infer the rule from documentation or
+set a new bucket policy without separate review.
 The producer can fail before donor proof, and inline-only 50-second consumption may
 still be insufficient for complete membership; a blocked receipt requires stopping,
 not a retry or a claim of acceptance. Fresh owner evidence expires after 24 hours;
