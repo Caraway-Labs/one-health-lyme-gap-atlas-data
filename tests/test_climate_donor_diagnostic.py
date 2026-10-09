@@ -144,7 +144,7 @@ def test_producer_exports_only_after_observed_bounds_and_closes_without_retry(op
     artifact = json.loads((tmp_path / donor.ARTIFACT_NAME).read_text())
     receipt = (tmp_path / donor.RECEIPT_NAME).read_text()
     parsed_receipt = json.loads(receipt)
-    assert parsed_receipt["approved_total_forecast_usd"] == 20
+    assert parsed_receipt["approved_total_forecast_usd"] == 25
     assert parsed_receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(
         parsed_receipt["prior_diagnostic_full_forecast_reserved_usd"]
         + parsed_receipt["pair_forecast_reserved_usd"]
@@ -155,17 +155,17 @@ def test_producer_exports_only_after_observed_bounds_and_closes_without_retry(op
     assert artifact["region"] == "AWS_US_WEST_2"
 
 
-def test_approved_twenty_dollar_guard_blocks_excess_price_before_connection(
+def test_approved_twenty_five_dollar_guard_blocks_excess_price_before_connection(
     operator, monkeypatch, tmp_path
 ):
-    monkeypatch.setattr(bounds, "PRIOR_DIAGNOSTIC_FORECAST_USD", 14.5)
+    monkeypatch.setattr(bounds, "PRIOR_DIAGNOSTIC_FORECAST_USD", 20)
     value = json.loads(evidence())
     value["unit_price_usd"] = 20
     result = donor.producer(tmp_path / donor.ARTIFACT_NAME, "a" * 40, json.dumps(value))
     assert result["status"] == "BLOCKED" and not operator.calls
     receipt = json.loads((tmp_path / donor.RECEIPT_NAME).read_text())
     assert receipt["failure"]["category"] == "FORECAST_EXCEEDS_APPROVED_TOTAL_CAP"
-    assert receipt["aggregate_forecast_ceiling_usd"] > 20
+    assert receipt["aggregate_forecast_ceiling_usd"] > 25
     assert not (tmp_path / donor.ARTIFACT_NAME).exists()
 
 

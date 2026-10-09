@@ -203,6 +203,15 @@ and private job-local cleanup remain in force. A fifth pair would exceed the
 existing $20 forecast ceiling even before considering its separate execution
 authorization; no retry is implied by this correction.
 
+On 2026-10-09, the owner authorized **one additional** bounded protected DEV
+donor-plus-consumer execution and raised the cumulative forecast ceiling to
+**$25**, retaining all prior reservations. With **$17.788333333333334** fully
+reserved before this attempt, the unchanged **$2.737916666666667** pair bound
+at the existing $6/credit input forecasts **$20.52625 cumulative**. This
+decision authorizes only that one pair, no automatic retry, grant, historical
+ingestion or new infrastructure. The fixed remote-result transport from merged
+PR #654 and its reviewed main check are prerequisites to dispatch.
+
 ### Unused persistent storage candidate
 
 The following Spaces candidate was investigated before the same-job route was

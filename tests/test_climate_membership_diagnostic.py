@@ -317,13 +317,13 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
 
 def test_approved_pair_budget_reserves_donor_and_blocks_excess_price(monkeypatch):
     assert pytest.approx(17.788333333333334) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
-    assert diag.APPROVED_TOTAL_FORECAST_USD == 20
+    assert diag.APPROVED_TOTAL_FORECAST_USD == 25
     assert diag.producer_forecast(6) == pytest.approx(0.845)
     assert pytest.approx(20.52625) == (diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667)
+    assert diag.budget_runtime(6) == 50
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 24)
     with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_APPROVED_TOTAL_CAP"):
         diag.budget_runtime(6)
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 15.050416666666667)
-    assert diag.budget_runtime(6) == 50
 
 
 def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
@@ -600,7 +600,7 @@ def test_missing_or_out_of_contract_donor_never_connects(setup, monkeypatch, tmp
 
 def test_exhausted_approved_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
     _, parameters, _ = setup
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 24)
     result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
     assert result["status"] == "BLOCKED"
     assert not parameters
@@ -776,7 +776,7 @@ def test_confined_real_donor_controls_before_exhausted_budget(
     digest = hashlib.sha256(payload).hexdigest() if control != "digest" else "0" * 64
     monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
     monkeypatch.setattr(diag, "read_donor_handoff", read_donor_handoff)
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 24)
     if control == "oversize":
         original_open = Path.open
 
