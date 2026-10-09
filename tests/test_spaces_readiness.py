@@ -6,7 +6,14 @@ import pytest
 import yaml
 
 from lyme_gap_atlas_data.settings import PipelineSettings
-from lyme_gap_atlas_data.spaces_readiness import BUCKET, ENDPOINT, inspect_spaces, main
+from lyme_gap_atlas_data.spaces_readiness import (
+    BUCKET,
+    ENDPOINT,
+    JANUARY_PREFIX,
+    inspect_january_donor_storage,
+    inspect_spaces,
+    main,
+)
 
 
 @dataclass
@@ -23,6 +30,22 @@ class MetadataClient:
     def head_object(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("head", kwargs))
         return {"ContentLength": 20, "ETag": "etag"}
+
+    def get_bucket_acl(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("acl", kwargs))
+        return {"Grants": [{"Grantee": {"Type": "CanonicalUser"}}]}
+
+    def get_bucket_lifecycle_configuration(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("lifecycle", kwargs))
+        return {
+            "Rules": [
+                {
+                    "Status": "Enabled",
+                    "Filter": {"Prefix": JANUARY_PREFIX},
+                    "Expiration": {"Days": 14},
+                }
+            ]
+        }
 
 
 def settings(**changes: Any) -> PipelineSettings:
@@ -41,6 +64,40 @@ def test_metadata_requests_are_bounded_and_truncation_is_explicit() -> None:
     assert report["metadata_requests"] == 3
     assert report["write_permission"] == "NOT_TESTED"
     assert report["byte_identity"] == "NOT_VERIFIED_BY_METADATA"
+
+
+def test_existing_private_january_storage_requires_exact_expiry() -> None:
+    client = MetadataClient()
+    report = inspect_january_donor_storage(settings(), client=client)
+    assert report["status"] == "PRIVATE_JANUARY_STORAGE_VERIFIED"
+    assert report["retention_days"] == 14
+    assert [name for name, _ in client.calls] == ["head_bucket", "acl", "lifecycle"]
+
+
+@pytest.mark.parametrize("failure", ["public", "missing_rule", "too_long"])
+def test_january_storage_fails_closed_without_private_fourteen_day_rule(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = MetadataClient()
+    if failure == "public":
+        monkeypatch.setattr(
+            client,
+            "get_bucket_acl",
+            lambda **_: {"Grants": [{"Grantee": {"Type": "Group"}}]},
+        )
+    else:
+        original = client.get_bucket_lifecycle_configuration
+
+        def lifecycle(**kwargs: Any) -> dict[str, Any]:
+            result = original(**kwargs)
+            if failure == "missing_rule":
+                result["Rules"] = []
+            else:
+                result["Rules"][0]["Expiration"]["Days"] = 30
+            return result
+
+        monkeypatch.setattr(client, "get_bucket_lifecycle_configuration", lifecycle)
+    assert inspect_january_donor_storage(settings(), client=client)["status"] == "BLOCKED"
 
 
 @pytest.mark.parametrize(
