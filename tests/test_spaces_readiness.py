@@ -86,8 +86,9 @@ def test_metadata_requests_are_bounded_and_truncation_is_explicit() -> None:
 def test_existing_private_january_storage_requires_exact_expiry() -> None:
     client = MetadataClient()
     report = inspect_january_donor_storage(settings(), client=client)
-    assert report["status"] == "PRIVATE_JANUARY_STORAGE_VERIFIED"
+    assert report["status"] == "PRIVATE_JANUARY_POLICY_VERIFIED"
     assert report["retention_days"] == 14
+    assert report["physical_deletion_by_day_14"] == "NOT_PROVEN_BY_POLICY"
     assert [name for name, _ in client.calls] == [
         "head_bucket",
         "acl",

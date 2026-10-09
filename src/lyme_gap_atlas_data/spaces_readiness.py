@@ -149,7 +149,7 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
         else None
     )
     return {
-        "status": "PRIVATE_JANUARY_STORAGE_VERIFIED"
+        "status": "PRIVATE_JANUARY_POLICY_VERIFIED"
         if private and policy_absent and never_versioned and matches
         else "BLOCKED",
         "reason": reason,
@@ -159,6 +159,7 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
         "bucket_policy_absent": policy_absent,
         "bucket_never_versioned": never_versioned,
         "retention_days": min((r["Expiration"]["Days"] for r in matches), default=None),
+        "physical_deletion_by_day_14": "NOT_PROVEN_BY_POLICY",
         "metadata_requests": 5,
         "payload_bytes_downloaded": 0,
         "write_permission": "NOT_TESTED",

@@ -168,7 +168,13 @@ five metadata requests inspect the actual owner-only bucket ACL, require no
 bucket policy, require a bucket that has never had versioning enabled, and
 require an enabled prefix-specific expiration rule of at most 14 days. A
 versioned or unknown bucket cannot pass on current-object expiry alone because
-older versions can remain retrievable. This operation does not
+older versions can remain retrievable. A lifecycle rule proves the configured
+expiry policy, not physical deletion by a strict deadline; the eventual
+producer/consumer route must delete and verify its exact keys promptly after
+review/consumption. The DATA protected-DEV execution operator owns an exact-key
+DELETE and post-delete HEAD check for any unconsumed donor before day 14. Do not
+dispatch a producer without that finite cleanup owner and check.
+This operation does not
 change ACL, lifecycle, keys, objects, or Snowflake. If ACL/lifecycle inspection
 is inaccessible or the rule is absent, stop before donor execution and record
 that exact storage prerequisite. Do not infer the rule from documentation or
