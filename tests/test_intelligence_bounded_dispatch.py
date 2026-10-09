@@ -133,7 +133,12 @@ def test_capture_validation_executes_without_any_provider_operation(override):
         timeout=15,
     )
     assert (result.returncode == 0) == (
-        override in ({}, {"definition": "config/sources/intelligence_nih_news_releases.yml"})
+        override
+        in (
+            {},
+            {"definition": "config/sources/intelligence_nih_news_releases.yml"},
+            {"definition": "config/sources/intelligence_cdc_vital_signs.yml"},
+        )
     )
 
 
