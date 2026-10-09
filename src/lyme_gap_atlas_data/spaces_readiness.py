@@ -88,8 +88,14 @@ def inspect_spaces(
 def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) -> dict[str, object]:
     """Read the existing bucket ACL and expiration rule; never modify either."""
     _validate(settings, ())
-    client.head_bucket(Bucket=BUCKET)
-    acl = client.get_bucket_acl(Bucket=BUCKET)
+    try:
+        client.head_bucket(Bucket=BUCKET)
+    except ClientError:
+        return {"status": "BLOCKED", "reason": "BUCKET_HEAD_UNAVAILABLE"}
+    try:
+        acl = client.get_bucket_acl(Bucket=BUCKET)
+    except ClientError:
+        return {"status": "BLOCKED", "reason": "BUCKET_ACL_UNAVAILABLE"}
     grants = acl.get("Grants", [])
     owner_id = acl.get("Owner", {}).get("ID")
     private = (
@@ -167,14 +173,17 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
 
 
 def main() -> int:
+    stage = "CONFIG"
     try:
         settings = PipelineSettings()
         keys = json.loads(os.environ.get("SPACES_CANDIDATE_KEYS_JSON", "[]"))
         if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
             raise ValueError("Candidate keys must be a JSON string array")
         _validate(settings, keys)
+        stage = "IDENTITY"
         if settings.spaces_access_key_id is None or settings.spaces_secret_access_key is None:
             raise ValueError("Missing existing Spaces runtime identity")
+        stage = "CLIENT"
         client = boto3.client(
             "s3",
             endpoint_url=ENDPOINT,
@@ -190,6 +199,7 @@ def main() -> int:
         )
         if os.environ.get("JANUARY_DONOR_STORAGE_PREFLIGHT") == "true" and keys:
             raise ValueError("January storage preflight accepts no object keys")
+        stage = "METADATA"
         report = (
             inspect_january_donor_storage(settings, client=client)
             if os.environ.get("JANUARY_DONOR_STORAGE_PREFLIGHT") == "true"
@@ -199,7 +209,13 @@ def main() -> int:
         return 0 if report["status"] != "BLOCKED" else 1
     except Exception:
         # Provider exception text and configuration may contain sensitive data.
-        print(json.dumps({"status": "BLOCKED", "reason": "CONFIG_OR_METADATA_CHECK_FAILED"}))
+        reason = {
+            "CONFIG": "DEV_STORAGE_CONFIG_INVALID",
+            "IDENTITY": "DEV_SPACES_IDENTITY_MISSING",
+            "CLIENT": "DEV_SPACES_CLIENT_UNAVAILABLE",
+            "METADATA": "METADATA_RESPONSE_UNAVAILABLE",
+        }[stage]
+        print(json.dumps({"status": "BLOCKED", "reason": reason}))
         return 1
 
 
