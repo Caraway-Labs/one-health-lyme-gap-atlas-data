@@ -316,16 +316,14 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
 
 
 def test_approved_pair_budget_reserves_donor_and_blocks_excess_price(monkeypatch):
-    assert pytest.approx(15.050416666666667) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
+    assert pytest.approx(17.788333333333334) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
     assert diag.APPROVED_TOTAL_FORECAST_USD == 20
     assert diag.producer_forecast(6) == pytest.approx(0.845)
-    assert diag.budget_runtime(6) == 50
-    assert pytest.approx(17.788333333333334) == (
-        diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667
-    )
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
+    assert pytest.approx(20.52625) == (diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667)
     with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_APPROVED_TOTAL_CAP"):
-        diag.budget_runtime(20)
+        diag.budget_runtime(6)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 15.050416666666667)
+    assert diag.budget_runtime(6) == 50
 
 
 def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
@@ -476,6 +474,57 @@ def test_actual_remote_result_batch_cannot_start_chunk_download(monkeypatch):
     with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
         bounded.fetchmany(1000)
     assert downloads == []
+
+
+def test_ordered_membership_remote_batch_requires_one_attempt_transport(monkeypatch):
+    from snowflake.connector.result_batch import JSONResultBatch, RemoteChunkInfo
+
+    batch = JSONResultBatch(
+        1, {}, RemoteChunkInfo("https://example.invalid/chunk", 1, 1), [], [], False
+    )
+    raw = Cursor()
+    raw.get_result_batches = lambda: [batch]
+    raw.fetchmany = lambda _: [("fixture",)]
+    bounded = diag.BoundedCursor(raw, diag.time.monotonic(), {"statements": 1})
+    bounded.stage = "ORDERED_MEMBERSHIP"
+    monkeypatch.setattr(diag.result_batch, "MAX_DOWNLOAD_RETRY", 10)
+    with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
+        bounded.fetchmany(1000)
+    original = diag.arm_single_attempt_result_downloads()
+    try:
+        assert original == 10
+        assert bounded.fetchmany(1000) == [("fixture",)]
+        bounded.stage = "PREFLIGHT"
+        with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
+            bounded.fetchmany(1000)
+    finally:
+        diag.result_batch.MAX_DOWNLOAD_RETRY = original
+
+
+def test_pinned_chunk_downloader_makes_one_get_on_failure(monkeypatch):
+    from snowflake.connector.result_batch import JSONResultBatch, RemoteChunkInfo
+
+    batch = JSONResultBatch(
+        1, {}, RemoteChunkInfo("https://example.invalid/chunk", 1, 1), [], [], False
+    )
+    attempts = []
+
+    def fail_get(**_):
+        attempts.append(True)
+        raise RuntimeError("synthetic transport failure")
+
+    monkeypatch.setattr(
+        diag.result_batch.SessionManagerFactory,
+        "get_manager",
+        lambda **_: SimpleNamespace(get=fail_get),
+    )
+    original = diag.arm_single_attempt_result_downloads()
+    try:
+        with pytest.raises(RuntimeError, match="synthetic transport failure"):
+            batch._download()
+        assert attempts == [True]
+    finally:
+        diag.result_batch.MAX_DOWNLOAD_RETRY = original
 
 
 def test_oversize_diagnostic_output_preserves_previous_artifact(setup, monkeypatch, tmp_path):
@@ -651,6 +700,7 @@ def test_real_preconnection_handoff_budget_settings_and_key_path(monkeypatch, tm
     monkeypatch.setenv("JANUARY_DONOR_HANDOFF_PATH", str(path))
     monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
     monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time())))
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 15.050416666666667)
     budget = json.loads(evidence())
     budget["standard_capability_evidence"] = {
         "edition": "STANDARD",
@@ -698,6 +748,8 @@ def test_real_preconnection_handoff_budget_settings_and_key_path(monkeypatch, tm
     assert seen[0]["user"] == "OH_LYME_DEV_PIPELINE_SVC"
     assert seen[0]["role"] == "OH_LYME_DEV_RUNTIME"
     assert seen[0]["authenticator"] == "SNOWFLAKE_JWT"
+    assert seen[0]["client_fetch_threads"] == seen[0]["client_prefetch_threads"] == 1
+    assert seen[0]["client_fetch_use_mp"] is False
     assert "synthetic connection stop" not in (tmp_path / diag.RECEIPT_NAME).read_text()
 
 
