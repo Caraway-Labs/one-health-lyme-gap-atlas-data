@@ -107,6 +107,11 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
         code = str(error.response.get("Error", {}).get("Code", ""))
         policy_absent = code in {"NoSuchBucketPolicy", "NoSuchBucketPolicyException"}
     try:
+        versioning = client.get_bucket_versioning(Bucket=BUCKET)
+        never_versioned = isinstance(versioning, dict) and set(versioning) <= {"ResponseMetadata"}
+    except ClientError:
+        never_versioned = False
+    try:
         lifecycle = client.get_bucket_lifecycle_configuration(Bucket=BUCKET)
     except ClientError as error:
         code = str(error.response.get("Error", {}).get("Code", ""))
@@ -120,7 +125,7 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
                 "prefix": JANUARY_PREFIX,
                 "private_bucket_acl": private,
                 "retention_days": None,
-                "metadata_requests": 4,
+                "metadata_requests": 5,
                 "payload_bytes_downloaded": 0,
                 "write_permission": "NOT_TESTED",
             }
@@ -137,21 +142,24 @@ def inspect_january_donor_storage(settings: PipelineSettings, *, client: Any) ->
         if not private
         else "BUCKET_POLICY_PRESENT_OR_UNVERIFIED"
         if not policy_absent
+        else "BUCKET_VERSIONING_PRESENT_OR_UNVERIFIED"
+        if not never_versioned
         else "JANUARY_EXPIRY_RULE_MISSING_OR_TOO_LONG"
         if not matches
         else None
     )
     return {
         "status": "PRIVATE_JANUARY_STORAGE_VERIFIED"
-        if private and policy_absent and matches
+        if private and policy_absent and never_versioned and matches
         else "BLOCKED",
         "reason": reason,
         "bucket": BUCKET,
         "prefix": JANUARY_PREFIX,
         "private_bucket_acl": private,
         "bucket_policy_absent": policy_absent,
+        "bucket_never_versioned": never_versioned,
         "retention_days": min((r["Expiration"]["Days"] for r in matches), default=None),
-        "metadata_requests": 4,
+        "metadata_requests": 5,
         "payload_bytes_downloaded": 0,
         "write_permission": "NOT_TESTED",
     }

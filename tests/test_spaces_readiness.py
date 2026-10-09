@@ -48,6 +48,10 @@ class MetadataClient:
         self.calls.append(("policy", kwargs))
         raise ClientError({"Error": {"Code": "NoSuchBucketPolicy"}}, "GetBucketPolicy")
 
+    def get_bucket_versioning(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("versioning", kwargs))
+        return {}
+
     def get_bucket_lifecycle_configuration(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("lifecycle", kwargs))
         return {
@@ -84,11 +88,28 @@ def test_existing_private_january_storage_requires_exact_expiry() -> None:
     report = inspect_january_donor_storage(settings(), client=client)
     assert report["status"] == "PRIVATE_JANUARY_STORAGE_VERIFIED"
     assert report["retention_days"] == 14
-    assert [name for name, _ in client.calls] == ["head_bucket", "acl", "policy", "lifecycle"]
+    assert [name for name, _ in client.calls] == [
+        "head_bucket",
+        "acl",
+        "policy",
+        "versioning",
+        "lifecycle",
+    ]
 
 
 @pytest.mark.parametrize(
-    "failure", ["public", "foreign_canonical_user", "policy", "missing_rule", "too_long"]
+    "failure",
+    [
+        "public",
+        "foreign_canonical_user",
+        "policy",
+        "versioned",
+        "suspended_versioning",
+        "unknown_versioning",
+        "inaccessible_versioning",
+        "missing_rule",
+        "too_long",
+    ],
 )
 def test_january_storage_fails_closed_without_private_fourteen_day_rule(
     failure: str, monkeypatch: pytest.MonkeyPatch
@@ -116,6 +137,19 @@ def test_january_storage_fails_closed_without_private_fourteen_day_rule(
         monkeypatch.setattr(client, "get_bucket_acl", foreign_acl)
     elif failure == "policy":
         monkeypatch.setattr(client, "get_bucket_policy", lambda **_: {"Policy": "{}"})
+    elif failure == "inaccessible_versioning":
+
+        def inaccessible(**_: Any) -> dict[str, Any]:
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetBucketVersioning")
+
+        monkeypatch.setattr(client, "get_bucket_versioning", inaccessible)
+    elif failure in {"versioned", "suspended_versioning", "unknown_versioning"}:
+        value = {
+            "versioned": {"Status": "Enabled"},
+            "suspended_versioning": {"Status": "Suspended"},
+            "unknown_versioning": {"Status": "UNKNOWN"},
+        }[failure]
+        monkeypatch.setattr(client, "get_bucket_versioning", lambda **_: value)
     else:
         original = client.get_bucket_lifecycle_configuration
 
