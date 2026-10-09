@@ -399,6 +399,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
     connector_logger = logging.getLogger("snowflake.connector")
     previous_log_level = connector_logger.level
     pending_output = output.with_name("pending-" + ARTIFACT_NAME)
+    initialization_substage = "DONOR_HANDOFF"
     try:
         donor_path = os.environ.get("JANUARY_DONOR_HANDOFF_PATH", "")
         donor_digest = os.environ.get("JANUARY_DONOR_HANDOFF_SHA256", "")
@@ -419,7 +420,9 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         donor = read_donor_handoff(candidate, donor_digest)
         receipt["reviewed_donor_handoff_sha256"] = donor_digest
         receipt["donor_bundle_sha256"] = donor["bundle_sha256"]
+        initialization_substage = "BUDGET"
         evidence = budget_evidence(supplied_budget)
+        initialization_substage = "JOB_CLOCK"
         try:
             job_started = int(os.environ["JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX"])
         except (KeyError, ValueError):
@@ -448,8 +451,10 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             + receipt["compute_and_cloud_services_forecast_ceiling_usd"]
             + 1
         )
+        initialization_substage = "TEMP_DISK"
         if shutil.disk_usage(output.parent).free < 1024**3:
             raise DiagnosticStop("TEMP_DISK_HEADROOM")
+        initialization_substage = "WATCHDOG"
         if alarm_signal is None or set_timer is None or real_timer is None:
             raise DiagnosticStop("RUNTIME_ENFORCEMENT_UNAVAILABLE")
 
@@ -458,7 +463,10 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
 
         old_handler = signal.signal(alarm_signal, alarm_handler)
         set_timer(real_timer, runtime_limit)
-        parameters = connection_parameters(SnowflakeSettings())
+        initialization_substage = "SETTINGS"
+        settings = SnowflakeSettings()
+        initialization_substage = "KEY_PARSE"
+        parameters = connection_parameters(settings)
         parameters.update(
             login_timeout=15,
             network_timeout=15,
@@ -473,6 +481,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         )
         os.environ["MAX_CON_RETRY_ATTEMPTS"] = "0"
         connector_logger.setLevel(logging.CRITICAL)
+        initialization_substage = "CONNECT"
         connection = connect(**parameters)
         with connection.cursor() as cursor:
             bounded = BoundedCursor(cursor, started, receipt)
@@ -538,6 +547,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             "failure",
             {
                 "stage": bounded.stage if bounded else "PRE_CONNECTION",
+                "initialization_substage": initialization_substage if bounded is None else None,
                 "category": category(error),
                 "query_id": failure_query_id(error, bounded.cursor, bounded.prior_query_id)
                 if bounded

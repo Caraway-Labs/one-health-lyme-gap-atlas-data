@@ -551,6 +551,27 @@ def test_exhausted_approved_budget_never_connects_with_valid_handoff(setup, monk
     assert not parameters
 
 
+def test_key_initialization_error_reports_finite_substage_without_secret(
+    setup, monkeypatch, tmp_path
+):
+    import lyme_gap_atlas_shared.snowflake
+
+    _, connections, _ = setup
+    monkeypatch.setattr(
+        lyme_gap_atlas_shared.snowflake,
+        "connection_parameters",
+        lambda _: (_ for _ in ()).throw(ValueError("private key SECRET")),
+    )
+    report = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    receipt_text = (tmp_path / diag.RECEIPT_NAME).read_text()
+    receipt = json.loads(receipt_text)
+    assert report["status"] == "BLOCKED" and not connections
+    assert receipt["failure"]["stage"] == "PRE_CONNECTION"
+    assert receipt["failure"]["initialization_substage"] == "KEY_PARSE"
+    assert receipt["failure"]["category"] == "READ_DEPENDENCY_UNAVAILABLE"
+    assert "SECRET" not in receipt_text
+
+
 @pytest.mark.parametrize("escape", ["allowed_directory", "ancestor", "nested", "file"])
 def test_symlink_escape_rejected_before_file_consumption_or_connection(
     setup, monkeypatch, tmp_path, escape

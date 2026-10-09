@@ -45,6 +45,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_january_runtime_init:
+        description: One protected DEV runtime connection initialization; no SQL or donor export
+        required: false
+        type: boolean
+        default: false
       january_budget_evidence:
         description: Redacted official price and existing owner Standard account evidence JSON
         required: false
@@ -97,6 +102,41 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$DIAGNOSE_JANUARY_RUNTIME_INIT" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            test "$DIAGNOSE_JANUARY_PAIR" != "true"
+            test "$DIAGNOSE_INTELLIGENCE_DEV" != "true"
+            test "$DIAGNOSE_CLIMATE_VIEWS" != "true"
+            test "$DIAGNOSE_CLIMATE_DEV" != "true"
+            test "$DIAGNOSE_V103_STATE" != "true"
+            test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"
+            test -z "$DIAGNOSE_QUERY_ID"
+            test "$RUNTIME_USER" = OH_LYME_DEV_PIPELINE_SVC
+            test "$RUNTIME_ROLE" = OH_LYME_DEV_RUNTIME
+            test -n "$SNOWFLAKE_ACCOUNT"
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            test -n "$RUNTIME_PRIVATE_KEY_B64"
+            test -n "$RUNTIME_PRIVATE_KEY_PASSPHRASE"
+            test -n "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            runtime_key_file="$RUNNER_TEMP/january-runtime-init-key.p8"
+            trap 'rm -f "$key_file" "$config_file" "$runtime_key_file"' EXIT
+            umask 077
+            {
+              printf '%s%s\n' '-----BEGIN ENCRYPTED ' 'PRIVATE KEY-----'
+              printf '%s' "$RUNTIME_PRIVATE_KEY_B64" | fold -w 64
+              printf '%s%s\n' '-----END ENCRYPTED ' 'PRIVATE KEY-----'
+            } > "$runtime_key_file"
+            runtime_key="$(base64 --wrap=0 "$runtime_key_file")"
+            SNOWFLAKE_USER="$RUNTIME_USER" SNOWFLAKE_ROLE="$RUNTIME_ROLE" \
+              SNOWFLAKE_PRIVATE_KEY_B64="$runtime_key" \
+              SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$RUNTIME_PRIVATE_KEY_PASSPHRASE" \
+              SNOWFLAKE_AUTH_METHOD=key_pair MAX_CON_RETRY_ATTEMPTS=0 \
+              env -u RUNTIME_USER -u RUNTIME_ROLE -u RUNTIME_PRIVATE_KEY_B64 -u RUNTIME_PRIVATE_KEY_PASSPHRASE \
+                timeout 25s uv run python scripts/verify_january_runtime_init.py
+            exit 0
+          fi
           if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ]; then
             test "$GITHUB_REF" = refs/heads/main
             test "$EXPECTED_PENDING_JSON" = '[]'
@@ -284,6 +324,7 @@ jobs:
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
           DIAGNOSE_JANUARY_PAIR: ${{ inputs.diagnose_january_pair }}
+          DIAGNOSE_JANUARY_RUNTIME_INIT: ${{ inputs.diagnose_january_runtime_init }}
           JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: ${{ inputs.january_budget_evidence }}
           REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
           RUNTIME_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
