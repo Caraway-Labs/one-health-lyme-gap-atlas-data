@@ -30,12 +30,13 @@ TABLE_SQL = (
     f"SHOW TABLES LIKE 'SCHEMA_MIGRATION_RECONCILIATIONS' IN SCHEMA {DEV_DATABASE}.GOVERNANCE"
 )
 GRANTS_SQL = f"SHOW GRANTS ON TABLE {TABLE}"
+ROLE_ASSIGNMENTS_SQL = f"SHOW GRANTS OF ROLE {ROLE}"
 ROWS_SQL = (
     "SELECT MIGRATION_VERSION, LEGACY_SHA256, SOURCE_SHA256, RECONCILIATION_SCOPE, "
     "RATIONALE, APPROVED_BY "
     f"FROM {TABLE} ORDER BY MIGRATION_VERSION, RECONCILIATION_SCOPE"
 )
-ALLOWED_SQL = frozenset((IDENTITY_SQL, TABLE_SQL, GRANTS_SQL, ROWS_SQL))
+ALLOWED_SQL = frozenset((IDENTITY_SQL, TABLE_SQL, GRANTS_SQL, ROLE_ASSIGNMENTS_SQL, ROWS_SQL))
 Query = Callable[[str], list[dict[str, Any]]]
 
 
@@ -67,6 +68,7 @@ def diagnose(query: Query, expected_warehouse: str) -> dict[str, Any]:
     try:
         tables = query(TABLE_SQL)
         grants = query(GRANTS_SQL)
+        role_assignments = query(ROLE_ASSIGNMENTS_SQL)
         rows = query(ROWS_SQL)
     except (RuntimeError, ValueError):
         result["reason"] = "TABLE_OR_PRIVILEGE_UNAVAILABLE"
@@ -93,8 +95,22 @@ def diagnose(query: Query, expected_warehouse: str) -> dict[str, Any]:
         _value(row, "privilege") == "OWNERSHIP"
         and _value(row, "grantee_name") == ROLE
         and _value(row, "granted_to") == "ROLE"
-        and str(_value(row, "grant_option")).lower() == "false"
+        and str(_value(row, "grant_option")).lower() in {"true", "false"}
         for row in grants
+    )
+    result["role_assignments"] = [
+        {
+            "grantee": _value(row, "grantee_name"),
+            "granted_to": _value(row, "granted_to"),
+            "role": _value(row, "role"),
+        }
+        for row in role_assignments
+    ]
+    result["role_assignments_match"] = len(role_assignments) == 1 and all(
+        _value(row, "grantee_name") == USER
+        and _value(row, "granted_to") == "USER"
+        and _value(row, "role") == ROLE
+        for row in role_assignments
     )
 
     expected_sources = {item.version: item.sha256 for item in load_migrations()}
@@ -139,6 +155,7 @@ def diagnose(query: Query, expected_warehouse: str) -> dict[str, Any]:
         and set(counts) == required
         and result["owner_matches"]
         and result["grants_match"]
+        and result["role_assignments_match"]
         and all(result["checksums_match"].values())
     ):
         result["disposition"] = "PASS"
