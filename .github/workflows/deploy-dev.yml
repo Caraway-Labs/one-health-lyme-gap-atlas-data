@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_legacy_dev_reconciliations:
+        description: Verify only the exact V028/V029/V033 DEV reconciliation records; read-only
+        required: false
+        type: boolean
+        default: false
       diagnose_climate_dev:
         description: Fixture-only numeric/large-manifest DEV validation; no migration apply or release writes
         required: false
@@ -99,6 +104,7 @@ jobs:
             test "$DIAGNOSE_CLIMATE_VIEWS" != "true"
             test "$DIAGNOSE_CLIMATE_DEV" != "true"
             test "$DIAGNOSE_V103_STATE" != "true"
+            test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"
             test -z "$DIAGNOSE_QUERY_ID"
             [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
             test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
@@ -169,6 +175,14 @@ jobs:
               "$job_dir/january-membership-diagnostic-receipt.json"
             jq -c '{release_id,bundle_sha256,producer_code_sha}' "$donor"
             printf '{"annual_manifest_sha256":"%s","membership_artifact_sha256":"%s"}\n' "$manifest_sha" "$membership_sha"
+            exit 0
+          fi
+          if [ "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" = "true" ]; then
+            if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ] || [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ] || [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ] || [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ] || [ -n "$EXPECTED_PENDING_JSON" ]; then
+              echo 'Choose only the fixed reconciliation diagnostic, without a pending migration set.' >&2
+              exit 2
+            fi
+            timeout 120s uv run python scripts/diagnose_dev_migration_reconciliations.py --config-file "$config_file"
             exit 0
           fi
           if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]; then
@@ -261,6 +275,7 @@ jobs:
           FEED_PREFLIGHT_ACCOUNTING_CONFIRMED: ${{ inputs.feed_preflight_accounting_confirmed }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
+          DIAGNOSE_LEGACY_DEV_RECONCILIATIONS: ${{ inputs.diagnose_legacy_dev_reconciliations }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
           DIAGNOSE_JANUARY_PAIR: ${{ inputs.diagnose_january_pair }}
