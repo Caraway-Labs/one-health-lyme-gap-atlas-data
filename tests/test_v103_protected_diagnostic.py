@@ -251,6 +251,9 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "diagnose_climate_views",
         "diagnose_intelligence_dev",
         "feed_preflight_accounting_confirmed",
+        "diagnose_january_pair",
+        "january_budget_evidence",
+        "reviewed_commit",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
@@ -271,3 +274,30 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     early = shell.split('if [ "$feed_batch" = "true" ]; then', 1)[1].split("exit 0", 1)[0]
     assert 'test "$DIAGNOSE_V103_STATE" != "true"' in early
     assert "QUERY_HISTORY_BY_USER" in shell
+
+
+def test_january_pair_uses_separate_dev_identities_and_exits_before_migration() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Configure and verify the DEV Snowflake service connection"
+    )
+    shell = step["run"]
+    pair = shell.split('if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ]; then', 1)[1].split(
+        'if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]; then', 1
+    )[0]
+    assert shell.index('if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ]; then') < shell.rindex(
+        "apply-reviewed-dev-migrations"
+    )
+    assert 'test "$GITHUB_SHA" = "$REVIEWED_COMMIT"' in pair
+    assert 'test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER' in pair
+    assert 'test "$RUNTIME_ROLE" = OH_LYME_DEV_RUNTIME' in pair
+    assert 'test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"' in pair
+    assert pair.index("verify_january_donor_dev.py") < pair.index("JANUARY_DONOR_HANDOFF_SHA256")
+    assert "membership.artifact_sha256 == $sha" in pair
+    assert "annual_manifest_sha256" in pair
+    assert 'rm -f "$key_file"' in pair
+    assert "env -u RUNTIME_USER -u RUNTIME_ROLE" in pair
+    assert "trap cleanup EXIT" in pair
+    assert "exit 0" in pair

@@ -40,8 +40,22 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_january_pair:
+        description: One bounded DEV donor and membership sequence; job-local private handoff only
+        required: false
+        type: boolean
+        default: false
+      january_budget_evidence:
+        description: Redacted official price and existing owner Standard account evidence JSON
+        required: false
+        type: string
+      reviewed_commit:
+        description: Exact reviewed green main SHA for the January pair
+        required: false
+        type: string
 permissions:
   contents: read
+  checks: read
 jobs:
   deploy:
     environment: dev
@@ -83,8 +97,88 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            test "$DIAGNOSE_INTELLIGENCE_DEV" != "true"
+            test "$DIAGNOSE_CLIMATE_VIEWS" != "true"
+            test "$DIAGNOSE_CLIMATE_DEV" != "true"
+            test "$DIAGNOSE_V103_STATE" != "true"
+            test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"
+            test -z "$DIAGNOSE_QUERY_ID"
+            [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+            test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            test "$passed_checks" -gt 0
+            test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
+            test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            test "$RUNTIME_USER" = OH_LYME_DEV_PIPELINE_SVC
+            test "$RUNTIME_ROLE" = OH_LYME_DEV_RUNTIME
+            test -n "$RUNTIME_PRIVATE_KEY_B64"
+            test -n "$RUNTIME_PRIVATE_KEY_PASSPHRASE"
+            test -n "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            umask 077
+            private_parent="$GITHUB_WORKSPACE/docs/contracts/climate/reviewed-donors"
+            mkdir -p "$private_parent"
+            job_dir="$(mktemp -d "$private_parent/.job-XXXXXXXX")"
+            chmod 700 "$job_dir"
+            runtime_key_file="$job_dir/runtime-key.p8"
+            cleanup() { rm -f "$key_file" "$config_file"; rm -rf -- "$job_dir"; rmdir "$private_parent" 2>/dev/null || true; }
+            trap cleanup EXIT
+            export JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX="$(date +%s)"
+            export RUNNER_TEMP="$job_dir"
+            export SNOWFLAKE_AUTH_METHOD=key_pair
+            export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"
+            if ! env -u RUNTIME_USER -u RUNTIME_ROLE -u RUNTIME_PRIVATE_KEY_B64 -u RUNTIME_PRIVATE_KEY_PASSPHRASE \
+              uv run python scripts/verify_january_donor_dev.py; then
+              jq -c '{status, failure, code_sha}' "$job_dir/january-donor-diagnostic-receipt.json" || true
+              exit 2
+            fi
+            donor="$job_dir/january-reviewed-donor.json"
+            donor_sha="$(sha256sum "$donor" | cut -d' ' -f1)"
+            jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA" \
+              '.status == "READ_ONLY_DONOR_EXPORT_SUCCEEDED" and .code_sha == $code and .donor.artifact_sha256 == $sha' \
+              "$job_dir/january-donor-diagnostic-receipt.json" >/dev/null
+            manifest_sha="$(jq -S -c '.annual_manifest' "$donor" | sha256sum | cut -d' ' -f1)"
+            pem_header="$(head -n 1 "$key_file")"
+            pem_footer="$(tail -n 1 "$key_file")"
+            rm -f "$key_file"
+            {
+              printf '%s\n' "$pem_header"
+              printf '%s' "$RUNTIME_PRIVATE_KEY_B64" | fold -w 64
+              printf '%s\n' "$pem_footer"
+            } > "$runtime_key_file"
+            runtime_key="$(base64 --wrap=0 "$runtime_key_file")"
+            if ! SNOWFLAKE_USER="$RUNTIME_USER" SNOWFLAKE_ROLE="$RUNTIME_ROLE" \
+              SNOWFLAKE_PRIVATE_KEY_B64="$runtime_key" \
+              SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$RUNTIME_PRIVATE_KEY_PASSPHRASE" \
+              JANUARY_DONOR_HANDOFF_PATH="$donor" JANUARY_DONOR_HANDOFF_SHA256="$donor_sha" \
+              env -u RUNTIME_USER -u RUNTIME_ROLE -u RUNTIME_PRIVATE_KEY_B64 -u RUNTIME_PRIVATE_KEY_PASSPHRASE \
+                uv run atlas-data source nclimgrid-pilot-measure --action frozen-membership \
+                --run-id c2eb2146-005d-44d2-bac4-e2805ca42577; then
+              jq -c '{status, failure, code_sha}' "$job_dir/january-membership-diagnostic-receipt.json" || true
+              exit 2
+            fi
+            jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA" \
+              '.status == "READ_ONLY_EXPORT_SUCCEEDED" and .code_sha == $code and .reviewed_donor_handoff_sha256 == $sha and .membership.row_count == 389856' \
+              "$job_dir/january-membership-diagnostic-receipt.json" >/dev/null
+            membership_sha="$(sha256sum "$job_dir/source-pilot-inspection-artifact.json" | cut -d' ' -f1)"
+            jq -e --arg sha "$membership_sha" \
+              '.membership.artifact_sha256 == $sha' \
+              "$job_dir/january-membership-diagnostic-receipt.json" >/dev/null
+            jq -c '{status,code_sha,account_binding,warehouse_cost_observation,edition_cost_capabilities,pair_forecast_reserved_usd,aggregate_forecast_ceiling_usd,query_ids,close_state,donor}' \
+              "$job_dir/january-donor-diagnostic-receipt.json"
+            jq -c '{status,code_sha,donor_bundle_sha256,reviewed_donor_handoff_sha256,membership,effective_context,donor_account_binding,warehouse_cost_observation,edition_cost_capabilities,aggregate_forecast_ceiling_usd,query_ids,usage_rows,usage_state,close_state}' \
+              "$job_dir/january-membership-diagnostic-receipt.json"
+            jq -c '{release_id,bundle_sha256,producer_code_sha}' "$donor"
+            printf '{"annual_manifest_sha256":"%s","membership_artifact_sha256":"%s"}\n' "$manifest_sha" "$membership_sha"
+            exit 0
+          fi
           if [ "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" = "true" ]; then
-            if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ] || [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ] || [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ] || [ -n "$EXPECTED_PENDING_JSON" ]; then
+            if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ] || [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ] || [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ] || [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ] || [ -n "$EXPECTED_PENDING_JSON" ]; then
               echo 'Choose only the fixed reconciliation diagnostic, without a pending migration set.' >&2
               exit 2
             fi
@@ -184,6 +278,14 @@ jobs:
           DIAGNOSE_LEGACY_DEV_RECONCILIATIONS: ${{ inputs.diagnose_legacy_dev_reconciliations }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
+          DIAGNOSE_JANUARY_PAIR: ${{ inputs.diagnose_january_pair }}
+          JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: ${{ inputs.january_budget_evidence }}
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          RUNTIME_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+          RUNTIME_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}
+          RUNTIME_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+          RUNTIME_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
+          GH_TOKEN: ${{ github.token }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}

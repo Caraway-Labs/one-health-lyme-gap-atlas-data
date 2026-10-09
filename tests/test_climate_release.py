@@ -144,6 +144,54 @@ def test_membership_is_recomputed_from_retained_revision_tuples(monkeypatch) -> 
         climate.verify_extension(Cursor(), document)
 
 
+def test_publication_recovers_full_ids_from_retained_run_and_rechecks_frozen_digest(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(climate, "ROW_COUNT", 2)
+    rows = [
+        (f"{index:064x}", f"revision-{index}", f"record-{index}", "c" * 64, "d" * 64)
+        for index in (1, 2)
+    ]
+    expected = hashlib.sha256(
+        "".join(json.dumps(list(row), separators=(",", ":")) + "\n" for row in rows).encode()
+    ).hexdigest()
+
+    class Cursor:
+        def __init__(self, selected):
+            self.selected = selected
+            self.queries = []
+            self.batches = iter([selected, []])
+
+        def execute(self, query, parameters):
+            self.queries.append((query, parameters))
+
+        def fetchmany(self, _size):
+            return next(self.batches)
+
+        def fetchone(self):
+            return (2,)
+
+    cursor = Cursor(rows)
+    assert climate.reconstruct_capture_ids(cursor, expected) == [row[0] for row in rows]
+    assert "ORDER BY capture_record_id" in cursor.queries[0][0]
+    assert cursor.queries[0][1] == (
+        climate.RUN_ID,
+        climate.RESOURCE_KEY,
+        climate.NOAA_ARTIFACT_ID,
+        climate.NOAA_SHA,
+    )
+    with pytest.raises(climate.ClimateReleaseBlocked, match="MEMBERSHIP_DIGEST"):
+        climate.reconstruct_capture_ids(Cursor(rows), "0" * 64)
+    with pytest.raises(climate.ClimateReleaseBlocked, match="MEMBERSHIP_DIGEST"):
+        climate.reconstruct_capture_ids(Cursor(rows[:1]), expected)
+    changed = [rows[0], (*rows[1][:3], "f" * 64, rows[1][4])]
+    with pytest.raises(climate.ClimateReleaseBlocked, match="MEMBERSHIP_DIGEST"):
+        climate.reconstruct_capture_ids(Cursor(changed), expected)
+    extra = [*rows, ("3" * 64, "revision-3", "record-3", "c" * 64, "d" * 64)]
+    with pytest.raises(climate.ClimateReleaseBlocked, match="MEMBERSHIP_COUNT"):
+        climate.reconstruct_capture_ids(Cursor(extra), expected)
+
+
 def test_revision_authority_is_never_returned_before_target_verification(monkeypatch):
     document = extension()
     calls = []
