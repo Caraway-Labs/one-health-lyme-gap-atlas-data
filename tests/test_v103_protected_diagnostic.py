@@ -245,6 +245,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
         "expected_pending_json",
         "diagnose_v103_state",
+        "diagnose_legacy_dev_reconciliations",
         "diagnose_query_id",
         "diagnose_climate_dev",
         "diagnose_climate_views",
