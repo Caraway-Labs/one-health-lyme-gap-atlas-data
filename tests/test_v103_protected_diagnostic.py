@@ -293,6 +293,8 @@ def test_january_pair_uses_separate_dev_identities_and_exits_before_migration() 
     assert 'test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER' in pair
     assert 'test "$RUNTIME_ROLE" = OH_LYME_DEV_RUNTIME' in pair
     assert pair.index("verify_january_donor_dev.py") < pair.index("JANUARY_DONOR_HANDOFF_SHA256")
+    assert "membership.artifact_sha256 == $sha" in pair
+    assert "annual_manifest_sha256" in pair
     assert 'rm -f "$key_file"' in pair
     assert "env -u RUNTIME_USER -u RUNTIME_ROLE" in pair
     assert "trap cleanup EXIT" in pair

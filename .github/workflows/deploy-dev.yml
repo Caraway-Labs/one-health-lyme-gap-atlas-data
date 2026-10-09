@@ -136,6 +136,7 @@ jobs:
             jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA" \
               '.status == "READ_ONLY_DONOR_EXPORT_SUCCEEDED" and .code_sha == $code and .donor.artifact_sha256 == $sha' \
               "$job_dir/january-donor-diagnostic-receipt.json" >/dev/null
+            manifest_sha="$(jq -S -c '.annual_manifest' "$donor" | sha256sum | cut -d' ' -f1)"
             pem_header="$(head -n 1 "$key_file")"
             pem_footer="$(tail -n 1 "$key_file")"
             rm -f "$key_file"
@@ -158,9 +159,16 @@ jobs:
             jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA" \
               '.status == "READ_ONLY_EXPORT_SUCCEEDED" and .code_sha == $code and .reviewed_donor_handoff_sha256 == $sha and .membership.row_count == 389856' \
               "$job_dir/january-membership-diagnostic-receipt.json" >/dev/null
-            jq -c '{status,code_sha,donor_bundle_sha256,reviewed_donor_handoff_sha256,membership,effective_context,donor_account_binding}' \
+            membership_sha="$(sha256sum "$job_dir/source-pilot-inspection-artifact.json" | cut -d' ' -f1)"
+            jq -e --arg sha "$membership_sha" \
+              '.membership.artifact_sha256 == $sha' \
+              "$job_dir/january-membership-diagnostic-receipt.json" >/dev/null
+            jq -c '{status,code_sha,account_binding,warehouse_cost_observation,edition_cost_capabilities,pair_forecast_reserved_usd,aggregate_forecast_ceiling_usd,query_ids,close_state,donor}' \
+              "$job_dir/january-donor-diagnostic-receipt.json"
+            jq -c '{status,code_sha,donor_bundle_sha256,reviewed_donor_handoff_sha256,membership,effective_context,donor_account_binding,warehouse_cost_observation,edition_cost_capabilities,aggregate_forecast_ceiling_usd,query_ids,usage_rows,usage_state,close_state}' \
               "$job_dir/january-membership-diagnostic-receipt.json"
             jq -c '{release_id,bundle_sha256,producer_code_sha}' "$donor"
+            printf '{"annual_manifest_sha256":"%s","membership_artifact_sha256":"%s"}\n' "$manifest_sha" "$membership_sha"
             exit 0
           fi
           if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]; then

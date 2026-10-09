@@ -51,9 +51,13 @@ uv run atlas-data source nclimgrid-pilot-measure --action frozen-membership \
 The job creates a mode-0700 directory inside the ephemeral checkout's permitted
 `reviewed-donors` path. It verifies the donor receipt and SHA-256 before the
 runtime consumer starts, then verifies the consumer receipt, exact donor digest
-and 389,856 rows. Only bounded summary evidence goes to logs; the donor and
-capture-ID artifact are never printed or uploaded. The EXIT trap deletes all
-job-local files. The normal publish workflow is prohibited for this read.
+and 389,856 rows, including the actual membership file digest. Only bounded
+summary evidence goes to logs; the donor and capture-ID artifact are never
+printed or uploaded. Their complete contents remain recoverable from the
+existing published release manifest and retained V103 revision rows, bound by
+the logged release/bundle, manifest digest, selected run, row count and tuple
+digest. The EXIT trap deletes all job-local files. The normal publish workflow
+is prohibited for this read.
 
 ### Enforced bounds in the offline callable
 
@@ -80,11 +84,15 @@ job-local files. The normal publish workflow is prohibited for this read.
   transport, watchdog or cleanup preserves an existing reviewed donor and removes
   pending output. Install the donor only after successful bounded connection close.
 
-Retain the actual protected receipt and independently review identity checks, reviewed
-code SHA, account/region binding, artifact digest and full manifest. Never manufacture
-an artifact from a fixture or infer it from a failed query. Commit the actual reviewed
-safe JSON under `docs/contracts/climate/reviewed-donors/` through a reviewed PR; no
-live artifact is included here. Raw private operational evidence belongs outside Git.
+Retain the protected run's compact receipt evidence and independently review
+identity checks, reviewed code SHA, account/region binding, artifact digest,
+warehouse cost observations and full manifest. Re-read the complete manifest
+from the existing `PRESENTATION.SEMANTIC_RELEASES` row by release ID and bundle
+hash, then compare its canonical digest with the run proof. The full membership
+list is reconstructed from retained V103 rows and compared with the frozen
+five-field digest before building the governed extension. Never manufacture an
+artifact from a fixture or infer it from a failed query. Raw private operational
+evidence and capture IDs do not belong in public Git artifacts.
 
 ## Runtime consumption
 
