@@ -30,6 +30,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_v143_cleanup_owner:
+        description: Fixed read-only migration-owner V143 procedure and empty cleanup-table readback
+        required: false
+        type: boolean
+        default: false
       diagnose_climate_dev:
         description: Fixture-only numeric/large-manifest DEV validation; no migration apply or release writes
         required: false
@@ -102,6 +107,27 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$DIAGNOSE_V143_CLEANUP_OWNER" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test -z "$EXPECTED_PENDING_JSON"
+            test "$DIAGNOSE_INTELLIGENCE_DEV" != "true"
+            test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"
+            test "$DIAGNOSE_CLIMATE_VIEWS" != "true"
+            test "$DIAGNOSE_CLIMATE_DEV" != "true"
+            test "$DIAGNOSE_V103_STATE" != "true"
+            test "$DIAGNOSE_JANUARY_PAIR" != "true"
+            test "$DIAGNOSE_JANUARY_RUNTIME_INIT" != "true"
+            test -z "$DIAGNOSE_QUERY_ID"
+            test -z "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            test -z "$REVIEWED_COMMIT"
+            test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" != "true"
+            test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
+            test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            timeout 120s uv run python scripts/diagnose_v143_cleanup_owner.py --config-file "$config_file"
+            exit 0
+          fi
           if [ "$DIAGNOSE_JANUARY_RUNTIME_INIT" = "true" ]; then
             test "$GITHUB_REF" = refs/heads/main
             test "$EXPECTED_PENDING_JSON" = '[]'
@@ -321,6 +347,7 @@ jobs:
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
           DIAGNOSE_LEGACY_DEV_RECONCILIATIONS: ${{ inputs.diagnose_legacy_dev_reconciliations }}
+          DIAGNOSE_V143_CLEANUP_OWNER: ${{ inputs.diagnose_v143_cleanup_owner }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
           DIAGNOSE_JANUARY_PAIR: ${{ inputs.diagnose_january_pair }}
