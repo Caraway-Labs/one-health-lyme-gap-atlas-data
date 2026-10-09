@@ -29,7 +29,7 @@ MAX_SECONDS = 300
 MAX_EXECUTION_SECONDS = 50
 # Preserve the completed run's full reservation; do not infer charges from elapsed time.
 PRIOR_DIAGNOSTIC_FORECAST_USD = 6.836666666666667
-APPROVED_TOTAL_FORECAST_USD = 7
+APPROVED_TOTAL_FORECAST_USD = 10
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
 
@@ -132,14 +132,21 @@ def budget_evidence(document: str) -> dict[str, Any]:
     return value
 
 
+def producer_forecast(price: float) -> float:
+    """Reserve the full bounded donor session, including its own idle tail."""
+    return (60 * 5.75 / 3600 + 1.35 / 30) * price
+
+
 def budget_runtime(price: float) -> int:
     # Gen2 XS: 1.35 credits/hour; cloud services: 4.4, without daily adjustment.
     # Retain the approved 15-second allowance and two one-minute warehouse idle
     # tails (1.35/30 credits), even though Standard needs no extra property GET.
-    remaining_compute_usd = APPROVED_TOTAL_FORECAST_USD - PRIOR_DIAGNOSTIC_FORECAST_USD - 1
+    remaining_compute_usd = (
+        APPROVED_TOTAL_FORECAST_USD - PRIOR_DIAGNOSTIC_FORECAST_USD - producer_forecast(price) - 1
+    )
     seconds = math.floor(((remaining_compute_usd / price - 1.35 / 30) * 3600) / 5.75) - 15
     if seconds < 30:
-        raise DiagnosticStop("FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP")
+        raise DiagnosticStop("FORECAST_EXCEEDS_APPROVED_TOTAL_CAP")
     return min(MAX_EXECUTION_SECONDS, seconds)
 
 
@@ -434,9 +441,11 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         ) * evidence["unit_price_usd"]
         receipt["noncompute_reserve_usd"] = 1
         receipt["prior_diagnostic_full_forecast_reserved_usd"] = PRIOR_DIAGNOSTIC_FORECAST_USD
+        receipt["producer_forecast_reserved_usd"] = producer_forecast(evidence["unit_price_usd"])
         receipt["approved_total_forecast_usd"] = APPROVED_TOTAL_FORECAST_USD
         receipt["aggregate_forecast_ceiling_usd"] = (
             PRIOR_DIAGNOSTIC_FORECAST_USD
+            + receipt["producer_forecast_reserved_usd"]
             + receipt["compute_and_cloud_services_forecast_ceiling_usd"]
             + 1
         )
