@@ -60,7 +60,15 @@ def _query(
                     "grantee_name": diagnostic.ROLE,
                     "granted_to": "ROLE",
                     "privilege": "OWNERSHIP",
-                    "grant_option": False,
+                    "grant_option": True,
+                }
+            ]
+        if sql == diagnostic.ROLE_ASSIGNMENTS_SQL:
+            return [
+                {
+                    "grantee_name": diagnostic.USER,
+                    "granted_to": "USER",
+                    "role": diagnostic.ROLE,
                 }
             ]
         return rows
@@ -78,6 +86,7 @@ def test_exact_rows_pass_with_owner_and_grants() -> None:
         diagnostic.IDENTITY_SQL,
         diagnostic.TABLE_SQL,
         diagnostic.GRANTS_SQL,
+        diagnostic.ROLE_ASSIGNMENTS_SQL,
         diagnostic.ROWS_SQL,
     ]
 
@@ -128,7 +137,7 @@ def test_unexpected_table_grant_fails() -> None:
     assert diagnostic.diagnose(extra_grant, diagnostic.WAREHOUSE)["disposition"] == "FAIL"
 
 
-@pytest.mark.parametrize("field,value", [("granted_to", "USER"), ("grant_option", True)])
+@pytest.mark.parametrize("field,value", [("granted_to", "USER"), ("grant_option", "UNKNOWN")])
 def test_incorrect_owner_grant_fails(field: str, value: Any) -> None:
     query, _ = _query(_rows())
 
@@ -141,6 +150,63 @@ def test_incorrect_owner_grant_fails(field: str, value: Any) -> None:
     assert diagnostic.diagnose(changed_grant, diagnostic.WAREHOUSE)["disposition"] == "FAIL"
 
 
+def test_extra_table_grantee_fails_even_without_grant_option() -> None:
+    query, _ = _query(_rows())
+
+    def extra_grantee(sql: str) -> list[dict[str, Any]]:
+        rows = query(sql)
+        if sql == diagnostic.GRANTS_SQL:
+            return rows + [
+                {
+                    "grantee_name": "OTHER",
+                    "granted_to": "ROLE",
+                    "privilege": "SELECT",
+                    "grant_option": False,
+                }
+            ]
+        return rows
+
+    assert diagnostic.diagnose(extra_grantee, diagnostic.WAREHOUSE)["disposition"] == "FAIL"
+
+
+def test_nonownership_grant_option_fails() -> None:
+    query, _ = _query(_rows())
+
+    def extra_option(sql: str) -> list[dict[str, Any]]:
+        rows = query(sql)
+        if sql == diagnostic.GRANTS_SQL:
+            return rows + [
+                {
+                    "grantee_name": diagnostic.ROLE,
+                    "granted_to": "ROLE",
+                    "privilege": "SELECT",
+                    "grant_option": True,
+                }
+            ]
+        return rows
+
+    assert diagnostic.diagnose(extra_option, diagnostic.WAREHOUSE)["disposition"] == "FAIL"
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "wrong_role"])
+def test_unexpected_role_assignment_fails(mutation: str) -> None:
+    query, _ = _query(_rows())
+
+    def changed_assignments(sql: str) -> list[dict[str, Any]]:
+        rows = query(sql)
+        if sql == diagnostic.ROLE_ASSIGNMENTS_SQL:
+            if mutation == "missing":
+                return []
+            if mutation == "extra":
+                return rows + [
+                    {"grantee_name": "OTHER", "granted_to": "USER", "role": diagnostic.ROLE}
+                ]
+            rows[0]["role"] = "WRONG"
+        return rows
+
+    assert diagnostic.diagnose(changed_assignments, diagnostic.WAREHOUSE)["disposition"] == "FAIL"
+
+
 @pytest.mark.parametrize("column", ["RATIONALE", "APPROVED_BY"])
 def test_missing_or_changed_approval_evidence_fails(column: str) -> None:
     rows = _rows()
@@ -150,7 +216,13 @@ def test_missing_or_changed_approval_evidence_fails(column: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "failing_sql", [diagnostic.TABLE_SQL, diagnostic.GRANTS_SQL, diagnostic.ROWS_SQL]
+    "failing_sql",
+    [
+        diagnostic.TABLE_SQL,
+        diagnostic.GRANTS_SQL,
+        diagnostic.ROLE_ASSIGNMENTS_SQL,
+        diagnostic.ROWS_SQL,
+    ],
 )
 def test_missing_table_or_permission_fails_closed(failing_sql: str) -> None:
     query, _ = _query(_rows())
@@ -165,10 +237,22 @@ def test_missing_table_or_permission_fails_closed(failing_sql: str) -> None:
 
 def test_unlisted_sql_is_rejected_before_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(diagnostic.subprocess, "run", lambda *a, **k: pytest.fail("executed"))
-    for sql in ("CREATE TABLE X (Y NUMBER)", "SELECT * FROM GOVERNANCE.SCHEMA_MIGRATIONS"):
+    for sql in (
+        "CREATE TABLE X (Y NUMBER)",
+        "INSERT INTO X VALUES (1)",
+        "UPDATE X SET Y=1",
+        "DELETE FROM X",
+        "MERGE INTO X USING Y",
+        "GRANT SELECT ON TABLE X TO ROLE Y",
+        "REVOKE SELECT ON TABLE X FROM ROLE Y",
+        "SELECT * FROM GOVERNANCE.SCHEMA_MIGRATIONS",
+    ):
         with pytest.raises(ValueError):
             diagnostic._snow_query(Path("unused"), sql)
     assert all(sql.startswith(("SELECT ", "SHOW ")) for sql in diagnostic.ALLOWED_SQL)
+    source = SCRIPT.read_text()
+    assert "reconcile_legacy_dev_migrations(" not in source
+    assert "apply_migrations(" not in source
 
 
 def test_workflow_diagnostic_exits_before_reconciliation_or_migration() -> None:
