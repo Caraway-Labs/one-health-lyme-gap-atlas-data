@@ -31,6 +31,14 @@ paths = ['''^scripts/verify_cdc_policy_dev\.py$''']
 regexTarget = "match"
 regexes = ['''key_body''']
 
+[[allowlists]]
+description = "Literal PEM header emitted by DATA443 workflow, not private key material"
+condition = "AND"
+commits = ["92ceb8902265f1094bf16a36328ceaad926f11c8"]
+paths = ['''^\.github/workflows/deploy-dev\.yml$''']
+regexTarget = "match"
+regexes = ['''BEGIN ENCRYPTED PRIVATE KEY''']
+
 [extend]
 useDefault = true
 

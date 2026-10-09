@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import snowflake.connector
+import snowflake.connector.result_batch as result_batch
+
 from .climate_membership import (
     ARTIFACT_NAME,
     MembershipBlocked,
@@ -28,8 +31,8 @@ MAX_STATEMENTS = 40
 MAX_SECONDS = 300
 MAX_EXECUTION_SECONDS = 50
 # Preserve the completed run's full reservation; do not infer charges from elapsed time.
-PRIOR_DIAGNOSTIC_FORECAST_USD = 6.836666666666667
-APPROVED_TOTAL_FORECAST_USD = 7
+PRIOR_DIAGNOSTIC_FORECAST_USD = 17.788333333333334
+APPROVED_TOTAL_FORECAST_USD = 25
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
 
@@ -124,22 +127,28 @@ def budget_evidence(document: str) -> dict[str, Any]:
             checked = datetime.fromisoformat(capability["verified_at"].replace("Z", "+00:00"))
         except (ValueError, AttributeError):
             raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_REQUIRED") from None
-        if (
-            checked.tzinfo is None
-            or not 0 <= (datetime.now(UTC) - checked).total_seconds() <= 86400
-        ):
-            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_STALE")
+        # The owner assertion is bound to the live account and warehouse below.
+        # An elapsed day alone does not invalidate that account-scoped assertion.
+        if checked.tzinfo is None or (datetime.now(UTC) - checked).total_seconds() < 0:
+            raise DiagnosticStop("STANDARD_CAPABILITY_EVIDENCE_INVALID_TIME")
     return value
+
+
+def producer_forecast(price: float) -> float:
+    """Reserve the full bounded donor session, including its own idle tail."""
+    return (60 * 5.75 / 3600 + 1.35 / 30) * price
 
 
 def budget_runtime(price: float) -> int:
     # Gen2 XS: 1.35 credits/hour; cloud services: 4.4, without daily adjustment.
     # Retain the approved 15-second allowance and two one-minute warehouse idle
     # tails (1.35/30 credits), even though Standard needs no extra property GET.
-    remaining_compute_usd = APPROVED_TOTAL_FORECAST_USD - PRIOR_DIAGNOSTIC_FORECAST_USD - 1
+    remaining_compute_usd = (
+        APPROVED_TOTAL_FORECAST_USD - PRIOR_DIAGNOSTIC_FORECAST_USD - producer_forecast(price) - 1
+    )
     seconds = math.floor(((remaining_compute_usd / price - 1.35 / 30) * 3600) / 5.75) - 15
     if seconds < 30:
-        raise DiagnosticStop("FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP")
+        raise DiagnosticStop("FORECAST_EXCEEDS_APPROVED_TOTAL_CAP")
     return min(MAX_EXECUTION_SECONDS, seconds)
 
 
@@ -238,12 +247,26 @@ class BoundedCursor:
         return self.cursor.fetchmany(size)
 
     def reject_remote_batches(self) -> None:
-        # Supported public ResultBatch metadata, checked before any iterator can
-        # launch prefetch/download. The pinned SDK's chunk retry loop differs
-        # from request retries; this diagnostic permits inline result data only.
+        # Only the bounded ordered membership read may use remote result chunks.
+        # The pinned connector's separate chunk retry loop is reduced to one
+        # attempt before fetch can initiate a GET.
         batches = self.cursor.get_result_batches()
-        if any(batch.compressed_size is not None for batch in batches or []):
+        if any(batch.compressed_size is not None for batch in batches or []) and (
+            self.stage != "ORDERED_MEMBERSHIP" or result_batch.MAX_DOWNLOAD_RETRY != 1
+        ):
             raise DiagnosticStop("REMOTE_RESULT_BATCH_REQUIRES_SEPARATE_REVIEW")
+
+
+def arm_single_attempt_result_downloads() -> int:
+    """Bound the pinned SDK's result-chunk path separately from query retries."""
+    if (
+        snowflake.connector.__version__ != "4.3.0"
+        or result_batch.MAX_DOWNLOAD_RETRY != 10
+        or result_batch.DOWNLOAD_TIMEOUT != 7
+    ):
+        raise DiagnosticStop("REMOTE_RESULT_TRANSPORT_UNVERIFIED")
+    result_batch.MAX_DOWNLOAD_RETRY = 1
+    return 10
 
 
 def safe_query_id(value: Any) -> str | None:
@@ -390,9 +413,11 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
     set_timer = getattr(signal, "setitimer", None)
     real_timer = getattr(signal, "ITIMER_REAL", None)
     previous_retries = os.environ.get("MAX_CON_RETRY_ATTEMPTS")
+    previous_download_retries = None
     connector_logger = logging.getLogger("snowflake.connector")
     previous_log_level = connector_logger.level
     pending_output = output.with_name("pending-" + ARTIFACT_NAME)
+    initialization_substage = "DONOR_HANDOFF"
     try:
         donor_path = os.environ.get("JANUARY_DONOR_HANDOFF_PATH", "")
         donor_digest = os.environ.get("JANUARY_DONOR_HANDOFF_SHA256", "")
@@ -413,7 +438,9 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         donor = read_donor_handoff(candidate, donor_digest)
         receipt["reviewed_donor_handoff_sha256"] = donor_digest
         receipt["donor_bundle_sha256"] = donor["bundle_sha256"]
+        initialization_substage = "BUDGET"
         evidence = budget_evidence(supplied_budget)
+        initialization_substage = "JOB_CLOCK"
         try:
             job_started = int(os.environ["JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX"])
         except (KeyError, ValueError):
@@ -434,14 +461,18 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         ) * evidence["unit_price_usd"]
         receipt["noncompute_reserve_usd"] = 1
         receipt["prior_diagnostic_full_forecast_reserved_usd"] = PRIOR_DIAGNOSTIC_FORECAST_USD
+        receipt["producer_forecast_reserved_usd"] = producer_forecast(evidence["unit_price_usd"])
         receipt["approved_total_forecast_usd"] = APPROVED_TOTAL_FORECAST_USD
         receipt["aggregate_forecast_ceiling_usd"] = (
             PRIOR_DIAGNOSTIC_FORECAST_USD
+            + receipt["producer_forecast_reserved_usd"]
             + receipt["compute_and_cloud_services_forecast_ceiling_usd"]
             + 1
         )
+        initialization_substage = "TEMP_DISK"
         if shutil.disk_usage(output.parent).free < 1024**3:
             raise DiagnosticStop("TEMP_DISK_HEADROOM")
+        initialization_substage = "WATCHDOG"
         if alarm_signal is None or set_timer is None or real_timer is None:
             raise DiagnosticStop("RUNTIME_ENFORCEMENT_UNAVAILABLE")
 
@@ -450,11 +481,19 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
 
         old_handler = signal.signal(alarm_signal, alarm_handler)
         set_timer(real_timer, runtime_limit)
-        parameters = connection_parameters(SnowflakeSettings())
+        initialization_substage = "SETTINGS"
+        settings = SnowflakeSettings()
+        initialization_substage = "KEY_PARSE"
+        parameters = connection_parameters(settings)
+        initialization_substage = "REMOTE_TRANSPORT"
+        previous_download_retries = arm_single_attempt_result_downloads()
         parameters.update(
             login_timeout=15,
             network_timeout=15,
             socket_timeout=15,
+            client_prefetch_threads=1,
+            client_fetch_threads=1,
+            client_fetch_use_mp=False,
             backoff_policy=no_retry_backoff,
             session_parameters={
                 "QUERY_TAG": "atlas-january-membership-diagnostic",
@@ -465,6 +504,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         )
         os.environ["MAX_CON_RETRY_ATTEMPTS"] = "0"
         connector_logger.setLevel(logging.CRITICAL)
+        initialization_substage = "CONNECT"
         connection = connect(**parameters)
         with connection.cursor() as cursor:
             bounded = BoundedCursor(cursor, started, receipt)
@@ -530,6 +570,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
             "failure",
             {
                 "stage": bounded.stage if bounded else "PRE_CONNECTION",
+                "initialization_substage": initialization_substage if bounded is None else None,
                 "category": category(error),
                 "query_id": failure_query_id(error, bounded.cursor, bounded.prior_query_id)
                 if bounded
@@ -580,6 +621,8 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 connection.close(retry=False)
             except Exception:
                 receipt["close_state"] = "UNAVAILABLE"
+        if previous_download_retries is not None:
+            result_batch.MAX_DOWNLOAD_RETRY = previous_download_retries
         if old_handler is not None and set_timer is not None and alarm_signal is not None:
             set_timer(real_timer, 0)
             signal.signal(alarm_signal, old_handler)

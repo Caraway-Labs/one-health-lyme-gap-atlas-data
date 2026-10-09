@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from lyme_gap_atlas_data.migrations import DEV_DATABASE, migration_plan
 
@@ -245,11 +250,17 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
         "expected_pending_json",
         "diagnose_v103_state",
+        "diagnose_legacy_dev_reconciliations",
+        "diagnose_v143_cleanup_owner",
         "diagnose_query_id",
         "diagnose_climate_dev",
         "diagnose_climate_views",
         "diagnose_intelligence_dev",
         "feed_preflight_accounting_confirmed",
+        "diagnose_january_pair",
+        "diagnose_january_runtime_init",
+        "january_budget_evidence",
+        "reviewed_commit",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
@@ -270,3 +281,109 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     early = shell.split('if [ "$feed_batch" = "true" ]; then', 1)[1].split("exit 0", 1)[0]
     assert 'test "$DIAGNOSE_V103_STATE" != "true"' in early
     assert "QUERY_HISTORY_BY_USER" in shell
+
+
+def test_january_pair_uses_separate_dev_identities_and_exits_before_migration() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Configure and verify the DEV Snowflake service connection"
+    )
+    shell = step["run"]
+    pair = shell.split('if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ]; then', 1)[1].split(
+        'if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]; then', 1
+    )[0]
+    assert shell.index('if [ "$DIAGNOSE_JANUARY_PAIR" = "true" ]; then') < shell.rindex(
+        "apply-reviewed-dev-migrations"
+    )
+    assert 'test "$GITHUB_SHA" = "$REVIEWED_COMMIT"' in pair
+    assert 'test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER' in pair
+    assert 'test "$RUNTIME_ROLE" = OH_LYME_DEV_RUNTIME' in pair
+    assert 'test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"' in pair
+    assert pair.index("verify_january_donor_dev.py") < pair.index("JANUARY_DONOR_HANDOFF_SHA256")
+    assert "membership.artifact_sha256 == $sha" in pair
+    consumer = pair.split('if ! SNOWFLAKE_USER="$RUNTIME_USER"', 1)[1].split(
+        'if [ "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" = "true" ]; then', 1
+    )[0]
+    assert consumer.index("| {status, failure, code_sha}'") < consumer.index("exit 2")
+    assert consumer.count("| {status, failure, code_sha}'") == 2
+    assert consumer.count("exit 2") == 2
+    assert consumer.count("REDACTED_RECEIPT_UNAVAILABLE") == 2
+    assert 'if ! jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA"' in consumer
+    assert "annual_manifest_sha256" in pair
+    assert 'rm -f "$key_file"' in pair
+    assert 'pem_footer="$(tail -n 1 "$key_file")"' not in pair
+    assert "printf '%s%s\\n' '-----END ENCRYPTED ' 'PRIVATE KEY-----'" in pair
+    assert "printf '%s\\n' \"$RUNTIME_PRIVATE_KEY_B64\" | fold -w 64" in pair
+    assert "env -u RUNTIME_USER -u RUNTIME_ROLE" in pair
+    assert "trap cleanup EXIT" in pair
+    assert "exit 0" in pair
+
+
+def test_runtime_pem_must_not_reuse_donor_final_line() -> None:
+    fold = shutil.which("fold")
+    if fold is None:
+        pytest.skip("GNU fold is needed to reproduce the protected Linux shell")
+    password = b"fixture-password"
+
+    def encrypted_pem() -> bytes:
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        return key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.BestAvailableEncryption(password),
+        )
+
+    donor_lines = encrypted_pem().splitlines()
+    runtime_lines = encrypted_pem().splitlines()
+    donor_body = b"".join(donor_lines[1:-1])
+    folded = subprocess.run(
+        [fold, "-w", "64"], input=donor_body, capture_output=True, check=True
+    ).stdout
+    donor_file = donor_lines[0] + b"\n" + folded + donor_lines[-1] + b"\n"
+    copied_final_line = donor_file.splitlines()[-1]
+    assert copied_final_line != donor_lines[-1]
+    runtime_body = b"\n".join(runtime_lines[1:-1])
+    contaminated = runtime_lines[0] + b"\n" + runtime_body + b"\n" + copied_final_line + b"\n"
+    with pytest.raises(ValueError):
+        serialization.load_pem_private_key(contaminated, password=password)
+    correct = runtime_lines[0] + b"\n" + runtime_body + b"\n" + runtime_lines[-1] + b"\n"
+    assert serialization.load_pem_private_key(correct, password=password) is not None
+
+
+def test_january_blocked_receipt_emits_only_sanitized_reason(tmp_path: Path) -> None:
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("jq is required for the protected workflow")
+    receipt = tmp_path / "january-membership-diagnostic-receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "status": "BLOCKED",
+                "failure": {"stage": "PRE_CONNECTION", "category": "MEMBERSHIP_DONOR_HANDOFF_PATH"},
+                "code_sha": "a" * 40,
+                "account_binding": "SENSITIVE_ACCOUNT",
+                "donor": "SENSITIVE_DONOR",
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            jq,
+            "-e",
+            "-c",
+            'select(.status == "BLOCKED" and .failure != null) | {status, failure, code_sha}',
+            str(receipt),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(result.stdout) == {
+        "status": "BLOCKED",
+        "failure": {"stage": "PRE_CONNECTION", "category": "MEMBERSHIP_DONOR_HANDOFF_PATH"},
+        "code_sha": "a" * 40,
+    }
+    assert "SENSITIVE" not in result.stdout

@@ -221,6 +221,51 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
         )
 
 
+def reconstruct_capture_ids(cursor: Any, expected_digest: str) -> list[str]:
+    """Recover the full January list from retained V103 rows, bound to a frozen digest."""
+    _require(
+        isinstance(expected_digest, str) and _SHA.fullmatch(expected_digest) is not None,
+        "CLIMATE_MEMBERSHIP_DIGEST",
+    )
+    cursor.execute(
+        """SELECT capture_record_id, record_revision, record_id, source_row_hash, normalized_sha256
+        FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS WHERE ingestion_run_id=%s
+          AND resource_key=%s AND source_definition_version=2 AND artifact_id=%s
+          AND artifact_sha256=%s ORDER BY capture_record_id""",
+        (RUN_ID, RESOURCE_KEY, NOAA_ARTIFACT_ID, NOAA_SHA),
+    )
+    digest = hashlib.sha256()
+    capture_ids: list[str] = []
+    previous = None
+    while rows := cursor.fetchmany(250):
+        for row in rows:
+            _require(
+                len(row) == 5 and all(isinstance(value, str) and value for value in row),
+                "CLIMATE_MEMBERSHIP",
+            )
+            _require(
+                _SHA.fullmatch(row[0]) is not None
+                and all(_SHA.fullmatch(value) is not None for value in row[3:]),
+                "CLIMATE_MEMBERSHIP_HASH",
+            )
+            _require(previous is None or row[0] > previous, "CLIMATE_MEMBERSHIP_ORDER")
+            _require(len(capture_ids) < ROW_COUNT, "CLIMATE_MEMBERSHIP_COUNT")
+            capture_ids.append(row[0])
+            digest.update((json.dumps(list(row), separators=(",", ":")) + "\n").encode())
+            previous = row[0]
+    _require(
+        len(capture_ids) == ROW_COUNT and digest.hexdigest() == expected_digest,
+        "CLIMATE_MEMBERSHIP_DIGEST",
+    )
+    cursor.execute(
+        "SELECT COUNT(*) FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS "
+        "WHERE ingestion_run_id=%s",
+        (RUN_ID,),
+    )
+    _require(cursor.fetchone() == (ROW_COUNT,), "CLIMATE_UNSELECTED_REVISIONS")
+    return capture_ids
+
+
 def verify_extension(cursor: Any, extension: Any) -> None:
     """Revalidate source approval and exact immutable revision membership at activation."""
     validate_extension(extension)
@@ -261,44 +306,11 @@ def verify_extension(cursor: Any, extension: Any) -> None:
     )
     quality = cursor.fetchone()
     _require(quality is not None and quality[0] > 0 and quality[1] == 0, "CLIMATE_QUALITY")
-    cursor.execute(
-        """SELECT capture_record_id, record_revision, record_id, source_row_hash, normalized_sha256
-        FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS WHERE ingestion_run_id=%s
-          AND resource_key=%s AND source_definition_version=2 AND artifact_id=%s
-          AND artifact_sha256=%s ORDER BY capture_record_id""",
-        (RUN_ID, RESOURCE_KEY, NOAA_ARTIFACT_ID, NOAA_SHA),
-    )
-    digest = hashlib.sha256()
-    count = 0
-    previous = None
-    while rows := cursor.fetchmany(250):
-        for row in rows:
-            _require(
-                len(row) == 5 and all(isinstance(value, str) and value for value in row),
-                "CLIMATE_MEMBERSHIP",
-            )
-            _require(previous is None or row[0] > previous, "CLIMATE_MEMBERSHIP_ORDER")
-            _require(
-                all(_SHA.fullmatch(value) is not None for value in row[3:]),
-                "CLIMATE_MEMBERSHIP_HASH",
-            )
-            previous = row[0]
-            _require(
-                count < len(extension["capture_ids"]) and extension["capture_ids"][count] == row[0],
-                "CLIMATE_CAPTURE_IDS",
-            )
-            digest.update((json.dumps(list(row), separators=(",", ":")) + "\n").encode())
-            count += 1
     _require(
-        count == ROW_COUNT and digest.hexdigest() == extension["capture_membership_sha256"],
-        "CLIMATE_MEMBERSHIP_DIGEST",
+        reconstruct_capture_ids(cursor, extension["capture_membership_sha256"])
+        == extension["capture_ids"],
+        "CLIMATE_CAPTURE_IDS",
     )
-    cursor.execute(
-        "SELECT COUNT(*) FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS "
-        "WHERE ingestion_run_id=%s",
-        (RUN_ID,),
-    )
-    _require(cursor.fetchone() == (ROW_COUNT,), "CLIMATE_UNSELECTED_REVISIONS")
     cursor.execute(
         """SELECT COUNT(DISTINCT record_id), COUNT_IF(
           COALESCE(source_id,'')<>'noaa_nclimgrid_daily'

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
@@ -10,7 +12,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
-from .intelligence_items import TOKEN
+from .intelligence_items import TOKEN, canonical_json, identity_hash
 from .intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from .intelligence_retention import (
     CleanupPlan,
@@ -20,6 +22,7 @@ from .intelligence_retention import (
     canonical_object_uri,
     execute_cleanup,
 )
+from .migrations import INTELLIGENCE_CLEANUP_MIGRATION, load_migrations
 
 
 class FileRawDelete:
@@ -142,7 +145,9 @@ class WarehouseRawDelete:
         ):
             raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
         if isinstance(self.gate.ledger, SnowflakeRawLedger):
-            return self.gate.ledger.purge_checkpoint(self.plan.sha256, run_id, copy.lease_sha256)
+            return self.gate.ledger.purge_checkpoint(
+                self.plan.sha256, run_id, copy.lease_sha256, copy.sha256
+            )
         with self.factory() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE()")
             if cursor.fetchall() != [
@@ -153,13 +158,230 @@ class WarehouseRawDelete:
             ]:
                 raise PermissionError("INTELLIGENCE_RAW_WRITER_CONTEXT_REQUIRED")
             cursor.execute(
-                "CALL GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(%s,%s,%s)",
-                (self.plan.sha256, run_id, copy.lease_sha256),
+                "CALL GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(%s,%s,%s,%s)",
+                (self.plan.sha256, run_id, copy.lease_sha256, copy.sha256),
             )
             rows = cursor.fetchall()
             if len(rows) != 1 or rows[0][0] not in {"deleted", "already_absent"}:
                 raise PermissionError("INTELLIGENCE_RAW_DELETE_RESULT_INVALID")
             return bool(rows[0][0] == "deleted")
+
+
+def approved_dev_plan(factory: Callable[[], Any], plan: CleanupPlan) -> bool:
+    """Read one separately recorded approval under the dedicated DEV executor."""
+    if plan.environment != "DEV" or len(plan.copies) > 1000:
+        raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+    with factory() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
+        )
+        if cursor.fetchall() != [
+            (
+                "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP_SVC",
+                "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP",
+                "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+                "OH_LYME_DEV_INGEST_XS_WH",
+            )
+        ]:
+            raise PermissionError("INTELLIGENCE_RAW_CLEANUP_IDENTITY_REQUIRED")
+        cursor.execute(
+            "SELECT PLAN_CANONICAL_JSON,APPROVED_BY,APPROVAL_REF,APPROVED_AT "
+            "FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_APPROVALS "
+            "WHERE PLAN_SHA256=%s LIMIT 2",
+            (plan.sha256,),
+        )
+        rows = cursor.fetchall()
+    if len(rows) != 1:
+        return False
+    document, approver, approval_ref, approved_at = rows[0]
+    expected = canonical_json(asdict(plan))
+    if (
+        not isinstance(document, str)
+        or document != expected
+        or identity_hash(json.loads(document)) != plan.sha256
+        or not isinstance(approver, str)
+        or not approver
+        or not isinstance(approval_ref, str)
+        or not approval_ref
+        or approved_at is None
+    ):
+        raise PermissionError("INTELLIGENCE_RAW_PLAN_CHANGED")
+    return True
+
+
+def verify_dev_cleanup_handoff(factory: Callable[[], Any]) -> None:
+    """Fail closed on absent/partial ownership handoff before any raw mutation."""
+    migration = next(item for item in load_migrations() if item.version == "V143")
+    if migration.sha256 != INTELLIGENCE_CLEANUP_MIGRATION["sha256"]:
+        raise PermissionError("INTELLIGENCE_RAW_MIGRATION_CHANGED")
+    expected_body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
+    body_sha256 = hashlib.sha256(expected_body.strip().encode()).hexdigest()
+    signature = "(VARCHAR,VARCHAR,VARCHAR,VARCHAR)"
+    with factory() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
+        )
+        if cursor.fetchall() != [
+            (
+                "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP_SVC",
+                "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP",
+                "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+                "OH_LYME_DEV_INGEST_XS_WH",
+            )
+        ]:
+            raise PermissionError("INTELLIGENCE_RAW_CLEANUP_IDENTITY_REQUIRED")
+        cursor.execute(
+            "SELECT MIGRATION_SHA256,PROCEDURE_BODY_SHA256,PROCEDURE_CREATED_ON,"
+            "OWNER_ROLE,HANDOFF_REF,ATTESTED_BY,ATTESTED_AT "
+            "FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS LIMIT 2"
+        )
+        attestations = cursor.fetchall()
+        if len(attestations) != 1:
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+        migration_sha, attested_body_sha, created_on, owner, ref, attested_by, at = attestations[0]
+        if (
+            migration_sha != migration.sha256
+            or attested_body_sha != body_sha256
+            or owner != "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER"
+            or created_on is None
+            or not isinstance(ref, str)
+            or not TOKEN.fullmatch(ref)
+            or not isinstance(attested_by, str)
+            or not attested_by
+            or attested_by == "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP_SVC"
+            or at is None
+        ):
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+        cursor.execute(
+            "SHOW PROCEDURES LIKE 'PURGE_INTELLIGENCE_RAW_CHECKPOINT' "
+            "IN SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE"
+        )
+        cursor.execute(
+            'SELECT "created_on"::TIMESTAMP_LTZ,"name","catalog_name",'
+            '"schema_name","min_num_arguments","max_num_arguments" '
+            "FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+        )
+        procedures = cursor.fetchall()
+        if procedures != [
+            (
+                created_on,
+                "PURGE_INTELLIGENCE_RAW_CHECKPOINT",
+                "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+                "GOVERNANCE",
+                4,
+                4,
+            )
+        ]:
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+        cursor.execute(
+            "SHOW GRANTS ON PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT" + signature
+        )
+        cursor.execute(
+            'SELECT "privilege","granted_to","grantee_name","grant_option" '
+            "FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+        )
+        grants = {
+            (str(privilege), str(granted_to), str(grantee), str(option).lower())
+            for privilege, granted_to, grantee, option in cursor.fetchall()
+        }
+        owner_grants = {
+            ("OWNERSHIP", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER", value)
+            for value in ("false", "true")
+        }
+        if (
+            len(grants) != 2
+            or not any(owner_grant in grants for owner_grant in owner_grants)
+            or ("USAGE", "ROLE", "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", "false") not in grants
+        ):
+            raise PermissionError("INTELLIGENCE_RAW_HANDOFF_REQUIRED")
+
+
+def load_exact_plan(path: Path, checksum: str) -> CleanupPlan:
+    """Parse one private reviewed plan; no extra fields or targets are inferred."""
+    if not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise PermissionError("INTELLIGENCE_RAW_PLAN_INVALID")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(document, dict)
+        or set(document)
+        != {"environment", "source_ids", "planned_at", "copies", "inventory_sha256"}
+        or not isinstance(document["copies"], list)
+        or len(document["copies"]) > 1000
+    ):
+        raise PermissionError("INTELLIGENCE_RAW_PLAN_INVALID")
+    copies = tuple(RawCopy(**copy) for copy in document["copies"])
+    plan = CleanupPlan(
+        document["environment"],
+        tuple(document["source_ids"]),
+        document["planned_at"],
+        copies,
+        document["inventory_sha256"],
+    )
+    if (
+        plan.environment != "DEV"
+        or plan.source_ids != ("cdc-eid-expedited",)
+        or checksum != plan.sha256
+        or canonical_json(asdict(plan)) != path.read_text(encoding="utf-8")
+    ):
+        raise PermissionError("INTELLIGENCE_RAW_PLAN_CHANGED")
+    return plan
+
+
+def execute_reviewed_dev_plan(
+    gate: FeedRawRetention,
+    plan: CleanupPlan,
+    *,
+    factory: Callable[[], Any],
+    spaces_client: Any,
+    bucket: str,
+    prefix: str,
+) -> tuple[CleanupReceipt, ...]:
+    """Only DEV's actual Snowflake, Spaces and owned process-buffer surfaces."""
+    if (
+        plan.environment != "DEV"
+        or gate.environment != "DEV"
+        or not isinstance(gate.ledger, SnowflakeRawLedger)
+        or gate.ledger.expected_role != "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP"
+        or not plan.source_ids
+        or set(plan.source_ids) != {"cdc-eid-expedited"}
+        or len(plan.copies) > 1000
+    ):
+        raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+    verify_dev_cleanup_handoff(factory)
+    object_delete = ObjectRawDelete(gate, spaces_client, bucket=bucket, prefix=prefix)
+    warehouse_delete = WarehouseRawDelete(gate, factory, plan)
+
+    return cleanup(
+        gate,
+        plan,
+        approved=lambda sha: sha == plan.sha256 and approved_dev_plan(factory, plan),
+        scope=lambda copy: dev_cleanup_scope(copy, object_delete),
+        delete={
+            "raw_object": object_delete,
+            "checkpoint_payload": warehouse_delete,
+            "conditional_cache": gate.discard_buffer,
+            "process_payload": gate.discard_buffer,
+        },
+    )
+
+
+def dev_cleanup_scope(copy: RawCopy, object_delete: ObjectRawDelete) -> bool:
+    """Allow only persistence surfaces composed by the DEV EID pilot."""
+    if copy.environment != "DEV" or copy.source_id != "cdc-eid-expedited":
+        return False
+    if copy.kind == "raw_object":
+        try:
+            object_delete.key(copy)
+        except PermissionError:
+            return False
+        return True
+    if copy.kind == "checkpoint_payload":
+        return copy.locator.startswith(
+            "snowflake://ONE_HEALTH_LYME_GAP_ATLAS_DEV/GOVERNANCE/INGESTION_RUN_PAYLOADS/"
+        ) and bool(TOKEN.fullmatch(copy.locator.rsplit("/", 1)[-1]))
+    return copy.kind in {"conditional_cache", "process_payload"} and copy.locator.startswith(
+        {"conditional_cache": "cache://", "process_payload": "process://"}[copy.kind]
+    )
 
 
 def cleanup(

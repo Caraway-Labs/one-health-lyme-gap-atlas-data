@@ -30,7 +30,7 @@ EXPECTED_CONTEXT = (
 
 def pair_forecast(price: float) -> float:
     """Both bounded reads, minimum/resume bounds, two idle tails each, reserve."""
-    producer = (60 * 5.75 / 3600 + 1.35 / 30) * price
+    producer = bounds.producer_forecast(price)
     consumer = (65 * 5.75 / 3600 + 1.35 / 30) * price
     return producer + consumer + 1
 
@@ -95,7 +95,7 @@ def producer(output: Path, code_sha: str, supplied_budget: str) -> dict[str, Any
             bounds.PRIOR_DIAGNOSTIC_FORECAST_USD + receipt["pair_forecast_reserved_usd"]
         )
         if receipt["aggregate_forecast_ceiling_usd"] > bounds.APPROVED_TOTAL_FORECAST_USD:
-            raise bounds.DiagnosticStop("FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP")
+            raise bounds.DiagnosticStop("FORECAST_EXCEEDS_APPROVED_TOTAL_CAP")
         if alarm_signal is None or timer is None or real_timer is None:
             raise bounds.DiagnosticStop("RUNTIME_ENFORCEMENT_UNAVAILABLE")
         try:

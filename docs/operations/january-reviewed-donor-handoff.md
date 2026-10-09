@@ -17,44 +17,47 @@ size bound, validates all five annual source slots, and compares the donor to
 account and warehouse identifiers, and includes a redacted account hash/region
 binding. A hash and role string do not authenticate the operator by themselves.
 
-The proposed bounded callable is `climate_donor_diagnostic.producer`; its shell
+The bounded callable is `climate_donor_diagnostic.producer`; its shell
 entrypoint is `scripts/verify_january_donor_dev.py`. It reuses the existing diagnostic
 bounded cursor, pricing validation, Standard capability and warehouse observations.
-It is **not wired into an authenticated workflow**. No connection, migration, grant,
-publication, live artifact or credential configuration occurred while preparing it.
-The existing $7 guard blocks it before connection; tests use explicitly artificial
+It is wired to the existing protected DEV `deploy-dev.yml` job only through the
+exclusive `diagnose_january_pair` read-only mode. No migration, grant or
+publication is part of that mode.
+The owner-approved $10 total guard is now checked in; tests use artificial
 prior reservations to exercise the offline transport and failure boundaries.
 
-### Exact proposed invocation, not an available dispatch route
+### Same-job protected DEV invocation
 
-After independent review, specific authorization for the authenticated route and
-artifact retention, and approval of a finite revised cost cap, the proposed placement
-is an exclusive read-only branch of the existing protected DEV `deploy-dev.yml`
-diagnostic step, **before** its separate `snow sql` identity query and every migration
-command. Reuse that step's existing ephemeral key handling and DEV service credentials;
-never copy credentials to another environment or invoke the publish workflow.
-No workflow enablement or upload route is added by this PR.
+The branch runs before its separate `snow sql` identity query and every migration
+command. The protected DEV environment already holds both established service
+identities. The donor child process receives the migration-deployer credential;
+after that key file is removed, the membership child process receives the runtime
+credential. Each callable verifies its configured and effective identity, account,
+region and warehouse. Neither switches roles or copies credentials to another
+environment.
 
-The complete bounded call in that already-authorized protected runner would be:
+The workflow requires exact reviewed green `main`, `expected_pending_json=[]`,
+all other diagnostic modes off, and the existing redacted budget evidence. It
+sets one clock just before the pair. The sequence is:
 
 ```bash
-# FUTURE PROPOSAL ONLY: these placeholders are not approved execution inputs.
-# Existing protected DEV environment supplies service settings and ephemeral key.
-test "$(git rev-parse HEAD)" = "$REVIEWED_PRODUCER_SHA"
-test "$GITHUB_SHA" = "$REVIEWED_PRODUCER_SHA"
-export JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX="$(date +%s)"
-# JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE: freshly reviewed redacted owner Standard
-# account-hash/region evidence and official public price ceiling; never secrets.
+# In one protected job, with separate child-process credentials:
 uv run python scripts/verify_january_donor_dev.py
+# Check the donor receipt digest against the actual private file, then run:
+uv run atlas-data source nclimgrid-pilot-measure --action frozen-membership \
+  --run-id c2eb2146-005d-44d2-bac4-e2805ca42577
 ```
 
-The proposed route must reject simultaneous diagnostics, publication and migrations;
-verify an exact reviewed main SHA; retain its existing five-minute execution-step
-limit; and retain the local safe donor/closed receipt through a specifically approved
-private artifact destination with 14-day retention. The receipt and artifact contain
-no raw account locator or connection secrets. The operator's actual identity and
-run provenance still need independent verification. The normal publish workflow
-can apply migrations and publish, and is prohibited for this read.
+The job creates a mode-0700 directory inside the ephemeral checkout's permitted
+`reviewed-donors` path. It verifies the donor receipt and SHA-256 before the
+runtime consumer starts, then verifies the consumer receipt, exact donor digest
+and 389,856 rows, including the actual membership file digest. Only bounded
+summary evidence goes to logs; the donor and capture-ID artifact are never
+printed or uploaded. Their complete contents remain recoverable from the
+existing published release manifest and retained V103 revision rows, bound by
+the logged release/bundle, manifest digest, selected run, row count and tuple
+digest. The EXIT trap deletes all job-local files. The normal publish workflow
+is prohibited for this read.
 
 ### Enforced bounds in the offline callable
 
@@ -81,11 +84,15 @@ can apply migrations and publish, and is prohibited for this read.
   transport, watchdog or cleanup preserves an existing reviewed donor and removes
   pending output. Install the donor only after successful bounded connection close.
 
-Retain the actual protected receipt and independently review identity checks, reviewed
-code SHA, account/region binding, artifact digest and full manifest. Never manufacture
-an artifact from a fixture or infer it from a failed query. Commit the actual reviewed
-safe JSON under `docs/contracts/climate/reviewed-donors/` through a reviewed PR; no
-live artifact is included here. Raw private operational evidence belongs outside Git.
+Retain the protected run's compact receipt evidence and independently review
+identity checks, reviewed code SHA, account/region binding, artifact digest,
+warehouse cost observations and full manifest. Re-read the complete manifest
+from the existing `PRESENTATION.SEMANTIC_RELEASES` row by release ID and bundle
+hash, then compare its canonical digest with the run proof. The full membership
+list is reconstructed from retained V103 rows and compared with the frozen
+five-field digest before building the governed extension. Never manufacture an
+artifact from a fixture or infer it from a failed query. Raw private operational
+evidence and capture IDs do not belong in public Git artifacts.
 
 ## Runtime consumption
 
@@ -102,7 +109,7 @@ timestamps and invalid annual manifests fail before connection. File reads are b
 at 64 KiB plus one byte, including growth after the initial size observation.
 
 The consumer compares its actual account-locator hash and region to the reviewed
-donor, with the same freshly verified owner capability binding. The runtime reads
+donor, with the same account-bound owner capability evidence. The runtime reads
 only the intended current-release view for donor verification. Release ID and bundle
 hash must equal the artifact both before and after ordered capture export. Missing,
 duplicate, changed or inaccessible view rows block export. Full manifest validation,
@@ -110,16 +117,28 @@ selected-run/input hashes, row-count checks, capture digest and atomic replaceme
 remain required. The artifact is a read-only candidate, not approval, publication,
 DEV acceptance or API acceptance.
 
-## Conditional cost proposal, not approved
+## Owner-approved January diagnostic execution ceiling
 
-Preserve the full consumed forecast reservation of **$6.836666666666667** against
-the approved **$7 total cap**. Actual invoiced charges remain unknown. The remaining
-$0.163333333333333 does not authorize either producer or consumer. Both checked-in
-guards reject another paid attempt before connection; no runtime input raises the cap.
+On 2026-10-08, the owner approved a **$10 total January climate diagnostic forecast
+ceiling** for one bounded donor producer and one bounded membership consumer
+attempt. Preserve the full prior forecast reservation of **$6.836666666666667**;
+actual invoiced charges remain unknown. The checked-in guards reserve both new
+sessions and the shared uncertainty amount before connection. No runtime input
+raises the ceiling, and a failed attempt does not release its reservation or
+authorize an automatic retry.
+
+On 2026-10-09, after that pair's donor succeeded and its consumer stopped before
+querying Snowflake, the owner approved **one additional bounded donor-plus-consumer
+execution** and a revised **$15 cumulative January diagnostic forecast ceiling**.
+The original prior reservation plus the first pair is **$9.574583333333334** and
+remains fully reserved. The new pair reserves up to **$2.737916666666667** at the
+same $6/credit public price ceiling, yielding a cumulative **$12.3125** forecast.
+The 50-second consumer limit, statement limits, single-attempt policy, and other
+cost guards remain unchanged. This approval does not include further retries.
 
 Only if both sessions use the exact observed Standard single-cluster XS warehouse,
 verified AWS region/account binding and a fresh official public ceiling of $6/credit,
-the proposed single-producer/single-consumer reservation is:
+the per-pair reservation is:
 
 - `5.75` credits/hour = conservative `1.35` maximum Gen2 XS compute plus `4.4`
   cloud-services allowance, without assuming the daily adjustment.
@@ -131,17 +150,82 @@ the proposed single-producer/single-consumer reservation is:
 - Consumer: 50 seconds including connection plus 15 seconds cleanup:
   `(65 * 5.75 / 3600 + 1.35 / 30) * 6 = $0.892916666666667`.
 - Shared uncertainty reserve: $1. Additional reservation: **$2.737916666666667**.
-- Prior plus proposal: **$9.574583333333334**. A conditional **$10 total cap**
-  covers this pair under these assumptions; it is not authorization or invoice proof.
+- Original prior plus first pair: **$9.574583333333334** under the stated
+  $6/credit ceiling. The second attempt used the historical **$15 cap** stated
+  above; the later $20 decision is recorded below. These are forecast guards,
+  not invoice proof.
 
-Do not execute until Matthew approves the finite revised cap and authenticated
-producer/artifact route, and independent review accepts the exact invocation and
-both actual warehouse/capability bounds. Any cap change must be a separate reviewed
-change based on the actual approval, with no automatic retry or released reservations.
+The owner also authorized the reviewed protected DEV diagnostic route using
+existing service credentials and private donor artifact/receipt retention up to
+14 days. The same-job destination is the private, mode-0700 checkout directory
+used only by the protected DEV job, with deletion at job exit; no persistent
+storage or public repository Actions artifact is required. Independent review must accept
+the exact invocation and actual warehouse/capability bounds. The owner-provided
+Standard account capability evidence must match the live account and
+cost-relevant warehouse capabilities at execution. Its original verification
+timestamp remains unchanged; elapsed time alone does not reject it. No
+automatic retry or released reservation is authorized.
+
+On 2026-10-09, after the second pair's donor succeeded but the consumer stopped
+before its first application SQL statement, the owner authorized **one more**
+bounded donor-plus-consumer attempt under a **$20 cumulative forecast ceiling**.
+Both completed pairs retain their full reservations: **$12.3125** in total.
+At the same $6/credit public price ceiling and unchanged per-session limits,
+the new pair reserves **$2.737916666666667**, for a cumulative forecast of
+**$15.050416666666667**. Actual billed charges are not established by these
+reservations. The protected runtime-identity connection smoke succeeded in
+run 37884269860 without a January application query; it does not replace the
+required donor and frozen-membership validation.
+
+Protected run 37893367838 used that one approved pair. The donor succeeded
+with five application reads; the consumer stopped at `KEY_PARSE` before SQL.
+The third pair's full reservation is retained, bringing cumulative forecast
+reservation to **$15.050416666666667** of the $20 ceiling. The pair workflow
+had copied the donor PEM file's last line as the runtime PEM footer. GNU `fold`
+does not add a newline to an unterminated final input line, so that last line
+could contain donor key body bytes before the footer. The reviewed correction
+writes the runtime PEM's own fixed header and footer around its own key body.
+No further paid attempt is implied by the unused ceiling; the authorized one
+was consumed.
+
+Protected run 37938922522 then exercised the corrected runtime key. Its donor
+again succeeded with five reads; the consumer connected and executed nine
+statements, but stopped at `ORDERED_MEMBERSHIP` before downloading a remote
+result batch. The full fourth-pair reservation is retained, bringing the
+cumulative forecast to **$17.788333333333334**. The source revisions already
+reside in governed Snowflake rows; the existing inline-only diagnostic guard
+was the observed blocker to reading the complete sorted list. The narrowly
+reviewed transport change permits remote batches only for that bounded ordered
+membership query, and sets the pinned connector's separate chunk-download
+retry count to one attempt in this diagnostic process. Its 50-second watchdog,
+statement timeout and count, row limit, SHA-256 digest, 32 MiB output limit,
+and private job-local cleanup remain in force. A fifth pair would exceed the
+existing $20 forecast ceiling even before considering its separate execution
+authorization; no retry is implied by this correction.
+
+On 2026-10-09, the owner authorized **one additional** bounded protected DEV
+donor-plus-consumer execution and raised the cumulative forecast ceiling to
+**$25**, retaining all prior reservations. With **$17.788333333333334** fully
+reserved before this attempt, the unchanged **$2.737916666666667** pair bound
+at the existing $6/credit input forecasts **$20.52625 cumulative**. This
+decision authorizes only that one pair, no automatic retry, grant, historical
+ingestion or new infrastructure. The fixed remote-result transport from merged
+PR #654 and its reviewed main check are prerequisites to dispatch.
+
+### Unused persistent storage candidate
+
+The following Spaces candidate was investigated before the same-job route was
+established. It is not a prerequisite or dispatch path for the January pair.
+
+The existing `one-health-lyme-gap-atlas-data-dev` Space was investigated as a
+possible separate-job transport. Its scoped runtime credential could not read
+bucket ACL metadata. No Spaces upload, download, permission change or retention
+configuration is part of the same-job route.
 The producer can fail before donor proof, and inline-only 50-second consumption may
 still be insufficient for complete membership; a blocked receipt requires stopping,
-not a retry or a claim of acceptance. Fresh owner evidence expires after 24 hours;
-do not refresh its original verification timestamp merely to make a run possible.
+not a retry or a claim of acceptance. Do not refresh the owner evidence's
+original verification timestamp merely to make a run possible; a material
+account or entitlement change requires review.
 
 No grant, credential setting, warehouse configuration, PROD publication or historical
 expansion is authorized by this correction. Live DEV donor/membership proof, modeling,

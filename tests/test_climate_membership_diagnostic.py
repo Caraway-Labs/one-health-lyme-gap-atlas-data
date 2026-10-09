@@ -1,5 +1,6 @@
 """Actual bounded adapter and single-session connector behavior, no database."""
 
+import base64
 import hashlib
 import json
 import os
@@ -12,8 +13,44 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from typer.testing import CliRunner
 
 from lyme_gap_atlas_data import climate_membership_diagnostic as diag
+
+
+def test_blocked_membership_cli_exits_nonzero_for_workflow_receipt(monkeypatch):
+    from lyme_gap_atlas_data import cli
+    from lyme_gap_atlas_data.ingestion import nclimgrid_pilot_measurement as measurement
+
+    monkeypatch.setattr(
+        measurement,
+        "frozen_membership_report",
+        lambda _run_id: {
+            "status": "BLOCKED",
+            "statements": 0,
+            "receipt_name": diag.RECEIPT_NAME,
+        },
+    )
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "source",
+            "nclimgrid-pilot-measure",
+            "--action",
+            "frozen-membership",
+            "--run-id",
+            "c2eb2146-005d-44d2-bac4-e2805ca42577",
+        ],
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.stdout) == {
+        "status": "BLOCKED",
+        "statements": 0,
+        "receipt_name": diag.RECEIPT_NAME,
+    }
+
 
 QID = "00000000-0000-0000-0000-000000000001"
 
@@ -278,11 +315,15 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
     assert receipt["billing"]["actual_billed_unit_price_usd"] is None
 
 
-def test_consumed_reservations_block_another_run_under_approved_total_cap():
-    assert pytest.approx(6.836666666666667) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
-    for price in (6, 20):
-        with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP"):
-            diag.budget_runtime(price)
+def test_approved_pair_budget_reserves_donor_and_blocks_excess_price(monkeypatch):
+    assert pytest.approx(17.788333333333334) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
+    assert diag.APPROVED_TOTAL_FORECAST_USD == 25
+    assert diag.producer_forecast(6) == pytest.approx(0.845)
+    assert pytest.approx(20.52625) == (diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667)
+    assert diag.budget_runtime(6) == 50
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 24)
+    with pytest.raises(diag.DiagnosticStop, match="FORECAST_EXCEEDS_APPROVED_TOTAL_CAP"):
+        diag.budget_runtime(6)
 
 
 def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
@@ -295,7 +336,8 @@ def test_execution_watchdog_caps_at_fifty_seconds_and_preserves_upload_reserve(
     receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
     assert timers[0][1] == receipt["runtime_limit_seconds"] == 50
     assert receipt["cleanup_upload_reserved_seconds"] == 60 and diag.MAX_SECONDS == 300
-    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(6.836666666666667)
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(7.681666666666667)
+    assert receipt["producer_forecast_reserved_usd"] == pytest.approx(0.845)
     assert receipt["billing"]["actual_billed_usd"] is None
 
 
@@ -389,18 +431,27 @@ def test_standard_evidence_must_match_live_account_before_show(setup, monkeypatc
     assert len(cursor.calls) == 1
 
 
-@pytest.mark.parametrize("mutation", ["edition", "stale", "private_field"])
+@pytest.mark.parametrize("mutation", ["edition", "future", "private_field"])
 def test_standard_capability_receipt_rejects_unsupported_or_unreviewed_evidence(mutation):
     value = json.loads(standard_evidence())
     capability = value["standard_capability_evidence"]
     if mutation == "edition":
         capability["edition"] = "ENTERPRISE"
-    elif mutation == "stale":
-        capability["verified_at"] = "2025-01-01T00:00:00Z"
+    elif mutation == "future":
+        capability["verified_at"] = "2999-01-01T00:00:00Z"
     else:
         capability["account_identifier"] = "private-account"
     with pytest.raises(diag.DiagnosticStop, match="STANDARD_CAPABILITY_EVIDENCE"):
         diag.budget_evidence(json.dumps(value))
+
+
+def test_owner_standard_evidence_does_not_expire_after_one_day():
+    value = json.loads(standard_evidence())
+    value["standard_capability_evidence"]["verified_at"] = "2025-01-01T00:00:00Z"
+    assert (
+        diag.budget_evidence(json.dumps(value))["standard_capability_evidence"]["edition"]
+        == "STANDARD"
+    )
 
 
 def test_actual_remote_result_batch_cannot_start_chunk_download(monkeypatch):
@@ -423,6 +474,57 @@ def test_actual_remote_result_batch_cannot_start_chunk_download(monkeypatch):
     with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
         bounded.fetchmany(1000)
     assert downloads == []
+
+
+def test_ordered_membership_remote_batch_requires_one_attempt_transport(monkeypatch):
+    from snowflake.connector.result_batch import JSONResultBatch, RemoteChunkInfo
+
+    batch = JSONResultBatch(
+        1, {}, RemoteChunkInfo("https://example.invalid/chunk", 1, 1), [], [], False
+    )
+    raw = Cursor()
+    raw.get_result_batches = lambda: [batch]
+    raw.fetchmany = lambda _: [("fixture",)]
+    bounded = diag.BoundedCursor(raw, diag.time.monotonic(), {"statements": 1})
+    bounded.stage = "ORDERED_MEMBERSHIP"
+    monkeypatch.setattr(diag.result_batch, "MAX_DOWNLOAD_RETRY", 10)
+    with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
+        bounded.fetchmany(1000)
+    original = diag.arm_single_attempt_result_downloads()
+    try:
+        assert original == 10
+        assert bounded.fetchmany(1000) == [("fixture",)]
+        bounded.stage = "PREFLIGHT"
+        with pytest.raises(diag.DiagnosticStop, match="REMOTE_RESULT_BATCH"):
+            bounded.fetchmany(1000)
+    finally:
+        diag.result_batch.MAX_DOWNLOAD_RETRY = original
+
+
+def test_pinned_chunk_downloader_makes_one_get_on_failure(monkeypatch):
+    from snowflake.connector.result_batch import JSONResultBatch, RemoteChunkInfo
+
+    batch = JSONResultBatch(
+        1, {}, RemoteChunkInfo("https://example.invalid/chunk", 1, 1), [], [], False
+    )
+    attempts = []
+
+    def fail_get(**_):
+        attempts.append(True)
+        raise RuntimeError("synthetic transport failure")
+
+    monkeypatch.setattr(
+        diag.result_batch.SessionManagerFactory,
+        "get_manager",
+        lambda **_: SimpleNamespace(get=fail_get),
+    )
+    original = diag.arm_single_attempt_result_downloads()
+    try:
+        with pytest.raises(RuntimeError, match="synthetic transport failure"):
+            batch._download()
+        assert attempts == [True]
+    finally:
+        diag.result_batch.MAX_DOWNLOAD_RETRY = original
 
 
 def test_oversize_diagnostic_output_preserves_previous_artifact(setup, monkeypatch, tmp_path):
@@ -496,12 +598,33 @@ def test_missing_or_out_of_contract_donor_never_connects(setup, monkeypatch, tmp
     assert not parameters
 
 
-def test_current_consumed_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
+def test_exhausted_approved_budget_never_connects_with_valid_handoff(setup, monkeypatch, tmp_path):
     _, parameters, _ = setup
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 24)
     result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
     assert result["status"] == "BLOCKED"
     assert not parameters
+
+
+def test_key_initialization_error_reports_finite_substage_without_secret(
+    setup, monkeypatch, tmp_path
+):
+    import lyme_gap_atlas_shared.snowflake
+
+    _, connections, _ = setup
+    monkeypatch.setattr(
+        lyme_gap_atlas_shared.snowflake,
+        "connection_parameters",
+        lambda _: (_ for _ in ()).throw(ValueError("private key SECRET")),
+    )
+    report = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
+    receipt_text = (tmp_path / diag.RECEIPT_NAME).read_text()
+    receipt = json.loads(receipt_text)
+    assert report["status"] == "BLOCKED" and not connections
+    assert receipt["failure"]["stage"] == "PRE_CONNECTION"
+    assert receipt["failure"]["initialization_substage"] == "KEY_PARSE"
+    assert receipt["failure"]["category"] == "READ_DEPENDENCY_UNAVAILABLE"
+    assert "SECRET" not in receipt_text
 
 
 @pytest.mark.parametrize("escape", ["allowed_directory", "ancestor", "nested", "file"])
@@ -562,6 +685,74 @@ def real_donor_document():
     }
 
 
+def test_real_preconnection_handoff_budget_settings_and_key_path(monkeypatch, tmp_path):
+    """Use the production validators and shared key parser; stop at mocked connect."""
+    import snowflake.connector
+
+    checkout = tmp_path / "checkout"
+    allowed = checkout / "docs/contracts/climate/reviewed-donors"
+    allowed.mkdir(parents=True)
+    path = allowed / "january-reviewed-donor.json"
+    payload = json.dumps(real_donor_document(), sort_keys=True, separators=(",", ":")).encode()
+    path.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_PATH", str(path))
+    monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
+    monkeypatch.setenv("JANUARY_DIAGNOSTIC_JOB_STARTED_UNIX", str(int(time.time())))
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 15.050416666666667)
+    budget = json.loads(evidence())
+    budget["standard_capability_evidence"] = {
+        "edition": "STANDARD",
+        "cloud": "AWS",
+        "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+        "verified_by": "fixture-owner",
+        "verified_at": datetime.now(UTC).isoformat(),
+        "evidence_reference": "OWNER_SNOWSIGHT_ACCOUNT_DETAILS",
+    }
+    password = b"fixture-password"
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(password),
+    )
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "FIXTURE_ACCOUNT")
+    monkeypatch.setenv("SNOWFLAKE_USER", "OH_LYME_DEV_PIPELINE_SVC")
+    monkeypatch.setenv("SNOWFLAKE_ROLE", "OH_LYME_DEV_RUNTIME")
+    monkeypatch.setenv("SNOWFLAKE_DATABASE", "ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    monkeypatch.setenv("SNOWFLAKE_WAREHOUSE", "OH_LYME_DEV_INGEST_XS_WH")
+    monkeypatch.setenv("SNOWFLAKE_AUTH_METHOD", "key_pair")
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_B64", base64.b64encode(pem).decode())
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE", password.decode())
+    monkeypatch.setattr(diag.shutil, "disk_usage", lambda _: SimpleNamespace(free=1024**3))
+    monkeypatch.setattr(diag.signal, "SIGALRM", 14, raising=False)
+    monkeypatch.setattr(diag.signal, "ITIMER_REAL", 0, raising=False)
+    monkeypatch.setattr(diag.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(diag.signal, "setitimer", lambda *_: None, raising=False)
+    seen = []
+
+    def stop_at_connect(**parameters):
+        seen.append(parameters)
+        raise RuntimeError("synthetic connection stop")
+
+    monkeypatch.setattr(snowflake.connector, "connect", stop_at_connect)
+    result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, json.dumps(budget))
+    receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
+    assert result["status"] == "BLOCKED"
+    assert receipt["reviewed_donor_handoff_sha256"] == digest
+    assert receipt["donor_bundle_sha256"] == "b" * 64
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(17.788333333333334)
+    assert receipt["failure"]["initialization_substage"] == "CONNECT"
+    assert receipt["failure"]["category"] == "READ_DEPENDENCY_UNAVAILABLE"
+    assert seen[0]["user"] == "OH_LYME_DEV_PIPELINE_SVC"
+    assert seen[0]["role"] == "OH_LYME_DEV_RUNTIME"
+    assert seen[0]["authenticator"] == "SNOWFLAKE_JWT"
+    assert seen[0]["client_fetch_threads"] == seen[0]["client_prefetch_threads"] == 1
+    assert seen[0]["client_fetch_use_mp"] is False
+    assert "synthetic connection stop" not in (tmp_path / diag.RECEIPT_NAME).read_text()
+
+
 @pytest.mark.parametrize("control", ["valid", "digest", "oversize"])
 def test_confined_real_donor_controls_before_exhausted_budget(
     setup, monkeypatch, tmp_path, control
@@ -585,7 +776,7 @@ def test_confined_real_donor_controls_before_exhausted_budget(
     digest = hashlib.sha256(payload).hexdigest() if control != "digest" else "0" * 64
     monkeypatch.setenv("JANUARY_DONOR_HANDOFF_SHA256", digest)
     monkeypatch.setattr(diag, "read_donor_handoff", read_donor_handoff)
-    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 6.836666666666667)
+    monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 24)
     if control == "oversize":
         original_open = Path.open
 
@@ -598,7 +789,7 @@ def test_confined_real_donor_controls_before_exhausted_budget(
     result = diag.diagnostic(tmp_path / diag.ARTIFACT_NAME, "a" * 40, evidence())
     receipt = json.loads((tmp_path / diag.RECEIPT_NAME).read_text())
     expected = {
-        "valid": "FORECAST_EXCEEDS_SEVEN_DOLLAR_CAP",
+        "valid": "FORECAST_EXCEEDS_APPROVED_TOTAL_CAP",
         "digest": "MEMBERSHIP_DONOR_DIGEST",
         "oversize": "MEMBERSHIP_DONOR_SIZE",
     }[control]
