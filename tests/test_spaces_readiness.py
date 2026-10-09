@@ -98,6 +98,27 @@ def test_existing_private_january_storage_requires_exact_expiry() -> None:
     ]
 
 
+@pytest.mark.parametrize("stage", ["head_bucket", "get_bucket_acl"])
+def test_january_storage_reports_unavailable_metadata_stage_without_provider_text(
+    stage: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = MetadataClient()
+
+    def denied(**_: Any) -> None:
+        raise ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "sensitive-provider-text"}},
+            stage,
+        )
+
+    monkeypatch.setattr(client, stage, denied)
+    report = inspect_january_donor_storage(settings(), client=client)
+    assert report == {
+        "status": "BLOCKED",
+        "reason": "BUCKET_HEAD_UNAVAILABLE" if stage == "head_bucket" else "BUCKET_ACL_UNAVAILABLE",
+    }
+    assert "sensitive-provider-text" not in str(report)
+
+
 @pytest.mark.parametrize(
     "failure",
     [
