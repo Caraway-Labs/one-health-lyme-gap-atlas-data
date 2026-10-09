@@ -138,7 +138,7 @@ cost guards remain unchanged. This approval does not include further retries.
 
 Only if both sessions use the exact observed Standard single-cluster XS warehouse,
 verified AWS region/account binding and a fresh official public ceiling of $6/credit,
-the proposed single-producer/single-consumer reservation is:
+the per-pair reservation is:
 
 - `5.75` credits/hour = conservative `1.35` maximum Gen2 XS compute plus `4.4`
   cloud-services allowance, without assuming the daily adjustment.
@@ -150,9 +150,10 @@ the proposed single-producer/single-consumer reservation is:
 - Consumer: 50 seconds including connection plus 15 seconds cleanup:
   `(65 * 5.75 / 3600 + 1.35 / 30) * 6 = $0.892916666666667`.
 - Shared uncertainty reserve: $1. Additional reservation: **$2.737916666666667**.
-- Prior plus pair: **$9.574583333333334** under the stated $6/credit ceiling.
-  The approved **$10 total cap** covers this pair under these assumptions; it is
-  a forecast guard, not invoice proof.
+- Original prior plus first pair: **$9.574583333333334** under the stated
+  $6/credit ceiling. That first attempt is historical; the current cumulative
+  reservation and **$15 cap** are stated above. These are forecast guards,
+  not invoice proof.
 
 The owner also authorized the reviewed protected DEV diagnostic route using
 existing service credentials and private donor artifact/receipt retention up to
