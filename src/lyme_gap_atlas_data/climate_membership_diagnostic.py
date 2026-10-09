@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import snowflake.connector
+import snowflake.connector.result_batch as result_batch
+
 from .climate_membership import (
     ARTIFACT_NAME,
     MembershipBlocked,
@@ -28,7 +31,7 @@ MAX_STATEMENTS = 40
 MAX_SECONDS = 300
 MAX_EXECUTION_SECONDS = 50
 # Preserve the completed run's full reservation; do not infer charges from elapsed time.
-PRIOR_DIAGNOSTIC_FORECAST_USD = 15.050416666666667
+PRIOR_DIAGNOSTIC_FORECAST_USD = 17.788333333333334
 APPROVED_TOTAL_FORECAST_USD = 20
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
@@ -244,12 +247,26 @@ class BoundedCursor:
         return self.cursor.fetchmany(size)
 
     def reject_remote_batches(self) -> None:
-        # Supported public ResultBatch metadata, checked before any iterator can
-        # launch prefetch/download. The pinned SDK's chunk retry loop differs
-        # from request retries; this diagnostic permits inline result data only.
+        # Only the bounded ordered membership read may use remote result chunks.
+        # The pinned connector's separate chunk retry loop is reduced to one
+        # attempt before fetch can initiate a GET.
         batches = self.cursor.get_result_batches()
-        if any(batch.compressed_size is not None for batch in batches or []):
+        if any(batch.compressed_size is not None for batch in batches or []) and (
+            self.stage != "ORDERED_MEMBERSHIP" or result_batch.MAX_DOWNLOAD_RETRY != 1
+        ):
             raise DiagnosticStop("REMOTE_RESULT_BATCH_REQUIRES_SEPARATE_REVIEW")
+
+
+def arm_single_attempt_result_downloads() -> int:
+    """Bound the pinned SDK's result-chunk path separately from query retries."""
+    if (
+        snowflake.connector.__version__ != "4.3.0"
+        or result_batch.MAX_DOWNLOAD_RETRY != 10
+        or result_batch.DOWNLOAD_TIMEOUT != 7
+    ):
+        raise DiagnosticStop("REMOTE_RESULT_TRANSPORT_UNVERIFIED")
+    result_batch.MAX_DOWNLOAD_RETRY = 1
+    return 10
 
 
 def safe_query_id(value: Any) -> str | None:
@@ -396,6 +413,7 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
     set_timer = getattr(signal, "setitimer", None)
     real_timer = getattr(signal, "ITIMER_REAL", None)
     previous_retries = os.environ.get("MAX_CON_RETRY_ATTEMPTS")
+    previous_download_retries = None
     connector_logger = logging.getLogger("snowflake.connector")
     previous_log_level = connector_logger.level
     pending_output = output.with_name("pending-" + ARTIFACT_NAME)
@@ -467,10 +485,15 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
         settings = SnowflakeSettings()
         initialization_substage = "KEY_PARSE"
         parameters = connection_parameters(settings)
+        initialization_substage = "REMOTE_TRANSPORT"
+        previous_download_retries = arm_single_attempt_result_downloads()
         parameters.update(
             login_timeout=15,
             network_timeout=15,
             socket_timeout=15,
+            client_prefetch_threads=1,
+            client_fetch_threads=1,
+            client_fetch_use_mp=False,
             backoff_policy=no_retry_backoff,
             session_parameters={
                 "QUERY_TAG": "atlas-january-membership-diagnostic",
@@ -598,6 +621,8 @@ def diagnostic(output: Path, code_sha: str, supplied_budget: str) -> dict[str, A
                 connection.close(retry=False)
             except Exception:
                 receipt["close_state"] = "UNAVAILABLE"
+        if previous_download_retries is not None:
+            result_batch.MAX_DOWNLOAD_RETRY = previous_download_retries
         if old_handler is not None and set_timer is not None and alarm_signal is not None:
             set_timer(real_timer, 0)
             signal.signal(alarm_signal, old_handler)

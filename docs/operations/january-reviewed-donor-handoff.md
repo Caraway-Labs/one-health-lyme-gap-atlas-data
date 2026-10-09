@@ -188,6 +188,21 @@ writes the runtime PEM's own fixed header and footer around its own key body.
 No further paid attempt is implied by the unused ceiling; the authorized one
 was consumed.
 
+Protected run 37938922522 then exercised the corrected runtime key. Its donor
+again succeeded with five reads; the consumer connected and executed nine
+statements, but stopped at `ORDERED_MEMBERSHIP` before downloading a remote
+result batch. The full fourth-pair reservation is retained, bringing the
+cumulative forecast to **$17.788333333333334**. The source revisions already
+reside in governed Snowflake rows; the existing inline-only diagnostic guard
+was the observed blocker to reading the complete sorted list. The narrowly
+reviewed transport change permits remote batches only for that bounded ordered
+membership query, and sets the pinned connector's separate chunk-download
+retry count to one attempt in this diagnostic process. Its 50-second watchdog,
+statement timeout and count, row limit, SHA-256 digest, 32 MiB output limit,
+and private job-local cleanup remain in force. A fifth pair would exceed the
+existing $20 forecast ceiling even before considering its separate execution
+authorization; no retry is implied by this correction.
+
 ### Unused persistent storage candidate
 
 The following Spaces candidate was investigated before the same-job route was
