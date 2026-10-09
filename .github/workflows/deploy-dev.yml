@@ -159,12 +159,17 @@ jobs:
               env -u RUNTIME_USER -u RUNTIME_ROLE -u RUNTIME_PRIVATE_KEY_B64 -u RUNTIME_PRIVATE_KEY_PASSPHRASE \
                 uv run atlas-data source nclimgrid-pilot-measure --action frozen-membership \
                 --run-id c2eb2146-005d-44d2-bac4-e2805ca42577; then
-              jq -c '{status, failure, code_sha}' "$job_dir/january-membership-diagnostic-receipt.json" || true
+              jq -e -c 'select(.status == "BLOCKED" and .failure != null) | {status, failure, code_sha}' "$job_dir/january-membership-diagnostic-receipt.json" || \
+                printf '{"status":"BLOCKED","failure":{"category":"REDACTED_RECEIPT_UNAVAILABLE"},"code_sha":"%s"}\n' "$GITHUB_SHA"
               exit 2
             fi
-            jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA" \
+            if ! jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA" \
               '.status == "READ_ONLY_EXPORT_SUCCEEDED" and .code_sha == $code and .reviewed_donor_handoff_sha256 == $sha and .membership.row_count == 389856' \
-              "$job_dir/january-membership-diagnostic-receipt.json" >/dev/null
+              "$job_dir/january-membership-diagnostic-receipt.json" >/dev/null; then
+              jq -e -c 'select(.status == "BLOCKED" and .failure != null) | {status, failure, code_sha}' "$job_dir/january-membership-diagnostic-receipt.json" || \
+                printf '{"status":"BLOCKED","failure":{"category":"REDACTED_RECEIPT_UNAVAILABLE"},"code_sha":"%s"}\n' "$GITHUB_SHA"
+              exit 2
+            fi
             membership_sha="$(sha256sum "$job_dir/source-pilot-inspection-artifact.json" | cut -d' ' -f1)"
             jq -e --arg sha "$membership_sha" \
               '.membership.artifact_sha256 == $sha' \

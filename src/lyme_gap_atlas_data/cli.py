@@ -1188,7 +1188,10 @@ def source_nclimgrid_pilot_measure(
         )
     if action == "preflight" and run_id is not None:
         raise typer.BadParameter("Preflight does not accept a run ID")
-    typer.echo(json.dumps(actions[action](), default=str, sort_keys=True))
+    result = actions[action]()
+    typer.echo(json.dumps(result, default=str, sort_keys=True))
+    if action == "frozen-membership" and result.get("status") != "READ_ONLY_EXPORT_SUCCEEDED":
+        raise typer.Exit(code=1)
 
 
 def _required_run_id(run_id: str | None) -> str:
