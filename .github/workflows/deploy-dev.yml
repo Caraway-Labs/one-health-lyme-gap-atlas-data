@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose_legacy_dev_reconciliations:
+        description: Verify only the exact V028/V029/V033 DEV reconciliation records; read-only
+        required: false
+        type: boolean
+        default: false
       diagnose_climate_dev:
         description: Fixture-only numeric/large-manifest DEV validation; no migration apply or release writes
         required: false
@@ -78,6 +83,14 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" = "true" ]; then
+            if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ] || [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ] || [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ] || [ -n "$EXPECTED_PENDING_JSON" ]; then
+              echo 'Choose only the fixed reconciliation diagnostic, without a pending migration set.' >&2
+              exit 2
+            fi
+            timeout 120s uv run python scripts/diagnose_dev_migration_reconciliations.py --config-file "$config_file"
+            exit 0
+          fi
           if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]; then
             if [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ] || [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ] || { [ -n "$EXPECTED_PENDING_JSON" ] && [ "$EXPECTED_PENDING_JSON" != '[]' ]; }; then
               echo 'Choose intelligence read-only mode without migrations or another diagnostic.' >&2
@@ -168,6 +181,7 @@ jobs:
           FEED_PREFLIGHT_ACCOUNTING_CONFIRMED: ${{ inputs.feed_preflight_accounting_confirmed }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
+          DIAGNOSE_LEGACY_DEV_RECONCILIATIONS: ${{ inputs.diagnose_legacy_dev_reconciliations }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
