@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from lyme_gap_atlas_data.migrations import DEV_DATABASE, migration_plan
 
@@ -310,9 +312,43 @@ def test_january_pair_uses_separate_dev_identities_and_exits_before_migration() 
     assert 'if ! jq -e --arg sha "$donor_sha" --arg code "$GITHUB_SHA"' in consumer
     assert "annual_manifest_sha256" in pair
     assert 'rm -f "$key_file"' in pair
+    assert 'pem_footer="$(tail -n 1 "$key_file")"' not in pair
+    assert "printf '%s%s\\n' '-----END ENCRYPTED ' 'PRIVATE KEY-----'" in pair
+    assert "printf '%s\\n' \"$RUNTIME_PRIVATE_KEY_B64\" | fold -w 64" in pair
     assert "env -u RUNTIME_USER -u RUNTIME_ROLE" in pair
     assert "trap cleanup EXIT" in pair
     assert "exit 0" in pair
+
+
+def test_runtime_pem_must_not_reuse_donor_final_line() -> None:
+    fold = shutil.which("fold")
+    if fold is None:
+        pytest.skip("GNU fold is needed to reproduce the protected Linux shell")
+    password = b"fixture-password"
+
+    def encrypted_pem() -> bytes:
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        return key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.BestAvailableEncryption(password),
+        )
+
+    donor_lines = encrypted_pem().splitlines()
+    runtime_lines = encrypted_pem().splitlines()
+    donor_body = b"".join(donor_lines[1:-1])
+    folded = subprocess.run(
+        [fold, "-w", "64"], input=donor_body, capture_output=True, check=True
+    ).stdout
+    donor_file = donor_lines[0] + b"\n" + folded + donor_lines[-1] + b"\n"
+    copied_final_line = donor_file.splitlines()[-1]
+    assert copied_final_line != donor_lines[-1]
+    runtime_body = b"\n".join(runtime_lines[1:-1])
+    contaminated = runtime_lines[0] + b"\n" + runtime_body + b"\n" + copied_final_line + b"\n"
+    with pytest.raises(ValueError):
+        serialization.load_pem_private_key(contaminated, password=password)
+    correct = runtime_lines[0] + b"\n" + runtime_body + b"\n" + runtime_lines[-1] + b"\n"
+    assert serialization.load_pem_private_key(correct, password=password) is not None
 
 
 def test_january_blocked_receipt_emits_only_sanitized_reason(tmp_path: Path) -> None:

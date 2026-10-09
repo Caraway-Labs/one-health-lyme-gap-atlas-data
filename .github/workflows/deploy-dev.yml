@@ -183,13 +183,11 @@ jobs:
               '.status == "READ_ONLY_DONOR_EXPORT_SUCCEEDED" and .code_sha == $code and .donor.artifact_sha256 == $sha' \
               "$job_dir/january-donor-diagnostic-receipt.json" >/dev/null
             manifest_sha="$(jq -S -c '.annual_manifest' "$donor" | sha256sum | cut -d' ' -f1)"
-            pem_header="$(head -n 1 "$key_file")"
-            pem_footer="$(tail -n 1 "$key_file")"
             rm -f "$key_file"
             {
-              printf '%s\n' "$pem_header"
-              printf '%s' "$RUNTIME_PRIVATE_KEY_B64" | fold -w 64
-              printf '%s\n' "$pem_footer"
+              printf '%s%s\n' '-----BEGIN ENCRYPTED ' 'PRIVATE KEY-----'
+              printf '%s\n' "$RUNTIME_PRIVATE_KEY_B64" | fold -w 64
+              printf '%s%s\n' '-----END ENCRYPTED ' 'PRIVATE KEY-----'
             } > "$runtime_key_file"
             runtime_key="$(base64 --wrap=0 "$runtime_key_file")"
             if ! SNOWFLAKE_USER="$RUNTIME_USER" SNOWFLAKE_ROLE="$RUNTIME_ROLE" \

@@ -177,6 +177,17 @@ reservations. The protected runtime-identity connection smoke succeeded in
 run 37884269860 without a January application query; it does not replace the
 required donor and frozen-membership validation.
 
+Protected run 37893367838 used that one approved pair. The donor succeeded
+with five application reads; the consumer stopped at `KEY_PARSE` before SQL.
+The third pair's full reservation is retained, bringing cumulative forecast
+reservation to **$15.050416666666667** of the $20 ceiling. The pair workflow
+had copied the donor PEM file's last line as the runtime PEM footer. GNU `fold`
+does not add a newline to an unterminated final input line, so that last line
+could contain donor key body bytes before the footer. The reviewed correction
+writes the runtime PEM's own fixed header and footer around its own key body.
+No further paid attempt is implied by the unused ceiling; the authorized one
+was consumed.
+
 ### Unused persistent storage candidate
 
 The following Spaces candidate was investigated before the same-job route was
