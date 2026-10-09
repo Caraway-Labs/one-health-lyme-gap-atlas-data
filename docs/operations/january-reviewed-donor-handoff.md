@@ -127,6 +127,15 @@ sessions and the shared uncertainty amount before connection. No runtime input
 raises the ceiling, and a failed attempt does not release its reservation or
 authorize an automatic retry.
 
+On 2026-10-09, after that pair's donor succeeded and its consumer stopped before
+querying Snowflake, the owner approved **one additional bounded donor-plus-consumer
+execution** and a revised **$15 cumulative January diagnostic forecast ceiling**.
+The original prior reservation plus the first pair is **$9.574583333333334** and
+remains fully reserved. The new pair reserves up to **$2.737916666666667** at the
+same $6/credit public price ceiling, yielding a cumulative **$12.3125** forecast.
+The 50-second consumer limit, statement limits, single-attempt policy, and other
+cost guards remain unchanged. This approval does not include further retries.
+
 Only if both sessions use the exact observed Standard single-cluster XS warehouse,
 verified AWS region/account binding and a fresh official public ceiling of $6/credit,
 the proposed single-producer/single-consumer reservation is:
