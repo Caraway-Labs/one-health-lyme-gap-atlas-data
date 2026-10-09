@@ -316,11 +316,11 @@ def test_gen2_official_forecast_succeeds_without_claiming_billed_price(
 
 
 def test_approved_pair_budget_reserves_donor_and_blocks_excess_price(monkeypatch):
-    assert pytest.approx(12.3125) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
+    assert pytest.approx(15.050416666666667) == diag.PRIOR_DIAGNOSTIC_FORECAST_USD
     assert diag.APPROVED_TOTAL_FORECAST_USD == 20
     assert diag.producer_forecast(6) == pytest.approx(0.845)
     assert diag.budget_runtime(6) == 50
-    assert pytest.approx(15.050416666666667) == (
+    assert pytest.approx(17.788333333333334) == (
         diag.PRIOR_DIAGNOSTIC_FORECAST_USD + 2.737916666666667
     )
     monkeypatch.setattr(diag, "PRIOR_DIAGNOSTIC_FORECAST_USD", 19)
@@ -692,7 +692,7 @@ def test_real_preconnection_handoff_budget_settings_and_key_path(monkeypatch, tm
     assert result["status"] == "BLOCKED"
     assert receipt["reviewed_donor_handoff_sha256"] == digest
     assert receipt["donor_bundle_sha256"] == "b" * 64
-    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(15.050416666666667)
+    assert receipt["aggregate_forecast_ceiling_usd"] == pytest.approx(17.788333333333334)
     assert receipt["failure"]["initialization_substage"] == "CONNECT"
     assert receipt["failure"]["category"] == "READ_DEPENDENCY_UNAVAILABLE"
     assert seen[0]["user"] == "OH_LYME_DEV_PIPELINE_SVC"
