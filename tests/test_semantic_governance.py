@@ -407,7 +407,7 @@ def _stub_candidate_inputs(
 ) -> list[str]:
     monkeypatch.setattr(semantic_release, "load_manifest", lambda _path: _manifest())
     monkeypatch.setattr(semantic_release, "_verify_source_gate", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(semantic_release, "_read_source_rows", lambda *_args: [])
+    monkeypatch.setattr(semantic_release, "_read_source_rows", lambda *_args, **_kwargs: [])
     for name in (
         "_verify_pathogen_parity_classification",
         "_verify_evidence_only_coverage_classification",

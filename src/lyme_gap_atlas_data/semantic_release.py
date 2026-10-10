@@ -228,7 +228,9 @@ def build_semantic_release(
                     for source in manifest.sources
                 }
                 source_rows = {
-                    source.source_key: _read_source_rows(cursor, source)
+                    source.source_key: _read_source_rows(
+                        cursor, source, dev_tick_generic=use_dev_tick_evidence_exception
+                    )
                     for source in manifest.sources
                 }
                 pathogen_parity = _verify_pathogen_parity_classification(
@@ -547,7 +549,9 @@ def _verify_source_gate(
     if run is None or str(run[0]) not in {"COMPLETED", "SUCCEEDED"}:
         raise SemanticReleaseBlocked(f"Source {source.source_key} lacks a completed ingestion run")
 
-    if source.source_key in {"tick", "pathogen"}:
+    if source.source_key == "pathogen" or (
+        source.source_key == "tick" and not allow_dev_tick_evidence_exception
+    ):
         # The restricted derivation run references a private, prior evidence run.
         # Do not require that artifact to be copied into the derivative run.
         cursor.execute(
@@ -698,7 +702,9 @@ def _verify_pathogen_parity_classification(
     return classification
 
 
-def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any]]:
+def _read_source_rows(
+    cursor: Any, source: SemanticSource, *, dev_tick_generic: bool = False
+) -> list[dict[str, Any]]:
     columns: tuple[str, ...]
     if source.source_key == "human":
         cursor.execute(
@@ -719,7 +725,7 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "ingestion_run_id",
             "retrieved_at",
         )
-    elif source.source_key in {"tick", "pathogen"}:
+    elif source.source_key == "pathogen" or (source.source_key == "tick" and not dev_tick_generic):
         status_object_fields = (
             "'Ixodes_scapularis_County_Status', scapularis_status, "
             "'Ixodes_pacificus_county_status', pacificus_status"
@@ -779,7 +785,10 @@ def _read_source_rows(cursor: Any, source: SemanticSource) -> list[dict[str, Any
             "retrieved_at",
         )
     rows = cursor.fetchall()
-    if not rows and source.source_key not in {"human", "tick", "pathogen"}:
+    if not rows and (
+        source.source_key not in {"human", "tick", "pathogen"}
+        or (source.source_key == "tick" and dev_tick_generic)
+    ):
         cursor.execute(
             """SELECT record_id, source_id, dataset_id, resource_key,
                     source_definition_version, ingestion_run_id, source_record_id,
