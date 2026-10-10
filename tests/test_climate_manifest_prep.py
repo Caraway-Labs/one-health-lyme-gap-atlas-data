@@ -1,6 +1,7 @@
 import json
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -138,6 +139,15 @@ def test_review_must_match_merged_checkout_and_exact_reviewed_head(
         return BytesIO(json.dumps(payload).encode())
 
     monkeypatch.setattr(prep, "urlopen", open_review)
+    monkeypatch.setattr(
+        prep.subprocess,
+        "run",
+        lambda args, **_kwargs: SimpleNamespace(
+            returncode=0
+            if args == ["git", "merge-base", "--is-ancestor", release_commit, release_commit]
+            else 1
+        ),
+    )
     assert prep.verified_review("fixture-token", release_commit) == {
         "commit": reviewed_commit,
         "url": review_url,
@@ -145,6 +155,16 @@ def test_review_must_match_merged_checkout_and_exact_reviewed_head(
     }
     with pytest.raises(prep.ManifestPreparationBlocked, match="JANUARY_REVIEW_RELEASE_BINDING"):
         prep.verified_review("fixture-token", "c" * 40)
+    pull["merge_commit_sha"] = "d" * 40
+    with pytest.raises(prep.ManifestPreparationBlocked, match="JANUARY_REVIEW_RELEASE_BINDING"):
+        prep.verified_review("fixture-token", release_commit)
+    monkeypatch.setattr(
+        prep.subprocess,
+        "run",
+        lambda _args, **_kwargs: SimpleNamespace(returncode=0),
+    )
+    assert prep.verified_review("fixture-token", release_commit)["commit"] == reviewed_commit
+    pull["merge_commit_sha"] = release_commit
     reviews[0]["commit_id"] = "c" * 40
     with pytest.raises(prep.ManifestPreparationBlocked, match="JANUARY_REVIEW_RECORD"):
         prep.verified_review("fixture-token", release_commit)

@@ -59,8 +59,11 @@ retained normalized partitions, and creates the full manifest only in its
 private temporary directory. The existing builder validates and persists the
 complete extension with the immutable candidate; job cleanup removes the
 temporary file. The job obtains review evidence from the merged January PR and
-requires its merge commit to equal the checked-out release commit and its review
-to name the exact PR head. Operators cannot supply substitute review fields.
+requires its merge commit to be a Git ancestor of the checked-out main release
+commit and its accepted review to name the exact January PR head. This permits
+later reviewed workflow corrections on main without misidentifying their merge
+commit as the January implementation review. Operators cannot supply substitute
+review fields.
 This does not repeat ingestion or the diagnostic.
 Snowflake documents support for objects over 16 MB in existing VARIANT columns
 without schema alteration ([data preparation guidance](https://docs.snowflake.com/en/user-guide/data-load-considerations-prepare));
