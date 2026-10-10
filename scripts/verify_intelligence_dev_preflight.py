@@ -23,8 +23,10 @@ SOURCE_ENDPOINTS = {
 MAX_SOURCE_BYTES = 65536
 RECEIPTS = Path(__file__).parents[1] / "config/intelligence/pilot-policy-receipts.json"
 # Exact restricted policy identifiers admitted by independent code review.
-# No real identifier has yet been admitted; a runtime receipt cannot approve one.
-REVIEWED_RESTRICTED_ARTIFACT_POLICIES: dict[str, str] = {}
+# A runtime receipt cannot approve another source or policy identifier.
+REVIEWED_RESTRICTED_ARTIFACT_POLICIES: dict[str, str] = {
+    "cdc-eid-expedited": "CDC_EID_RESTRICTED_RAW_30D_V1",
+}
 
 
 def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

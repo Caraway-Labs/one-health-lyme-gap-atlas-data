@@ -11,6 +11,11 @@ on:
         required: false
         type: boolean
         default: false
+      register_eid_expedited_dev:
+        description: Register only the exact reviewed EID Expedited source document; no migrations
+        required: false
+        type: boolean
+        default: false
       feed_preflight_accounting_confirmed:
         description: Confirm forward-only US$8 allowance covers this bounded probe; historical charges remain separate
         required: false
@@ -60,7 +65,7 @@ on:
         required: false
         type: string
       reviewed_commit:
-        description: Exact reviewed green main SHA for the January pair
+        description: Exact reviewed green main SHA for bounded January work or EID registration
         required: false
         type: string
 permissions:
@@ -107,6 +112,33 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$REGISTER_EID_EXPEDITED_DEV" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" = "true"
+            test "$DIAGNOSE_INTELLIGENCE_DEV" != "true"
+            test "$DIAGNOSE_V143_CLEANUP_OWNER" != "true"
+            test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"
+            test "$DIAGNOSE_CLIMATE_VIEWS" != "true"
+            test "$DIAGNOSE_CLIMATE_DEV" != "true"
+            test "$DIAGNOSE_V103_STATE" != "true"
+            test "$DIAGNOSE_JANUARY_PAIR" != "true"
+            test "$DIAGNOSE_JANUARY_RUNTIME_INIT" != "true"
+            test -z "$DIAGNOSE_QUERY_ID"
+            [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+            test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
+            test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" \
+              --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            test "$passed_checks" -gt 0
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+              timeout 125s uv run python scripts/register_eid_expedited_dev.py
+            exit 0
+          fi
           if [ "$DIAGNOSE_V143_CLEANUP_OWNER" = "true" ]; then
             test "$GITHUB_REF" = refs/heads/main
             test -z "$EXPECTED_PENDING_JSON"
@@ -341,6 +373,7 @@ jobs:
         env:
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
+          REGISTER_EID_EXPEDITED_DEV: ${{ inputs.register_eid_expedited_dev }}
           FEED_PREFLIGHT_ACCOUNTING_CONFIRMED: ${{ inputs.feed_preflight_accounting_confirmed }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}

@@ -184,7 +184,11 @@ def test_replay_size_and_owned_query_deadline_precede_io() -> None:
 
 
 def test_checked_in_definitions_and_policy_receipts_are_not_registry_approvals() -> None:
-    assert json.loads(runtime.RECEIPTS.read_text())["receipts"] == []
+    receipts = json.loads(runtime.RECEIPTS.read_text())["receipts"]
+    assert [receipt["source_id"] for receipt in receipts] == ["cdc-eid-expedited"]
+    assert receipts[0]["source_sha256"] == identity_hash(
+        json.loads(Path("config/intelligence/cdc-eid-expedited-source-v1.json").read_text())
+    )
     for name in ("cdc_eid_expedited", "nih_news_releases"):
         configured = load_source_definition(Path(f"config/sources/intelligence_{name}.yml"))
         assert configured.endpoint_template == runtime.ENDPOINTS[configured.source_id]
