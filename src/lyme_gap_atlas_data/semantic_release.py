@@ -827,11 +827,70 @@ def _verify_restricted_final_copy_attestations(cursor: Any, release_id: str) -> 
         (release_id,),
     )
     attested = cursor.fetchone()
-    if attested is None or int(attested[0]) != int(required[0]):
+    if attested is not None and int(attested[0]) == int(required[0]):
+        return
+    # A release identifier is not a new restricted-source copy. Reuse only a
+    # real receipt from a previously published release with identical source
+    # metadata and derived output; never copy or synthesize an attestation.
+    cursor.execute(
+        """SELECT DISTINCT s.resource_key, s.source_key, prior.release_id
+        FROM PRESENTATION.SEMANTIC_DATA_SOURCES s
+        JOIN PRESENTATION.SEMANTIC_DATA_SOURCES prior
+          ON prior.resource_key=s.resource_key AND prior.source_key=s.source_key
+         AND prior.source_version_id=s.source_version_id
+         AND prior.source_id=s.source_id AND prior.dataset_id=s.dataset_id
+         AND prior.ingestion_run_id=s.ingestion_run_id AND prior.artifact_id=s.artifact_id
+         AND prior.label=s.label AND prior.vintage=s.vintage
+         AND prior.source_url=s.source_url AND prior.note=s.note
+        JOIN PRESENTATION.SEMANTIC_RELEASES old ON old.release_id=prior.release_id
+        JOIN PRESENTATION.SEMANTIC_RELEASES candidate ON candidate.release_id=s.release_id
+         AND candidate.methodology_version=old.methodology_version
+         AND candidate.schema_version=old.schema_version
+        JOIN GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS a
+          ON a.semantic_release_id=prior.release_id AND a.resource_key=prior.resource_key
+         AND a.data_source_version_id=prior.source_version_id
+        WHERE s.release_id=%s
+          AND (old.status IN ('PUBLISHED','RETIRED') OR prior.release_id=s.release_id)
+          AND LENGTH(TRIM(a.delivery_reference))>=6
+          AND NULLIF(TRIM(a.attested_by),'') IS NOT NULL
+          AND a.delivered_at IS NOT NULL
+          AND s.resource_key IN ('cdc_tick_ixodes_county_status',
+                                 'cdc_tick_ixodes_pathogen_status')""",
+        (release_id,),
+    )
+    receipts = cursor.fetchall()
+    accepted: set[str] = set()
+    for resource_key, source_key, prior_release in receipts:
+        current = _restricted_copy_snapshot(cursor, release_id, str(source_key))
+        prior = _restricted_copy_snapshot(cursor, str(prior_release), str(source_key))
+        if current and current == prior:
+            accepted.add(str(resource_key))
+    if len(accepted) != int(required[0]):
         raise SemanticReleaseBlocked(
             "PROD publication requires a final-copy delivery attestation for every "
-            "restricted CDC source"
+            "restricted CDC source; prior evidence applies only to unchanged published copies"
         )
+
+
+def _restricted_copy_snapshot(cursor: Any, release_id: str, source_key: str) -> list[Any]:
+    """Compare immutable lineage, values and interpretation, excluding release-local IDs."""
+    cursor.execute(
+        """SELECT o.measure_id, o.fips, o.source_key, o.source_version_id, o.ingestion_run_id,
+                   o.artifact_id, o.source_record_id, o.source_row_hash, TO_JSON(o.value),
+                   o.value_state, o.retrieved_at, o.geography_semantics, o.temporal_window,
+                   o.transformation_version, o.quality_state, o.limitations,
+                   m.indicator_id, m.label, m.data_type, m.unit, m.geography_semantics,
+                   m.temporal_resolution, m.missingness_semantics, m.methodology,
+                   m.limitation, m.measure_id
+        FROM PRESENTATION.SEMANTIC_OBSERVATIONS o
+        LEFT JOIN PRESENTATION.SEMANTIC_MEASURES m
+          ON m.release_id=o.release_id AND m.measure_id=o.measure_id
+        WHERE o.release_id=%s AND o.source_key=%s
+        ORDER BY o.measure_id, o.fips, o.source_record_id, o.source_row_hash, o.observation_id""",
+        (release_id, source_key),
+    )
+    rows = list(cursor.fetchall())
+    return rows if all(row[-1] is not None for row in rows) else []
 
 
 def _assemble_counties(
