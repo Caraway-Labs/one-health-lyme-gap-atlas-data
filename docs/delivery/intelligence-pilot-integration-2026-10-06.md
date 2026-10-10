@@ -1,5 +1,10 @@
 # Approved five-source pilot integration preparation
 
+This October 6 five-source pilot snapshot does not govern the later, separately
+approved EID Expedited first DEV acquisition. PR #637 retains the Vital Signs
+route for this pilot and adds EID for that later decision; neither route can run
+without its own reviewed source registration and policy receipt.
+
 DATA #132/#135 baseline: origin/main `819dde4` on October 6, 2026.
 Owner: desktop Lane B, branch `codex/data132-dev-integration-20261006`,
 worktree `data-132`. API #84 has a separate owner. API #179 is closed

@@ -231,7 +231,7 @@ jobs:
             test "${{ inputs.recapture }}" = "false"
             test "${{ inputs.publish }}" = "false"
             case "$SOURCE_DEFINITION" in
-              config/sources/intelligence_cdc_vital_signs.yml|config/sources/intelligence_nih_news_releases.yml) ;;
+              config/sources/intelligence_cdc_eid_expedited.yml|config/sources/intelligence_cdc_vital_signs.yml|config/sources/intelligence_nih_news_releases.yml) ;;
               *) echo 'Acquisition-only requires an approved DEV feed definition' >&2; exit 2 ;;
             esac
           fi

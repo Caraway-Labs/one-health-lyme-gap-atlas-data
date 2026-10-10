@@ -1,0 +1,83 @@
+{
+  "status": "NONEXECUTABLE_REVIEW_CANDIDATE",
+  "evidence_ref": "tests/fixtures/intelligence/native-captures/cdc-eid-expedited.json",
+  "historical_capture": {
+    "source_id": "cdc-eid-expedited",
+    "endpoint": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+    "captured_at": "2026-10-03T03:06:52.954325Z",
+    "mode": "metadata_fixture_only",
+    "status": 200,
+    "transport_bytes": 1564,
+    "transport_sha256": "d5157794b405c94455703d42bf580bcf46a1b6c4d1f9801d49bbbf3b1a414366",
+    "item_count": 2,
+    "sample_count": 1,
+    "observed_inventory": {
+      "feed/description": 1,
+      "feed/image": 1,
+      "feed/image/description": 1,
+      "feed/image/height": 1,
+      "feed/image/link": 1,
+      "feed/image/title": 1,
+      "feed/image/url": 1,
+      "feed/image/width": 1,
+      "feed/language": 1,
+      "feed/link": 1,
+      "feed/title": 1,
+      "feed/webMaster": 1,
+      "item/description": 2,
+      "item/link": 2,
+      "item/pubDate": 2,
+      "item/title": 2
+    },
+    "uncovered_paths": [],
+    "raw_transport_retained": false
+  },
+  "source_id": "cdc-eid-expedited",
+  "decision_ref": null,
+  "registry_version": null,
+  "source_sha256": null,
+  "retention_policy_ref": null,
+  "raw_policy_ref": "intelligence-raw-30d-v1",
+  "artifact_policy": null,
+  "review_attribution": {
+    "technical_reviewer": null,
+    "product_selection": "Matthew October 3; day precision only",
+    "technical_reviewed_at": null,
+    "not_a_human_steward_signature": true
+  },
+  "native_policy": {
+    "policy_ref": null,
+    "updated_path": null,
+    "updated_format": "iso8601",
+    "published_path": "item/pubDate",
+    "published_format": "rfc822",
+    "inventory": [
+      "feed/description",
+      "feed/image",
+      "feed/image/description",
+      "feed/image/height",
+      "feed/image/link",
+      "feed/image/title",
+      "feed/image/url",
+      "feed/image/width",
+      "feed/language",
+      "feed/link",
+      "feed/title",
+      "feed/webMaster",
+      "item/description",
+      "item/link",
+      "item/pubDate",
+      "item/title"
+    ],
+    "permitted_paths": [
+      "feed/language",
+      "feed/link",
+      "feed/title",
+      "item/link",
+      "item/pubDate",
+      "item/title"
+    ],
+    "required_paths": [],
+    "source_sha256": null
+  }
+}

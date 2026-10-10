@@ -70,7 +70,7 @@ def test_actual_builder_rolls_back_once_preserves_original(mode, tmp_path, monke
     # The source read comprehension must have the keys needed by the real builder.
     manifest.sources = tuple(SimpleNamespace(source_key=key) for key in ("pathogen", "tick"))
     monkeypatch.setattr(semantic_release, "_verify_source_gate", lambda *args, **kwargs: None)
-    monkeypatch.setattr(semantic_release, "_read_source_rows", lambda *args: [])
+    monkeypatch.setattr(semantic_release, "_read_source_rows", lambda *args, **kwargs: [])
     monkeypatch.setattr(semantic_release, "_assemble_counties", lambda *args, **kwargs: ([{}], []))
     monkeypatch.setattr(semantic_release, "EXPECTED_COUNTIES", 1)
     monkeypatch.setattr(semantic_release, "_bundle_sha256", lambda *args: "a" * 64)
