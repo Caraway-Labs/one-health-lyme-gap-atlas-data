@@ -68,9 +68,18 @@ def verified_review(token: str, release_commit: str) -> dict[str, str]:
         isinstance(pull, dict)
         and pull.get("number") == REVIEW_PR
         and bool(pull.get("merged_at"))
-        and pull.get("merge_commit_sha") == release_commit
+        and bool(re.fullmatch(r"[0-9a-f]{40}", pull.get("merge_commit_sha", "")))
         and pull.get("base", {}).get("ref") == "main"
         and isinstance(pull.get("head", {}).get("sha"), str),
+        "JANUARY_REVIEW_RELEASE_BINDING",
+    )
+    require(
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", pull["merge_commit_sha"], release_commit],
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0,
         "JANUARY_REVIEW_RELEASE_BINDING",
     )
     reviewed_commit = pull["head"]["sha"]
