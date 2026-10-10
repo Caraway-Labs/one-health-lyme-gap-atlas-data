@@ -411,8 +411,36 @@ def test_hidden_objects_remain_unknown_no_registry_records():
     module.inspect(cursor, report)
     assert len(report["objects"]) == 5
     assert all(item["state"] == "NOT_VISIBLE_NOT_PROOF_OF_ABSENCE" for item in report["objects"])
-    assert len(cursor.sql) == 7
+    assert len(cursor.sql) == 10
+    assert all(
+        item["direct_describe_succeeded"] is False
+        for item in report["objects"]
+        if item["target"] in module.DIRECT_PROBE_TARGETS
+    )
     assert not any("registry_sha256" in sql or "registry_document" in sql for sql in cursor.sql)
+
+
+def test_exact_direct_describe_can_prove_existence_without_a_show_row():
+    class DirectlyVisible(Cursor):
+        def execute(self, sql, **kwargs):
+            super().execute(sql, **kwargs)
+            if sql.startswith("DESCRIBE"):
+                self.description = [("name",)]
+
+        def fetchall(self):
+            if self.sql[-1].startswith("DESCRIBE"):
+                return [("EXISTS",)]
+            return []
+
+    cursor = DirectlyVisible((module.USER, module.ROLE, module.DEV, module.WAREHOUSE))
+    report = {}
+    module.inspect(cursor, report)
+    assert all(
+        item["state"] == "EXISTS_BUT_NOT_LISTED"
+        for item in report["objects"]
+        if item["target"] in module.DIRECT_PROBE_TARGETS
+    )
+    assert not report["object_prerequisites_passed"]  # Owner and grants remain unverified.
 
 
 def test_partial_completed_safe_observations_survive_later_failure():

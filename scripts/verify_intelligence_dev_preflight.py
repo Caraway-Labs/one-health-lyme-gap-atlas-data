@@ -201,6 +201,11 @@ TARGETS = (
     ("VIEW", "PRESENTATION", "INTELLIGENCE_FEED_V"),
     ("VIEW", "PRESENTATION", "INTELLIGENCE_FEED_V2"),
 )
+DIRECT_PROBE_TARGETS = {
+    "INTELLIGENCE_RAW_RETENTION_DOCUMENTS",
+    "INTELLIGENCE_RAW_RETENTION_AUDIT",
+    "INTELLIGENCE_FEED_V2",
+}
 
 
 def budget(confirmation: str) -> None:
@@ -368,6 +373,18 @@ def inspect(
         }
         objects.append(entry)
         print(json.dumps(report, sort_keys=True), flush=True)
+        if not catalog and name in DIRECT_PROBE_TARGETS:
+            # A missing SHOW row is not absence. Try the exact object name with
+            # the same verified migration identity; a successful DESCRIBE proves
+            # existence, while any denial still leaves physical state unknown.
+            try:
+                cursor.execute(f"DESCRIBE {kind} {qualified}", timeout=10)
+                entry["direct_describe_succeeded"] = bool(rows(cursor))
+                if entry["direct_describe_succeeded"]:
+                    entry["state"] = "EXISTS_BUT_NOT_LISTED"
+            except Exception:
+                entry["direct_describe_succeeded"] = False
+            print(json.dumps(report, sort_keys=True), flush=True)
         if catalog:
             owner = catalog[0].get("owner", catalog[0].get("OWNER"))
             entry["owner_matches_expected"] = owner == ROLE
