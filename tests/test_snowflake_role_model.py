@@ -83,6 +83,9 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         # It preserves the six-job PROD baseline and requires a human steward
         # decision between discovery and approved-paper extraction.
         "run-prod-literature-once",
+        # DATA #132/#135: one fixed, checksum-bound EID registry version under
+        # the protected PROD migration identity; no feed fetch or SQL input.
+        "register-prod-eid",
     )
     for path in WORKFLOWS.glob("*.yml"):
         assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (

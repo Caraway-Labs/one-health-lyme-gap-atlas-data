@@ -66,12 +66,13 @@ class PilotCursor(AcquisitionCursor):
             assert "STATEMENT_TIMEOUT_IN_SECONDS=30" in sql
             assert "ABORT_DETACHED_QUERY=TRUE" in sql
         elif sql.startswith("SELECT CURRENT_USER()"):
+            environment = "PROD" if self.connection.ledger.database.endswith("_PROD") else "DEV"
             self.rows = [
                 (
-                    "OH_LYME_DEV_PIPELINE_SVC",
+                    f"OH_LYME_{environment}_PIPELINE_SVC",
                     self.connection.ledger.role,
                     self.connection.ledger.database,
-                    "OH_LYME_DEV_INGEST_XS_WH",
+                    f"OH_LYME_{environment}_INGEST_XS_WH",
                 )
             ]
         elif sql.startswith("SELECT REGISTRY_VERSION"):
@@ -139,6 +140,79 @@ def test_latest_registry_version_is_discovered_without_yaml_self_approval() -> N
     assert loaded.extra["intelligence_registry"] == source
     assert orchestrator.store.feed_retention is orchestrator._adapter_override.feed_retention
     assert orchestrator._effects_override.feed_retention is orchestrator.store.feed_retention
+    assert not ledger.requests and not ledger.captures
+
+
+def test_prod_eid_composition_requires_exact_storage_identity_and_receipt() -> None:
+    from scripts.register_eid_expedited_dev import reviewed_package
+
+    source, checksum = reviewed_package()
+    configured = load_source_definition(Path("config/sources/intelligence_cdc_eid_expedited.yml"))
+    receipts = json.loads(runtime.RECEIPTS.read_text())["receipts"]
+    ledger = AcquisitionLedger()
+    ledger.database = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+    ledger.role = "OH_LYME_PROD_RUNTIME"
+    ledger.sources = [source]
+    settings = PipelineSettings(
+        topx_env="prod",
+        enable_production_execution=True,
+        snowflake_database=ledger.database,
+        spaces_bucket="one-health-lyme-gap-atlas-data-prod",
+        spaces_prefix="prod",
+        spaces_region="sfo3",
+        spaces_endpoint="https://sfo3.digitaloceanspaces.com",
+    )
+    _, loaded = runtime.compose_pilot(
+        configured,
+        receipts=receipts,
+        connection_factory=lambda: PilotConnection(ledger),
+        settings=settings,
+    )
+    assert loaded.extra["intelligence_registry"] == source
+    assert checksum == runtime.PROD_EID_SHA256
+    assert not ledger.requests and not ledger.captures
+    with pytest.raises(PermissionError, match="STORAGE_SCOPE_REQUIRED"):
+        runtime.compose_pilot(
+            configured,
+            receipts=receipts,
+            connection_factory=lambda: pytest.fail("Storage mismatch must precede SQL"),
+            settings=settings.model_copy(
+                update={"spaces_bucket": "one-health-lyme-gap-atlas-data-dev"}
+            ),
+        )
+    changed = [dict(receipt) for receipt in receipts]
+    selected_receipt = next(row for row in changed if row["source_id"] == "cdc-eid-expedited")
+    selected_receipt["source_sha256"] = "0" * 64
+    with pytest.raises(PermissionError, match="REVIEWED_EID_REQUIRED"):
+        runtime.compose_pilot(
+            configured,
+            receipts=changed,
+            connection_factory=lambda: pytest.fail("Receipt mismatch must precede SQL"),
+            settings=settings,
+        )
+    assert b"<description>Rights-restricted article text</description>" in RAW
+    changed = [dict(receipt) for receipt in receipts]
+    selected_receipt = next(row for row in changed if row["source_id"] == "cdc-eid-expedited")
+    selected_receipt["native_policy"] = dict(selected_receipt["native_policy"])
+    selected_receipt["native_policy"]["permitted_paths"] = [
+        *selected_receipt["native_policy"]["permitted_paths"],
+        "item/description",
+    ]
+    with pytest.raises(PermissionError, match="NATIVE_POLICY_REQUIRED"):
+        runtime.compose_pilot(
+            configured,
+            receipts=changed,
+            connection_factory=lambda: pytest.fail("Description policy must precede SQL"),
+            settings=settings,
+        )
+    ledger.role = "OH_LYME_PROD_READ"
+    with pytest.raises(IntelligenceStorageError, match="SOURCE_LOOKUP_FAILED"):
+        runtime.compose_pilot(
+            configured,
+            receipts=receipts,
+            connection_factory=lambda: PilotConnection(ledger),
+            settings=settings,
+        )
     assert not ledger.requests and not ledger.captures
 
 

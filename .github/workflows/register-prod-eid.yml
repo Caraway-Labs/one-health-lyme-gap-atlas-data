@@ -1,0 +1,74 @@
+name: Register reviewed CDC EID source in PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: Exact green main commit approved for PROD source registration
+        required: true
+        type: string
+      expected_pending_json:
+        description: Must be the empty migration set
+        required: true
+        type: string
+      accounting_confirmed:
+        description: Explicit confirmation of this single bounded PROD registry write
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: prod-eid-source-registration
+  cancel-in-progress: false
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    env:
+      TOPX_ENV: prod
+      ENABLE_PRODUCTION_EXECUTION: "true"
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require exact green main and reviewed empty migration set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          ACCOUNTING_CONFIRMED: ${{ inputs.accounting_confirmed }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$EXPECTED_PENDING_JSON" = '[]'
+          test "$ACCOUNTING_CONFIRMED" = true
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed_checks" -gt 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --extra pipeline
+      - name: Register only the reviewed EID version 1 under PROD migration owner
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/oh-lyme-prod-eid-key.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          uv run python -m scripts.register_eid_expedited_prod
