@@ -94,13 +94,19 @@ def reviewed_package() -> tuple[dict[str, Any], str]:
     return source, checksum
 
 
-def register(connection: Any, source: dict[str, Any], checksum: str) -> str:
+def register(
+    connection: Any,
+    source: dict[str, Any],
+    checksum: str,
+    *,
+    expected_identity: tuple[str, str, str, str] = IDENTITY,
+) -> str:
     """Guarded single-source insert; exact existing row is an idempotent retry."""
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
         )
-        if cursor.fetchall() != [IDENTITY]:
+        if cursor.fetchall() != [expected_identity]:
             raise PermissionError("EID_MIGRATION_SERVICE_IDENTITY_REQUIRED")
         cursor.execute(
             "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=10, "

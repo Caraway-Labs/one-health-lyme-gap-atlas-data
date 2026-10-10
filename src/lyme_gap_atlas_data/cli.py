@@ -1081,7 +1081,21 @@ def source_run(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    if loaded.adapter_kind is AdapterKind.RSS_ATOM and selected_tier is Tier.B and not dry_run:
+    if (
+        loaded.adapter_kind is AdapterKind.RSS_ATOM
+        and selected_tier is Tier.C
+        and (
+            dry_run
+            or loaded.source_id != "cdc-eid-expedited"
+            or Path(definition).as_posix() != "config/sources/intelligence_cdc_eid_expedited.yml"
+        )
+    ):
+        raise typer.BadParameter("Tier C RSS/Atom requires the exact EID protected route")
+    if (
+        loaded.adapter_kind is AdapterKind.RSS_ATOM
+        and selected_tier in {Tier.B, Tier.C}
+        and not dry_run
+    ):
         from .ingestion.intelligence_runtime import canonical_pilot, pilot_watchdog
 
         if resolved_fixture is not None:
