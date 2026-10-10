@@ -64,6 +64,9 @@ commit and its accepted review to name the exact January PR head. This permits
 later reviewed workflow corrections on main without misidentifying their merge
 commit as the January implementation review. Operators cannot supply substitute
 review fields.
+In DEV, the unchanged annual tick source uses its governed generic source rows
+and evidence-only classification; the restricted tick status table is a PROD
+source path. January climate preparation does not change either source route.
 This does not repeat ingestion or the diagnostic.
 Snowflake documents support for objects over 16 MB in existing VARIANT columns
 without schema alteration ([data preparation guidance](https://docs.snowflake.com/en/user-guide/data-load-considerations-prepare));
