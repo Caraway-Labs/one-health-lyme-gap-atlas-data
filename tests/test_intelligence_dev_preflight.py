@@ -84,6 +84,28 @@ def registry_row(source):
     }
 
 
+def test_checked_in_eid_admission_is_exact_and_rejects_changed_source(monkeypatch):
+    source = json.loads(Path("config/intelligence/cdc-eid-expedited-source-v1.json").read_text())
+    receipts = json.loads(Path("config/intelligence/pilot-policy-receipts.json").read_text())[
+        "receipts"
+    ]
+    monkeypatch.setattr(
+        module,
+        "REVIEWED_RESTRICTED_ARTIFACT_POLICIES",
+        {"cdc-eid-expedited": "CDC_EID_RESTRICTED_RAW_30D_V1"},
+    )
+    assert (
+        module.source_result("cdc-eid-expedited", [registry_row(source)], receipts)["reason"]
+        == "PASS"
+    )
+    changed = copy.deepcopy(source)
+    changed["access_use"]["public_excerpt_permitted"] = True
+    assert (
+        module.source_result("cdc-eid-expedited", [registry_row(changed)], receipts)["passed"]
+        is False
+    )
+
+
 @pytest.mark.parametrize("source_id", module.SOURCE_ENDPOINTS)
 def test_exact_reviewed_registry_proof_is_boolean_and_redacted(source_id):
     source, receipt = synthetic_registry_case(source_id)
