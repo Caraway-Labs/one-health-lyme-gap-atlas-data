@@ -70,6 +70,13 @@ def test_diagnostic_execute_surface_is_read_only() -> None:
         assert prefix.startswith(("SELECT ", "SHOW ", "DESCRIBE VIEW "))
 
 
+def test_observation_read_is_bounded_after_full_count_timed_out() -> None:
+    source = SCRIPT.read_text()
+    assert "VALUE, VALUE_STATE, UNIT FROM {qualified} LIMIT 4" in source
+    assert "if name == NAMES[0]:" in source
+    assert "CLIMATE_OBSERVATIONS_EMPTY" in source
+
+
 def test_wrong_identity_stops_before_view_inspection() -> None:
     class Cursor:
         calls = []
