@@ -144,9 +144,8 @@ def test_latest_registry_version_is_discovered_without_yaml_self_approval() -> N
 
 
 def test_prod_eid_composition_requires_exact_storage_identity_and_receipt() -> None:
-    from scripts.register_eid_expedited_dev import reviewed_package
-
-    source, checksum = reviewed_package()
+    source = json.loads(Path("config/intelligence/cdc-eid-expedited-source-v1.json").read_text())
+    checksum = identity_hash(source)
     configured = load_source_definition(Path("config/sources/intelligence_cdc_eid_expedited.yml"))
     receipts = json.loads(runtime.RECEIPTS.read_text())["receipts"]
     ledger = AcquisitionLedger()

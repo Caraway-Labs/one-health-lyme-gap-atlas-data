@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
@@ -12,7 +14,15 @@ from lyme_gap_atlas_data.ingestion.intelligence_runtime import pilot_watchdog
 from lyme_gap_atlas_data.migrations import pending_migration_plan
 from lyme_gap_atlas_data.settings import PipelineSettings
 from lyme_gap_atlas_data.sql_sessions import connect
-from scripts.register_eid_expedited_dev import register, reviewed_package
+
+_dev_module_path = Path(__file__).with_name("register_eid_expedited_dev.py")
+_dev_spec = importlib.util.spec_from_file_location("eid_reviewed_registration", _dev_module_path)
+if _dev_spec is None or _dev_spec.loader is None:
+    raise RuntimeError("Reviewed EID registration source unavailable")
+_dev_module = importlib.util.module_from_spec(_dev_spec)
+_dev_spec.loader.exec_module(_dev_module)
+register = _dev_module.register
+reviewed_package = _dev_module.reviewed_package
 
 DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
 IDENTITY = (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -11,10 +12,15 @@ import typer
 from lyme_gap_atlas_data import cli
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.migrations import load_migrations
-from scripts import register_eid_expedited_prod as registration
 
 ROOT = Path(__file__).parents[1]
 EID_PATH = "config/sources/intelligence_cdc_eid_expedited.yml"
+spec = importlib.util.spec_from_file_location(
+    "eid_prod_registration", ROOT / "scripts/register_eid_expedited_prod.py"
+)
+assert spec and spec.loader
+registration = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(registration)
 
 
 class Cursor:
@@ -101,7 +107,7 @@ def test_prod_workflows_pin_eid_and_keep_registry_write_separate() -> None:
     )
     assert 'test "$GITHUB_SHA" = "$REVIEWED_COMMIT"' in registration_workflow
     assert "test \"$EXPECTED_PENDING_JSON\" = '[]'" in registration_workflow
-    assert "scripts.register_eid_expedited_prod" in registration_workflow
+    assert "scripts/register_eid_expedited_prod.py" in registration_workflow
     assert "apply-migrations" not in registration_workflow
     assert "--query" not in registration_workflow
     assert (
