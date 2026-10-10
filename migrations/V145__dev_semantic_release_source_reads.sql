@@ -1,10 +1,9 @@
--- DATA #443: candidate DEV-only reads for the existing protected release builder.
--- Apply only after separate owner authorization for these exact source objects.
+-- DATA #443: verify the exact DEV-only reads for the protected release builder.
+-- The view is owned by OH_LYME_DEV_RUNTIME, not the migration deployer.
+-- A qualified grant owner must apply the three approved object grants before
+-- this migration records their successful readback in the DEV ledger.
 USE DATABASE {{ DATABASE }};
 
-GRANT SELECT ON VIEW CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP
-    TO ROLE OH_LYME_DEV_MIGRATION_DEPLOYER;
-GRANT SELECT ON TABLE CONFORMED.GOVERNED_SOURCE_RECORDS
-    TO ROLE OH_LYME_DEV_MIGRATION_DEPLOYER;
-GRANT SELECT ON TABLE CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS
-    TO ROLE OH_LYME_DEV_MIGRATION_DEPLOYER;
+SELECT 1 FROM CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP LIMIT 0;
+SELECT 1 FROM CONFORMED.GOVERNED_SOURCE_RECORDS LIMIT 0;
+SELECT 1 FROM CONFORMED.RESTRICTED_CDC_PATHOGEN_COUNTY_STATUS LIMIT 0;
