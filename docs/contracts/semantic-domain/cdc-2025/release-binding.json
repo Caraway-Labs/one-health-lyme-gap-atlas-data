@@ -1,0 +1,17 @@
+{
+  "release_id": "governed-2026-09-18-unknown-coverage",
+  "bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026",
+  "slices": {
+    "scapularis_status": {
+      "resource_key": "cdc_tick_ixodes_county_status",
+      "dataset_id": "cdc-ixodes-county-status-2025",
+      "source_version_id": "b81c116f-d93d-4c6b-9d11-ac2477e0e242"
+    },
+    "burgdorferi_status": {
+      "resource_key": "cdc_tick_ixodes_pathogen_status",
+      "dataset_id": "cdc-ixodes-pathogen-status-2025",
+      "source_version_id": "92b22f19-0d5d-4576-a7c6-6c9af9343edf"
+    }
+  },
+  "review_state": "PENDING"
+}

@@ -13,6 +13,12 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
+from lyme_gap_atlas_data.cdc_consumer_admission import (
+    cdc_consumer_admitted,
+    is_cdc_edge,
+    is_cdc_metadata,
+    is_restricted_cdc_source,
+)
 from lyme_gap_atlas_data.semantic_domain import validate_observation
 from lyme_gap_atlas_data.semantic_metadata import validate_metadata
 from lyme_gap_atlas_data.surveillance_safe import has_sensitive_path
@@ -130,8 +136,39 @@ def _validate_edge(
         _same(run.get("dataset_id"), source.get("dataset_id"), "run/dataset")
     artifact_id = _required(edge.get("artifact_id"), "artifact")
     artifact = _object(registry, "artifacts", artifact_id)
-    _same(artifact.get("ingestion_run_id"), run_id, "artifact/run")
-    _same(artifact.get("source_version_id"), version_id, "artifact/source version")
+    record_id = _required(edge.get("record_id"), "record")
+    record = _object(registry, "records", record_id)
+    if is_cdc_edge(edge):
+        evidence_id = _required(record.get("evidence_run_id"), "CDC evidence run")
+        evidence_run = _object(registry, "runs", evidence_id)
+        evidence_version_id = _required(evidence_run.get("source_version_id"), "evidence version")
+        evidence_source = _object(registry, "source_versions", evidence_version_id)
+        for governed in (source, evidence_source):
+            _same(governed.get("definition_version"), 1, "CDC source definition version")
+        for field in ("source_id", "dataset_id", "resource_key", "source_vintage", "publisher"):
+            _same(evidence_source.get(field), source.get(field), f"CDC evidence/{field}")
+        _same(evidence_run.get("dataset_id"), source.get("dataset_id"), "CDC evidence dataset")
+        _same(artifact.get("ingestion_run_id"), evidence_id, "CDC artifact/evidence run")
+        _same(
+            artifact.get("source_version_id"), evidence_version_id, "CDC artifact/evidence version"
+        )
+        _same(record.get("workbook_sha256"), edge.get("artifact_sha256"), "CDC workbook hash")
+        _same(record.get("resource_key"), edge.get("resource_key"), "CDC record resource")
+        _same(record.get("source_definition_version"), 1, "CDC record definition version")
+        if (
+            evidence_id == run_id
+            or evidence_source.get("approved") is not True
+            or not isinstance(edge.get("source_row_hash"), str)
+            or not _SHA.fullmatch(edge["source_row_hash"])
+            or not edge.get("source_record_id")
+            or record.get("record_kind") != "CANONICAL"
+            or not edge.get("canonical_record_id")
+            or record.get("coverage_state") == "UNKNOWN_SOURCE_COVERAGE"
+        ):
+            raise SemanticLineageError("CDC restricted publisher record proof required")
+    else:
+        _same(artifact.get("ingestion_run_id"), run_id, "artifact/run")
+        _same(artifact.get("source_version_id"), version_id, "artifact/source version")
     artifact_hash = edge.get("artifact_sha256")
     if not isinstance(artifact_hash, str) or not _SHA.fullmatch(artifact_hash):
         raise SemanticLineageError("invalid artifact hash")
@@ -216,6 +253,16 @@ def validate_lineage(
             raise SemanticLineageError("duplicate ambiguous lineage edge")
         record_ids.add(record_id)
     provenance = observation["provenance"]
+    if any(is_cdc_edge(edge) for edge in edges):
+        if not is_cdc_metadata(metadata) or len(edges) != 1:
+            raise SemanticLineageError("exact CDC measure metadata required")
+        restricted = _object(registry, "records", edges[0]["record_id"])
+        _same(
+            restricted.get("county_fips"),
+            observation["geography"].get("county_fips"),
+            "CDC record county",
+        )
+        _same(restricted.get(measure["measure_id"]), observation["value"], "CDC publisher value")
     if observation["origin"] == "REPORTED":
         if len(edges) != 1:
             raise SemanticLineageError("reported observation requires one record edge")
@@ -332,6 +379,10 @@ def validate_lineage(
     if lineage.get("visibility") not in {"INTERNAL", "CONSUMER_SAFE"}:
         raise SemanticLineageError("invalid lineage visibility")
     if lineage.get("visibility") == "CONSUMER_SAFE":
+        if any(is_restricted_cdc_source(edge) for edge in edges) and not cdc_consumer_admitted(
+            lineage, registry
+        ):
+            raise SemanticLineageError("CDC consumer admission authority required")
         consumer_safe_lineage(lineage)
     if lineage.get("lineage_id") != lineage_id(lineage):
         raise SemanticLineageError("lineage identity mismatch")
@@ -358,7 +409,9 @@ def consumer_safe_lineage(lineage: Mapping[str, Any]) -> dict[str, Any]:
         "limitations": metadata["limitations"],
         "evidence_basis": observation["provenance"].get("evidence_basis"),
         "representativeness": observation["geography"].get("representativeness"),
-        "record_refs": [edge["record_id"] for edge in lineage["edges"]],
+        "record_refs": [observation["observation_key"]]
+        if is_cdc_metadata(metadata)
+        else [edge["record_id"] for edge in lineage["edges"]],
         "result_id": result.get("result_id") if isinstance(result, Mapping) else None,
         "result_revision_id": result.get("revision_id") if isinstance(result, Mapping) else None,
         "release_id": lineage["release"]["release_id"] if lineage.get("release") else None,
