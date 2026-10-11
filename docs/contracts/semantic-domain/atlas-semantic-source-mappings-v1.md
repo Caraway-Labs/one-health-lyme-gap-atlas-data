@@ -14,6 +14,14 @@ The source governance ledger owns approval, source identity, product, vintage, d
 
 The mandatory `steward_review.state` is `REVIEWED` for live mapping. #191's example metadata remains `PENDING`; a caller can pass `fixture_mode=True` only with `record.fixture=true` to exercise synthetic contract behavior. This test path does not approve a source or a metadata revision. When actual reviewed metadata and approved authority rows are unavailable, a live mapping fails rather than promoting synthetic evidence.
 
+The 2026-10-04 DATA #199/#200 packet adds a reviewed RUCC definition with
+`VINTAGE_YEAR: 2023` and semantic version `2.0.0`. The additive
+`rucc_vintage_2023` rule pins that exact semantic version and source tuple.
+The older `rucc` point-date rule remains in the registry as a historical
+identity; it is not an authority for a publisher observation day. A live
+mapping still requires actual source/run/artifact/record authority and #193
+validation. This contract change does not publish a new release.
+
 ## Mapping and validation behavior
 
 - The rule's source resource, optional scientific product/dataset, vintage, and source-definition version must agree with every source edge and the corresponding approved governance row. A globally valid source field cannot satisfy another source tuple.

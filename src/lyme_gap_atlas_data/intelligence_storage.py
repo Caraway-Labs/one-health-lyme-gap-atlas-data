@@ -195,6 +195,21 @@ class IntelligenceStore:
             self._context(cursor)
             return self._source(cursor, source_id, version)
 
+    @_redacted("INTELLIGENCE_SOURCE_LOOKUP_FAILED")
+    def lookup_latest_source(self, source_id: str) -> dict[str, Any]:
+        """Discover the authoritative version; never manufacture one from a YAML file."""
+        with self._session() as (_, cursor):
+            self._context(cursor)
+            row = _one(
+                cursor,
+                """SELECT registry_version FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS
+                WHERE source_id=%s ORDER BY registry_version DESC LIMIT 1""",
+                (source_id,),
+            )
+            if row is None:
+                raise PermissionError("INTELLIGENCE_CURRENT_SOURCE_REQUIRED")
+            return self._source(cursor, source_id, int(row[0]))
+
     @staticmethod
     def _validate(item: dict[str, Any], source: dict[str, Any], run_id: str) -> None:
         validate_record("item", item)

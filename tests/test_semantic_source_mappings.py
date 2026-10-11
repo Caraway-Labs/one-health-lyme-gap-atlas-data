@@ -37,6 +37,7 @@ SHAPES = {
     "human_surveillance": "case_count_floor_2023",
     "svi": "svi_percentile_2022",
     "rucc": "rucc_2023",
+    "rucc_vintage_2023": "rucc_2023",
     "county_tick_status": "scapularis_status",
     "county_pathogen_status": "burgdorferi_status",
     "neon_collection": "neon_collection",
@@ -60,14 +61,18 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
         target_dataset = "county-tick-status"
         measure["temporal_semantics"] = "CUMULATIVE_THROUGH_DATE"
         metadata["applicability"]["temporal_semantics"] = "CUMULATIVE_THROUGH_DATE"
+    if mapping_id == "rucc_vintage_2023":
+        measure["semantic_version"] = "2.0.0"
+        measure["temporal_semantics"] = "VINTAGE_YEAR"
+        metadata["metadata_id"] = "metadata:rucc_2023:2.0.0"
+        metadata["applicability"]["temporal_semantics"] = "VINTAGE_YEAR"
+        metadata["meaning_signature"] = meaning_signature(measure)
     metadata["provenance"]["source_id"]["value"] = target_source
     metadata["provenance"]["publisher"]["value"] = target_source
     metadata["provenance"]["dataset_id"]["value"] = target_dataset
     metadata["provenance"]["source_vintage"]["value"] = mapping["vintage"]
     metadata["freshness"]["source_vintage"]["value"] = mapping["vintage"]
     if mapping_id == "source_only":
-        from lyme_gap_atlas_data.semantic_domain import meaning_signature
-
         metadata["meaning_signature"] = meaning_signature(measure)
     metadata["revision_id"] = metadata_revision_id(metadata)
     for edge in edges:
@@ -93,6 +98,8 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
     temporal = copy.deepcopy(trace["observation"]["temporal"])
     if mapping_id == "source_only":
         temporal = {"semantics": "CUMULATIVE_THROUGH_DATE", "date": "2025-12-31"}
+    if mapping_id == "rucc_vintage_2023":
+        temporal = {"semantics": "VINTAGE_YEAR", "year": "2023"}
     value = trace["observation"]["value"]
     if mapping_id == "svi":
         value = 0.5
@@ -230,6 +237,18 @@ def _case(mapping_id: str) -> tuple[dict, dict, dict]:
             "revision_id"
         ]
     return record, metadata, authority
+
+
+def test_rucc_vintage_mapping_rejects_a_different_or_precise_day() -> None:
+    record, metadata, authority = _case("rucc_vintage_2023")
+    for temporal in (
+        {"semantics": "VINTAGE_YEAR", "year": "2024"},
+        {"semantics": "VINTAGE_YEAR", "year": "2023", "date": "2023-12-31"},
+    ):
+        changed = copy.deepcopy(record)
+        changed["temporal"] = temporal
+        with pytest.raises(SemanticMappingError, match="exact source vintage year"):
+            map_record(changed, metadata, authority, REGISTRY, fixture_mode=True)
 
 
 @pytest.mark.parametrize("mapping_id", SHAPES)

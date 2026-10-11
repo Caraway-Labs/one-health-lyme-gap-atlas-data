@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -62,6 +64,38 @@ def _source(source_key: str) -> SemanticSource:
         definition_version=1,
         field_map=field_map,
     )
+
+
+def test_dev_tick_uses_existing_generic_source_path_without_prod_restricted_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _source("tick")
+    cursor = Mock()
+    cursor.fetchone.side_effect = [
+        ("APPROVED", "decision", None),
+        ("COMPLETED",),
+        ("a" * 64,),
+    ]
+    monkeypatch.setattr(
+        semantic_release,
+        "_verify_evidence_only_coverage_classification",
+        lambda *_args, **_kwargs: SimpleNamespace(approved_at=datetime.now(UTC)),
+    )
+    semantic_release._verify_source_gate(cursor, source, allow_dev_tick_evidence_exception=True)
+    assert "RESTRICTED_CDC_TICK_COUNTY_STATUS" not in str(cursor.execute.call_args_list)
+    assert "GOVERNANCE.RAW_ARTIFACTS" in cursor.execute.call_args_list[2].args[0]
+
+    cursor = Mock()
+    cursor.fetchall.side_effect = [[], [tuple(range(10))]]
+    rows = semantic_release._read_source_rows(cursor, source, dev_tick_generic=True)
+    assert len(rows) == 1
+    assert "GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS" in cursor.execute.call_args_list[0].args[0]
+    assert "CONFORMED.GOVERNED_SOURCE_RECORDS" in cursor.execute.call_args_list[1].args[0]
+
+    cursor = Mock()
+    cursor.fetchall.return_value = [tuple(range(10))]
+    semantic_release._read_source_rows(cursor, source, dev_tick_generic=False)
+    assert "CONFORMED.RESTRICTED_CDC_TICK_COUNTY_STATUS" in cursor.execute.call_args.args[0]
 
 
 def _manifest() -> SemanticManifest:

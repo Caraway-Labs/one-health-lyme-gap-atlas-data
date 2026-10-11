@@ -14,7 +14,7 @@ def test_release_operation_creates_its_own_ephemeral_connection_files() -> None:
         "- name: Build, publish, or rollback the semantic release and prove state", 1
     )[1]
 
-    assert 'trap \'rm -f "$key_file" "$config_file"\' EXIT' in operation
+    assert 'trap \'rm -f "$key_file" "$config_file" "$january_manifest"\' EXIT' in operation
     assert "printf '%s' \"$SNOWFLAKE_PRIVATE_KEY_B64\" | fold -w 64" in operation
     assert 'cat > "$config_file" <<EOF' in operation
     assert 'private_key_path = "$key_file"' in operation
@@ -26,3 +26,21 @@ def test_default_release_id_matches_the_reviewed_manifest() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "default: governed-2026-09-17-unknown-coverage" in workflow
+
+
+def test_january_preparation_is_dev_build_only_and_job_local() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert 'if [[ "$PREPARE_JANUARY_CLIMATE" == "true" ]]; then' in workflow
+    assert 'test "${{ inputs.environment_name }}" = dev' in workflow
+    assert 'test "$OPERATION" = build' in workflow
+    assert (
+        'test "$MANIFEST_PATH" = docs/contracts/climate/january-2025-dev-release-input.json'
+        in workflow
+    )
+    assert 'january_manifest="$RUNNER_TEMP/january-climate-release-manifest.json"' in workflow
+    assert '--output "$january_manifest"' in workflow
+    assert 'MANIFEST_PATH="$january_manifest"' in workflow
+    assert "climate_review_commit:" not in workflow
+    assert "climate_review_url:" not in workflow
+    assert "climate_reviewer:" not in workflow
+    assert "GH_TOKEN: ${{ github.token }}" in workflow

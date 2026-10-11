@@ -123,13 +123,15 @@ def test_large_manifest_is_fixture_only_and_temporary_table_is_removed(monkeypat
 def test_workflow_diagnostic_exits_before_guarded_migration_apply() -> None:
     workflow = (ROOT / ".github/workflows/deploy-dev.yml").read_text()
     mode = workflow.index('if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ]; then')
-    apply = workflow.index("apply-reviewed-dev-migrations")
+    apply = workflow.rindex("apply-reviewed-dev-migrations")
     assert (
         mode
         < workflow.index("scripts/verify_climate_dev.py", mode)
         < workflow.index("exit 0", mode)
         < apply
     )
+    early = workflow.split('if [ "$feed_batch" = "true" ]; then', 1)[1].split("exit 0", 1)[0]
+    assert 'test "$DIAGNOSE_CLIMATE_DEV" != "true"' in early
     assert "expected_pending_json" in workflow
 
 

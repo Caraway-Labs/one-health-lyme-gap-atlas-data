@@ -45,6 +45,29 @@ appending a run row does not add it to an already published release. At 64 hex
 characters per ID, this list is approximately 26 MB of compact JSON. Verify the
 target release VARIANT capacity and connector support before building a live
 manifest; this draft does not claim that large-manifest round trip is proven.
+The unpublished full list is recoverable from the existing retained V103 revision
+rows by fixed run/source/artifact predicates. Publication preparation must
+reconstruct it, compare the exact count and five-field digest with the protected
+diagnostic proof, then place every sorted ID in the immutable extension. The
+reconstruction is a governed read; a compact digest alone cannot replace the
+extension's list or waive target-environment revalidation.
+For the DEV January build, `january-2025-dev-release-input.json` pins the
+accepted annual release/bundle and verified January run, count and membership
+digest. The protected semantic-release build job reconstructs the full list
+from V103 revision rows in its migration-deployer session, checks the 1,560
+retained normalized partitions, and creates the full manifest only in its
+private temporary directory. The existing builder validates and persists the
+complete extension with the immutable candidate; job cleanup removes the
+temporary file. The job obtains review evidence from the merged January PR and
+requires its merge commit to be a Git ancestor of the checked-out main release
+commit and its accepted review to name the exact January PR head. This permits
+later reviewed workflow corrections on main without misidentifying their merge
+commit as the January implementation review. Operators cannot supply substitute
+review fields.
+In DEV, the unchanged annual tick source uses its governed generic source rows
+and evidence-only classification; the restricted tick status table is a PROD
+source path. January climate preparation does not change either source route.
+This does not repeat ingestion or the diagnostic.
 Snowflake documents support for objects over 16 MB in existing VARIANT columns
 without schema alteration ([data preparation guidance](https://docs.snowflake.com/en/user-guide/data-load-considerations-prepare));
 the target connector/session round trip still requires verification.

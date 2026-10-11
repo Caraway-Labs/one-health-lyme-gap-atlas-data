@@ -928,6 +928,10 @@ _REGISTRY: dict[AdapterKind, SourceAdapter] = {
 
 
 def get_adapter(kind: AdapterKind) -> SourceAdapter:
+    if kind is AdapterKind.RETAINED_ANNUAL_NLCD_AGGREGATE:
+        from .retained_annual_nlcd import RetainedAnnualNLCDAggregateAdapter
+
+        return RetainedAnnualNLCDAggregateAdapter()
     if kind is AdapterKind.RSS_ATOM:
         from .intelligence_feed import IntelligenceFeedAdapter
 

@@ -1,0 +1,9 @@
+{
+  "contract_version": "atlas-january-climate-dev-release-input-v1",
+  "release_id": "governed-2026-10-09-january-climate-dev",
+  "annual_release_id": "governed-2026-09-17-unknown-coverage",
+  "annual_bundle_sha256": "55192e53b0b046cfe5148c13ffe5c570f615ec233e2b5c1103247f00b1a51233",
+  "ingestion_run_id": "c2eb2146-005d-44d2-bac4-e2805ca42577",
+  "capture_membership_sha256": "03f4ac5245e4d3006cbf3bf0948c4ef03862de838936ebd4df9c8448fed45ed8",
+  "row_count": 389856
+}

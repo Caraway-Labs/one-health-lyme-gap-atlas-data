@@ -1,0 +1,68 @@
+{
+  "status": "PROPOSED_NOT_AUTHORIZED_FOR_EXECUTION",
+  "issue": 443,
+  "baseline_commit": "819dde4974d4bd0c6acc3235dfaeeb146098233a",
+  "purpose": "Descriptive environmental context; no supervised-label gate or Tier 1 dependency",
+  "target_start_month": "198501",
+  "approved_end_month": "202608",
+  "target_calendar_months": 500,
+  "endpoint_inventory": "nclimgrid-index-2026-10-06.json",
+  "execution": {
+    "environment": "DEV",
+    "tier": "B",
+    "sequential_definitions": ["nclimgrid:198501..198501", "nclimgrid:202608..202608"],
+    "second_definition_requires_first_acceptance": true,
+    "recapture": false,
+    "publish": false,
+    "automatic_continuation": false,
+    "reuse_success_before_dispatch": true,
+    "inspect_nonterminal_before_resume": true
+  },
+  "expected_matrix": {
+    "days_per_month": 31,
+    "canonical_counties": 3144,
+    "measures": 4,
+    "rows_per_month": 389856,
+    "total_rows": 779712,
+    "estimated_partitions_per_month": 1560,
+    "actual_partitions_and_bytes": "UNKNOWN_UNTIL_QUALIFIED"
+  },
+  "preserved_bounds": {
+    "months_per_invocation_maximum": 12,
+    "rows_per_logical_partition": 250,
+    "canonical_bytes_per_logical_partition": 900000,
+    "logical_partitions_per_recovery_group": 64,
+    "concurrent_executions": 1,
+    "warehouse": "Existing dedicated DEV XS; no resize or new worker"
+  },
+  "proposed_limits_requiring_approval_and_enforcement": {
+    "runtime_minutes_per_month": 60,
+    "aggregate_attributable_warehouse_credits": 1.0,
+    "currency_allowance": null,
+    "canonical_checkpoint_content_bytes_total": 2147483648,
+    "retained_input_bytes_total": 367001600,
+    "physical_storage_bytes_total": null,
+    "minimum_free_temporary_disk_bytes": null,
+    "peak_process_memory_bytes": null,
+    "approved": false,
+    "enforcement_verified": false
+  },
+  "planning_reference": {
+    "january_runtime": "25m38.119s",
+    "runtime_queries": 815,
+    "merges": 233,
+    "canonical_checkpoint_bytes": 672364924,
+    "retained_input_bytes": 145003099,
+    "limits": "Wall time is not warehouse active time; logical bytes are not physical storage or invoices"
+  },
+  "blocking_preflight": [
+    "Explicit total credit/currency and physical storage/headroom permission; no NLCD budget inheritance",
+    "Enforceable approved runtime/spend stop; current workflow timeout is 360 minutes",
+    "Actual existing-run and active-worker ledger read; matching successes must be reused",
+    "Verified dedicated runtime identity, V103/V117 applicability and retained transport cleanup",
+    "Actual runner RAM/free disk and a measured peak-RSS recording route"
+  ],
+  "stop_conditions": ["Unresolved source/schema/quality/integrity failure", "Approved resource or spending bound reached", "Conflicting active run"],
+  "evidence_required": ["Exact named retained input hashes", "All dates/county/measure identities and coverage/area fractions", "Contiguous ordered partitions and immutable revisions", "Fresh-process retained-only replay and corruption rejection", "Unchanged rerun skip_succeeded with no duplicate state", "Runtime/RSS/disk/storage/stage residuals and attributable credits"],
+  "publication": "Separate reviewed existing-release extension and intended-reader parity; captured is not published"
+}

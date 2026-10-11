@@ -12,6 +12,7 @@ on:
         options:
           - config/sources/cdc_atsdr_svi_2022_county.yml
           - config/sources/usda_ers_rucc_2023.yml
+          - config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml
       release_commit:
         description: Exact reviewed commit
         required: true
@@ -31,6 +32,7 @@ jobs:
     environment: production
     env:
       TOPX_ENV: prod
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && '60' || '' }}
       ENABLE_PRODUCTION_EXECUTION: "true"
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
@@ -53,7 +55,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"
           case "${{ inputs.source_definition }}" in
-            config/sources/cdc_atsdr_svi_2022_county.yml|config/sources/usda_ers_rucc_2023.yml) ;;
+            config/sources/cdc_atsdr_svi_2022_county.yml|config/sources/usda_ers_rucc_2023.yml|config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml) ;;
             *) echo "::error::Definition is not admitted to this protected evidence path"; exit 1 ;;
           esac
       - uses: astral-sh/setup-uv@v6
@@ -62,12 +64,13 @@ jobs:
       - name: Install package
         run: uv sync --extra pipeline --locked
       - name: Validate definition and production runtime identity
+        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 3 || 360 }}
         run: |
           set -euo pipefail
           uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
           uv run python - <<'PY'
           from lyme_gap_atlas_shared.settings import SnowflakeSettings
-          from lyme_gap_atlas_shared.snowflake import connect
+          from lyme_gap_atlas_data.sql_sessions import connect
 
           settings = SnowflakeSettings()
           with connect(settings) as connection, connection.cursor() as cursor:
@@ -79,6 +82,7 @@ jobs:
           print("Verified protected PROD runtime identity.")
           PY
       - name: Capture immutable candidate evidence
+        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           uv run atlas-data source capture-routine-public-evidence \
             --definition "${{ inputs.source_definition }}"

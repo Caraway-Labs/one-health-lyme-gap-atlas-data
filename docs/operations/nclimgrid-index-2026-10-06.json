@@ -1,0 +1,16 @@
+{
+  "checked_at_utc": "2026-10-06T04:48:46.0974730Z",
+  "url": "https://www.ncei.noaa.gov/data/nclimgrid-daily/access/grids/2026/",
+  "kind": "DIRECTORY_INDEX_ONLY_NO_SOURCE_DOWNLOAD",
+  "scaled_months": [
+    "202601",
+    "202602",
+    "202603",
+    "202604",
+    "202605",
+    "202606",
+    "202607",
+    "202608"
+  ],
+  "latest_scaled_month": "202608"
+}

@@ -8,8 +8,9 @@ import math
 import os
 import re
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from .climate_publication import NOAA_ARTIFACT_ID, NOAA_SHA, RESOURCE_KEY, RUN_ID
@@ -19,6 +20,9 @@ from .surveillance_safe import has_sensitive_path
 ROW_COUNT = 389856
 ARTIFACT_NAME = "source-pilot-inspection-artifact.json"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
+DONOR_CONTRACT = "atlas-january-reviewed-donor-v1"
+MAX_DONOR_BYTES = 64 * 1024
+DONOR_WAREHOUSE = "OH_LYME_DEV_INGEST_XS_WH"
 
 
 class MembershipBlocked(ValueError):
@@ -172,22 +176,175 @@ def validate_donor(donor: Any, donor_id: Any) -> None:
                 text(name)
 
 
-def freeze_membership(cursor: Any, output: Path, code_sha: str) -> dict[str, Any]:
+def export_donor_handoff(
+    cursor: Any, output: Path, code_sha: str, expected_account_sha256: str, expected_region: str
+) -> dict[str, Any]:
+    """Called only within an independently bounded protected DEV operator read.
+
+    No connection, grant, migration or publication is performed here. The caller
+    must enforce timeout/no-retry/cost limits and retain the operator-run receipt.
+    """
+    require(re.fullmatch(r"[0-9a-f]{40}", code_sha) is not None, "MEMBERSHIP_CODE_SHA")
+    require(HEX.fullmatch(expected_account_sha256) is not None, "MEMBERSHIP_DONOR_ACCOUNT_BINDING")
+    cursor.execute(
+        "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE(),"
+        "CURRENT_REGION(),CURRENT_ACCOUNT()"
+    )
+    context = cursor.fetchone()
+    require(
+        isinstance(context, tuple)
+        and len(context) == 6
+        and context[:3]
+        == (
+            "OH_LYME_DEV_MIGRATION_DEPLOY_SVC",
+            "OH_LYME_DEV_MIGRATION_DEPLOYER",
+            "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+        )
+        and context[3] == DONOR_WAREHOUSE,
+        "MEMBERSHIP_DONOR_OPERATOR_IDENTITY",
+    )
+    require(
+        isinstance(context[5], str)
+        and hashlib.sha256(context[5].upper().encode()).hexdigest() == expected_account_sha256
+        and context[4] == expected_region,
+        "MEMBERSHIP_DONOR_ACCOUNT_BINDING",
+    )
+    cursor.execute(
+        "SELECT p.current_release_id,r.status,r.bundle_sha256,"
+        f"IFF(OCTET_LENGTH(TO_JSON(r.source_manifest))<={MAX_DONOR_BYTES},r.source_manifest,NULL) "
+        "FROM PRESENTATION.SEMANTIC_RELEASE_POINTER p "
+        "JOIN PRESENTATION.SEMANTIC_RELEASES r ON r.release_id=p.current_release_id "
+        "WHERE p.pointer_key='ATLAS' LIMIT 2"
+    )
+    rows = cursor.fetchall()
+    require(len(rows) == 1 and rows[0][1] == "PUBLISHED", "MEMBERSHIP_CURRENT_RELEASE")
+    release_id, _, bundle_sha, manifest = rows[0]
+    manifest = json.loads(manifest) if isinstance(manifest, str) else manifest
+    validate_donor(manifest, release_id)
+    require(
+        isinstance(bundle_sha, str) and HEX.fullmatch(bundle_sha) is not None,
+        "MEMBERSHIP_DONOR_BUNDLE",
+    )
+    cursor.execute("SELECT release_id,bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V LIMIT 2")
+    require(cursor.fetchall() == [(release_id, bundle_sha)], "MEMBERSHIP_POINTER_CHANGED")
+    document = {
+        "contract_version": DONOR_CONTRACT,
+        "producer_code_sha": code_sha,
+        "produced_at": datetime.now(UTC).isoformat(),
+        "operator_role": context[1],
+        "account_locator_sha256": expected_account_sha256,
+        "region": expected_region,
+        "release_id": release_id,
+        "bundle_sha256": bundle_sha,
+        "annual_manifest": manifest,
+    }
+    payload = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+    require(len(payload) <= MAX_DONOR_BYTES, "MEMBERSHIP_DONOR_SIZE")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+        os.replace(temporary, output)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return {
+        "artifact_sha256": hashlib.sha256(payload).hexdigest(),
+        "byte_count": len(payload),
+        "writes_performed": False,
+    }
+
+
+def read_donor_handoff(path: Path, expected_sha256: str) -> dict[str, Any]:
+    """Expected digest comes from independent review of the operator artifact."""
+    require(HEX.fullmatch(expected_sha256) is not None, "MEMBERSHIP_DONOR_DIGEST_REQUIRED")
+    require(path.is_file() and path.stat().st_size <= MAX_DONOR_BYTES, "MEMBERSHIP_DONOR_SIZE")
+    with path.open("rb") as handle:
+        payload = handle.read(MAX_DONOR_BYTES + 1)
+    require(len(payload) <= MAX_DONOR_BYTES, "MEMBERSHIP_DONOR_SIZE")
+    require(hashlib.sha256(payload).hexdigest() == expected_sha256, "MEMBERSHIP_DONOR_DIGEST")
+    try:
+        document = json.loads(payload)
+    except (ValueError, UnicodeError):
+        raise MembershipBlocked("MEMBERSHIP_DONOR_SHAPE") from None
+    validate_donor_handoff(document)
+    return cast(dict[str, Any], document)
+
+
+def validate_donor_handoff(document: Any) -> None:
+    require(
+        isinstance(document, dict)
+        and set(document)
+        == {
+            "contract_version",
+            "producer_code_sha",
+            "produced_at",
+            "operator_role",
+            "account_locator_sha256",
+            "region",
+            "release_id",
+            "bundle_sha256",
+            "annual_manifest",
+        },
+        "MEMBERSHIP_DONOR_HANDOFF_SHAPE",
+    )
+    require(
+        document["contract_version"] == DONOR_CONTRACT
+        and document["operator_role"] == "OH_LYME_DEV_MIGRATION_DEPLOYER"
+        and re.fullmatch(r"[0-9a-f]{40}", str(document["producer_code_sha"])) is not None
+        and HEX.fullmatch(str(document["bundle_sha256"])) is not None
+        and HEX.fullmatch(str(document["account_locator_sha256"])) is not None
+        and re.fullmatch(r"AWS_[A-Z0-9_]+", str(document["region"])) is not None,
+        "MEMBERSHIP_DONOR_HANDOFF_IDENTITY",
+    )
+    try:
+        produced = datetime.fromisoformat(document["produced_at"].replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        raise MembershipBlocked("MEMBERSHIP_DONOR_HANDOFF_TIME") from None
+    require(
+        produced.tzinfo is not None and produced <= datetime.now(UTC),
+        "MEMBERSHIP_DONOR_HANDOFF_TIME",
+    )
+    validate_donor(document["annual_manifest"], document["release_id"])
+
+
+def freeze_membership(
+    cursor: Any, output: Path, code_sha: str, donor_handoff: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """At most the fixed January row count; SELECT only and atomic local artifact.
 
     No source approval, warehouse object, grant, pointer or capture is changed.
     The full IDs remain in the workflow artifact; stdout contains counts/digests.
     """
-    cursor.execute("SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()")
+    if donor_handoff is None:
+        raise MembershipBlocked("MEMBERSHIP_DONOR_HANDOFF_REQUIRED")
+    validate_donor_handoff(donor_handoff)
+    cursor.execute(
+        "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE(),"
+        "CURRENT_REGION(),CURRENT_ACCOUNT()"
+    )
+    context = cursor.fetchone()
     require(
-        cursor.fetchone()
+        isinstance(context, tuple)
+        and len(context) == 6
+        and context[:4]
         == (
             "OH_LYME_DEV_PIPELINE_SVC",
             "OH_LYME_DEV_RUNTIME",
             "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
-            "OH_LYME_DEV_INGEST_XS_WH",
+            DONOR_WAREHOUSE,
         ),
         "MEMBERSHIP_IDENTITY",
+    )
+    require(
+        isinstance(context[5], str)
+        and hashlib.sha256(context[5].upper().encode()).hexdigest()
+        == donor_handoff["account_locator_sha256"]
+        and context[4] == donor_handoff["region"],
+        "MEMBERSHIP_DONOR_ACCOUNT_BINDING",
     )
     require(re.fullmatch(r"[0-9a-f]{40}", code_sha) is not None, "MEMBERSHIP_CODE_SHA")
     cursor.execute(
@@ -204,17 +361,10 @@ def freeze_membership(cursor: Any, output: Path, code_sha: str) -> dict[str, Any
         require(
             cursor.fetchall() == [(source["sha256"], source["byte_count"])], "MEMBERSHIP_ARTIFACT"
         )
-    cursor.execute(
-        "SELECT p.current_release_id,r.status,r.source_manifest "
-        "FROM PRESENTATION.SEMANTIC_RELEASE_POINTER p "
-        "JOIN PRESENTATION.SEMANTIC_RELEASES r ON r.release_id=p.current_release_id "
-        "WHERE p.pointer_key='ATLAS'"
-    )
+    cursor.execute("SELECT release_id,bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V LIMIT 2")
     pointers = cursor.fetchall()
-    require(len(pointers) == 1 and pointers[0][1] == "PUBLISHED", "MEMBERSHIP_CURRENT_RELEASE")
-    donor_id, _, donor = pointers[0]
-    donor = json.loads(donor) if isinstance(donor, str) else donor
-    validate_donor(donor, donor_id)
+    donor_id, donor = donor_handoff["release_id"], donor_handoff["annual_manifest"]
+    require(pointers == [(donor_id, donor_handoff["bundle_sha256"])], "MEMBERSHIP_CURRENT_RELEASE")
     cursor.execute(
         "SELECT capture_record_id,record_revision,record_id,source_row_hash,normalized_sha256 "
         "FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS WHERE ingestion_run_id=%s "
@@ -273,10 +423,12 @@ def freeze_membership(cursor: Any, output: Path, code_sha: str) -> dict[str, Any
         )
         require(cursor.fetchone() == (ROW_COUNT,), "MEMBERSHIP_UNSELECTED_REVISIONS")
         cursor.execute(
-            "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
-            "WHERE pointer_key='ATLAS'"
+            "SELECT release_id,bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V LIMIT 2"
         )
-        require(cursor.fetchall() == [(donor_id,)], "MEMBERSHIP_POINTER_CHANGED")
+        require(
+            cursor.fetchall() == [(donor_id, donor_handoff["bundle_sha256"])],
+            "MEMBERSHIP_POINTER_CHANGED",
+        )
         os.replace(temporary, output)
         temporary = None
     finally:

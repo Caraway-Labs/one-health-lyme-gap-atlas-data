@@ -58,8 +58,21 @@ def verify(cursor: Any, sql: str) -> dict[str, Any]:
         ddl = cursor.fetchone()[0]
         cursor.execute(f"DESCRIBE VIEW {qualified}")
         description = rows(cursor)
-        cursor.execute(f"SELECT COUNT(*) FROM {qualified}")
-        count = cursor.fetchone()[0]
+        if name == NAMES[0]:
+            # The published view joins the complete January capture list. A full
+            # count exceeded the protected query timeout; sample actual rows.
+            cursor.execute(
+                f"SELECT RELEASE_ID, MEASURE_ID, COUNTY_FIPS, PERIOD_START, "
+                f"VALUE, VALUE_STATE, UNIT FROM {qualified} LIMIT 4"
+            )
+            sample = rows(cursor)
+            if not sample:
+                raise ValueError("CLIMATE_OBSERVATIONS_EMPTY")
+            count = None
+        else:
+            cursor.execute(f"SELECT COUNT(*) FROM {qualified}")
+            count = cursor.fetchone()[0]
+            sample = []
         cursor.execute(f"SHOW GRANTS ON VIEW {qualified}")
         grants = rows(cursor)
         cursor.execute(f"SHOW VIEWS LIKE '{name}' IN SCHEMA {DEV}.PRESENTATION")
@@ -72,6 +85,7 @@ def verify(cursor: Any, sql: str) -> dict[str, Any]:
                 "ddl_sha256": hashlib.sha256(ddl.encode()).hexdigest(),
                 "description": description,
                 "successful_row_count": count,
+                "bounded_sample": sample,
                 "existing_grants": grants,
                 "catalog": catalog,
             }

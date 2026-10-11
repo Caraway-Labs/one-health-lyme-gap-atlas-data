@@ -1,0 +1,35 @@
+resource_key: mrlc_annual_nlcd_c1v2_2025_demo_cohort
+source_id: mrlc_annual_nlcd_derived_county_aggregates
+dataset_id: annual-nlcd-c1v2-2025-reviewed-demo-cohort
+definition_version: 1
+adapter_kind: retained_annual_nlcd_aggregate
+endpoint_template: file://retained/annual-nlcd-2025-demo-cohort.json
+deterministic_order_clause: county_fips ASC, measure ASC
+incremental_strategy: IMMUTABLE_REVIEWED_AGGREGATE_CAPTURE
+geography_semantics: SELECTED_TIGER_2025_COUNTIES_AND_COUNTY_EQUIVALENTS
+temporal_semantics: MAPPING_YEAR_2025
+destination: RAW.GOVERNED_SOURCE_RECORDS
+artifact_policy: PUBLIC_SEVEN_YEAR
+onboarding_mode: ROUTINE_PUBLIC
+onboarding_environments: [dev, prod]
+maximum_rows: 14
+maximum_artifact_bytes: 131072
+aggregate_artifact_sha256: bdd2a4112769c894e069ae23021bb5a716313c3cfa821a7468aeaeebd2c451ee
+calculation_run_id: mrlc2025_12d3307d38bf247a467b03f42f48b4a3740fef66b30fcaa1b7ada31f926da499
+calculation_code_revision: a1dca40aa049f5c8db4c819f20230843bc8041cf
+county_fips: ['09110', '51013']
+mapping_year: 2025
+expected_refresh_cadence: explicitly reviewed immutable cohort revision only
+required_columns: [county_fips, mapping_year, measure, value, unit, coverage_status, lineage_id, geometry_digest, geometry_version, weight_version, transformation_version, source_supported_area_m2, valid_area_m2, source_coverage_fraction]
+quality_rules:
+  - rule_id: nlcd_cohort_required_columns
+    severity: BLOCKING
+  - rule_id: nlcd_cohort_geography
+    severity: BLOCKING
+restrictions:
+  - Derived aggregates from retained official MRLC HTTPS packages; not USGS S3 tiles and no synthetic S3 object versions.
+  - Exactly two selected CONUS analysis geographies and seven frozen measures; not national completion or representative epidemiological sampling.
+  - Preserve the original calculation run, exact source-member hashes, TIGER geometry, weight implementation and zero/null semantics.
+  - COMPLETE describes valid area inside observed source support; preserve source_coverage_fraction and do not imply full county-footprint support.
+  - Connecticut 09110 is Capitol Planning Region; no implicit crosswalk to historical Connecticut counties.
+  - Land-cover context only; no inferred Lyme risk score, causal claim, automatic ML admission, or historical extrapolation.

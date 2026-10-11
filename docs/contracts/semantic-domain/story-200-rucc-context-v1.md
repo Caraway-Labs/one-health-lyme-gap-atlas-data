@@ -41,6 +41,14 @@ substituted or interpreted as a comparable time series without review. RUCC
 is county context, not an individual-risk, causal, or predictive measure.
 Do not average categories or interpret category increments as measured distances.
 
+The 2026-10-04 owner-reviewed #190/#191 semantic definition is
+`rucc_2023` version `2.0.0` with `VINTAGE_YEAR: 2023`, bound to the same
+approved source version. It does not assign a publisher observation day. The
+additive `rucc_vintage_2023` #192 mapping preserves the historical `rucc`
+point-date mapping as a separate old identity. No physical historical row,
+published release pointer, or source artifact is rewritten by this semantic
+correction. Full #193 historical-record validation remains a separate gate.
+
 ## Geography, missingness and provenance
 
 The existing assembler accepts numeric/string representations of integral

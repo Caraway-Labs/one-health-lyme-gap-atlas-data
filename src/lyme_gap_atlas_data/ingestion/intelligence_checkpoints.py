@@ -207,6 +207,22 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         ):
             return super().load_payload(run_id)
 
+    def recover_acquisition_payload(self, run_id: str) -> object | None:
+        """Recover an immutable payload committed before ACQUIRE completion.
+
+        Binding precedes payload persistence. An absent binding means there is
+        no approved checkpoint to inspect; an expired/bad binding must fail,
+        never turn into permission to refetch or overwrite an immutable row.
+        """
+        with self.feed_retention.ledger.guard():
+            bindings = self.feed_retention.ledger.documents("run")
+            if not any(document["run_id"] == run_id for document in bindings):
+                return None
+        payload = self.load_payload(run_id)
+        if payload is not None:
+            self.feed_retention.verify_payload(payload)
+        return payload
+
     def load_source_artifact(self, run_id: str) -> bytes | None:
         self.feed_retention.require_run(run_id)
         with self._connection_factory() as connection, connection.cursor() as cursor:

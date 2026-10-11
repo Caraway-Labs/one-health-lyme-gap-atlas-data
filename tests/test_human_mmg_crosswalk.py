@@ -34,6 +34,7 @@ def validate(document: dict) -> None:
     assert len(contexts) == len(document["context_fields"])
     assert document["contract_version"] == "atlas-human-mmg-crosswalk-v1"
     assert document["crosswalk_version"] == "1.0.0"
+    assert document["review_status"] == "accepted_for_bounded_aggregate_scope"
     assert document["standards"]["mmg"]["version"] == "1.0.2"
     assert document["standards"]["mmg"]["published_on"] == "2022-05-10"
     assert document["standards"]["mmg"]["sha256"] == (

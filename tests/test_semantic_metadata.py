@@ -280,6 +280,24 @@ def seal(metadata: dict) -> None:
     metadata["revision_id"] = metadata_revision_id(metadata)
 
 
+def test_rucc_vintage_year_metadata_admits_year_without_day() -> None:
+    metadata = fixture(2)
+    measure = metadata["measure"]
+    measure["semantic_version"] = "2.0.0"
+    measure["temporal_semantics"] = "VINTAGE_YEAR"
+    metadata["metadata_id"] = "metadata:rucc_2023:2.0.0"
+    metadata["meaning_signature"] = meaning_signature(measure)
+    metadata["applicability"]["temporal_semantics"] = "VINTAGE_YEAR"
+    metadata["freshness"]["observation_period"] = known("2023")
+    seal(metadata)
+    validate_metadata(metadata)
+    invalid = copy.deepcopy(metadata)
+    invalid["freshness"]["observation_period"] = known("2023-01-01")
+    seal(invalid)
+    with pytest.raises(SemanticMetadataError, match="vintage year"):
+        validate_metadata(invalid)
+
+
 @pytest.mark.parametrize("index", range(len(SHAPES)))
 def test_representative_synthetic_metadata(index: int) -> None:
     metadata = fixture(index)

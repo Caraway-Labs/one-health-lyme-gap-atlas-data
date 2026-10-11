@@ -1,0 +1,56 @@
+{
+  "contract_version": "1.0.0",
+  "source_id": "cdc-eid-expedited",
+  "registry_version": 1,
+  "organization": "Centers for Disease Control and Prevention",
+  "family": "cdc_eid",
+  "source_type": "publication",
+  "geographies": [],
+  "topics": [],
+  "trust_review": {
+    "status": "approved",
+    "decision_ref": "DATA-132-135-EID-ADMISSION-2026-10-09",
+    "reviewed_at": "2026-10-10T00:41:05Z",
+    "owner": "MATTHEWCARAWAY"
+  },
+  "trust_classification": "official_public_health",
+  "transport": "rss",
+  "canonical_location": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+  "fetch_location": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+  "approved_hosts": ["wwwnc.cdc.gov"],
+  "state": "manual",
+  "cadence": {
+    "poll_seconds": 86400,
+    "expected_item_seconds": null,
+    "basis": "unknown"
+  },
+  "access_use": {
+    "terms_location": "https://www.cdc.gov/other/agencymaterials.html",
+    "conditions": [
+      "Attribute the source as CDC and link to the original item available from CDC at no charge.",
+      "Display a clear CDC nonendorsement statement with any public use.",
+      "Publish title, link, language, and publisher date only; no descriptions, article text, excerpts, image values, image bytes, or logos.",
+      "Restrict raw RSS transport and checkpoint artifacts; expire them 30 days after immutable successful capture time.",
+      "A bounded RSS metadata capture verified availability on 2026-10-03; reverify the endpoint at activation."
+    ],
+    "availability_verified_at": "2026-10-03T03:06:52.954325Z",
+    "excerpt_max_chars": 0,
+    "content_retention_policy_ref": "cdc-eid-expedited-metadata-raw-30d-v1",
+    "public_excerpt_permitted": false
+  },
+  "approval": {
+    "status": "approved",
+    "decision_ref": "DATA-132-135-EID-ADMISSION-2026-10-09",
+    "reviewed_at": "2026-10-10T00:41:05Z",
+    "owner": "MATTHEWCARAWAY"
+  },
+  "change_review_policy": "new_version_requires_review",
+  "fallback_reason": null,
+  "limits": {
+    "maximum_bytes": 2097152,
+    "timeout_seconds": 30,
+    "maximum_items": 250,
+    "maximum_redirects": 0,
+    "maximum_attempts": 1
+  }
+}

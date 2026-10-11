@@ -18,6 +18,7 @@ paths = [
   '''^migrations/V05[12]__prod_historical_cdc_(storage|explorer)\.sql$''',
   '''^migrations/V054__dev_tick_surveillance_decision\.sql$''',
   '''^migrations/V086__prod_routine_public_semantic_source_admission\.sql$''',
+  '''^migrations/V139__bounded_nlcd_source_admission\.sql$''',
 ]
 regexTarget = "secret"
 regexes = ['''^cdc_lyme_qtbi_xd4i$''']
@@ -29,6 +30,14 @@ commits = ["22691520f5cd9cdab3c30374eaff2ae4fd41f1c5"]
 paths = ['''^scripts/verify_cdc_policy_dev\.py$''']
 regexTarget = "match"
 regexes = ['''key_body''']
+
+[[allowlists]]
+description = "Literal PEM header emitted by DATA443 workflow, not private key material"
+condition = "AND"
+commits = ["92ceb8902265f1094bf16a36328ceaad926f11c8"]
+paths = ['''^\.github/workflows/deploy-dev\.yml$''']
+regexTarget = "match"
+regexes = ['''BEGIN ENCRYPTED PRIVATE KEY''']
 
 [extend]
 useDefault = true

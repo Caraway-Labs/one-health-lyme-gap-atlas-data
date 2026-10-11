@@ -239,6 +239,19 @@ class IngestionOrchestrator:
                 return self._raw_failure(state, error)
         else:
             payload = self._payloads.get(state.ingestion_run_id)
+        recovered_acquisition = None
+        recover_payload = getattr(self.store, "recover_acquisition_payload", None)
+        if retained_feed and not restore_feed and not state.dry_run and callable(recover_payload):
+            # Immutable Snowflake payload can commit before the ACQUIRE stage
+            # checkpoint. Recover its original manifest, never a fresh attempt.
+            payload = recover_payload(state.ingestion_run_id)
+            if payload is not None:
+                if not adapter.validate_payload(definition, payload).ok:
+                    raise PermissionError("INTELLIGENCE_RAW_CAPTURE_MISMATCH")
+                recovered_acquisition = effects.recover_acquisition(  # type: ignore[attr-defined]
+                    definition, state, payload
+                )
+                restore_feed = True
         normalized = self._normalized.get(state.ingestion_run_id)
         member_adapter = isinstance(adapter, RetainedArtifactSourceAdapter)
         has_members = bool(
@@ -252,7 +265,20 @@ class IngestionOrchestrator:
             and not (member_adapter and has_members)
             and isinstance(self.store, PayloadStore)
         ):
-            payload = self.store.load_payload(state.ingestion_run_id)
+            if (
+                definition.adapter_kind is AdapterKind.RETAINED_ANNUAL_NLCD_AGGREGATE
+                and restore_feed
+                and isinstance(self.store, RawArtifactStore)
+            ):
+                # Snowflake VARIANT can alter decimal serialization in the old
+                # convenience checkpoint. Replay the real, checksum-verified
+                # captured artifact for this exact retained scientific cohort.
+                source_bytes = self.store.load_source_artifact(state.ingestion_run_id)
+                if source_bytes is None:
+                    raise ValueError("Retained NLCD source artifact is missing or ambiguous")
+                payload = adapter.restore_raw_payload(definition, source_bytes)
+            else:
+                payload = self.store.load_payload(state.ingestion_run_id)
         if (
             payload is None
             and (not retained_feed or restore_feed)
@@ -306,7 +332,11 @@ class IngestionOrchestrator:
                         f"resume:{checkpoint.stage.value}",
                     )
                 if checkpoint.stage is Stage.ACQUIRE:
-                    if state.dry_run and self.fixture_dir is None:
+                    if recovered_acquisition is not None:
+                        checkpoint.artifact_id = recovered_acquisition["artifact_id"]
+                        checkpoint.artifact_sha256 = recovered_acquisition["artifact_sha256"]
+                        checkpoint.detail = recovered_acquisition
+                    elif state.dry_run and self.fixture_dir is None:
                         checkpoint.detail = {
                             "planned": True,
                             "endpoint": definition.endpoint_template,

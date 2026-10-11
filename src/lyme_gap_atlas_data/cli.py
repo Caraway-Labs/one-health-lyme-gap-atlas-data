@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from functools import wraps
 from pathlib import Path
 from time import monotonic
@@ -51,6 +51,7 @@ from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracin
 from .metadata_cli import app as metadata_app
 from .migrations import (
     apply_migrations,
+    is_intelligence_prerequisite_batch,
     migration_authority_preflight,
     migration_plan,
     parse_reviewed_pending_set,
@@ -638,6 +639,9 @@ def apply_reviewed_dev_migrations_command(
     expected_pending_json: str = typer.Option(..., "--expected-pending-json"),
     commit: str | None = typer.Option(None, "--commit"),
     confirm: bool = typer.Option(False, "--confirm"),
+    feed_preflight_accounting_confirmed: bool = typer.Option(
+        False, "--feed-preflight-accounting-confirmed"
+    ),
 ) -> None:
     """Check reviewed DEV scope before legacy reconciliation or migration application."""
     if not confirm:
@@ -645,13 +649,32 @@ def apply_reviewed_dev_migrations_command(
     if database != "ONE_HEALTH_LYME_GAP_ATLAS_DEV":
         raise typer.BadParameter("Reviewed DEV migrations require the isolated DEV database")
     reviewed = parse_reviewed_pending_set(expected_pending_json)
-    settings = _settings()
-    actual = pending_migration_plan(settings, database)
-    typer.echo(json.dumps({"pending_migrations": actual}))
-    require_reviewed_pending_set(actual, reviewed)
-    reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
-    applied = apply_migrations(settings, database, commit, expected_pending=reviewed)
-    typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
+    from .ingestion.intelligence_runtime import (
+        prerequisite_batch_deadline,
+        verify_prerequisite_identity,
+    )
+
+    feed_batch = is_intelligence_prerequisite_batch(reviewed)
+    if feed_batch and not feed_preflight_accounting_confirmed:
+        raise typer.BadParameter("Intelligence prerequisite accounting confirmation is required")
+    # The actual numbered migration metadata selects this bound.
+    # Start before settings, pending inspection, reconciliation and application.
+    with prerequisite_batch_deadline() if feed_batch else nullcontext():
+        settings = _settings()
+        if feed_batch:
+            verify_prerequisite_identity(settings)
+        actual = pending_migration_plan(settings, database)
+        typer.echo(json.dumps({"pending_migrations": actual}))
+        require_reviewed_pending_set(actual, reviewed)
+        reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
+        applied = apply_migrations(
+            settings,
+            database,
+            commit,
+            expected_pending=reviewed,
+            **({"protected_intelligence_prerequisite": True} if feed_batch else {}),
+        )
+        typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 
 
 @pipeline_app.command("reconcile-legacy-dev-migrations")
@@ -1058,12 +1081,31 @@ def source_run(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    state = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run).run(
-        loaded,
-        tier=selected_tier,
-        dry_run=dry_run,
-        fail_after_stage=fail_after_stage,
-    )
+    if loaded.adapter_kind is AdapterKind.RSS_ATOM and selected_tier is Tier.B and not dry_run:
+        from .ingestion.intelligence_runtime import canonical_pilot, pilot_watchdog
+
+        if resolved_fixture is not None:
+            raise typer.BadParameter("Live feed pilots do not accept fixture overrides")
+        try:
+            with pilot_watchdog():
+                orchestrator, loaded = canonical_pilot(loaded)
+                state = orchestrator.run(
+                    loaded,
+                    tier=selected_tier,
+                    dry_run=dry_run,
+                    fail_after_stage=fail_after_stage,
+                )
+        except Exception:
+            typer.echo("INTELLIGENCE_PILOT_PREFLIGHT_BLOCKED", err=True)
+            raise typer.Exit(code=1) from None
+    else:
+        orchestrator = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run)
+        state = orchestrator.run(
+            loaded,
+            tier=selected_tier,
+            dry_run=dry_run,
+            fail_after_stage=fail_after_stage,
+        )
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
         raise typer.Exit(code=1)
@@ -1146,7 +1188,10 @@ def source_nclimgrid_pilot_measure(
         )
     if action == "preflight" and run_id is not None:
         raise typer.BadParameter("Preflight does not accept a run ID")
-    typer.echo(json.dumps(actions[action](), default=str, sort_keys=True))
+    result = actions[action]()
+    typer.echo(json.dumps(result, default=str, sort_keys=True))
+    if action == "frozen-membership" and result.get("status") != "READ_ONLY_EXPORT_SUCCEEDED":
+        raise typer.Exit(code=1)
 
 
 def _required_run_id(run_id: str | None) -> str:
@@ -1343,7 +1388,19 @@ def runs_resume(
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
         if candidate.exists():
             resolved_fixture = candidate
-    state = _orchestrator_for_run(run_id, resolved_fixture).resume(run_id, definition=loaded)
+    if loaded.adapter_kind is AdapterKind.RSS_ATOM and resolved_fixture is None:
+        from .ingestion.intelligence_runtime import canonical_pilot, pilot_watchdog
+
+        try:
+            with pilot_watchdog():
+                orchestrator, loaded = canonical_pilot(loaded)
+                state = orchestrator.resume(run_id, definition=loaded)
+        except Exception:
+            typer.echo("INTELLIGENCE_PILOT_PREFLIGHT_BLOCKED", err=True)
+            raise typer.Exit(code=1) from None
+    else:
+        orchestrator = _orchestrator_for_run(run_id, resolved_fixture)
+        state = orchestrator.resume(run_id, definition=loaded)
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
         raise typer.Exit(code=1)

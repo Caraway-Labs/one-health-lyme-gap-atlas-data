@@ -70,6 +70,62 @@ def test_diagnostic_execute_surface_is_read_only() -> None:
         assert prefix.startswith(("SELECT ", "SHOW ", "DESCRIBE VIEW "))
 
 
+def test_observation_read_is_bounded_after_full_count_timed_out() -> None:
+    reviewed = (ROOT / "sql/january_climate_consumer_views.sql").read_text()
+    definitions = MODULE["proposals"](reviewed)
+
+    class Cursor:
+        calls: list[str] = []
+        description = [
+            (name,)
+            for name in (
+                "RELEASE_ID",
+                "MEASURE_ID",
+                "COUNTY_FIPS",
+                "PERIOD_START",
+                "VALUE",
+                "VALUE_STATE",
+                "UNIT",
+            )
+        ]
+
+        def execute(self, sql: str) -> None:
+            self.calls.append(sql)
+            self.current = sql
+
+        def fetchone(self) -> tuple[object, ...]:
+            if "CURRENT_USER()" in self.current:
+                return (MODULE["USER"], MODULE["ROLE"], MODULE["DEV"], MODULE["WAREHOUSE"])
+            if "GET_DDL" in self.current:
+                return (definitions[0 if MODULE["NAMES"][0] in self.current else 1],)
+            return (4,)
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            if "SCHEMA_MIGRATIONS" in self.current:
+                return [("V136__dev_january_climate_consumer_views.sql", MODULE["CHECKSUM"])]
+            if "VALUE, VALUE_STATE, UNIT" in self.current:
+                return [
+                    (
+                        "release",
+                        "nclimgrid_prcp_county_day",
+                        "08031",
+                        "2025-01-15",
+                        1.2,
+                        "OBSERVED",
+                        "mm",
+                    )
+                ]
+            return []
+
+    cursor = Cursor()
+    report = MODULE["verify"](cursor, reviewed)
+    observation = report["views"][0]
+    assert observation["successful_row_count"] is None
+    assert observation["bounded_sample"][0]["VALUE"] == 1.2
+    assert any("COUNT(*)" in sql and MODULE["NAMES"][1] in sql for sql in cursor.calls)
+    assert not any("COUNT(*)" in sql and MODULE["NAMES"][0] in sql for sql in cursor.calls)
+
+
 def test_wrong_identity_stops_before_view_inspection() -> None:
     class Cursor:
         calls = []

@@ -145,8 +145,17 @@ def load_mapping_registry(path: Path) -> dict[str, Mapping[str, Any]]:
             "SOURCE_ONLY_COUNTY",
         }:
             raise SemanticMappingError("invalid mapping origin or grain")
-        if mapping.get("time") not in {"PERIOD", "POINT_IN_TIME", "CUMULATIVE_THROUGH_DATE"}:
+        if mapping.get("time") not in {
+            "PERIOD",
+            "POINT_IN_TIME",
+            "CUMULATIVE_THROUGH_DATE",
+            "VINTAGE_YEAR",
+        }:
             raise SemanticMappingError("invalid mapping time")
+        if mapping.get("semantic_version") is not None and not re.fullmatch(
+            r"[0-9]+\.[0-9]+\.[0-9]+", str(mapping["semantic_version"])
+        ):
+            raise SemanticMappingError("invalid mapping semantic version")
         if mapping.get("status") not in {"EXISTING_REUSED", "NEW_SEMANTIC_MAPPING"}:
             raise SemanticMappingError("invalid executable mapping status")
         identity = mapping["id"]
@@ -389,6 +398,11 @@ def _check_output_scope(
             raise SemanticMappingError("SVI requires the 2018-2022 ACS observation period")
         if output.get("county_fips") != geography.get("county_fips"):
             raise SemanticMappingError("county source output/FIPS mismatch")
+    if mapping["id"] == "rucc_vintage_2023" and temporal != {
+        "semantics": "VINTAGE_YEAR",
+        "year": mapping["vintage"],
+    }:
+        raise SemanticMappingError("RUCC requires the exact source vintage year")
     elif mapping["id"] in _MOD13_MEASURES:
         measure, source_variable = _MOD13_MEASURES[mapping["id"]]
         hashes = output.get("artifact_sha256_by_member")
@@ -797,6 +811,10 @@ def map_record(
     ):
         if actual != expected:
             raise SemanticMappingError(f"incompatible {name}")
+    if mapping.get("semantic_version") is not None and (
+        measure["semantic_version"] != mapping["semantic_version"]
+    ):
+        raise SemanticMappingError("incompatible semantic version")
     if record.get("indicator_id") != measure["indicator_id"]:
         raise SemanticMappingError("wrong indicator identity")
     _validate_strata(record, mapping, edges)

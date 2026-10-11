@@ -1,0 +1,33 @@
+{
+  "contract_version": "intelligence-selection-v1",
+  "decision_ref": "matthew-overnight-lane-b-2026-10-06-data132-data135",
+  "decision_time_precision": "day",
+  "poll_seconds": 86400,
+  "sources": [
+    {
+      "source_id": "cdc-newsroom",
+      "decision": "approved",
+      "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/132608.rss"
+    },
+    {
+      "source_id": "nih-news-releases",
+      "decision": "approved",
+      "fetch_location": "https://www.nih.gov/news-releases/feed.xml"
+    },
+    {
+      "source_id": "niaid-news",
+      "decision": "approved",
+      "fetch_location": null
+    },
+    {
+      "source_id": "cdc-vital-signs",
+      "decision": "approved",
+      "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/275866.rss"
+    },
+    {
+      "source_id": "who-newsroom",
+      "decision": "approved",
+      "fetch_location": "https://www.who.int/rss-feeds/news-english.xml"
+    }
+  ]
+}

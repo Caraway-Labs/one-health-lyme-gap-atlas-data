@@ -164,6 +164,9 @@ def _observation_period(value: Mapping[str, Any], semantics: str) -> None:
             raise SemanticMetadataError("observation_period requires ISO start/end") from exc
         if start_date > end_date:
             raise SemanticMetadataError("observation_period start exceeds end")
+    elif semantics == "VINTAGE_YEAR":
+        if not isinstance(period, str) or not re.fullmatch(r"[0-9]{4}", period) or period == "0000":
+            raise SemanticMetadataError("observation_period requires vintage year")
     elif not isinstance(period, str) or not _DATE.fullmatch(period):
         raise SemanticMetadataError("observation_period requires ISO date")
     else:

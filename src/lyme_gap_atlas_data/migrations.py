@@ -9,14 +9,29 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
-from lyme_gap_atlas_shared.snowflake import connect
 from snowflake.connector.cursor import SnowflakeCursor
 from snowflake.connector.errors import ProgrammingError
+
+from .sql_sessions import connect
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 DATABASE_PATTERN = re.compile(r"^ONE_HEALTH_LYME_GAP_ATLAS_(DEV|PROD)$")
 DEV_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 PROD_DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+INTELLIGENCE_PREREQUISITE_MIGRATION = {
+    "version": "V142",
+    "filename": "V142__dev_intelligence_retention_and_v2_view.sql",
+    "sha256": "093017fc1507a67452eb47d1cec4c3c49e7a5881e981feede61bb88246986a15",
+}
+INTELLIGENCE_CLEANUP_MIGRATION = {
+    "version": "V143",
+    "filename": "V143__dev_intelligence_raw_cleanup_authority.sql",
+    "sha256": "a92157ddac0d7b087b6c93f7fff65c65a081dd1e1aea0b5918a4e604a2a52968",
+}
+PROTECTED_INTELLIGENCE_MIGRATIONS = (
+    INTELLIGENCE_PREREQUISITE_MIGRATION,
+    INTELLIGENCE_CLEANUP_MIGRATION,
+)
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
     "V037",
@@ -63,6 +78,11 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V122",
     "V125",
     "V136",
+    "V140",
+    "V142",
+    "V143",
+    "V144",
+    "V145",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",
@@ -89,6 +109,9 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V131",
     "V132",
     "V133",
+    "V139",
+    "V141",
+    "V146",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -171,6 +194,27 @@ def load_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
     if not migrations:
         raise ValueError("No migrations found")
     return migrations
+
+
+def is_intelligence_prerequisite_batch(reviewed: list[dict[str, str]]) -> bool:
+    """Route each pinned DEV intelligence migration through the bound envelope."""
+    for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
+        selected = any(
+            item["version"] == pinned["version"]
+            or item["filename"] == pinned["filename"]
+            or item["sha256"] == pinned["sha256"]
+            for item in reviewed
+        )
+        if selected:
+            actual = next(
+                (item for item in load_migrations() if item.version == pinned["version"]), None
+            )
+            if actual is None or _migration_metadata(actual) != pinned or reviewed != [pinned]:
+                raise ValueError(
+                    "The reviewed intelligence prerequisite batch must be exact and alone"
+                )
+            return True
+    return False
 
 
 def render_migration(migration: Migration, database: str) -> str:
@@ -309,6 +353,14 @@ def migration_authority_preflight(settings: SnowflakeSettings, database: str) ->
 def migration_execution_role(migration: Migration, database: str) -> str | None:
     """Return a narrowly-scoped owner role for a migration that needs one."""
     match = DATABASE_PATTERN.fullmatch(database)
+    if migration.version == "V140":
+        if database != DEV_DATABASE:
+            raise ValueError("Pinned Tier 1 publication migration is DEV-only")
+        return "OH_LYME_DEV_TIER1_PUBLICATION_OWNER"
+    if migration.version == "V141":
+        if database != PROD_DATABASE:
+            raise ValueError("Pinned Tier 1 production publication migration is PROD-only")
+        return "OH_LYME_PROD_TIER1_PUBLICATION_OWNER"
     if match is None:
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     if migration.version in {"V044", "V053"}:
@@ -331,11 +383,11 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
         return "OH_LYME_PROD_STREAMLIT_OWNER"
-    if migration.version == "V086":
+    if migration.version in {"V086", "V139"}:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128"}:
+    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138"}:
         if migration.version == "V117" and database != DEV_DATABASE:
             raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"
@@ -586,6 +638,7 @@ def apply_migrations(
     commit: str | None = None,
     *,
     expected_pending: list[dict[str, str]] | None = None,
+    protected_intelligence_prerequisite: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
@@ -611,6 +664,22 @@ def apply_migrations(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
+        prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
+        if (
+            database == DEV_DATABASE
+            and prerequisite is not None
+            and prerequisite.version not in applied
+            and (
+                not protected_intelligence_prerequisite
+                or expected_pending is None
+                or not is_intelligence_prerequisite_batch(expected_pending)
+                or _migration_metadata(prerequisite) != pinned
+            )
+        ):
+            raise PermissionError(
+                f"{pinned['version']} requires the protected intelligence prerequisite path"
+            )
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

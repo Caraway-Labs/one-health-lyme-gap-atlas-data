@@ -330,7 +330,8 @@ def inspect_run(run_id: str) -> dict[str, object]:
 
 def frozen_membership_report(run_id: str) -> dict[str, object]:
     """Retain only the approved completed pilot through the existing service."""
-    from ..climate_membership import ARTIFACT_NAME, MembershipBlocked, freeze_membership
+    from ..climate_membership import ARTIFACT_NAME
+    from ..climate_membership_diagnostic import diagnostic
     from ..climate_publication import RUN_ID
 
     if run_id != RUN_ID:
@@ -340,15 +341,11 @@ def frozen_membership_report(run_id: str) -> dict[str, object]:
         raise MeasurementError(
             "Frozen membership requires the protected workflow artifact directory"
         )
-    try:
-        with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
-            return freeze_membership(
-                cursor, Path(directory) / ARTIFACT_NAME, os.getenv("GITHUB_SHA", "")
-            )
-    except MembershipBlocked:
-        raise
-    except Exception:
-        raise MeasurementError("FROZEN_MEMBERSHIP_READ_UNAVAILABLE") from None
+    return diagnostic(
+        Path(directory) / ARTIFACT_NAME,
+        os.getenv("GITHUB_SHA", ""),
+        os.getenv("JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE", ""),
+    )
 
 
 def candidate_report(run_id: str) -> dict[str, object]:

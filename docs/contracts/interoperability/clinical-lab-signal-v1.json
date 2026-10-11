@@ -1,0 +1,56 @@
+{
+  "contract_version": "atlas-clinical-lab-signal-v1",
+  "status": "FUTURE_CONCEPTUAL_ONLY",
+  "owner": "Atlas data stewardship and engineering",
+  "canonical_contracts": ["atlas-semantic-domain-v1", "atlas-semantic-source-mappings-v1", "atlas-semantic-lineage-v1", "atlas-semantic-consumer-v1"],
+  "standards": [
+    {"name": "USCDI", "version": "v6", "url": "https://www.healthit.gov/isp/sites/isp/files/2025-07/USCDI-Version-6-July-2025.pdf", "application": "Laboratory Tests, Values/Results, and related specimen and timing elements where available"},
+    {"name": "FHIR", "version": "R4 4.0.1", "url": "https://hl7.org/fhir/R4/observation.html", "application": "Observation.code, value[x], interpretation, effective[x], issued, subject, specimen, method and dataAbsentReason; DiagnosticReport groups results"},
+    {"name": "US Core", "version": "9.0.0", "url": "https://hl7.org/fhir/us/core/STU9/", "application": "Laboratory result Observation and laboratory DiagnosticReport profiles only if source claims and validates this version"},
+    {"name": "Bulk Data Access", "version": "STU2 2.0.0", "url": "https://hl7.org/fhir/uv/bulkdata/STU2/", "application": "Authorized population export option; not an access grant"},
+    {"name": "LOINC", "version": "source-specific, pending validation", "url": "https://loinc.org/", "application": "Candidate test identity by analyte, property, specimen, scale and method; no universal Lyme-test equivalence"}
+  ],
+  "conceptual_inputs": ["authorized FHIR R4 Observation", "authorized FHIR R4 DiagnosticReport", "authorized Bulk FHIR export", "equivalent authorized laboratory extract"],
+  "privacy_boundary": {
+    "patient_level_location": "authorized controlled processor outside Atlas downstream product",
+    "processing": ["validate source and terminology", "resolve reports, observations and specimens", "deduplicate corrections and repeat tests under reviewed method", "validate result and two-tier algorithm semantics", "assign governed geography and observation week", "aggregate and suppress before transfer"],
+    "atlas_receives": "privacy-reviewed county/week aggregate evidence only",
+    "atlas_stores_identifiable_patient_records": false,
+    "minimum_cell_rule": "DEFERRED_PRIVACY_REVIEW; synthetic demonstration uses k=3 only as a fixture rule, not a production threshold",
+    "disallowed_downstream_fields": ["patient_id", "patient_name", "birth_date", "street_address", "specimen_id", "order_id", "observation_id", "report_id"]
+  },
+  "semantics": {
+    "test_performed": "eligible performed assay event; order alone is not a result",
+    "assay_identity": "source code plus coding system/version, specimen and method; LOINC mapping is reviewed per assay",
+    "result": "qualitative code or quantitative value and unit retained separately from interpretation",
+    "interpretation": "source interpretation/flag is not automatically positivity",
+    "positivity": "derived under versioned, assay-specific policy after valid result review",
+    "repeat_testing": "multiple events for one person require governed person/episode/test deduplication before aggregate counts",
+    "two_tier": "screen and confirmatory steps remain distinct; final algorithm status requires reviewed policy",
+    "surveillance_case": "confirmed/probable classification is separate jurisdictional case determination; positive test never implies case"
+  },
+  "aggregate_output": {
+    "grain": "COUNTY",
+    "geography_basis": "reviewed residence or other specified attribution; unknown/referral geography is excluded or separately state-native, never fabricated county FIPS",
+    "time_semantics": "PERIOD",
+    "time_grain": "ISO_WEEK",
+    "observation_time_basis": "reviewed clinically relevant effective time; issued and acquisition times are distinct",
+    "required_fields": ["signal_id", "value", "value_state", "county_fips", "period_start", "period_end", "numerator", "denominator", "unit", "source_organization", "source_id", "dataset_id", "source_version", "source_vintage", "acquired_at", "method_version", "transformation_version", "terminology_version", "limitations", "representativeness", "lineage_digest"],
+    "value_states": ["OBSERVED", "ZERO", "MISSING", "UNKNOWN", "SUPPRESSED", "NOT_REPORTED", "UNAVAILABLE", "NOT_DEFENSIBLE"],
+    "suppression_semantics": "suppressed value and potentially revealing numerator/denominator are null; zero is explicit and never inferred from missing data",
+    "destination": "existing SourceAdapter then reviewed semantic mapping, metadata, lineage and safe projection; no automatic publication"
+  },
+  "candidate_signals": [
+    {"id": "lyme_testing_volume", "numerator": "eligible deduplicated performed tests", "denominator": null, "unit": "tests", "method": "assay eligibility and repeat-test policy"},
+    {"id": "lyme_positive_result_count", "numerator": "eligible positive results after assay policy", "denominator": null, "unit": "results", "method": "result and two-tier policy; never case count"},
+    {"id": "lyme_positivity_proportion", "numerator": "eligible positive results", "denominator": "eligible results with interpretable positive/negative outcome", "unit": "proportion", "method": "same cohort, assay and period"},
+    {"id": "lyme_testing_change", "numerator": "current eligible test volume minus historical baseline", "denominator": "reviewed comparable historical baseline test volume", "unit": "relative_change", "method": "baseline and seasonality policy deferred"},
+    {"id": "lyme_testing_anomaly", "numerator": "current eligible test volume", "denominator": "reviewed historical expectation", "unit": "anomaly_statistic", "method": "threshold and model deferred"},
+    {"id": "lyme_positivity_anomaly", "numerator": "current eligible positivity", "denominator": "reviewed historical expectation", "unit": "anomaly_statistic", "method": "threshold and model deferred"},
+    {"id": "lyme_signal_freshness", "numerator": "acquisition time minus latest eligible effective time", "denominator": null, "unit": "days", "method": "lag-aware availability assessment; not a disease measure"}
+  ],
+  "requirements_for_every_signal": ["geography grain and attribution", "time grain and observation period", "numerator and denominator meaning", "unit", "source organization and version", "acquisition time", "method and terminology version", "missingness and suppression", "limitations and representativeness"],
+  "deployment_prerequisites": ["legal/public-health authority", "source authorization", "organization agreements or DUA as applicable", "privacy review", "security controls", "minimum-cell and complementary suppression rule", "geographic attribution policy", "identity and deduplication method", "laboratory coding validation", "production source admission", "operational monitoring"],
+  "production_scoring_enabled": false,
+  "mvp_status": "NOT_PART_OF_CURRENT_MVP"
+}
