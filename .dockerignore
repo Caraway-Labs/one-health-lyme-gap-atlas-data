@@ -15,3 +15,7 @@ docs/contracts/intelligence/*
 !docs/contracts/intelligence/v2
 dbt/target
 dbt/logs
+!docs/contracts/semantic-domain
+docs/contracts/semantic-domain/*
+!docs/contracts/semantic-domain/cdc-2025
+!docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1.json

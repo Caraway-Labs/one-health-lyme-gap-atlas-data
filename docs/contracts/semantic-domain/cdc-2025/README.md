@@ -121,3 +121,119 @@ increment yet. V148 is already applied; this increment introduces no migration.
 Scientific admission and protected deployment are separate decisions. Neither
 is performed by these functions or this PR. Reverting this increment preserves
 all source records, migration history and the production release pointer.
+
+## Runtime delivery (DATA #429 follow-on)
+
+`cdc_consumer_runtime.read_cdc_consumer(measure, county, environment="prod")`
+uses the existing Snowflake connector/settings and requires exactly
+`OH_LYME_PROD_READ` / `ONE_HEALTH_LYME_GAP_ATLAS_PROD`, with secondary roles
+NONE and a 30-second statement timeout. It reads at most two rows from the
+existing secure `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V`; zero or multiple
+matches fail closed. The operator CLI uses the approved named PAT connection
+`ATLAS_PROD_READ` and explicitly selects `COMPUTE_WH`.
+
+V149 extends that existing internal view because the intended reader cannot
+select the underlying governance/restricted tables. It preserves V148 joins,
+secure classification and existing grants (`COPY GRANTS`), adds no grants,
+and changes no sources, decisions, release pointers or publication state.
+Its private `cdc_runtime_authority` object must never be returned by an API.
+Ownership must remain with the migration deployer after protected deployment.
+
+The adapter checks the actual legacy release values `COUNTY_FIPS_5`,
+`through 2025-12-31`, `semantic_county_assembly_v1`, and completed
+`RESTRICTED_FULL_PROD` derivation / `EVIDENCE_ONLY` capture runs. It translates
+only that exact cumulative vintage into the existing 2025 semantic mapping.
+The stored source approval is resource/version scoped (there is no separate
+capture DSV column in these CDC ledgers). Both distinct completed runs are
+associated with the release's existing approved version; no capture version
+or run identity is invented. Artifact-to-evidence-run and workbook/row hashes
+remain independently reconciled.
+
+Canonical metadata and mapping resources are packaged in the wheel/container.
+Revision 1 identities are pinned and remain PENDING. The runtime looks only for
+`scapularis_status.revision-2.metadata.json` and
+`burgdorferi_status.revision-2.metadata.json` alongside them. Neither file exists
+in this engineering increment. Adding them requires the actual scientific
+review; a metadata REVIEWED flag alone cannot authorize the writer.
+
+### Required retained authority, after actual scientific review
+
+The existing `GOVERNANCE.MANUAL_REVIEW_DECISIONS` decision must retain its real
+active global steward identity, actual decision date, rationale, exact source
+version/resource, decision reference, and reviewed release packet. The adapter
+reads unsuperseded decisions only. Its existing `conditions` array must retain
+one `cdc_consumer_admission` object with:
+
+- `release_id`, `bundle_sha256`: the exact values in `release-binding.json`.
+- `scope`: the exact corresponding entry in that file's `slices`.
+- `metadata_revision_id`: the accepted immutable revision-2 content hash.
+- `decision_reference`: the actual retained scientific decision reference.
+- `observation_bindings`: private physical release observation ID mapped to
+  `{ "record_id": "<verified canonical record>",
+     "semantic_revision_id": "<existing #190 deterministic revision>" }`.
+
+These fields are an assembly of the existing metadata/release/lineage contracts,
+not another approval registry. Physical IDs and binding proof stay in the
+private governed packet, not GitHub, public consumer output or this document.
+The retained packet must be authored through authorized stewardship/release
+controls; this adapter has no write or registration command. Do not call
+`SP_RECORD_RESTRICTED_SOURCE_REVIEW_PROD` merely to register semantic review:
+it retires/allocates source versions and would invalidate this pinned slice.
+A metadata/release decision must retain the existing source versions. If the
+available stewardship control cannot append that decision without changing
+source identity, that is an exact unmet authority prerequisite, not permission
+for the runtime to write or invent it.
+
+The semantic revision is the existing #190 content identity over the verified
+canonical input and accepted metadata, not the physical release observation
+ID. Assemble it with `semantic_source_mappings.map_record` on the retained
+source snapshot without a release/exposure claim, then bind that revision and
+the verified V148 physical observation/record pair in the governed packet.
+Runtime readback recalculates and compares that identity; it never populates
+membership from successful projection. Retain the V087 final-copy attestation
+for the exact release/resource/version separately. Source approval and final
+copy do not replace this metadata review decision.
+
+### Bounded production acceptance and API #88 binding
+
+After the reviewer has approved the two definitions/version 1.0.0, record actual
+review evidence, preserve PENDING revision 1, create immutable REVIEWED revision
+2 with its real date/field authorities, and retain/bind the private packet above.
+Deploy the independently reviewed engineering artifact and later accepted
+metadata artifact through `quality.yml` (`deploy_dev=true`) and protected
+`promote-prod.yml` with the exact approved immutable DEV digest. Recheck the
+entire pending migration inventory; promote only the reviewed batch. No runtime
+command performs deployment or publication.
+
+With those prerequisites satisfied, run from the approved packaged artifact:
+
+```powershell
+atlas-data pipeline cdc-consumer-readback scapularis_status 13081 --environment prod
+atlas-data pipeline cdc-consumer-readback burgdorferi_status 19135 --environment prod
+atlas-data pipeline cdc-consumer-readback burgdorferi_status 12047 --environment prod
+```
+
+Each invocation validates reader identity, loads accepted revision 2, assembles
+real authority, calls the existing `project_surveillance_evidence` writer and
+its semantic consumer validator, and emits only the allowlisted consumer v2
+(JSON semantic v1 / evidence v3) envelope. Check original labels and states:
+Reported / OBSERVED -> detected; Present / OBSERVED -> detected;
+No records / NO_RECORDS -> unknown. Validate both schema contracts as well as
+these expected values. Confirm exact release/bundle/source/version/metadata
+revision, cumulative period and limitations. Consumer output must exclude raw
+workbook paths, physical observation/record IDs, derivation/evidence run IDs,
+artifact IDs, row/workbook hashes and private review/final-copy proof.
+
+Missing/unsupported data are never biological negatives. Coverage placeholders
+have no authoritative publisher row and are rejected from this admitted slice;
+API's existing unavailable/unknown behavior applies. Synthetic regression tests
+prove engineering behavior only, never this production acceptance gate.
+
+Provide API #88 the verified release/bundle, accepted metadata revision IDs,
+source/version scope, this Data-owned `read_cdc_consumer` callable and validated
+consumer envelope. The resolver must use an authorized intended-reader service
+identity; ordinary API/runtime credentials are not silently elevated to this
+reader. Use the merged API PR #224 optional resolver seam without classifying
+labels again. Actual credential/access binding and API activation remain
+API-owned actions after genuine governed consumer acceptance; this PR does
+neither. DATA #429 remains open until all three real readbacks succeed.
