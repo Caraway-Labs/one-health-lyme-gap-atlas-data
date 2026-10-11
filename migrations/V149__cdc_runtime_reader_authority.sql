@@ -27,7 +27,7 @@ WITH active_stewards AS (
            'delivery_reference', delivery_reference, 'delivered_at', TO_VARCHAR(delivered_at),
            'attested_by', attested_by)) AS attestations
   FROM GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS
-  WHERE semantic_release_id='governed-2026-09-18-unknown-coverage'
+  WHERE semantic_release_id='governed-2026-10-06-nlcd-demo-cohort'
   GROUP BY semantic_release_id, resource_key, data_source_version_id
 )
 SELECT o.observation_id,

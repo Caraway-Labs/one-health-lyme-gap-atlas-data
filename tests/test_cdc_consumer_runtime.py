@@ -394,3 +394,21 @@ def test_cli_readback_failure_is_safe(monkeypatch):
     )
     assert result.exit_code == 1
     assert result.output.strip() == "accepted CDC metadata resource unavailable"
+
+
+@pytest.mark.parametrize("measure", tuple(SLICES))
+def test_supplied_reviewed_revision_is_packaged_and_immutable(measure):
+    """Real metadata approval is not sufficient without retained runtime authority."""
+    from lyme_gap_atlas_data.cdc_consumer_runtime import _resources
+    from lyme_gap_atlas_data.semantic_metadata import validate_metadata_revisions
+
+    root = _resources()
+    pending = json.loads(root.joinpath(f"{measure}.metadata.json").read_text())
+    accepted = _metadata(root, measure)
+    validate_metadata_revisions([pending, accepted])
+    assert pending["revision_id"] == PENDING_IDS[measure]
+    assert pending["steward_review"]["state"] == "PENDING"
+    assert accepted["meaning_signature"] == pending["meaning_signature"]
+    assert accepted["steward_review"]["reviewed_at"]["value"] == "2026-10-11"
+    assert set(accepted["authority"].values()) == {"STEWARD_REVIEWED"}
+    assert accepted["provenance"] == pending["provenance"]

@@ -7,8 +7,8 @@ snapshot must be assembled from retained governed records by a trusted adapter.
 from collections.abc import Mapping
 from typing import Any
 
-RELEASE_ID = "governed-2026-09-18-unknown-coverage"
-BUNDLE_SHA256 = "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026"
+RELEASE_ID = "governed-2026-10-06-nlcd-demo-cohort"
+BUNDLE_SHA256 = "603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9"
 SOURCE_ID = "cdc_arbonet_tick_module"
 PERIOD = "2025-12-31"
 SLICES = {
