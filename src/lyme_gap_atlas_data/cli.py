@@ -26,6 +26,7 @@ from .alpha_parity import (
 )
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
+from .cdc_consumer_runtime import CDCConsumerUnavailable, read_cdc_consumer_named
 from .cdc_operations import check_cdc_metadata, check_cdc_overdue, verify_cdc_ready
 from .cdc_publication import bootstrap_publication, rollback_publication
 from .cdc_quality import record_cdc_quality
@@ -1414,3 +1415,14 @@ def runs_retry(
 ) -> None:
     """Alias for resume (shared orchestration entry point)."""
     runs_resume(run_id=run_id, definition=definition, fixture_dir=fixture_dir)
+
+
+@pipeline_app.command("cdc-consumer-readback")
+def cdc_consumer_readback_command(measure: str, county: str, environment: str = "prod") -> None:
+    """Bounded intended-reader acceptance. No publication or scientific approval."""
+    try:
+        result = read_cdc_consumer_named(measure, county, environment=environment)
+    except CDCConsumerUnavailable as error:
+        typer.echo(str(error))
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps(result, sort_keys=True))
