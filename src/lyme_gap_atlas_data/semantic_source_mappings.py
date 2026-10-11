@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
+from lyme_gap_atlas_data.cdc_consumer_admission import cdc_consumer_admitted, is_cdc_metadata
 from lyme_gap_atlas_data.semantic_domain import (
     CONTRACT_VERSION as DOMAIN_VERSION,
 )
@@ -797,7 +798,7 @@ def map_record(
         metadata, approved_climate_metadata_revisions=approved_climate_metadata_revisions
     )
     if metadata["steward_review"]["state"] != "REVIEWED" and not (
-        fixture_mode and record.get("fixture") is True
+        (fixture_mode and record.get("fixture") is True) or is_cdc_metadata(metadata)
     ):
         raise SemanticMappingError("unreviewed semantic metadata cannot map live records")
     measure = metadata["measure"]
@@ -902,6 +903,8 @@ def map_record(
         "result": record.get("result"),
         "release": record.get("release"),
     }
+    if cdc_consumer_admitted(lineage, authority):
+        lineage["visibility"] = "CONSUMER_SAFE"
     lineage["lineage_id"] = lineage_id(lineage)
     validate_lineage(
         lineage, authority, approved_climate_metadata_revisions=approved_climate_metadata_revisions

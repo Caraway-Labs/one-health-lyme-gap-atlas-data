@@ -213,7 +213,8 @@ def project_surveillance_evidence(
     """Companion projection through existing consumer gates; no public hook.
 
     Fixture mode can exercise consumer-safe metadata with a synthetic trace.
-    Real mappings retain their internal visibility and cannot bypass admission.
+    Real CDC mappings require reviewed, exact release-bound admission authority.
+    Unadmitted mappings retain internal visibility and cannot bypass admission.
     """
     mapped = map_surveillance_evidence(
         record, metadata, authority, mappings, fixture_mode=fixture_mode
