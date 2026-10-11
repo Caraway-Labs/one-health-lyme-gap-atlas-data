@@ -53,6 +53,14 @@ class HealthJournal(Protocol):
     def transact(self, source_id: str, version: int, transform: Transform) -> HealthResult: ...
 
 
+def _validate_binding(history: HealthHistory, source_id: str, version: int) -> None:
+    if (
+        history.document["source_id"] != source_id
+        or history.document["registry_version"] != version
+    ):
+        raise ValueError("INTELLIGENCE_HEALTH_JOURNAL_BINDING_MISMATCH")
+
+
 class HealthCheckpoints(Protocol):
     def load(self, run_id: str) -> RunState | None: ...
     def load_normalized(self, run_id: str) -> list[dict[str, Any]] | None: ...
@@ -122,7 +130,10 @@ class SQLiteHealthJournal:
                     (source_id, version),
                 ).fetchone()
                 previous = _decode(*row) if row else None
+                if previous is not None:
+                    _validate_binding(previous, source_id, version)
                 result = transform(previous)
+                _validate_binding(result.history, source_id, version)
                 document = _encode(result.history)
                 checksum = identity_hash(document)
                 if not row or checksum != row[1]:
@@ -181,7 +192,10 @@ class SnowflakeHealthJournal:
                 if len(rows) == 2 and rows[0][2] == rows[1][2]:
                     raise ValueError("INTELLIGENCE_HEALTH_JOURNAL_INVALID")
                 previous = _decode(rows[0][0], rows[0][1]) if rows else None
+                if previous is not None:
+                    _validate_binding(previous, source_id, version)
                 result = transform(previous)
+                _validate_binding(result.history, source_id, version)
                 document = _encode(result.history)
                 checksum = identity_hash(document)
                 if not rows or checksum != rows[0][1]:
