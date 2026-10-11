@@ -32,6 +32,27 @@ _LIMITATIONS = [
 ]
 
 
+def normalize_county_evidence(
+    record: Mapping[str, Any], mapping: Mapping[str, Any]
+) -> str:
+    """October 10 lean county state; never infer absence from missing evidence.
+
+    Called after the existing governed mapper validates identity and lineage.
+    Site/event evidence cannot establish a county status.
+    """
+    if (
+        mapping.get("grain") != "COUNTY"
+        or record.get("geography", {}).get("grain") != "COUNTY"
+    ):
+        return "unknown"
+    value = record.get("source_output", {}).get(mapping.get("field"))
+    if mapping.get("id") == "county_tick_status":
+        return {"Established": "established", "Reported": "detected"}.get(value, "unknown")
+    if mapping.get("id") == "county_pathogen_status" and value == "Present":
+        return "detected"
+    return "unknown"
+
+
 def _classify(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> tuple[str, str]:
     output = record["source_output"]
     raw = output.get(mapping["field"])
@@ -149,6 +170,7 @@ def map_surveillance_evidence(
     observation = mapped["observation"]
     evidence = {
         "contract_version": CONTRACT_VERSION,
+        "normalized_state": normalize_county_evidence(record, mapping),
         "state": state,
         "reason_codes": [reason],
         "evidence_tier": "SYNTHETIC_FIXTURE" if fixture_mode else "GOVERNED_MAPPING",
@@ -213,6 +235,7 @@ def project_surveillance_evidence(
             for key in (
                 "contract_version",
                 "state",
+                "normalized_state",
                 "reason_codes",
                 "evidence_tier",
                 "observation_key",

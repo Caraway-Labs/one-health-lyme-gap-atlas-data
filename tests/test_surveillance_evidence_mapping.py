@@ -16,6 +16,7 @@ from lyme_gap_atlas_data.surveillance_evidence_mapping import (
     CONTRACT_VERSION,
     STATES,
     map_surveillance_evidence,
+    normalize_county_evidence,
     project_surveillance_evidence,
 )
 from lyme_gap_atlas_data.tick_normalization import normalize_value
@@ -89,6 +90,37 @@ def negative():
 
 def run(data):
     return map_surveillance_evidence(*data, REGISTRY, fixture_mode=True)
+
+
+@pytest.mark.parametrize(
+    ("identity", "value", "expected"),
+    [
+        ("county_tick_status", "Established", "established"),
+        ("county_tick_status", "Reported", "detected"),
+        ("county_pathogen_status", "Present", "detected"),
+        ("county_tick_status", "No records", "unknown"),
+        ("county_pathogen_status", "No records", "unknown"),
+        ("neon_pathogen_test", 0, "unknown"),
+    ],
+)
+def test_lean_county_state_preserves_publisher_value_and_canonical_meaning(
+    identity, value, expected
+):
+    data = case(identity, value)
+    before = copy.deepcopy(data)
+    result = run(data)
+    assert result["surveillance_evidence"]["normalized_state"] == expected
+    assert result["observation"]["value"] == value
+    assert data == before
+
+
+def test_lean_county_state_missing_or_unsupported_is_unknown():
+    record, _, _ = case("county_tick_status", "Reported")
+    mapping = REGISTRY["county_tick_status"]
+    record["source_output"].pop(mapping["field"])
+    assert normalize_county_evidence(record, mapping) == "unknown"
+    record["source_output"][mapping["field"]] = "Absent"
+    assert normalize_county_evidence(record, mapping) == "unknown"
 
 
 def reported():
