@@ -15,7 +15,7 @@ from lyme_gap_atlas_data.migrations import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "migrations/V147__prod_restricted_cdc_lineage_audit.sql").read_text()
+SOURCE = (ROOT / "migrations/V148__prod_restricted_cdc_lineage_audit.sql").read_text()
 SELECT = SOURCE.split(" COPY GRANTS AS\n", 1)[1].rstrip().removesuffix(";")
 
 
@@ -115,9 +115,9 @@ def seed(db: sqlite3.Connection, family: str) -> str:
 
 def test_prod_only_migration_preserves_existing_permissions_and_fields() -> None:
     migrations = {item.version: item for item in load_migrations()}
-    assert "V147" not in {row["version"] for row in migration_plan(DEV_DATABASE)}
-    assert "V147" in {row["version"] for row in migration_plan(PROD_DATABASE)}
-    rendered = render_migration(migrations["V147"], PROD_DATABASE).upper()
+    assert "V148" not in {row["version"] for row in migration_plan(DEV_DATABASE)}
+    assert "V148" in {row["version"] for row in migration_plan(PROD_DATABASE)}
+    rendered = render_migration(migrations["V148"], PROD_DATABASE).upper()
     rendered = "\n".join(line for line in rendered.splitlines() if not line.startswith("--"))
     assert "CREATE OR REPLACE SECURE VIEW" in rendered
     assert "COPY GRANTS AS" in rendered

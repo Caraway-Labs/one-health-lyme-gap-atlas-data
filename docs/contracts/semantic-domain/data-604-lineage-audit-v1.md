@@ -10,7 +10,7 @@ The view is deliberately internal: artifact IDs and hashes are needed to prove i
 
 ## Restricted CDC audit repair
 
-V147 is a PROD-only forward repair of this same secure view. V137 is unchanged.
+V148 is a PROD-only forward repair of this same secure view. V137 is unchanged.
 It uses `COPY GRANTS`, adds no grant/revoke statements, and retains the exact
 existing output columns. DEV retains the V137 generic paths because the PROD
 restricted tick relation is not part of its ingestion boundary.
@@ -18,7 +18,7 @@ restricted tick relation is not part of its ingestion boundary.
 The existing restricted release builder reads dedicated CDC county-status
 relations, rather than the generic V069/V103 tables. The restricted loader
 retains a separate `evidence_run_id` and workbook checksum; the workbook artifact
-belongs to that evidence run, not necessarily the derivation run. V147 matches
+belongs to that evidence run, not necessarily the derivation run. V148 matches
 the existing source tuple, resource, derivation run, county, native/conformed
 record ID and source-row hash, then checks the selected artifact against the
 row's evidence run and workbook checksum. Generic revision/legacy precedence
