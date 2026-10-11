@@ -32,20 +32,17 @@ _LIMITATIONS = [
 ]
 
 
-def normalize_county_evidence(
-    record: Mapping[str, Any], mapping: Mapping[str, Any]
-) -> str:
+def normalize_county_evidence(record: Mapping[str, Any], mapping: Mapping[str, Any]) -> str:
     """October 10 lean county state; never infer absence from missing evidence.
 
     Called after the existing governed mapper validates identity and lineage.
     Site/event evidence cannot establish a county status.
     """
-    if (
-        mapping.get("grain") != "COUNTY"
-        or record.get("geography", {}).get("grain") != "COUNTY"
-    ):
+    if mapping.get("grain") != "COUNTY" or record.get("geography", {}).get("grain") != "COUNTY":
         return "unknown"
     value = record.get("source_output", {}).get(mapping.get("field"))
+    if not isinstance(value, str):
+        return "unknown"
     if mapping.get("id") == "county_tick_status":
         return {"Established": "established", "Reported": "detected"}.get(value, "unknown")
     if mapping.get("id") == "county_pathogen_status" and value == "Present":
