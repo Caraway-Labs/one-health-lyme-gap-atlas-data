@@ -119,8 +119,9 @@ def test_lean_county_state_missing_or_unsupported_is_unknown():
     mapping = REGISTRY["county_tick_status"]
     record["source_output"].pop(mapping["field"])
     assert normalize_county_evidence(record, mapping) == "unknown"
-    record["source_output"][mapping["field"]] = "Absent"
-    assert normalize_county_evidence(record, mapping) == "unknown"
+    for unsupported in ("Absent", None, [], 0):
+        record["source_output"][mapping["field"]] = unsupported
+        assert normalize_county_evidence(record, mapping) == "unknown"
 
 
 def reported():
