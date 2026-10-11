@@ -29,3 +29,17 @@ accepted metadata revisions and exact private observation/record/semantic-revisi
 bindings. Source versions must remain unchanged. Existing release-specific
 final-copy attestations are separate prerequisites. Consumer acceptance is not
 claimed until genuine intended-reader PROD readbacks succeed.
+
+## Bounded late final-copy registration
+
+The existing final-copy procedure accepts only CANDIDATE releases. The approved
+release is already PUBLISHED and has no exact CDC attestations. Unapplied V149
+therefore preserves that procedure's existing candidate path and grants, and
+adds only the exact approved published release/bundle/source-version slice.
+The late path requires caller/attester identity equality, one active GLOBAL
+steward and the unsuperseded approved packet matching the accepted revision-2
+identity. It does not change a release status, source version or privilege.
+Matthew Caraway confirmed the attester/date and approval of this action in the
+follow-up response. Existing procedure timestamps record the actual registration
+rather than an invented signing timestamp. Genuine consumer acceptance remains
+pending that protected deployment and retained final-copy evidence.

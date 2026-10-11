@@ -412,3 +412,28 @@ def test_supplied_reviewed_revision_is_packaged_and_immutable(measure):
     assert accepted["steward_review"]["reviewed_at"]["value"] == "2026-10-11"
     assert set(accepted["authority"].values()) == {"STEWARD_REVIEWED"}
     assert accepted["provenance"] == pending["provenance"]
+
+
+def test_v149_late_attestation_is_bounded_to_supplied_review():
+    from lyme_gap_atlas_data.migrations import PROD_DATABASE, load_migrations, render_migration
+
+    migration = next(m for m in load_migrations() if m.version == "V149")
+    sql = render_migration(migration, PROD_DATABASE)
+    assert "COPY GRANTS RETURNS VARIANT" in sql
+    assert "r.status='CANDIDATE' OR" in sql
+    assert "r.status='PUBLISHED' AND r.release_id='" + RELEASE_ID + "'" in sql
+    assert "r.bundle_sha256='" + BUNDLE_SHA256 + "'" in sql
+    assert ":ATTESTED_BY=CURRENT_USER()" in sql
+    assert "authorization_scope='GLOBAL'" in sql
+    assert "newer.supersedes_decision_id=d.manual_review_decision_id" in sql
+    for measure, scope in SLICES.items():
+        assert scope["source_version_id"] in sql
+        assert (
+            _metadata(
+                Path(__file__).parents[1] / "docs/contracts/semantic-domain/cdc-2025", measure
+            )["revision_id"]
+            in sql
+        )
+    assert "GRANT " not in sql
+    assert "UPDATE GOVERNANCE.DATA_SOURCE_VERSIONS" not in sql
+    assert "UPDATE PRESENTATION.SEMANTIC_RELEASES" not in sql
