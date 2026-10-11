@@ -1,6 +1,16 @@
-# DATA #110: first-model source portfolio and sufficiency decision
+# DATA #110: historical source portfolio and supervised-label feasibility
 
-**Decision as of 2026-10-05: BLOCK first-model source admission; keep #110 open.** This is a portfolio decision for the current ML #23 objective, not source approval, acquisition, or an executable training panel. The earlier annual reported-incidence candidate is retained below as a separate, second-sequence feasibility result.
+## Current contract supersedes the historical assessment
+
+The [approved Tier 1 contract](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-machine-learning/blob/04351dcfb616befd921fe511cd7ecc79877b2e9f/docs/contracts/tier-1-surveillance-review-priority-v1.md) selects unsupervised county surveillance-review prioritization. It requires no supervised target or ground-truth label. ML #24/#27/#30/#32 may proceed under their own gates independently of this research. The heuristic remains a comparator, never training truth. This document approves no source admission, training run, model, or release.
+
+The minimal current governed portfolio is human surveillance evidence/state, tick/vector evidence, pathogen evidence, surveillance coverage/gap evidence, SVI, and RUCC. Climate, NLCD, MODIS, drought, terrain, AHRF, and historical population denominators are not prerequisites. DATA #110 is superseded for current Tier 1; DATA #111 activates only for a genuinely missing required ML #24 input with product agreement; DATA #113 is deferred and remains blocked for future supervised point-in-time panel qualification.
+
+Everything below is the preserved **historical 2026-10-05 assessment**, superseded for current Tier 1. Its references to the current/first objective, unresolved ML #23 fields, REQUIRED ground truth, sample counts, minimum package, BLOCK decision, and downstream action plan describe the earlier supervised formulation only. They impose no gate on the approved unsupervised path and do not reopen completed ML #23 or ML #86. Future supervised work requires separate target/horizon/cutoff and label/denominator decisions before reactivation. Maryland and Pennsylvania remain DEFER; no supervised county-year label/window is qualified.
+
+## Historical assessment (superseded for current Tier 1)
+
+**Decision as of 2026-10-05: BLOCK first-model source admission; keep #110 open.** This was a portfolio decision for the then-proposed supervised ML #23 objective, not source approval, acquisition, or an executable training panel. The earlier annual reported-incidence candidate is retained below as a separate, second-sequence feasibility result.
 
 ## Target
 

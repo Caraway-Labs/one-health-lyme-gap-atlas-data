@@ -6,6 +6,12 @@ target. It follows [ML #86's merged artifact](https://github.com/Caraway-Labs/on
 [DATA #430](../contracts/semantic-domain/lyme-surveillance-methodology-v1.md),
 and [DATA #431](../contracts/semantic-domain/temporal-alignment-v1.md).
 
+## Current scope and supersession
+
+The [approved ML #23 Tier 1 contract](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-machine-learning/blob/04351dcfb616befd921fe511cd7ecc79877b2e9f/docs/contracts/tier-1-surveillance-review-priority-v1.md) is unsupervised and requires no supervised outcome label. The dated research and action plan below concern future supervised forecasting only; they do not block ML #24/#27/#30/#32 or reopen ML #23/#86. DATA #111 activates only for a genuinely missing required ML #24 input; DATA #113 remains deferred/blocked for future supervised panel qualification. No supervised label/window is qualified, and no ingestion or training is approved.
+
+The subsequent [PR #599 research receipt](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/599) reproduces the official Maryland 2012–2023 replacement, not the original 2011–2022 artifact described below. Maryland remains DEFER because year/jurisdiction attribution and historical revision evidence remain insufficient. Pennsylvania remains DEFER because historical vintages, attribution, revision timing, and workbook-wide suppression rules remain unresolved. The earlier receipt and counts are retained as dated evidence.
+
 ## Maryland label qualification
 
 **Disposition: DEFER.** The exact official PDF could not be retrieved as bytes;
@@ -45,7 +51,7 @@ counts, not an admitted Phase 1 label cohort.
 | Source | Pennsylvania Department of Health [dashboard data page](https://www.pa.gov/agencies/health/diseases-conditions/infectious-disease/vectorborne-diseases/tick-diseases/dashboard-data) and linked [*OfficialLymeByReport2024withMap.xlsx*](https://www.pa.gov/content/dam/copapwp-pagov/en/health/documents/topics/documents/diseases-and-conditions/vectorborne/OfficialLymeByReport2024withMap.xlsx), sheet `RedactedCountyCaseCounts`. |
 | File/content receipt | Direct GET completed 2026-10-04 04:06:00 UTC; 435,622 bytes; SHA-256 `9d3d5a8194db7099d9ff5f894c5b0580be292a3298c4627e847ed5847013b262`, identical to ML #86. Workbook core properties: created 2015-06-02 22:28:57, modified 2025-09-12 18:36:28, stale title “1980-2021 Lyme Disease Data.” None proves public first-release timing. |
 | Period and jurisdictions | 1980–2024, 67 unique named PA counties, 45 year columns. County names have not been mapped to a reviewed vintage-specific FIPS set. |
-| County-year N and value states | 3,015 cells: 2,358 numeric (1,659 positive and 699 explicit zero), 657 `*` suppressed, 0 blank/missing in the displayed 67 × 45 matrix. `*` means counts below five are not displayed; it is never zero. The publisher's exact suppressed-value interval, including whether zero can be redacted, needs clarification. |
+| County-year N and value states | 3,015 cells: 2,358 numeric (1,659 positive and 699 explicit zero), 657 `*` suppressed, 0 blank/missing in the displayed 67 × 45 matrix. `0` is an explicitly reported zero; `*` is suppressed/redacted under the applicable, potentially unknown source rule, with unknown exact count. Missing and suppressed remain distinct. Never interpret or impute `*` as zero, and do not assume it is nonzero. Below-five redaction is evidenced for particular dated annual-report tables, not all 1980–2024 workbook years; apply a numeric bound only where authoritative evidence establishes it for that table and era. The workbook-wide rule remains unresolved. |
 | 2011–2016 | 402 cells: 389 positive, 3 explicit zero, 10 suppressed; 392 numeric. By year, numeric/suppressed: 2011 62/5, 2012 64/3, 2013 65/2, 2014–2016 each 67/0. Butler, Delaware, and York had enhanced surveillance in 2012 and Allegheny in 2014, so source-specific county effects remain even inside the 2011 definition era. |
 | 2017–2019 | 201 cells: 200 positive, 0 explicit zero, 1 suppressed (2019). Treat as separate 2017-definition-era replication candidate; a presence/absence classifier would be nearly trivial. |
 | 2020–2024 | 2020–2021: 134 cells, 95 positive, 12 zero, 27 suppressed; workbook and [2021 report](https://www.pa.gov/content/dam/copapwp-pagov/en/health/documents/topics/documents/diseases-and-conditions/vectorborne/Pennsylvania%20Lyme%20Disease%20Annual%20report%202021.pdf) flag pandemic effects. 2022–2024: 201 cells, 200 positive, 0 zero, 1 suppressed; 2022 high-incidence laboratory-only definition is a material break. |
@@ -77,7 +83,7 @@ suppressed county is allocated or filled.
    unsuppressed lead only if its exact publisher receipt and semantics are
    independently reproduced. Neither establishes a supervised Phase 1 proxy,
    historical predictor eligibility, or a later untouched holdout.
-2. ML #23 should freeze **no** source/window for training now. For the next
+2. For a separately reactivated future supervised target, freeze **no** source/window for training now. This does not gate the approved unsupervised ML #23 path. For the next
    qualification test, DATA #113 can use PA 2014–2016 as a *candidate*
    fully numeric, same-definition-era probe, subject to PA attribution/year
    definition, exact source vintage, geography and forecast-cutoff evidence.
@@ -87,7 +93,7 @@ suppressed county is allocated or filled.
 3. The exact blockers are Maryland receipt and attribution/year semantics; PA
    source-vintage/attribution/suppression evidence; source-specific methodology
    comparison; historical predictor publication/revision/completion receipts;
-   and ML #23's approved reported-burden proxy and holdout plan.
+   and a separately approved future supervised reported-burden proxy and holdout plan.
 4. The smallest next action is publisher clarification/recovery for Maryland's
    exact 2024-05-01 revision and PA's historical workbook definitions/vintages,
    followed by a few-row DATA #113 as-of probe. This document hands the source
