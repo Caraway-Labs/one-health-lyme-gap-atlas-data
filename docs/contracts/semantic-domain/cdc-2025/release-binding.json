@@ -1,6 +1,6 @@
 {
-  "release_id": "governed-2026-09-18-unknown-coverage",
-  "bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026",
+  "release_id": "governed-2026-10-06-nlcd-demo-cohort",
+  "bundle_sha256": "603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9",
   "slices": {
     "scapularis_status": {
       "resource_key": "cdc_tick_ixodes_county_status",
@@ -13,5 +13,5 @@
       "source_version_id": "92b22f19-0d5d-4576-a7c6-6c9af9343edf"
     }
   },
-  "review_state": "PENDING"
+  "review_state": "REVIEWED"
 }

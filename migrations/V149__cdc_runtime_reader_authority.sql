@@ -27,7 +27,7 @@ WITH active_stewards AS (
            'delivery_reference', delivery_reference, 'delivered_at', TO_VARCHAR(delivered_at),
            'attested_by', attested_by)) AS attestations
   FROM GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS
-  WHERE semantic_release_id='governed-2026-09-18-unknown-coverage'
+  WHERE semantic_release_id='governed-2026-10-06-nlcd-demo-cohort'
   GROUP BY semantic_release_id, resource_key, data_source_version_id
 )
 SELECT o.observation_id,
@@ -148,3 +148,57 @@ LEFT JOIN cdc_reviews reviews ON reviews.resource_key=s.resource_key
  AND reviews.data_source_version_id=o.source_version_id
 LEFT JOIN cdc_attestations attest ON attest.semantic_release_id=o.release_id
  AND attest.resource_key=s.resource_key AND attest.data_source_version_id=o.source_version_id;
+
+-- The supplied CDC admission approves an already published release. Preserve the
+-- original candidate path; admit late final-copy evidence only for this exact
+-- reviewed published slice, through the existing steward-owned action.
+CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_RECORD_RESTRICTED_FINAL_COPY_PROD(
+    SEMANTIC_RELEASE_ID VARCHAR, RESOURCE_KEY VARCHAR, DELIVERY_REFERENCE VARCHAR, ATTESTED_BY VARCHAR
+)
+COPY GRANTS RETURNS VARIANT LANGUAGE SQL EXECUTE AS OWNER AS
+$$
+DECLARE invalid_environment EXCEPTION (-20154, 'Restricted final-copy attestation is PROD-only');
+  invalid_input EXCEPTION (-20155, 'Release, resource, delivery reference, and attestor are required');
+  invalid_release EXCEPTION (-20156, 'Candidate or exact reviewed CDC admission is required');
+  source_version_id VARCHAR; attestation_id VARCHAR DEFAULT UUID_STRING();
+BEGIN
+  IF (CURRENT_DATABASE() <> 'ONE_HEALTH_LYME_GAP_ATLAS_PROD') THEN RAISE invalid_environment; END IF;
+  IF (NULLIF(TRIM(SEMANTIC_RELEASE_ID),'') IS NULL OR RESOURCE_KEY NOT IN ('cdc_tick_ixodes_county_status','cdc_tick_ixodes_pathogen_status') OR LENGTH(TRIM(DELIVERY_REFERENCE)) < 6 OR NULLIF(TRIM(ATTESTED_BY),'') IS NULL) THEN RAISE invalid_input; END IF;
+  SELECT s.source_version_id INTO :source_version_id
+  FROM PRESENTATION.SEMANTIC_DATA_SOURCES s
+  JOIN PRESENTATION.SEMANTIC_RELEASES r ON r.release_id=s.release_id
+  WHERE s.release_id=:SEMANTIC_RELEASE_ID AND s.resource_key=:RESOURCE_KEY
+    AND (r.status='CANDIDATE' OR (
+      r.status='PUBLISHED' AND r.release_id='governed-2026-10-06-nlcd-demo-cohort'
+      AND r.bundle_sha256='603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9'
+      AND :ATTESTED_BY=CURRENT_USER()
+      AND ((s.resource_key='cdc_tick_ixodes_county_status' AND s.source_version_id='b81c116f-d93d-4c6b-9d11-ac2477e0e242')
+        OR (s.resource_key='cdc_tick_ixodes_pathogen_status' AND s.source_version_id='92b22f19-0d5d-4576-a7c6-6c9af9343edf'))
+      AND (SELECT COUNT(*) FROM GOVERNANCE.APPROVAL_STEWARDS st
+           WHERE st.username=:ATTESTED_BY AND st.is_active=TRUE AND st.authorization_scope='GLOBAL')=1
+      AND EXISTS (
+        SELECT 1 FROM GOVERNANCE.MANUAL_REVIEW_DECISIONS d,
+          LATERAL FLATTEN(INPUT=>d.conditions) condition
+        WHERE d.resource_key=s.resource_key AND d.data_source_version_id=s.source_version_id
+          AND d.reviewer_username=:ATTESTED_BY AND d.decision IN ('APPROVED','APPROVED_WITH_CONDITIONS')
+          AND NOT EXISTS (SELECT 1 FROM GOVERNANCE.MANUAL_REVIEW_DECISIONS newer
+                          WHERE newer.supersedes_decision_id=d.manual_review_decision_id)
+          AND condition.value:cdc_consumer_admission:release_id::VARCHAR=r.release_id
+          AND condition.value:cdc_consumer_admission:bundle_sha256::VARCHAR=r.bundle_sha256
+          AND condition.value:cdc_consumer_admission:scope:resource_key::VARCHAR=s.resource_key
+          AND condition.value:cdc_consumer_admission:scope:source_version_id::VARCHAR=s.source_version_id
+          AND condition.value:cdc_consumer_admission:metadata_revision_id::VARCHAR=IFF(
+            s.resource_key='cdc_tick_ixodes_county_status',
+            'metadata-revision:v1:c60fb91162b5ed33d34a01d3fef24e0a4a2ef8976bbd07ac1082fd783adfb509',
+            'metadata-revision:v1:01b6eaf0d3f6e96ebf8ac9020e31584f55175c95d676e40d3da7d430b9b08522')
+          AND LENGTH(TRIM(condition.value:cdc_consumer_admission:decision_reference::VARCHAR))>=6
+          AND IS_OBJECT(condition.value:cdc_consumer_admission:observation_bindings)
+      )
+    ))
+  QUALIFY ROW_NUMBER() OVER (ORDER BY s.created_at DESC)=1;
+  IF (source_version_id IS NULL) THEN RAISE invalid_release; END IF;
+  INSERT INTO GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS(attestation_id, semantic_release_id, resource_key, data_source_version_id, delivery_reference, delivered_at, attested_by)
+  VALUES (:attestation_id, :SEMANTIC_RELEASE_ID, :RESOURCE_KEY, :source_version_id, :DELIVERY_REFERENCE, CURRENT_TIMESTAMP(), :ATTESTED_BY);
+  RETURN OBJECT_CONSTRUCT('attestation_id', :attestation_id, 'semantic_release_id', :SEMANTIC_RELEASE_ID, 'resource_key', :RESOURCE_KEY);
+END;
+$$;

@@ -1,6 +1,8 @@
 # DATA #429 CDC county consumer review package
 
-Status: **PENDING scientific/data review; not production admission.**
+Status: **Scientific/release-binding decision supplied on 2026-10-11; governed ledger binding and genuine PROD consumer acceptance remain required.**
+
+See [the retained supplied decision](review-decision-2026-10-11.md).
 Owner: Atlas data stewardship. Engineering authorization is the October 11
 DATA #429 consumer admission vertical slice. This package uses #190 measure,
 #191 metadata, #193 lineage and #194 consumer contracts; it adds no persistence,
@@ -20,7 +22,7 @@ carries an immutable content hash and meaning signature. The synthetic #191
 examples are not prior live definitions or scientific approval. These are new
 live-source candidates, not replacements for an applied measure revision.
 The metadata visibility describes the proposed safe projection, while PENDING
-review prevents publication. No reviewer identity or date has been invented.
+review prevents publication. Reviewer Matthew Caraway supplied the decision dated 2026-10-11; no additional identity or timestamp is inferred.
 Unknown publisher dates, retrieval freshness, uncertainty and unverified quality
 references retain explicit unknown/unavailable states rather than guessed facts.
 
@@ -152,9 +154,9 @@ remain independently reconciled.
 Canonical metadata and mapping resources are packaged in the wheel/container.
 Revision 1 identities are pinned and remain PENDING. The runtime looks only for
 `scapularis_status.revision-2.metadata.json` and
-`burgdorferi_status.revision-2.metadata.json` alongside them. Neither file exists
-in this engineering increment. Adding them requires the actual scientific
-review; a metadata REVIEWED flag alone cannot authorize the writer.
+`burgdorferi_status.revision-2.metadata.json` alongside them. Both immutable revision-2 documents now retain the supplied
+scientific decision date. A metadata REVIEWED flag alone cannot authorize the
+writer; retained steward authority and exact release membership remain mandatory.
 
 ### Required retained authority, after actual scientific review
 
@@ -196,9 +198,10 @@ copy do not replace this metadata review decision.
 
 ### Bounded production acceptance and API #88 binding
 
-After the reviewer has approved the two definitions/version 1.0.0, record actual
-review evidence, preserve PENDING revision 1, create immutable REVIEWED revision
-2 with its real date/field authorities, and retain/bind the private packet above.
+The reviewer has approved both definitions/version 1.0.0 and the replacement
+published release. PENDING revision 1 remains unchanged; immutable REVIEWED
+revision 2 records the actual supplied date/field authorities. Retain/bind the
+private packet above and satisfy separate final-copy attestation prerequisites.
 Deploy the independently reviewed engineering artifact and later accepted
 metadata artifact through `quality.yml` (`deploy_dev=true`) and protected
 `promote-prod.yml` with the exact approved immutable DEV digest. Recheck the
