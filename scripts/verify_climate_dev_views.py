@@ -17,6 +17,7 @@ NAMES = (
     "CURRENT_CLIMATE_MEASURE_METADATA_V",
 )
 CHECKSUM = "f3a33d21cba33f27a4e1683b65f9295f33c796f445c8c9ed82c84bd16948b2c2"
+SCALAR_CHECKSUM = "22caabb8abb205316005d866286d7adb995a0b7dc5ec8b05aa6c6f053dfca83b"
 
 
 def body(sql: str) -> str:
@@ -50,6 +51,14 @@ def verify(cursor: Any, sql: str) -> dict[str, Any]:
     cursor.execute("SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version='V136'")
     if cursor.fetchall() != [("V136__dev_january_climate_consumer_views.sql", CHECKSUM)]:
         raise ValueError("CLIMATE_VIEW_LEDGER")
+    cursor.execute("SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version='V147'")
+    scalar_ledger = cursor.fetchall()
+    if scalar_ledger:
+        if scalar_ledger != [("V147__dev_climate_scalar_membership_join.sql", SCALAR_CHECKSUM)]:
+            raise ValueError("CLIMATE_SCALAR_VIEW_LEDGER")
+        sql = (
+            Path(__file__).parents[1] / "sql/january_climate_consumer_views_scalar_join.sql"
+        ).read_text()
     reviewed = proposals(sql)
     views = []
     for name, proposal in zip(NAMES, reviewed, strict=True):
@@ -110,6 +119,7 @@ def verify(cursor: Any, sql: str) -> dict[str, Any]:
         "mode": "READ_ONLY_DEV_POSTAPPLY",
         "code_sha": os.environ.get("GITHUB_SHA", "UNKNOWN"),
         "v136_checksum": CHECKSUM,
+        "v147_checksum": SCALAR_CHECKSUM if scalar_ledger else None,
         "views": views,
         "validation_tables_visible_in_this_session": temporary_visible,
         "history": history,

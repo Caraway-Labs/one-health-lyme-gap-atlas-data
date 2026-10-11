@@ -70,8 +70,14 @@ def test_diagnostic_execute_surface_is_read_only() -> None:
         assert prefix.startswith(("SELECT ", "SHOW ", "DESCRIBE VIEW "))
 
 
-def test_observation_read_is_bounded_after_full_count_timed_out() -> None:
-    reviewed = (ROOT / "sql/january_climate_consumer_views.sql").read_text()
+@pytest.mark.parametrize("scalar", [False, True])
+def test_observation_read_is_bounded_after_full_count_timed_out(scalar: bool) -> None:
+    filename = (
+        "january_climate_consumer_views_scalar_join.sql"
+        if scalar
+        else "january_climate_consumer_views.sql"
+    )
+    reviewed = (ROOT / "sql" / filename).read_text()
     definitions = MODULE["proposals"](reviewed)
 
     class Cursor:
@@ -101,6 +107,12 @@ def test_observation_read_is_bounded_after_full_count_timed_out() -> None:
             return (4,)
 
         def fetchall(self) -> list[tuple[object, ...]]:
+            if "version='V147'" in self.current:
+                return (
+                    [("V147__dev_climate_scalar_membership_join.sql", MODULE["SCALAR_CHECKSUM"])]
+                    if scalar
+                    else []
+                )
             if "SCHEMA_MIGRATIONS" in self.current:
                 return [("V136__dev_january_climate_consumer_views.sql", MODULE["CHECKSUM"])]
             if "VALUE, VALUE_STATE, UNIT" in self.current:
@@ -120,6 +132,8 @@ def test_observation_read_is_bounded_after_full_count_timed_out() -> None:
     cursor = Cursor()
     report = MODULE["verify"](cursor, reviewed)
     observation = report["views"][0]
+    assert report["v147_checksum"] == (MODULE["SCALAR_CHECKSUM"] if scalar else None)
+    assert all(view["normalized_body_matches_reviewed"] for view in report["views"])
     assert observation["successful_row_count"] is None
     assert observation["bounded_sample"][0]["VALUE"] == 1.2
     assert any("COUNT(*)" in sql and MODULE["NAMES"][1] in sql for sql in cursor.calls)

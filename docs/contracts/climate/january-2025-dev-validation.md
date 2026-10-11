@@ -135,6 +135,33 @@ intended-reader proof. If the publication identity lacks canonical-partition
 SELECT, the owner must choose an already authorized identity or separately
 review a bounded solution. This draft grants nothing.
 
+## DEV observation join correction under DATA #443
+
+V147 preserves the V136 observation projection and January-only authority. It
+flattens capture membership and the four metadata definitions independently,
+projects scalar run/artifact membership keys, and joins them to immutable V103
+revisions. The large release extension is no longer selected into the records
+relation. COPY GRANTS preserves existing view access; no grant, source decision,
+release membership, pointer, or PROD object changes.
+
+The read-only verifier checks the immutable V136 ledger and, when V147 exists,
+its exact checksum and the revised compiled body. Before V147 it continues to
+validate the original body. The metadata view remains unchanged.
+
+Offline old/new join parity covers published/unsupported contract states,
+unselected captures, wrong run/resource/version/artifact/hash, four measure
+bindings and zero/null/negative values. Projection equality retains numeric
+transport, coverage, retrieval and unknown original publication time. This is
+not Snowflake compilation or measured performance evidence. The prior protected
+LIMIT 4 read timed out; a fresh protected readback must complete within existing
+timeouts before claiming the blocker resolved. Do not widen timeouts or grant
+new access to obtain that proof. PROD capture/source/view parity and actual API
+service-role acceptance remain separate prerequisites to API #84 activation.
+
+Rollback uses a reviewed subsequent migration restoring V136's observation
+body with COPY GRANTS. Never edit an applied migration or move a release pointer
+as a view-performance rollback.
+
 ## Supported adapter boundary
 
 Use the reviewed explicit-authority path only:
