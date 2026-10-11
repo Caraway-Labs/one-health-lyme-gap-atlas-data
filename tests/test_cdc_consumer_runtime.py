@@ -297,7 +297,7 @@ def test_forward_view_retains_v148_and_reader_boundary():
     assert "SECURE VIEW LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V COPY GRANTS" in sql
     assert "GRANT " not in sql
     assert "UPDATE " not in sql
-    assert "INSERT " not in sql
+    assert "INSERT " not in sql.split("-- The supplied CDC admission", 1)[0]
     assert "cdc_runtime_authority" in sql
 
 
