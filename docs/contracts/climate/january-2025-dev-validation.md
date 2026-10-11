@@ -158,6 +158,26 @@ timeouts before claiming the blocker resolved. Do not widen timeouts or grant
 new access to obtain that proof. PROD capture/source/view parity and actual API
 service-role acceptance remain separate prerequisites to API #84 activation.
 
+The protected view readback now sends a 60-second server statement limit,
+10-second queue limit and ABORT_DETACHED_QUERY at connection creation, including
+the identity query. Socket/network limits are 65 seconds. Its existing workflow
+invocation stops after 300 seconds with SIGINT, then kills after 15 seconds;
+the last server statement still has its independent 60-second limit. No retry
+or role fallback is added. LIMIT 4 restricts output, not query cost.
+
+A metadata-only ATLAS_DEV_READ inspection on 2026-10-11 observed the expected
+DEV database/role, AWS_US_WEST_2, and the suspended STANDARD Gen2 X-Small
+OH_LYME_DEV_INGEST_XS_WH with auto_suspend=60. The SHOW response omitted cluster
+and acceleration settings; single-cluster/no-acceleration bounds use the existing
+owner-verified Standard edition evidence, not invented SHOW values. At the
+existing public $6/credit forecast, reserve $10 for one readback: 435 seconds
+covering process, final statement and idle tail at 5.75 credits/hour ($4.17),
+plus fifteen one-minute resume minimums at 1.35 credits/hour ($2.03) and a $1
+noncompute reserve, rounded upward. This is a conservative forecast, not an
+invoice or attribution of unrelated shared warehouse activity. Recheck changed
+warehouse/edition/price assumptions before execution; do not automatically retry
+a failed paid readback. Observation performance has not yet been measured.
+
 Rollback uses a reviewed subsequent migration restoring V136's observation
 body with COPY GRANTS. Never edit an applied migration or move a release pointer
 as a view-performance rollback.

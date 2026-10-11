@@ -332,7 +332,7 @@ jobs:
             fi
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
-            uv run python scripts/verify_climate_dev_views.py
+            timeout --signal=INT --kill-after=15s 300s uv run python scripts/verify_climate_dev_views.py
             exit 0
           fi
           if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ]; then

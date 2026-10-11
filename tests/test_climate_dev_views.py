@@ -162,5 +162,32 @@ def test_workflow_read_only_mode_exits_before_migration() -> None:
         'if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ]; then', 1
     )[0]
     assert "scripts/verify_climate_dev_views.py" in mode
+    assert "timeout --signal=INT --kill-after=15s 300s" in mode
     assert "exit 0" in mode
     assert "apply-reviewed" not in mode
+
+
+def test_server_timeouts_are_present_before_any_statement(monkeypatch: pytest.MonkeyPatch) -> None:
+    bounded_connection = MODULE["bounded_connection"]
+    parameters = {"session_parameters": {"QUERY_TAG": "old"}, "role": "existing-role"}
+    captured = {}
+    sentinel = object()
+    monkeypatch.setitem(bounded_connection.__globals__, "SnowflakeSettings", lambda: object())
+    monkeypatch.setitem(
+        bounded_connection.__globals__, "connection_parameters", lambda settings: parameters
+    )
+
+    def connect(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setitem(bounded_connection.__globals__, "connect", connect)
+    assert bounded_connection() is sentinel
+    assert captured["role"] == "existing-role"
+    assert captured["network_timeout"] == captured["socket_timeout"] == 65
+    assert captured["session_parameters"] == {
+        "QUERY_TAG": "atlas-climate-dev-view-readback",
+        "STATEMENT_TIMEOUT_IN_SECONDS": 60,
+        "STATEMENT_QUEUED_TIMEOUT_IN_SECONDS": 10,
+        "ABORT_DETACHED_QUERY": True,
+    }
