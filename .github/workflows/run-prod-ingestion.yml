@@ -30,15 +30,16 @@ on:
         type: string
       source_version_id:
         description: Active approved source-version UUID bound to this execution
-        required: true
+        required: false
         type: string
       source_decision_id:
         description: Immutable human-review decision UUID that approved the source version
-        required: true
+        required: false
         type: string
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: prod-governed-ingestion-${{ inputs.source_definition }}
@@ -84,7 +85,25 @@ jobs:
         run: uv sync --extra dev --extra pipeline --locked
       - name: Validate definition
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+      - name: Require exact reviewed EID-only production request
+        if: inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_OPERATION: ${{ inputs.operation }}
+          REQUEST_RUN_ID: ${{ inputs.run_id }}
+          REQUEST_SOURCE_VERSION_ID: ${{ inputs.source_version_id }}
+          REQUEST_SOURCE_DECISION_ID: ${{ inputs.source_decision_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$REQUEST_OPERATION" = run
+          test -z "$REQUEST_RUN_ID"
+          test -z "$REQUEST_SOURCE_VERSION_ID"
+          test -z "$REQUEST_SOURCE_DECISION_ID"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed_checks" -gt 0
       - name: Verify protected PROD runtime identity and approved source decision
+        if: inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml'
         timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 3 || 360 }}
         run: |
           set -euo pipefail
@@ -166,7 +185,7 @@ jobs:
               )
           PY
       - name: Execute canonical Tier C run or resume
-        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
+        timeout-minutes: ${{ inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' && 6 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.operation }}" = "run" ]; then

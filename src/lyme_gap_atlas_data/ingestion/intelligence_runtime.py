@@ -1,8 +1,7 @@
-"""Small DEV feed composition on the canonical ingestion state machine.
+"""Small governed feed composition on the canonical ingestion state machine.
 
-The checked-in receipt set is deliberately empty. Source selection is not a
-registry approval or a native-metadata/retention rights grant. Reviewed receipts
-must be added through normal code review, pinned to a real registry checksum.
+Source selection is not a registry approval or a native-metadata/retention rights
+grant. Reviewed receipts are pinned to a real registry checksum.
 """
 
 from __future__ import annotations
@@ -17,7 +16,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
@@ -39,6 +39,7 @@ ENDPOINTS = {
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
+PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
 
 
 @contextmanager
@@ -248,9 +249,25 @@ def compose_pilot(
     budget: PilotBudget | None = None,
 ) -> tuple[IngestionOrchestrator, SourceDefinition]:
     """Assemble existing runtime components; perform no approval or schema DDL."""
+    if settings.topx_env not in {"dev", "prod"}:
+        raise PermissionError("INTELLIGENCE_PILOT_ENVIRONMENT_REQUIRED")
+    environment: Literal["DEV", "PROD"] = "PROD" if settings.topx_env == "prod" else "DEV"
+    if environment == "PROD":
+        endpoint = urlsplit(settings.spaces_endpoint)
+        if (
+            definition.source_id != "cdc-eid-expedited"
+            or settings.spaces_bucket != "one-health-lyme-gap-atlas-data-prod"
+            or settings.spaces_prefix != "prod"
+            or settings.spaces_region != "sfo3"
+            or endpoint.scheme != "https"
+            or endpoint.hostname != "sfo3.digitaloceanspaces.com"
+            or endpoint.path not in {"", "/"}
+            or endpoint.query
+            or endpoint.fragment
+        ):
+            raise PermissionError("INTELLIGENCE_PROD_STORAGE_SCOPE_REQUIRED")
     if (
-        settings.topx_env != "dev"
-        or definition.adapter_kind is not AdapterKind.RSS_ATOM
+        definition.adapter_kind is not AdapterKind.RSS_ATOM
         or definition.source_id != definition.resource_key
         or ENDPOINTS.get(definition.source_id) != definition.endpoint_template
         or definition.destination != "PRESENTATION.INTELLIGENCE_FEED_V2"
@@ -263,6 +280,14 @@ def compose_pilot(
     receipt = selected[0]
     if not receipt.get("decision_ref") or not receipt.get("raw_policy_ref"):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_POLICY_REQUIRED")
+    if environment == "PROD" and (
+        receipt["registry_version"] != 1
+        or receipt["source_sha256"] != PROD_EID_SHA256
+        or receipt["decision_ref"] != "DATA-132-135-EID-ADMISSION-2026-10-09"
+        or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
+        or receipt["artifact_policy"] != "CDC_EID_RESTRICTED_RAW_30D_V1"
+    ):
+        raise PermissionError("INTELLIGENCE_PROD_REVIEWED_EID_REQUIRED")
     native = NativeMetadataPolicy(
         **{
             **receipt["native_policy"],
@@ -272,6 +297,24 @@ def compose_pilot(
             },
         }
     )
+    if environment == "PROD" and (
+        native.policy_ref != "cdc-eid-expedited-native-metadata-v1"
+        or native.permitted_paths
+        != frozenset(
+            {
+                "feed/language",
+                "feed/link",
+                "feed/title",
+                "item/link",
+                "item/pubDate",
+                "item/title",
+            }
+        )
+        or native.updated_path is not None
+        or native.published_path != "item/pubDate"
+        or native.published_format != "rfc822"
+    ):
+        raise PermissionError("INTELLIGENCE_PROD_NATIVE_POLICY_REQUIRED")
     budget = budget or PilotBudget()
 
     @contextmanager
@@ -289,10 +332,10 @@ def compose_pilot(
                 )
                 if cursor.fetchall() != [
                     (
-                        "OH_LYME_DEV_PIPELINE_SVC",
-                        "OH_LYME_DEV_RUNTIME",
-                        "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
-                        "OH_LYME_DEV_INGEST_XS_WH",
+                        f"OH_LYME_{environment}_PIPELINE_SVC",
+                        f"OH_LYME_{environment}_RUNTIME",
+                        f"ONE_HEALTH_LYME_GAP_ATLAS_{environment}",
+                        f"OH_LYME_{environment}_INGEST_XS_WH",
                     )
                 ]:
                     raise PermissionError("INTELLIGENCE_PILOT_RUNTIME_CONTEXT_REQUIRED")
@@ -309,6 +352,11 @@ def compose_pilot(
         native_policy_lookup=lambda sid, version: native,
     )
     source = effects.store.lookup_latest_source(definition.source_id)
+    if environment == "PROD" and (
+        source["access_use"]["public_excerpt_permitted"]
+        or source["access_use"]["excerpt_max_chars"] != 0
+    ):
+        raise PermissionError("INTELLIGENCE_PROD_METADATA_ONLY_REQUIRED")
     if (
         source["registry_version"] != receipt["registry_version"]
         or identity_hash(source) != receipt["source_sha256"]
@@ -323,8 +371,8 @@ def compose_pilot(
         extra={"intelligence_registry": source},
     )
     retention = FeedRawRetention(
-        SnowflakeRawLedger(factory, "DEV"),
-        environment="DEV",
+        SnowflakeRawLedger(factory, environment),
+        environment=environment,
         source_lookup=effects.store.lookup_source,
         policy_lookup=lambda selected_source: receipt["raw_policy_ref"],
     )
