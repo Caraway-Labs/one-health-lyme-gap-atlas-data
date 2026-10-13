@@ -7,6 +7,15 @@ on:
         description: DEV-tested DOCR image digest to promote
         required: true
         type: string
+      expected_pending_json:
+        description: Exact reviewed PROD pending migration set; required for protected intelligence cleanup authority
+        required: false
+        type: string
+      protected_intelligence_prerequisite:
+        description: Confirm exact one-migration intelligence cleanup promotion after V146 is already applied
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -51,6 +60,8 @@ jobs:
         env:
           TOPX_ENV: prod
           ENABLE_PRODUCTION_EXECUTION: "true"
+          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          PROTECTED_INTELLIGENCE_PREREQUISITE: ${{ inputs.protected_intelligence_prerequisite }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
@@ -87,11 +98,24 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
           uv run atlas-data pipeline migration-authority-preflight \
             --database "$SNOWFLAKE_DATABASE"
-          SNOWFLAKE_AUTH_METHOD=key_pair \
-          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
-          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
-          uv run atlas-data pipeline apply-migrations \
-            --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
+          if [ -n "$EXPECTED_PENDING_JSON" ]; then
+            test "$PROTECTED_INTELLIGENCE_PREREQUISITE" = "true"
+            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"}]"
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
+            uv run atlas-data pipeline apply-migrations \
+              --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" \
+              --expected-pending-json "$EXPECTED_PENDING_JSON" \
+              --protected-intelligence-prerequisite --confirm
+          else
+            test "$PROTECTED_INTELLIGENCE_PREREQUISITE" != "true"
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
+            uv run atlas-data pipeline apply-migrations \
+              --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
+          fi
       - name: Promote the immutable image across the existing operational topology without exposing secrets
         run: |
           prod_spec="$(mktemp)"
