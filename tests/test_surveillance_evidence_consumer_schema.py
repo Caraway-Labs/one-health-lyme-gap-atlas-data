@@ -44,6 +44,7 @@ def test_existing_writer_validates_without_network_and_preserves_observation(dat
     evidence = result["surveillance_evidence"]
     observation = result["semantic"]["observation"]
     assert evidence["state"] == state
+    assert evidence["normalized_state"] in {"established", "detected", "unknown"}
     assert evidence["observation_key"] == observation["id"]
     assert evidence["revision_id"] == observation["revision_id"]
     assert evidence["value_state"] == observation["value_state"]

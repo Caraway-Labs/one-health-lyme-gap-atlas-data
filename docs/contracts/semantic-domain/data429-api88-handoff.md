@@ -6,6 +6,17 @@ steward approval. See [v3 eligibility and interpretation](surveillance-evidence-
 
 ## Existing output and identity
 
+The October 10 lean requirement supersedes the historical five-state product
+interpretation. New projections include additive `normalized_state` with only
+`established`, `detected`, or `unknown`. Existing county tick `Established`
+maps to `established`, `Reported` to `detected`, and county pathogen `Present`
+to `detected`. All unsupported/missing values and site/event evidence remain
+`unknown`. API #88 should consume this field directly; it must not derive it
+from the historical `state` field. The original publisher value remains in
+`semantic.observation.value`, with geography, period, source and lineage intact.
+Historical `state` is retained for compatibility only. No source admission,
+steward review, consumer activation or production publication is implied.
+
 `surveillance_evidence_mapping.project_surveillance_evidence` produces the
 `atlas-surveillance-evidence-consumer-v2` envelope with an unchanged
 `atlas-semantic-consumer-v1` object and `atlas-surveillance-evidence-v3` evidence.
@@ -48,15 +59,19 @@ jurisdiction practices. Their existence does not prove public wiring or approval
 
 Synthetic serialization fixtures cover all five evidence states. They demonstrate
 shape and identity preservation, not governed evidence or production availability.
-The existing nonfixture mapper retains INTERNAL lineage; the consumer gate must
-continue to deny it until the existing admission requirements are satisfied.
+The nonfixture CDC mapper retains INTERNAL lineage until the exact reviewed
+metadata, source and release admission predicates pass. The bounded
+[CDC review package and authority handoff](cdc-2025/README.md) supplies PENDING
+definitions and the supported dual-run relationship; it grants no scientific
+approval or production admission. API PR #224 has merged the compatible optional
+resolver seam. Genuine intended-role readback is still required after approval.
 Unavailable admitted evidence must remain explicitly unavailable according to
 the API's existing availability contract; do not synthesize a stronger state from
 an empty response, failed gate, missing row or missing proof.
 
 Before claiming DATA429's genuine canonical-to-consumer acceptance, obtain the
 bounded retained export and authoritative ledger joins for the pinned CDC versions
-and NEON run, reconcile actual measure metadata, and complete required scientific/
+for this CDC slice, reconcile actual measure metadata, and complete required scientific/
 steward review with the actual reviewer/date. A historical NEON run receipt does
 not prove an eligible individual negative. No replacement source-version identity,
 approval flag or review date may be invented. Public admission and production

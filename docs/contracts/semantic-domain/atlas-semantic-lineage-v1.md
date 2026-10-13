@@ -24,6 +24,16 @@ Evidence basis is taken from the owning #158/#159 contracts. `SYNTHETIC_FIXTURE`
 
 ## INTERNAL and CONSUMER_SAFE
 
+The bounded [CDC 2025 review package](cdc-2025/README.md) defines the two
+exact source/version/release slices eligible for a separate evidence-run join.
+The workbook remains under its evidence run; the county record retains its
+derivation run. Source approvals, definition version 1, artifact and row hashes,
+county, publisher status and both run relationships must reconcile. Only a
+REVIEWED metadata revision bound to the exact release authority and existing
+final-copy attestation can become CONSUMER_SAFE. PENDING CDC metadata remains
+INTERNAL. These predicates grant no approval or access. CDC consumer record
+references use semantic observation keys, never restricted physical record IDs.
+
 `INTERNAL` may carry governance IDs needed for exact joins under existing role controls. `consumer_safe_lineage()` emits an explicit allowlist: semantic/metadata IDs and revisions, measure/version, publisher, dataset, source version/vintage, method/version, typed limitations, evidence basis, representativeness, safe record references, and optional result/release IDs. It excludes artifact IDs, hashes, runs, raw payloads, private paths and signed URLs. The safe-value guard rejects restricted keys and values, credentials, private keys, private workbook paths, and sensitive operational identifiers in emitted fields. This projection is a contract function, not a new public API or exposure approval; #194 owns PUBLIC and service integration. #158/#159 derived shapes remain internal until separately reviewed.
 
 ## Validation and evidence boundary
