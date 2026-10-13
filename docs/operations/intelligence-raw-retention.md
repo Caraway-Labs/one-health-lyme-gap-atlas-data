@@ -9,8 +9,12 @@ publisher dates are silently deleted/refreshed by this policy.
 The durable runtime integration is described in
 [intelligence-raw-runtime.md](intelligence-raw-runtime.md). Concrete checkpoint,
 cache, object and resume gates are implemented, with offline restart/crash tests.
-No CLI, scheduled task, credentials, source activation or default cleanup
-approval is added. Production enforcement remains a release gate.
+The DEV runner and V143 authority are DEV-only. The PROD runner and V150
+authority are fixed to the production EID bucket, prefix, database, source and
+checkpoint table. Neither creates a schedule or an approval; production
+security provisioning, protected migration, owner handoff and a one-target
+synthetic deletion proof remain release gates. See the
+[PROD cleanup runbook](intelligence-raw-cleanup-prod.md).
 
 The private authoritative ledger must create an immutable successful-200 capture
 lease and source/version/rights binding. Raw copies reference the lease hash.

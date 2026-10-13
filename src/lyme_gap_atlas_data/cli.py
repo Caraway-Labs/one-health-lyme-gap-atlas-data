@@ -618,12 +618,31 @@ def migration_authority_preflight_command(
 def apply_migrations_command(
     database: str = typer.Option(..., "--database"),
     commit: str | None = typer.Option(None, "--commit"),
+    expected_pending_json: str | None = typer.Option(None, "--expected-pending-json"),
+    protected_intelligence_prerequisite: bool = typer.Option(
+        False, "--protected-intelligence-prerequisite"
+    ),
     confirm: bool = typer.Option(False, "--confirm"),
 ) -> None:
     """Apply checksum-validated migrations only after an explicit confirmation."""
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
-    typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+    expected_pending = (
+        parse_reviewed_pending_set(expected_pending_json) if expected_pending_json else None
+    )
+    typer.echo(
+        json.dumps(
+            {
+                "applied": apply_migrations(
+                    _settings(),
+                    database,
+                    commit,
+                    expected_pending=expected_pending,
+                    protected_intelligence_prerequisite=protected_intelligence_prerequisite,
+                )
+            }
+        )
+    )
 
 
 @pipeline_app.command("pending-migration-plan")
