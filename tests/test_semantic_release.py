@@ -227,6 +227,9 @@ def test_prod_final_copy_gate_requires_every_restricted_source_attestation() -> 
         def fetchone(self) -> tuple[int, ...]:
             return next(self.responses)
 
+        def fetchall(self) -> list[tuple[str, ...]]:
+            return []
+
     blocked_cursor = Cursor([(2,), (1,)])
     with pytest.raises(SemanticReleaseBlocked, match="final-copy"):
         semantic_release._verify_restricted_final_copy_attestations(

@@ -1,0 +1,17 @@
+{
+  "release_id": "governed-2026-10-06-nlcd-demo-cohort",
+  "bundle_sha256": "603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9",
+  "slices": {
+    "scapularis_status": {
+      "resource_key": "cdc_tick_ixodes_county_status",
+      "dataset_id": "cdc-ixodes-county-status-2025",
+      "source_version_id": "b81c116f-d93d-4c6b-9d11-ac2477e0e242"
+    },
+    "burgdorferi_status": {
+      "resource_key": "cdc_tick_ixodes_pathogen_status",
+      "dataset_id": "cdc-ixodes-pathogen-status-2025",
+      "source_version_id": "92b22f19-0d5d-4576-a7c6-6c9af9343edf"
+    }
+  },
+  "review_state": "REVIEWED"
+}

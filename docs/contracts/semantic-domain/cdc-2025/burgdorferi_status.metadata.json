@@ -1,0 +1,178 @@
+{
+  "contract_version": "atlas-semantic-metadata-v1",
+  "metadata_id": "metadata:burgdorferi_status:1.0.0",
+  "metadata_revision": 1,
+  "measure": {
+    "measure_id": "burgdorferi_status",
+    "indicator_id": "pathogen_surveillance",
+    "semantic_version": "1.0.0",
+    "definition": "Publisher-reported CDC Borrelia burgdorferi county status for Ixodes scapularis, cumulative through 2025-12-31. Present supports positive pathogen detection; No records supports no biological conclusion.",
+    "data_type": "string",
+    "unit": "status",
+    "denominator": "NONE",
+    "geography_grain": "COUNTY",
+    "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+    "allowed_strata": [],
+    "origin": "REPORTED",
+    "methodology_version": "tick-surveillance-v1",
+    "allowed_value_states": [
+      "OBSERVED",
+      "NO_RECORDS",
+      "UNKNOWN",
+      "MISSING",
+      "UNAVAILABLE",
+      "SUPPRESSED",
+      "NOT_REPORTED"
+    ]
+  },
+  "meaning_signature": "463a58e306b5293973d6926a01f0b241bcfc1c315027bfea0af505538ee00bc3",
+  "label": "CDC Borrelia burgdorferi county status",
+  "definition": "Publisher-reported CDC Borrelia burgdorferi county status for Ixodes scapularis, cumulative through 2025-12-31. Present supports positive pathogen detection; No records supports no biological conclusion.",
+  "short_description": {
+    "state": "KNOWN",
+    "value": "Present -> detected; No records/missing/unsupported -> unknown."
+  },
+  "authority": {
+    "label": "GOVERNED_GENERATED",
+    "definition": "GOVERNED_GENERATED",
+    "short_description": "GOVERNED_GENERATED"
+  },
+  "steward_review": {
+    "state": "PENDING",
+    "reviewed_at": {
+      "state": "UNKNOWN",
+      "value": null
+    }
+  },
+  "applicability": {
+    "geography_grain": "COUNTY",
+    "temporal_semantics": "CUMULATIVE_THROUGH_DATE",
+    "allowed_strata": [],
+    "origin": "REPORTED",
+    "representativeness": "COUNTY_NATIVE_STATUS"
+  },
+  "unit": "status",
+  "denominator": "NONE",
+  "allowed_value_states": [
+    "OBSERVED",
+    "NO_RECORDS",
+    "UNKNOWN",
+    "MISSING",
+    "UNAVAILABLE",
+    "SUPPRESSED",
+    "NOT_REPORTED"
+  ],
+  "visibility": "CONSUMER_SAFE",
+  "provenance": {
+    "publisher": {
+      "state": "KNOWN",
+      "value": "CDC"
+    },
+    "source_id": {
+      "state": "KNOWN",
+      "value": "cdc_arbonet_tick_module"
+    },
+    "dataset_id": {
+      "state": "KNOWN",
+      "value": "cdc-ixodes-pathogen-status-2025"
+    },
+    "source_version_id": {
+      "state": "KNOWN",
+      "value": "92b22f19-0d5d-4576-a7c6-6c9af9343edf"
+    },
+    "source_vintage": {
+      "state": "KNOWN",
+      "value": "2025"
+    },
+    "method_version": {
+      "state": "KNOWN",
+      "value": "tick-surveillance-v1"
+    },
+    "transformation_version": {
+      "state": "NOT_APPLICABLE",
+      "value": null
+    }
+  },
+  "freshness": {
+    "observation_period": {
+      "state": "KNOWN",
+      "value": "2025-12-31"
+    },
+    "source_vintage": {
+      "state": "KNOWN",
+      "value": "2025"
+    },
+    "retrieved_at": {
+      "state": "UNAVAILABLE",
+      "value": null
+    },
+    "published_at": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "metadata_revised_at": {
+      "state": "KNOWN",
+      "value": "2026-10-11"
+    }
+  },
+  "quality_evidence": {
+    "quality_contract": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "propagation_contract": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "eligibility_contract": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "uncertainty": {
+      "state": "UNKNOWN",
+      "value": null
+    },
+    "evidence_basis": {
+      "state": "KNOWN",
+      "value": "RESTRICTED_CDC_PUBLISHER_RECORD"
+    }
+  },
+  "limitations": [
+    {
+      "category": "USE_RESTRICTION",
+      "code": "restricted_workbook",
+      "text": "Raw workbook, private lineage, runs, artifacts and hashes remain restricted; only the reviewed allowlisted semantic projection may reach consumers."
+    },
+    {
+      "category": "INTERPRETATION",
+      "code": "no_absence_inference",
+      "text": "No records, missing evidence and UNKNOWN_SOURCE_COVERAGE placeholders are unknown, never biological absence or a sampled negative."
+    },
+    {
+      "category": "INTERPRETATION",
+      "code": "no_health_risk",
+      "text": "County source status does not establish prevalence, density, individual human risk or establishment thresholds."
+    },
+    {
+      "category": "REPRESENTATIVENESS",
+      "code": "source_native_county",
+      "text": "County-native publisher status does not establish sampling completeness, effort or representativeness of all habitats."
+    },
+    {
+      "category": "METHOD",
+      "code": "cumulative_period",
+      "text": "Cumulative through 2025-12-31 is not an annual collection event or a current ecological conclusion."
+    },
+    {
+      "category": "SOURCE",
+      "code": "freshness_unproven",
+      "text": "Source vintage and cumulative period are known; exact publisher publication date and retained retrieval timestamp are not asserted by this package."
+    },
+    {
+      "category": "USE_RESTRICTION",
+      "code": "pending_review",
+      "text": "Proposed definition requires scientific/data review and exact release-bound metadata admission before consumer publication."
+    }
+  ],
+  "revision_id": "metadata-revision:v1:4bb80138955c0bedd8c802453cdfeae88948cdfc8dca3119566d6aaad31a0c74"
+}

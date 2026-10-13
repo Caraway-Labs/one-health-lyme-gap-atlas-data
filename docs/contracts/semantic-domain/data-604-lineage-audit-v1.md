@@ -8,6 +8,35 @@ Use one secure `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V` view, owned by the migra
 
 The view is deliberately internal: artifact IDs and hashes are needed to prove immutable ancestry and must not be copied to public API responses. The consumer-safe #193 projection still excludes them.
 
+## Restricted CDC audit repair
+
+V148 is a PROD-only forward repair of this same secure view. V137 is unchanged.
+It uses `COPY GRANTS`, adds no grant/revoke statements, and retains the exact
+existing output columns. DEV retains the V137 generic paths because the PROD
+restricted tick relation is not part of its ingestion boundary.
+
+The existing restricted release builder reads dedicated CDC county-status
+relations, rather than the generic V069/V103 tables. The restricted loader
+retains a separate `evidence_run_id` and workbook checksum; the workbook artifact
+belongs to that evidence run, not necessarily the derivation run. V148 matches
+the existing source tuple, resource, derivation run, county, native/conformed
+record ID and source-row hash, then checks the selected artifact against the
+row's evidence run and workbook checksum. Generic revision/legacy precedence
+and generic artifact matching are unchanged.
+
+A matched dedicated row is labeled `RESTRICTED_CDC_CONFORMED` for audit purposes
+only. It does not acquire an immutable revision ID or change a scientific
+evidence state. Parity-classification references are not publisher records.
+Unmatched rows and duplicate matches remain visible. A missing artifact digest
+still fails the existing acceptance check, even when a record matches.
+
+This repair adds no admission, approval, ingestion or API activation. Before
+protected execution, verify the existing view owner's effective access to its
+restricted dependencies and the deployed V137 checksum. A denied dependency
+is a blocker, not permission to grant access or substitute a broader identity.
+Synthetic SQL engine tests verify relational behavior; they are not Snowflake
+DDL, live restricted-record, stewardship or production-delivery proof.
+
 | Candidate evidence | Classification | Reason |
 | --- | --- | --- |
 | Observation ID, release ID, measure ID | REQUIRED | Exact semantic and release membership. |
