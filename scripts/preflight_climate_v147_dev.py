@@ -9,6 +9,7 @@ from lyme_gap_atlas_data import climate_membership_diagnostic as bounds
 from lyme_gap_atlas_data.climate_metadata_preflight import (
     Stop,
     inspect,
+    inspect_ledger,
     prepare_evidence,
     receipt,
     statements,
@@ -17,6 +18,15 @@ from lyme_gap_atlas_data.climate_metadata_preflight import (
 
 def main() -> None:
     report = receipt(os.environ.get("GITHUB_SHA", "UNKNOWN"))
+    ledger_only = os.environ.get("LEDGER_DIAGNOSTIC_ONLY") == "true"
+    if ledger_only:
+        report.update(
+            mode="V147_DEV_LEDGER_DIAGNOSTIC_ONLY",
+            checks=[
+                {"ordinal": ordinal, "name": name, "status": "NOT_EXECUTED"}
+                for ordinal, name in enumerate(("identity", "warehouse", "migration_ledger"), 1)
+            ],
+        )
     connection = None
     try:
         statements()  # Scope validation precedes authentication.
@@ -27,7 +37,8 @@ def main() -> None:
         helpers["budget_evidence"] = evidence
         connection = helpers["bounded_connection"]()
         with connection.cursor() as cursor:
-            report = inspect(cursor, report, helpers)
+            inspector = inspect_ledger if ledger_only else inspect
+            report = inspector(cursor, report, helpers)
     except (Exception, KeyboardInterrupt) as error:
         report["failure"] = (
             str(error)
