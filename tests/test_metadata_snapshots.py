@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import jsonschema
 import pytest
 from typer.testing import CliRunner
 
@@ -393,3 +394,15 @@ def test_schema_file_matches_runtime_and_tamper_report(facts):
     assert result["semantic_hash"] == evidence_hash(value)
     value["semantic_hash"] = evidence_hash(value)
     assert digest(value["scope"]) == value["scope_hash"]
+
+
+def test_checked_in_schema_accepts_v147_and_rejects_unknown_migration(facts):
+    schema = json.loads(Path("docs/contracts/snowflake-snapshots/v1.schema.json").read_text())
+    value = make(facts)
+    value["content"]["migrations"] = [{"version": "V147", "checksum": "match"}]
+    value["semantic_hash"] = evidence_hash(value)
+    jsonschema.validate(value, schema)
+    value["content"]["migrations"][0]["version"] = "V999"
+    value["semantic_hash"] = evidence_hash(value)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(value, schema)
