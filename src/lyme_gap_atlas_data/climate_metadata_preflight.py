@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -364,6 +365,114 @@ def inspect(cursor: Any, report: dict[str, Any], helpers: dict[str, Any]) -> dic
         status="PASS",
         metadata_prerequisites_pass=True,
         application_readiness="SEPARATE_RESOURCE_AND_APPLY_AUTHORIZATION_REQUIRED",
+        elapsed_seconds=round(time.monotonic() - started, 3),
+    )
+    return report
+
+
+def ledger_evidence(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Describe bounded ledger history without accepting or collapsing duplicates."""
+    source = {item.version: item for item in load_migrations()}
+    records = []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        require(set(row) == {"version", "filename", "sha256", "applied_at"}, "LEDGER_COLUMNS")
+        version, filename, checksum = (row[key] for key in ("version", "filename", "sha256"))
+        require(
+            isinstance(version, str) and re.fullmatch(r"V[0-9]{3,6}", version) is not None,
+            "LEDGER_VERSION",
+        )
+        require(
+            isinstance(filename, str)
+            and re.fullmatch(r"V[0-9]{3,6}__[A-Za-z0-9_]{1,200}\.sql", filename) is not None,
+            "LEDGER_FILENAME",
+        )
+        require(
+            isinstance(checksum, str) and re.fullmatch(r"[0-9a-f]{64}", checksum) is not None,
+            "LEDGER_HASH",
+        )
+        timestamp = row["applied_at"]
+        require(isinstance(timestamp, datetime), "LEDGER_TIMESTAMP")
+        canonical = source.get(version)
+        comparison = "UNEXPECTED_VERSION"
+        if canonical:
+            comparison = "CONFLICT_WITH_CANONICAL"
+            if filename == canonical.filename and (
+                checksum == canonical.sha256
+                or is_line_ending_equivalent_checksum(canonical.source, checksum)
+                or checksum == LEGACY_DEV_MIGRATION_CHECKSUMS.get(version)
+            ):
+                comparison = "CANONICAL_OR_SUPPORTED_LEGACY_MATCH"
+        record = {
+            "version": version,
+            "filename": filename,
+            "sha256": checksum,
+            "applied_at": timestamp.isoformat(),
+            "canonical_comparison": comparison,
+        }
+        records.append(record)
+        grouped.setdefault(version, []).append(record)
+    duplicates = [
+        {
+            "version": version,
+            "row_count": len(entries),
+            "classification": "IDENTICAL_SOURCE_ENTRIES"
+            if len({(entry["filename"], entry["sha256"]) for entry in entries}) == 1
+            else "CONFLICTING_SOURCE_ENTRIES",
+            "records": entries,
+        }
+        for version, entries in grouped.items()
+        if len(entries) > 1
+    ]
+    return {
+        "records": records,
+        "duplicates": duplicates,
+        "row_count": len(rows),
+        "complete": len(rows) <= 150,
+        "integrity": "BLOCKED"
+        if duplicates
+        or any(r["canonical_comparison"] != "CANONICAL_OR_SUPPORTED_LEGACY_MATCH" for r in records)
+        else "SOURCE_IDENTITIES_MATCH_ONLY",
+    }
+
+
+def inspect_ledger(cursor: Any, report: dict[str, Any], helpers: dict[str, Any]) -> dict[str, Any]:
+    """Execute only fixed identity, warehouse and ledger reads; never acceptance."""
+    sql = statements()
+    report.update(mode="V147_DEV_LEDGER_DIAGNOSTIC_ONLY", checks=[])
+    require(report["reserved_forecast_usd"] <= report["approved_maximum_usd"], "FORECAST_CAP")
+    started = time.monotonic()
+    state: dict[str, Any] = {}
+    for index in (0, 1, 8):
+        check = {"ordinal": len(report["checks"]) + 1, "name": NAMES[index]}
+        report["checks"].append(check)
+        try:
+            require(time.monotonic() - started < 180, "PROCESS_DEADLINE")
+            report["statements_executed"] += 1
+            cursor.execute(sql[index])
+            check["query_id"] = getattr(cursor, "sfqid", None)
+            columns = [str(column[0]).lower() for column in cursor.description]
+            require(len(columns) == len(set(columns)), "DUPLICATE_RESULT_COLUMNS")
+            rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+            if index == 8:
+                report["ledger_evidence"] = ledger_evidence(rows)
+                require(report["ledger_evidence"]["complete"], "LEDGER_RESULT_TRUNCATED")
+            else:
+                check.update(validate(index, rows, report, state, helpers))
+            check["status"] = "PASS"
+        except (Exception, KeyboardInterrupt) as error:
+            check.update(
+                status="BLOCKED",
+                category=str(error)
+                if isinstance(error, (Stop, bounds.DiagnosticStop))
+                else "READ_OR_ACCESS_UNAVAILABLE",
+            )
+            report["elapsed_seconds"] = round(time.monotonic() - started, 3)
+            return report
+    report.update(
+        status="PASS",
+        diagnostic_evidence_captured=True,
+        sole_v147_ready=False,
         elapsed_seconds=round(time.monotonic() - started, 3),
     )
     return report

@@ -323,6 +323,8 @@ def test_entrypoint_does_not_add_commit_rollback_or_close_retry(monkeypatch, cap
     "override",
     [
         {},
+        {"LEDGER_DIAGNOSTIC_ONLY": "true"},
+        {"LEDGER_DIAGNOSTIC_ONLY": "true", "METADATA_PREFLIGHT_ONLY": "false"},
         {"DIAGNOSE_CLIMATE_VIEWS": "true"},
         {"DIAGNOSE_CLIMATE_DEV": "true"},
         {"DIAGNOSE_JANUARY_PAIR": "true"},
@@ -350,6 +352,7 @@ def test_actual_protected_shell_only_calls_metadata_runner(tmp_path, override):
         **os.environ,
         **{key: "false" for key in step["env"]},
         "METADATA_PREFLIGHT_ONLY": "true",
+        "LEDGER_DIAGNOSTIC_ONLY": "false",
         "EXPECTED_PENDING_JSON": "[]",
         "DIAGNOSE_QUERY_ID": "",
         "JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE": json.dumps(budget()),
@@ -380,7 +383,7 @@ def test_actual_protected_shell_only_calls_metadata_runner(tmp_path, override):
         timeout=10,
         check=False,
     )
-    if override:
+    if override and override != {"LEDGER_DIAGNOSTIC_ONLY": "true"}:
         assert result.returncode != 0
         assert not calls.exists()
     else:

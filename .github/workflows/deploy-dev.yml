@@ -2,6 +2,11 @@ name: Verify DEV governed pipeline
 on:
   workflow_dispatch:
     inputs:
+      ledger_diagnostic_only:
+        description: Fixed three-statement ledger evidence diagnostic; requires metadata_preflight_only
+        required: false
+        type: boolean
+        default: false
       metadata_preflight_only:
         description: Fixed 18-statement V147 DEV metadata preflight only; approved 7 USD ceiling
         required: false
@@ -97,6 +102,9 @@ jobs:
       - name: Configure and verify the DEV Snowflake service connection
         run: |
           set -euo pipefail
+          if [ "$LEDGER_DIAGNOSTIC_ONLY" = "true" ]; then
+            test "$METADATA_PREFLIGHT_ONLY" = "true"
+          fi
           if [ "$METADATA_PREFLIGHT_ONLY" = "true" ]; then
             test "$GITHUB_REF" = refs/heads/main
             test "$EXPECTED_PENDING_JSON" = '[]'
@@ -488,6 +496,7 @@ jobs:
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
         env:
           METADATA_PREFLIGHT_ONLY: ${{ inputs.metadata_preflight_only }}
+          LEDGER_DIAGNOSTIC_ONLY: ${{ inputs.ledger_diagnostic_only }}
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
           REGISTER_EID_EXPEDITED_DEV: ${{ inputs.register_eid_expedited_dev }}
