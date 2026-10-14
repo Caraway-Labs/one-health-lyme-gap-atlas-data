@@ -2,6 +2,11 @@ name: Verify DEV governed pipeline
 on:
   workflow_dispatch:
     inputs:
+      metadata_preflight_only:
+        description: Fixed 18-statement V147 DEV metadata preflight only; approved 7 USD ceiling
+        required: false
+        type: boolean
+        default: false
       expected_pending_json:
         description: Reviewed exact pending version/filename/sha256 JSON array; required for mutation, [] for none
         required: false
@@ -92,6 +97,43 @@ jobs:
       - name: Configure and verify the DEV Snowflake service connection
         run: |
           set -euo pipefail
+          if [ "$METADATA_PREFLIGHT_ONLY" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+            test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+            for other_mode in "$REGISTER_EID_EXPEDITED_DEV" "$DIAGNOSE_V143_CLEANUP_OWNER" \
+              "$DIAGNOSE_JANUARY_PAIR" "$DIAGNOSE_JANUARY_RUNTIME_INIT" \
+              "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" "$DIAGNOSE_INTELLIGENCE_DEV" \
+              "$DIAGNOSE_CLIMATE_DEV" "$DIAGNOSE_V103_STATE" "$DIAGNOSE_CLIMATE_VIEWS" \
+              "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED"; do
+              test "$other_mode" != "true"
+            done
+            test -z "$DIAGNOSE_QUERY_ID"
+            test -z "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
+            test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            test "$passed_checks" -gt 0
+            # Secrets stay process-local. The shared connector expects full PEM
+            # encoded as base64; workflow secrets contain the encrypted PEM body.
+            key_file="$RUNNER_TEMP/oh-lyme-dev-metadata-preflight-key.p8"
+            trap 'rm -f "$key_file"' EXIT
+            umask 077
+            {
+              printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+              printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+              printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+            } > "$key_file"
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            MAX_CON_RETRY_ATTEMPTS=0 \
+            timeout --signal=INT --kill-after=15s 180s uv run python scripts/preflight_climate_v147_dev.py
+            exit 0
+          fi
           key_file="$RUNNER_TEMP/oh-lyme-dev-pipeline-key.p8"
           config_file="$RUNNER_TEMP/snowflake-connections.toml"
           trap 'rm -f "$key_file" "$config_file"' EXIT
@@ -445,6 +487,7 @@ jobs:
             --expected-pending-json "$EXPECTED_PENDING_JSON" \
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
         env:
+          METADATA_PREFLIGHT_ONLY: ${{ inputs.metadata_preflight_only }}
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
           REGISTER_EID_EXPEDITED_DEV: ${{ inputs.register_eid_expedited_dev }}
