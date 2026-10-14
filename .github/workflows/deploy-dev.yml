@@ -111,7 +111,7 @@ jobs:
               test "$other_mode" != "true"
             done
             test -z "$DIAGNOSE_QUERY_ID"
-            test -z "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            test -n "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
             test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
             test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
             test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV

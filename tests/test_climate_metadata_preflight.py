@@ -1,9 +1,11 @@
 import copy
+import hashlib
 import json
 import os
 import runpy
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,32 @@ ROOT = Path(__file__).parents[1]
 HELPERS = runpy.run_path(str(ROOT / "scripts/verify_climate_dev_views.py"))
 
 
+def budget(standard=False, price=6):
+    result = {
+        "unit_price_usd": price,
+        "verified_by": "FIXTURE_OWNER",
+        "verified_at": datetime.now(UTC).isoformat(),
+        "region": "AWS_US_WEST_2",
+        "evidence_reference": "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf",
+    }
+    if standard:
+        result["standard_capability_evidence"] = {
+            "edition": "STANDARD",
+            "cloud": "AWS",
+            "account_locator_sha256": hashlib.sha256(b"FIXTURE_ACCOUNT").hexdigest(),
+            "verified_at": datetime.now(UTC).isoformat(),
+            "verified_by": "FIXTURE_OWNER",
+            "evidence_reference": "OWNER_SNOWSIGHT_ACCOUNT_DETAILS",
+        }
+    return result
+
+
+def run(cursor, evidence=None):
+    report = preflight.receipt("reviewed-head")
+    checked = preflight.prepare_evidence(json.dumps(evidence or budget()), report)
+    return preflight.inspect(cursor, report, {**HELPERS, "budget_evidence": checked})
+
+
 def responses():
     grant = {"privilege": "OWNERSHIP", "granted_to": "ROLE", "grantee_name": ROLE}
     ledger = [
@@ -38,8 +66,8 @@ def responses():
         [
             dict(
                 zip(
-                    ("user", "role", "database", "warehouse"),
-                    (USER, ROLE, DEV, WAREHOUSE),
+                    ("user", "role", "database", "warehouse", "region", "account"),
+                    (USER, ROLE, DEV, WAREHOUSE, "AWS_US_WEST_2", "FIXTURE_ACCOUNT"),
                     strict=True,
                 )
             )
@@ -105,7 +133,7 @@ class Cursor:
 
 def test_exact_order_read_only_scope_and_sanitized_acceptance():
     cursor = Cursor()
-    report = preflight.inspect(cursor, preflight.receipt("reviewed-head"), HELPERS)
+    report = run(cursor)
     assert report["status"] == "PASS"
     assert report["metadata_prerequisites_pass"] is True
     assert report["sole_v147_ready"] is False  # Pricing/owner authorization is separate.
@@ -123,7 +151,7 @@ def test_exact_order_read_only_scope_and_sanitized_acceptance():
 @pytest.mark.parametrize("failure", range(1, 19))
 def test_access_error_stops_in_order_without_retry_or_exception_leak(failure):
     cursor = Cursor(fail_at=failure)
-    report = preflight.inspect(cursor, preflight.receipt("head"), HELPERS)
+    report = run(cursor)
     assert len(cursor.calls) == failure
     assert cursor.calls == preflight.statements()[:failure]
     assert report["checks"][failure - 1]["category"] == "READ_OR_ACCESS_UNAVAILABLE"
@@ -174,7 +202,7 @@ def test_failed_acceptance_does_not_continue(kind):
     else:
         data[16][0], data[16][1] = data[16][1], data[16][0]
     cursor = Cursor(data)
-    report = preflight.inspect(cursor, preflight.receipt("head"), HELPERS)
+    report = run(cursor)
     assert len(cursor.calls) == expected
     assert report["status"] == "BLOCKED"
     assert report["checks"][expected - 1]["status"] == "BLOCKED"
@@ -189,8 +217,75 @@ def test_sql_tampering_blocks_before_any_sql(tmp_path, monkeypatch):
     monkeypatch.setattr(preflight, "SQL_PATH", path)
     cursor = Cursor()
     with pytest.raises(preflight.Stop, match="SQL_SCOPE_CHANGED"):
-        preflight.inspect(cursor, preflight.receipt("head"), HELPERS)
+        run(cursor)
     assert not cursor.calls
+
+
+def test_retained_omission_shape_passes_only_with_bound_owner_entitlement():
+    data = responses()
+    for key in ("min_cluster_count", "max_cluster_count", "enable_query_acceleration"):
+        del data[1][0][key]
+    blocked = run(Cursor(copy.deepcopy(data)))
+    assert blocked["status"] == "BLOCKED"
+    accepted = run(Cursor(data), budget(standard=True))
+    assert accepted["status"] == "PASS"
+    assert accepted["standard_capability_binding"] == "MATCHED_LIVE_ACCOUNT"
+    assert accepted["edition_cost_capabilities"]["compute_cluster_cost_bound"] == 1
+    for key in ("min_cluster_count", "max_cluster_count", "enable_query_acceleration"):
+        assert accepted["warehouse_configuration"][key] == {"present": False, "value": None}
+    assert accepted["pricing_assumptions"]["actual_billed_unit_price_usd"] is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("max_cluster_count", 2), ("min_cluster_count", 2), ("enable_query_acceleration", True)],
+)
+def test_owner_entitlement_cannot_override_observed_contradictions(field, value):
+    data = responses()
+    data[1][0][field] = value
+    cursor = Cursor(data)
+    report = run(cursor, budget(standard=True))
+    assert report["status"] == "BLOCKED" and len(cursor.calls) == 2
+
+
+@pytest.mark.parametrize("field,value", [("account", "WRONG_ACCOUNT"), ("region", "AWS_US_EAST_1")])
+def test_owner_evidence_must_bind_before_warehouse_statement(field, value):
+    data = responses()
+    data[0][0][field] = value
+    cursor = Cursor(data)
+    report = run(cursor, budget(standard=True))
+    assert report["status"] == "BLOCKED" and len(cursor.calls) == 1
+    assert value not in json.dumps(report)
+
+
+def test_absent_minimum_stays_unknown_without_owner_evidence():
+    data = responses()
+    del data[1][0]["min_cluster_count"]
+    report = run(Cursor(data))
+    assert report["status"] == "BLOCKED"
+    assert report["warehouse_cost_failed_fields"] == ["min_cluster_count"]
+
+
+def test_owner_cloud_must_match_live_region_before_warehouse():
+    evidence = budget(standard=True)
+    evidence["region"] = "AZURE_WESTUS2"
+    data = responses()
+    data[0][0]["region"] = "AZURE_WESTUS2"
+    cursor = Cursor(data)
+    report = run(cursor, evidence)
+    assert report["status"] == "BLOCKED" and len(cursor.calls) == 1
+
+
+@pytest.mark.parametrize("document", ["", json.dumps(budget(price=8))])
+def test_missing_or_over_budget_price_evidence_never_authenticates(monkeypatch, capsys, document):
+    main = runpy.run_path(str(ROOT / "scripts/preflight_climate_v147_dev.py"))["main"]
+    monkeypatch.setenv("JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE", document)
+    monkeypatch.setattr(runpy, "run_path", lambda path: pytest.fail("Authentication was reached"))
+    with pytest.raises(SystemExit):
+        main()
+    report = json.loads(capsys.readouterr().out)
+    assert report["statements_executed"] == 0
+    assert report["pricing_assumptions"]["actual_billed_cost_usd"] is None
 
 
 def test_entrypoint_does_not_add_commit_rollback_or_close_retry(monkeypatch, capsys):
@@ -218,6 +313,7 @@ def test_entrypoint_does_not_add_commit_rollback_or_close_retry(monkeypatch, cap
     monkeypatch.setattr(
         runpy, "run_path", lambda path: {**HELPERS, "bounded_connection": Connection}
     )
+    monkeypatch.setenv("JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE", json.dumps(budget()))
     main()
     assert len(cursor.calls) == 18
     assert json.loads(capsys.readouterr().out)["status"] == "PASS"
@@ -256,7 +352,7 @@ def test_actual_protected_shell_only_calls_metadata_runner(tmp_path, override):
         "METADATA_PREFLIGHT_ONLY": "true",
         "EXPECTED_PENDING_JSON": "[]",
         "DIAGNOSE_QUERY_ID": "",
-        "JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE": "",
+        "JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE": json.dumps(budget()),
         "REVIEWED_COMMIT": "a" * 40,
         "GITHUB_SHA": "a" * 40,
         "GITHUB_REF": "refs/heads/main",

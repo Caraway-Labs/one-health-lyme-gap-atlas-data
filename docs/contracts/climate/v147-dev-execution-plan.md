@@ -23,12 +23,14 @@ statements. Run it only after specific authorization under:
 
 The existing protected `deploy-dev.yml` now has `metadata_preflight_only=true`.
 Set `expected_pending_json=[]` and `reviewed_commit` to the exact green merged-main
-SHA; every other boolean is false and diagnostic query/budget inputs are empty.
+SHA; every other boolean is false and diagnostic query inputs are empty. Supply
+the existing `january_budget_evidence` input with owner-reviewed forecast and
+account capability evidence as described below; empty evidence fails before login.
 This mode exits before any existing deployment/diagnostic/migration branch.
 It invokes only `scripts/preflight_climate_v147_dev.py` under the unchanged
 180s process/15s grace and 60s statement/10s queue/65s network limits.
 The normalized SQL SHA-256 is pinned at
-`e7786f9fb7bdea9128e86e9e88e0096d6290d49215a7e63d8011a52157567b5b`;
+`60d72d286304929d1e501e686f18aaa4b8883864d7f8c35eb1bdccba6d6144ad`;
 there is no custom-SQL input. Maximum execution is the eighteen statements in
 the committed order, or a prefix ending at the first failed check. The report
 always lists all eighteen positions, including NOT_EXECUTED successors.
@@ -37,12 +39,62 @@ The runner reuses the reviewed bounded connection and compiled-body comparison
 helpers, closes without transaction context or retry, and emits no raw DDL,
 exception message, private input, credential or full grant inventory. It reports
 safe ledger identifiers/checksums, query IDs, privilege acceptance and observed
-warehouse fields. Missing settings remain unverified and stop execution; no
-Standard-edition entitlement is invented from omitted SHOW fields.
-The approved $6/credit pricing is a forecast assumption, not an observed account
-invoice. A successful report establishes `metadata_prerequisites_pass`, while
+warehouse fields. Missing settings remain missing in the receipt. The existing
+reviewed Standard Edition capability path can establish a separate cost bound
+only after owner evidence is bound to live account, region and cloud; conflicting
+observed settings still stop execution. No edition is inferred from warehouse type.
+Pricing is supplied and checked before authentication, with no default $6/credit.
+Its public-price basis is explicitly a forecast, not an observed account invoice.
+A successful report establishes `metadata_prerequisites_pass`, while
 `sole_v147_ready` remains false pending the separate resource and apply decision.
 No billing/usage query is added to the eighteen-statement scope.
+
+### Warehouse gate reconciliation and next attempt
+
+Protected run [38503791716](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/38503791716)
+executed only identity and SHOW WAREHOUSES before stopping. It observed STANDARD,
+X-Small, generation 2 and auto-suspend 60; the three cluster/acceleration columns
+were absent, not false or one. Connector metadata names are preserved and the
+parser lowercases all names without projection. Snowflake documents these canonical
+names and feature-dependent output, but does not establish a privilege cause for
+this specific omission. Successful visibility does not prove all permissions.
+
+Earlier protected run 37989552876 recorded the same omission and accepted an
+owner-supplied Standard Edition capability bound to the account. This supports a
+feature-capability explanation; it is historical evidence, not a fresh edition
+assertion. The defect was requiring optional fields universally instead of reusing
+the existing governed capability validator. No warehouse alteration is needed.
+
+Before a new dispatch, the owner must reaffirm that the retained account edition
+record remains current, or provide a new record from Snowsight account menu > View
+Account Details: edition, cloud, region, account-locator SHA-256, verification time
+and owner identity. Use the existing `standard_capability_evidence` JSON contract
+and `OWNER_SNOWSIGHT_ACCOUNT_DETAILS` reference. The code checks shape and live
+binding; protected approval verifies the human assertion. A higher edition needs
+observed cluster/acceleration settings rather than a Standard assertion.
+
+Supply a current (within seven days) reviewed public-price forecast using the
+existing budget-evidence contract: unit price, official public reference, region,
+verifier and time. For an actual contractual price, the owner must consult Admin >
+Billing, the order form or reseller statement for effective USD/credit and its
+region/edition/generation applicability. The public forecast input cannot certify
+invoice pricing. No verified $6/credit account price is claimed.
+
+The next attempt needs **fresh explicit authorization** for one protected session,
+an independent $7 maximum, and at most the same eighteen read-only statements.
+The sole SQL delta adds CURRENT_REGION()/CURRENT_ACCOUNT() to statement 1 for
+binding; the other seventeen statements and their order remain unchanged. This
+scope delta is not covered by the previous execution approval. Checks 3–18 have
+never executed in that prior attempt. The new attempt must freshly check identity
+and warehouse before proceeding, stop on the first failure, and never rerun.
+Use the exact reviewed, green merged-main SHA after separately authorized merge.
+All timeouts, kill grace, service identity and exclusive-mode controls above stay
+unchanged. No migration, observation readback or infrastructure mutation is allowed.
+
+At an explicitly accepted $6 public forecast, the new reservation is $6.71875;
+including the previous reservation gives $13.4375 of metadata forecast reservations,
+not billed charges. The runner computes the reservation from the supplied price
+and rejects any amount above $7 before login. Actual billed cost remains unknown.
 
 | Field | Required value |
 | --- | --- |
