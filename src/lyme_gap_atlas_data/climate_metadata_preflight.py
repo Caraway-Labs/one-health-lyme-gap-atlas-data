@@ -10,6 +10,7 @@ from typing import Any
 
 import sqlglot
 
+from . import climate_membership_diagnostic as bounds
 from .climate_dev_validation import DEV, ROLE, USER, WAREHOUSE
 from .migrations import (
     LEGACY_DEV_MIGRATION_CHECKSUMS,
@@ -21,7 +22,7 @@ from .migrations import (
 
 ROOT = Path(__file__).resolve().parents[2]
 SQL_PATH = ROOT / "docs/contracts/climate/v147-dev-execution-preflight.sql"
-SQL_SHA256 = "e7786f9fb7bdea9128e86e9e88e0096d6290d49215a7e63d8011a52157567b5b"
+SQL_SHA256 = "60d72d286304929d1e501e686f18aaa4b8883864d7f8c35eb1bdccba6d6144ad"
 V147 = {
     "version": "V147",
     "filename": "V147__dev_climate_scalar_membership_join.sql",
@@ -75,10 +76,10 @@ def receipt(code_sha: str) -> dict[str, Any]:
         "status": "BLOCKED",
         "sql_sha256": SQL_SHA256,
         "approved_maximum_usd": 7,
-        "reserved_forecast_usd": 6.71875,
+        "reserved_forecast_usd": None,
         "pricing_assumptions": {
-            "unit_price_usd": 6,
-            "basis": "OWNER_APPROVED_FORECAST_NOT_ACCOUNT_INVOICE",
+            "unit_price_usd": None,
+            "basis": "OWNER_SUPPLIED_FORECAST_REQUIRED_NOT_ACCOUNT_INVOICE",
             "actual_billed_unit_price_usd": None,
             "actual_billed_cost_usd": None,
             "usage": "NOT_QUERIED_NO_EXTRA_STATEMENTS",
@@ -92,6 +93,23 @@ def receipt(code_sha: str) -> dict[str, Any]:
         "v149_excluded": None,
         "sole_v147_ready": False,
     }
+
+
+def prepare_evidence(document: str, report: dict[str, Any]) -> dict[str, Any]:
+    """Validate reviewed owner input and the forward cap before authentication."""
+    evidence = bounds.budget_evidence(document)
+    price = evidence["unit_price_usd"]
+    forecast = (315 * 5.75 / 3600 + 20 * 1.35 / 60) * price + 1
+    report["reserved_forecast_usd"] = forecast
+    report["pricing_assumptions"].update(
+        unit_price_usd=price,
+        basis=evidence["basis"],
+        evidence_reference=evidence["evidence_reference"],
+        verified_at=evidence["verified_at"],
+    )
+    report["owner_evidence_sha256"] = hashlib.sha256(document.encode()).hexdigest()
+    require(forecast <= report["approved_maximum_usd"], "FORECAST_CAP")
+    return evidence
 
 
 def grants(rows: list[dict[str, Any]], roles: set[str], privileges: set[str]) -> bool:
@@ -149,10 +167,25 @@ def validate(
     check: dict[str, Any] = {"row_count": len(rows)}
     roles = state.setdefault("roles", {ROLE})
     if index == 0:
+        identity = tuple(rows[0].values()) if len(rows) == 1 else ()
         require(
-            len(rows) == 1 and tuple(rows[0].values()) == (USER, ROLE, DEV, WAREHOUSE),
+            len(identity) == 6 and identity[:4] == (USER, ROLE, DEV, WAREHOUSE),
             "EFFECTIVE_IDENTITY_MISMATCH",
         )
+        evidence = helpers["budget_evidence"]
+        require(identity[4] == evidence["region"], "REGION_BINDING")
+        capability = evidence.get("standard_capability_evidence")
+        if capability:
+            require(str(identity[4]).split("_", 1)[0] == capability["cloud"], "CLOUD_BINDING")
+            bounds.verify_donor_account_binding(
+                {
+                    "account_locator_sha256": capability["account_locator_sha256"],
+                    "region": evidence["region"],
+                },
+                identity,
+            )
+            report["standard_capability_binding"] = "MATCHED_LIVE_ACCOUNT"
+        state["region"] = identity[4]
     elif index == 1:
         require(len(rows) == 1 and rows[0].get("name") == WAREHOUSE, "WAREHOUSE_VISIBILITY")
         warehouse = rows[0]
@@ -180,21 +213,17 @@ def validate(
             for value in (warehouse.get(key),)
         }
         report["warehouse_configuration"] = check["configuration"]
-        predicates = {
-            "size": warehouse.get("size") == "X-Small",
-            "type": warehouse.get("type") == "STANDARD",
-            "generation": str(warehouse.get("generation")).upper()
-            in allowed - {"X-Small", "STANDARD"},
-            "max_cluster_count": type(warehouse.get("max_cluster_count")) is int
-            and warehouse["max_cluster_count"] == 1,
-            "min_cluster_count": type(warehouse.get("min_cluster_count")) is int
-            and warehouse["min_cluster_count"] == 1,
-            "enable_query_acceleration": warehouse.get("enable_query_acceleration") is False,
-            "auto_suspend": type(warehouse.get("auto_suspend")) is int
-            and 0 < warehouse["auto_suspend"] <= 60,
-        }
-        report["warehouse_failed_fields"] = [key for key, ok in predicates.items() if not ok]
-        require(all(predicates.values()), "WAREHOUSE_ASSUMPTIONS_UNVERIFIED")
+        # Reuse the already-reviewed January entitlement bound. Missing fields
+        # remain missing; this never writes observed defaults into the receipt.
+        bounds.validate_warehouse_cost(
+            warehouse, helpers["budget_evidence"], state["region"], report
+        )
+        if not helpers["budget_evidence"].get("standard_capability_evidence") and (
+            type(warehouse.get("min_cluster_count")) is not int
+            or warehouse["min_cluster_count"] != 1
+        ):
+            report["warehouse_cost_failed_fields"] = ["min_cluster_count"]
+            raise Stop("WAREHOUSE_COST_ASSUMPTIONS_UNVERIFIED")
     elif index == 2:
         require(bool(rows), "ROLE_PERMISSION_VISIBILITY")
         roles.update(
@@ -323,7 +352,9 @@ def inspect(cursor: Any, report: dict[str, Any], helpers: dict[str, Any]) -> dic
         except (Exception, KeyboardInterrupt) as error:
             check["status"] = "BLOCKED"
             check["category"] = (
-                str(error) if isinstance(error, Stop) else "READ_OR_ACCESS_UNAVAILABLE"
+                str(error)
+                if isinstance(error, (Stop, bounds.DiagnosticStop))
+                else "READ_OR_ACCESS_UNAVAILABLE"
             )
             check["query_id"] = getattr(cursor, "sfqid", None)
             check["error_code"] = getattr(error, "errno", None)
