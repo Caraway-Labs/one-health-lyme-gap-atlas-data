@@ -21,6 +21,29 @@ source authority, frozen release membership and ATLAS pointer remain intact.
 Prepared [metadata-only SQL](v147-dev-execution-preflight.sql) contains 18 serial
 statements. Run it only after specific authorization under:
 
+The existing protected `deploy-dev.yml` now has `metadata_preflight_only=true`.
+Set `expected_pending_json=[]` and `reviewed_commit` to the exact green merged-main
+SHA; every other boolean is false and diagnostic query/budget inputs are empty.
+This mode exits before any existing deployment/diagnostic/migration branch.
+It invokes only `scripts/preflight_climate_v147_dev.py` under the unchanged
+180s process/15s grace and 60s statement/10s queue/65s network limits.
+The normalized SQL SHA-256 is pinned at
+`e7786f9fb7bdea9128e86e9e88e0096d6290d49215a7e63d8011a52157567b5b`;
+there is no custom-SQL input. Maximum execution is the eighteen statements in
+the committed order, or a prefix ending at the first failed check. The report
+always lists all eighteen positions, including NOT_EXECUTED successors.
+
+The runner reuses the reviewed bounded connection and compiled-body comparison
+helpers, closes without transaction context or retry, and emits no raw DDL,
+exception message, private input, credential or full grant inventory. It reports
+safe ledger identifiers/checksums, query IDs, privilege acceptance and observed
+warehouse fields. Missing settings remain unverified and stop execution; no
+Standard-edition entitlement is invented from omitted SHOW fields.
+The approved $6/credit pricing is a forecast assumption, not an observed account
+invoice. A successful report establishes `metadata_prerequisites_pass`, while
+`sole_v147_ready` remains false pending the separate resource and apply decision.
+No billing/usage query is added to the eighteen-statement scope.
+
 | Field | Required value |
 | --- | --- |
 | User | OH_LYME_DEV_MIGRATION_DEPLOY_SVC |
