@@ -264,7 +264,6 @@ def validate(
     elif index == 8:
         require(len(rows) <= 150, "LEDGER_ROW_LIMIT")
         versions = [row.get("version") for row in rows]
-        require(len(set(versions)) == len(versions), "DUPLICATE_MIGRATION_VERSIONS")
         require("V136" in versions and "V147" not in versions, "V136_OR_V147_STATE")
         source = {item.version: item for item in load_migrations()}
         report["migration_ledger"] = []
@@ -296,6 +295,30 @@ def validate(
                 or checksum == LEGACY_DEV_MIGRATION_CHECKSUMS.get(migration.version),
                 "LEDGER_CHECKSUM_MISMATCH",
             )
+        duplicates = {version for version in versions if versions.count(version) > 1}
+        if duplicates:
+            v019 = source["V019"]
+            reconciled = [row for row in rows if row["version"] == "V022"]
+            historical = [row for row in rows if row["version"] == "V019"]
+            require(
+                duplicates == {"V019"}
+                and len(historical) == 2
+                and all(
+                    row["filename"] == v019.filename and row["sha256"] == v019.sha256
+                    for row in historical
+                )
+                and len(reconciled) == 1
+                and reconciled[0]["filename"] == "V022__reconcile_duplicate_v019_ledger_entry.sql"
+                and reconciled[0]["sha256"]
+                == "f257fe70c50f83b11a21ab4277331d891c5178200e2f61754538f2f135b41af4",
+                "DUPLICATE_MIGRATION_VERSIONS",
+            )
+            check["historical_duplicate_reconciliation"] = {
+                "version": "V019",
+                "row_count": 2,
+                "reconciled_by": "V022",
+                "all_records_preserved": True,
+            }
         pending = [item for item in migration_plan(DEV) if item["version"] not in versions]
         report["pending_migrations"] = pending
         report["v149_excluded"] = all(item["version"] != "V149" for item in pending)

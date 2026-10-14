@@ -391,3 +391,59 @@ def test_actual_protected_shell_only_calls_metadata_runner(tmp_path, override):
         assert calls.read_text().splitlines() == [
             "run python scripts/preflight_climate_v147_dev.py:0"
         ]
+
+
+def test_v022_reconciled_v019_preserves_both_rows_and_passes():
+    data = responses()
+    v019 = next(row for row in data[8] if row["version"] == "V019")
+    data[8].append(copy.deepcopy(v019))
+    report = run(Cursor(data))
+    assert report["status"] == "PASS"
+    assert sum(row["version"] == "V019" for row in report["migration_ledger"]) == 2
+    assert report["checks"][8]["historical_duplicate_reconciliation"]["reconciled_by"] == "V022"
+
+
+@pytest.mark.parametrize(
+    "kind", ["third", "other", "checksum", "filename", "missing_v022", "twice_v022"]
+)
+def test_only_exact_v022_reconciled_duplicate_is_accepted(kind):
+    data = responses()
+    v019 = next(row for row in data[8] if row["version"] == "V019")
+    data[8].append(copy.deepcopy(v019))
+    if kind == "third":
+        data[8].append(copy.deepcopy(v019))
+    elif kind == "other":
+        data[8].append(copy.deepcopy(next(row for row in data[8] if row["version"] == "V136")))
+    elif kind == "checksum":
+        data[8][-1]["sha256"] = "0" * 64
+    elif kind == "filename":
+        data[8][-1]["filename"] = "V019__unexpected.sql"
+    elif kind == "missing_v022":
+        data[8] = [row for row in data[8] if row["version"] != "V022"]
+    else:
+        data[8].append(copy.deepcopy(next(row for row in data[8] if row["version"] == "V022")))
+    report = run(Cursor(data))
+    assert report["status"] == "BLOCKED" and report["checks"][8]["status"] == "BLOCKED"
+    assert report["pending_migrations"] is None
+
+
+@pytest.mark.parametrize(
+    "field,value", [("sha256", "0" * 64), ("filename", "V022__unexpected.sql")]
+)
+def test_v022_reconciliation_identity_cannot_change(field, value):
+    data = responses()
+    data[8].append(copy.deepcopy(next(row for row in data[8] if row["version"] == "V019")))
+    next(row for row in data[8] if row["version"] == "V022")[field] = value
+    report = run(Cursor(data))
+    assert report["status"] == "BLOCKED" and report["pending_migrations"] is None
+
+
+def test_v019_reconciliation_does_not_admit_pending_v149():
+    data = responses()
+    data[8].append(copy.deepcopy(next(row for row in data[8] if row["version"] == "V019")))
+    data[8] = [row for row in data[8] if row["version"] != "V149"]
+    report = run(Cursor(data))
+    assert report["status"] == "BLOCKED"
+    assert report["checks"][8]["category"] == "PENDING_SET_NOT_SOLE_V147"
+    assert report["v149_excluded"] is False
+    assert [row["version"] for row in report["pending_migrations"]] == ["V147", "V149"]

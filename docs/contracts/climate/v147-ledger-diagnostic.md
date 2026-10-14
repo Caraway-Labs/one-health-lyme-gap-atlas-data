@@ -55,3 +55,27 @@ rewriting or silently deduplicating history. Conflicts need explicit reconciliat
 and state evidence; matching entries need a reviewed equivalence rule if supported.
 Then complete the remaining metadata acceptance checks under new authorization.
 V147 application and January observation readback each remain separately gated.
+
+## Verified diagnostic and correction
+
+Protected run 38556979267 completed three reads, 119 ledger rows, no retry or
+mutation. Its only duplicate is V019: two canonical filename/checksum entries
+applied 2026-08-23 at 18:32:17.057 and 18:40:48.699 (UTC-06). Both have checksum
+`be152c2a331baa04ae9818302e3cc7be15c4b54b8e4800ce33121112ef13f60f`.
+V022 is present with canonical checksum
+`f257fe70c50f83b11a21ab4277331d891c5178200e2f61754538f2f135b41af4`.
+Its SQL explicitly validates exactly two same-checksum V019 records and preserves
+both immutable entries. ADR 0021 also identifies DEV's V019 reconciliation.
+
+The original preflight's unconditional uniqueness rule contradicted this supported
+history. The corrected DEV validator checks every source identity/checksum first,
+then permits only exactly two canonical V019 rows with exactly one pinned canonical
+V022 row. It records this exception, retains both ledger rows, and rejects every
+other duplicate, changed filename/hash/count or absent reconciliation. No new
+database repair, migration or history normalization is needed for V019.
+
+Offline comparison of this complete live ledger against current canonical DEV
+definitions yields **V147 and V149 pending**. V149 exclusion and sole-V147 readiness
+therefore fail, independently of V019. No full preflight has been rerun; checks
+10–18 remain unverified. Resolve V149 through its own reviewed owner-approved lane
+before another sole-V147 attempt; never include it implicitly in climate deployment.
