@@ -248,6 +248,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert workflow[True]["workflow_dispatch"]["inputs"]["diagnose_v103_state"]["type"] == "boolean"
     assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
+        "metadata_preflight_only",
         "expected_pending_json",
         "diagnose_v103_state",
         "diagnose_legacy_dev_reconciliations",
