@@ -1763,6 +1763,7 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
         "V144",
         "V145",
         "V146",
+        "V147",
         "V148",
         "V149",
         "V150",
