@@ -52,6 +52,10 @@ def database() -> Iterator[sqlite3.Connection]:
           (release_id TEXT, measure_id TEXT, indicator_id TEXT, label TEXT, data_type TEXT,
            unit TEXT, geography_semantics TEXT, temporal_resolution TEXT,
            missingness_semantics TEXT, methodology TEXT, limitation TEXT);
+        CREATE TABLE PRESENTATION.SEMANTIC_INDICATORS
+          (release_id TEXT, indicator_id TEXT);
+        INSERT INTO PRESENTATION.SEMANTIC_INDICATORS VALUES
+          ('baseline','tick'), ('candidate','tick');
         INSERT INTO PRESENTATION.SEMANTIC_MEASURES VALUES
           ('baseline','status','tick','status','STRING','status','COUNTY','2025',
            'no records is not absence','method','no risk inference'),
@@ -122,6 +126,53 @@ def test_unchanged_published_copy_reuses_receipts_without_writes(
     before = database.total_changes
     _verify_restricted_final_copy_attestations(Cursor(database), "candidate")
     assert database.total_changes == before
+
+
+@pytest.mark.parametrize("legacy_release", ["baseline", "candidate"])
+def test_v124_legacy_measure_identity_reuses_unchanged_copy(
+    database: sqlite3.Connection, legacy_release: str
+) -> None:
+    database.execute(
+        "UPDATE PRESENTATION.SEMANTIC_MEASURES "
+        "SET measure_id=indicator_id, indicator_id=measure_id WHERE release_id=?",
+        (legacy_release,),
+    )
+    before = database.total_changes
+    _verify_restricted_final_copy_attestations(Cursor(database), "candidate")
+    assert database.total_changes == before
+
+
+@pytest.mark.parametrize("column", ["unit", "label", "methodology", "missingness_semantics"])
+def test_legacy_identity_does_not_hide_changed_interpretation(
+    database: sqlite3.Connection, column: str
+) -> None:
+    database.execute(
+        "UPDATE PRESENTATION.SEMANTIC_MEASURES "
+        "SET measure_id=indicator_id, indicator_id=measure_id WHERE release_id='baseline'"
+    )
+    database.execute(
+        f"UPDATE PRESENTATION.SEMANTIC_MEASURES SET {column}='changed' WHERE release_id='candidate'"
+    )
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(database), "candidate")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "DELETE FROM PRESENTATION.SEMANTIC_INDICATORS WHERE release_id='baseline'",
+        "UPDATE PRESENTATION.SEMANTIC_MEASURES SET indicator_id='unknown' "
+        "WHERE release_id='candidate'",
+        "INSERT INTO PRESENTATION.SEMANTIC_MEASURES SELECT * "
+        "FROM PRESENTATION.SEMANTIC_MEASURES WHERE release_id='candidate'",
+    ],
+)
+def test_incomplete_or_duplicate_measure_identity_fails_closed(
+    database: sqlite3.Connection, mutation: str
+) -> None:
+    database.execute(mutation)
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(database), "candidate")
 
 
 @pytest.mark.parametrize(

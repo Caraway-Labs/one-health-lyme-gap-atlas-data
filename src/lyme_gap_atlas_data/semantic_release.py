@@ -875,7 +875,30 @@ def _verify_restricted_final_copy_attestations(cursor: Any, release_id: str) -> 
 def _restricted_copy_snapshot(cursor: Any, release_id: str, source_key: str) -> list[Any]:
     """Compare immutable lineage, values and interpretation, excluding release-local IDs."""
     cursor.execute(
-        """SELECT o.measure_id, o.fips, o.source_key, o.source_version_id, o.ingestion_run_id,
+        # V124 normalizes the historical builder's reversed measure/indicator
+        # binding against each release's own indicators. Apply that same
+        # identity projection here; raw historical rows remain immutable.
+        """WITH measures AS (
+            SELECT m.release_id,
+                   CASE WHEN direct_indicator.indicator_id IS NOT NULL
+                        THEN m.measure_id ELSE m.indicator_id END AS measure_id,
+                   COALESCE(direct_indicator.indicator_id, legacy_indicator.indicator_id)
+                     AS indicator_id,
+                   m.label, m.data_type, m.unit, m.geography_semantics,
+                   m.temporal_resolution, m.missingness_semantics, m.methodology,
+                   m.limitation
+            FROM PRESENTATION.SEMANTIC_MEASURES m
+            LEFT JOIN PRESENTATION.SEMANTIC_INDICATORS direct_indicator
+              ON direct_indicator.release_id=m.release_id
+             AND direct_indicator.indicator_id=m.indicator_id
+            LEFT JOIN PRESENTATION.SEMANTIC_INDICATORS legacy_indicator
+              ON legacy_indicator.release_id=m.release_id
+             AND legacy_indicator.indicator_id=m.measure_id
+             AND direct_indicator.indicator_id IS NULL
+            WHERE COALESCE(direct_indicator.indicator_id, legacy_indicator.indicator_id)
+              IS NOT NULL
+        )
+        SELECT o.measure_id, o.fips, o.source_key, o.source_version_id, o.ingestion_run_id,
                    o.artifact_id, o.source_record_id, o.source_row_hash, TO_JSON(o.value),
                    o.value_state, o.retrieved_at, o.geography_semantics, o.temporal_window,
                    o.transformation_version, o.quality_state, o.limitations,
@@ -883,7 +906,7 @@ def _restricted_copy_snapshot(cursor: Any, release_id: str, source_key: str) -> 
                    m.temporal_resolution, m.missingness_semantics, m.methodology,
                    m.limitation, m.measure_id
         FROM PRESENTATION.SEMANTIC_OBSERVATIONS o
-        LEFT JOIN PRESENTATION.SEMANTIC_MEASURES m
+        LEFT JOIN measures m
           ON m.release_id=o.release_id AND m.measure_id=o.measure_id
         WHERE o.release_id=%s AND o.source_key=%s
         ORDER BY o.measure_id, o.fips, o.source_record_id, o.source_row_hash, o.observation_id""",

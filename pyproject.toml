@@ -47,6 +47,9 @@ packages = ["src/lyme_gap_atlas_data"]
 "docs/contracts/intelligence/v1" = "lyme_gap_atlas_data/intelligence_schemas/v1"
 "docs/contracts/intelligence/v2" = "lyme_gap_atlas_data/intelligence_schemas/v2"
 
+"docs/contracts/semantic-domain/cdc-2025" = "lyme_gap_atlas_data/cdc_metadata"
+"docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1.json" = "lyme_gap_atlas_data/cdc_metadata/atlas-semantic-source-mappings-v1.json"
+
 [tool.hatch.metadata]
 allow-direct-references = true
 

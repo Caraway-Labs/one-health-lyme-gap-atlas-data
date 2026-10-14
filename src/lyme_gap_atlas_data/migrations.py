@@ -28,9 +28,17 @@ INTELLIGENCE_CLEANUP_MIGRATION = {
     "filename": "V143__dev_intelligence_raw_cleanup_authority.sql",
     "sha256": "a92157ddac0d7b087b6c93f7fff65c65a081dd1e1aea0b5918a4e604a2a52968",
 }
+# PROD equivalent is a separate forward migration. It is activated only by the
+# exact protected pending-set path and never grants executor procedure USAGE.
+PROD_INTELLIGENCE_CLEANUP_MIGRATION = {
+    "version": "V150",
+    "filename": "V150__prod_intelligence_raw_cleanup_authority.sql",
+    "sha256": "883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb",
+}
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
+    PROD_INTELLIGENCE_CLEANUP_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -113,6 +121,8 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V139",
     "V141",
     "V146",
+    "V148",
+    "V150",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -667,8 +677,11 @@ def apply_migrations(
         )
     for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
+        protected_database = (
+            DEV_DATABASE if pinned["version"] in {"V142", "V143"} else PROD_DATABASE
+        )
         if (
-            database == DEV_DATABASE
+            database == protected_database
             and prerequisite is not None
             and prerequisite.version not in applied
             and (

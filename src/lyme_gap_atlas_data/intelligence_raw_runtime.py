@@ -146,11 +146,16 @@ class SnowflakeRawLedger:
             raise ValueError("INTELLIGENCE_RAW_ENVIRONMENT_INVALID")
         self.factory, self.environment = factory, environment
         self.expected_role = expected_role or f"OH_LYME_{environment}_RUNTIME"
-        if self.expected_role not in {
-            f"OH_LYME_{environment}_RUNTIME",
-            "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP",
-            "OH_LYME_DEV_MIGRATION_DEPLOYER",
-        } or (environment != "DEV" and expected_role is not None):
+        allowed_roles = {f"OH_LYME_{environment}_RUNTIME"}
+        if environment == "DEV":
+            allowed_roles.update(
+                {"OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP", "OH_LYME_DEV_MIGRATION_DEPLOYER"}
+            )
+        else:
+            allowed_roles.update(
+                {"OH_LYME_PROD_INTELLIGENCE_RAW_CLEANUP", "OH_LYME_PROD_MIGRATION_DEPLOYER"}
+            )
+        if self.expected_role not in allowed_roles:
             raise ValueError("INTELLIGENCE_RAW_ROLE_INVALID")
         self.local = threading.local()
 

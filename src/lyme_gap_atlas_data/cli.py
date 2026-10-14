@@ -26,6 +26,7 @@ from .alpha_parity import (
 )
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
+from .cdc_consumer_runtime import CDCConsumerUnavailable, read_cdc_consumer_named
 from .cdc_operations import check_cdc_metadata, check_cdc_overdue, verify_cdc_ready
 from .cdc_publication import bootstrap_publication, rollback_publication
 from .cdc_quality import record_cdc_quality
@@ -617,12 +618,31 @@ def migration_authority_preflight_command(
 def apply_migrations_command(
     database: str = typer.Option(..., "--database"),
     commit: str | None = typer.Option(None, "--commit"),
+    expected_pending_json: str | None = typer.Option(None, "--expected-pending-json"),
+    protected_intelligence_prerequisite: bool = typer.Option(
+        False, "--protected-intelligence-prerequisite"
+    ),
     confirm: bool = typer.Option(False, "--confirm"),
 ) -> None:
     """Apply checksum-validated migrations only after an explicit confirmation."""
     if not confirm:
         raise typer.BadParameter("Pass --confirm to apply migrations")
-    typer.echo(json.dumps({"applied": apply_migrations(_settings(), database, commit)}))
+    expected_pending = (
+        parse_reviewed_pending_set(expected_pending_json) if expected_pending_json else None
+    )
+    typer.echo(
+        json.dumps(
+            {
+                "applied": apply_migrations(
+                    _settings(),
+                    database,
+                    commit,
+                    expected_pending=expected_pending,
+                    protected_intelligence_prerequisite=protected_intelligence_prerequisite,
+                )
+            }
+        )
+    )
 
 
 @pipeline_app.command("pending-migration-plan")
@@ -1414,3 +1434,14 @@ def runs_retry(
 ) -> None:
     """Alias for resume (shared orchestration entry point)."""
     runs_resume(run_id=run_id, definition=definition, fixture_dir=fixture_dir)
+
+
+@pipeline_app.command("cdc-consumer-readback")
+def cdc_consumer_readback_command(measure: str, county: str, environment: str = "prod") -> None:
+    """Bounded intended-reader acceptance. No publication or scientific approval."""
+    try:
+        result = read_cdc_consumer_named(measure, county, environment=environment)
+    except CDCConsumerUnavailable as error:
+        typer.echo(str(error))
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps(result, sort_keys=True))
