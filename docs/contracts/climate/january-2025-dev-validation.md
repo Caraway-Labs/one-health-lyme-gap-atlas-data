@@ -162,8 +162,18 @@ The protected view readback now sends a 60-second server statement limit,
 10-second queue limit and ABORT_DETACHED_QUERY at connection creation, including
 the identity query. Socket/network limits are 65 seconds. Its existing workflow
 invocation stops after 300 seconds with SIGINT, then kills after 15 seconds;
-the last server statement still has its independent 60-second limit. No retry
-or role fallback is added. LIMIT 4 restricts output, not query cost.
+the last server statement still has its independent 60-second limit. No
+application/workflow retry or role fallback is added; authentication retries
+are disabled. Connector transport may retry within the existing deadline.
+LIMIT 4 restricts output, not query cost. The bounded verifier now runs before
+the workflow's otherwise unbounded CLI identity query, with exclusive mode,
+exact reviewed-main SHA and successful Quality guards.
+
+The [V147 execution plan](v147-dev-execution-plan.md) prepares the exact metadata
+preflight, a separate bounded sole-V147 apply through the existing guarded CLI,
+independent resource reservations and failure recovery. Its pending set and
+warehouse assumptions still require specifically authorized live verification;
+the readback's $10 reservation never authorizes migration apply.
 
 A metadata-only ATLAS_DEV_READ inspection on 2026-10-11 observed the expected
 DEV database/role, AWS_US_WEST_2, and the suspended STANDARD Gen2 X-Small
