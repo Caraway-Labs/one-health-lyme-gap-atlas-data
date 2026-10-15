@@ -79,3 +79,13 @@ definitions yields **V147 and V149 pending**. V149 exclusion and sole-V147 readi
 therefore fail, independently of V019. No full preflight has been rerun; checks
 10–18 remain unverified. Resolve V149 through its own reviewed owner-approved lane
 before another sole-V147 attempt; never include it implicitly in climate deployment.
+
+Subsequent eligibility investigation established that V149 belongs to PROD only:
+it extends the PROD-only V148 authority and replaces a procedure that explicitly
+rejects non-PROD databases. Its omission from `PROD_ONLY_MIGRATION_VERSIONS` caused
+the extra DEV pending entry. The registry correction preserves immutable SQL and
+PROD delivery; it does not mark any row applied or skip a DEV dependency. Comparing
+the retained 119-row diagnostic with the corrected plan yields only V147 pending.
+This is offline reconciliation of live evidence, not a fresh ledger query or proof
+that checks 10–18 passed. Revalidate current state through the original 18 checks
+under one new execution authorization; do not repeat the ledger-only diagnostic.
