@@ -12,6 +12,10 @@ from lyme_gap_atlas_shared.snowflake import connection_parameters
 from snowflake.connector import connect
 
 from lyme_gap_atlas_data.climate_dev_validation import DEV, ROLE, USER, WAREHOUSE
+from lyme_gap_atlas_data.sql_sessions import (
+    january_connection_parameters,
+    require_january_warehouse,
+)
 
 NAMES = (
     "CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V",
@@ -23,7 +27,12 @@ SCALAR_CHECKSUM = "22caabb8abb205316005d866286d7adb995a0b7dc5ec8b05aa6c6f053dfca
 
 def bounded_connection(query_tag: str = "atlas-climate-dev-view-readback") -> Any:
     """Set server limits at login, including the initial identity query."""
-    parameters = connection_parameters(SnowflakeSettings())
+    january = os.environ.get("ATLAS_JANUARY_PROD_SESSION") == "true"
+    parameters = (
+        january_connection_parameters(SnowflakeSettings())
+        if january
+        else connection_parameters(SnowflakeSettings())
+    )
     parameters.update(network_timeout=65, socket_timeout=65)
     parameters["session_parameters"].update(
         STATEMENT_TIMEOUT_IN_SECONDS=60,
@@ -31,7 +40,10 @@ def bounded_connection(query_tag: str = "atlas-climate-dev-view-readback") -> An
         ABORT_DETACHED_QUERY=True,
         QUERY_TAG=query_tag,
     )
-    return connect(**parameters)
+    connection = connect(**parameters)
+    if january:
+        require_january_warehouse(connection)
+    return connection
 
 
 def body(sql: str) -> str:
