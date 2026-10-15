@@ -307,7 +307,8 @@ def test_prod_prepare_preserves_entire_existing_nlcd_release(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "change", [None, "account", "region", "warehouse", "size", "generation", "qas", "suspend"]
+    "change",
+    [None, "account", "region", "warehouse", "role", "size", "generation", "qas", "suspend"],
 )
 def test_execution_resource_requires_bound_account_and_observed_capacity(change):
     identity = [
@@ -325,8 +326,8 @@ def test_execution_resource_requires_bound_account_and_observed_capacity(change)
         "generation": "2",
         "auto_suspend": 60,
     }
-    if change in {"account", "region", "warehouse"}:
-        identity[{"account": 5, "region": 4, "warehouse": 3}[change]] = "UNRELATED"
+    if change in {"account", "region", "warehouse", "role"}:
+        identity[{"account": 5, "region": 4, "warehouse": 3, "role": 1}[change]] = "UNRELATED"
     elif change == "size":
         warehouse["size"] = "Large"
     elif change == "generation":
@@ -501,3 +502,108 @@ def test_native_capture_denied_visibility_is_not_absence(monkeypatch):
     cursor.fetchall.side_effect = RuntimeError("object_or_access_unavailable")
     with pytest.raises(RuntimeError):
         prod.approved_capture_binding(cursor, "fixture-version", "fixture-decision")
+
+
+@pytest.mark.parametrize(
+    "field,index", [("account_locator", 5), ("region", 4), ("warehouse", 3), ("role", 1)]
+)
+def test_identity_reports_the_actual_failed_field_without_exposing_values(field, index):
+    identity = [
+        "OH_LYME_PROD_PIPELINE_SVC",
+        "OH_LYME_PROD_RUNTIME",
+        prod.PROD,
+        prod.WAREHOUSE,
+        "AWS_US_WEST_2",
+        "TXB06009",
+    ]
+    identity[index] = "PRIVATE_SENTINEL"
+    cursor = Mock()
+    cursor.fetchone.return_value = tuple(identity)
+    cursor.sfqid = "01c7bf4f-030c-3259-0064-2d0701238552"
+    report = prod.execution_identity(cursor, "OH_LYME_PROD_RUNTIME", "OH_LYME_PROD_PIPELINE_SVC")
+    assert report["failed_fields"] == [field]
+    assert "PRIVATE_SENTINEL" not in json.dumps(report)
+    cursor.execute.assert_called_once_with(prod.IDENTITY_SQL)
+
+
+def test_verified_locator_hash_is_shared_prod_inspection_binding():
+    assert hashlib.sha256(b"TXB06009").hexdigest() == prod.ACCOUNT_LOCATOR_SHA256
+
+
+def test_missing_current_warehouse_is_not_reported_as_wrong_account():
+    cursor = Mock()
+    cursor.fetchone.return_value = (
+        "OH_LYME_PROD_PIPELINE_SVC",
+        "OH_LYME_PROD_RUNTIME",
+        prod.PROD,
+        None,
+        "AWS_US_WEST_2",
+        "TXB06009",
+    )
+    cursor.sfqid = None
+    report = prod.execution_identity(cursor, "OH_LYME_PROD_RUNTIME", "OH_LYME_PROD_PIPELINE_SVC")
+    assert report["failed_fields"] == ["warehouse"]
+    assert report["checks"]["account_locator"] is True
+    assert report["warehouse_state"] == "NO_CURRENT_WAREHOUSE"
+    with pytest.raises(ValueError, match="CLIMATE_PROD_EXECUTION_RESOURCE:warehouse"):
+        prod.verify_execution_resource(cursor, "OH_LYME_PROD_RUNTIME", "OH_LYME_PROD_PIPELINE_SVC")
+    assert all("SHOW" not in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_metadata_only_workflow_cannot_execute_capture_or_generic_runtime_check():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/capture-prod-routine-public-evidence.yml").read_text()
+    )
+    steps = workflow["jobs"]["evidence"]["steps"]
+    diagnostic = next(
+        step for step in steps if step.get("name") == "Verify January runtime identity only"
+    )
+    assert "identity_verification_only == true" in diagnostic["if"]
+    assert "180s" in diagnostic["run"] and "--kill-after=15s" in diagnostic["run"]
+    for name in (
+        "Capture immutable candidate evidence",
+        "Validate definition and production runtime identity",
+    ):
+        step = next(step for step in steps if step.get("name") == name)
+        assert "identity_verification_only != true" in step["if"]
+    assert "capture-routine-public-evidence" not in diagnostic["run"]
+    assert "source run" not in diagnostic["run"] and "apply-migrations" not in diagnostic["run"]
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_identity_script_executes_exactly_one_select_and_closes_without_retry(
+    monkeypatch, capsys, fail
+):
+    import runpy
+    from contextlib import nullcontext
+
+    helper = runpy.run_path(str(ROOT / "scripts/verify_january_prod_identity.py"))
+    cursor = Mock()
+    cursor.sfqid = None
+    cursor.fetchone.return_value = (
+        "OH_LYME_PROD_PIPELINE_SVC",
+        "OH_LYME_PROD_RUNTIME",
+        prod.PROD,
+        prod.WAREHOUSE,
+        "AWS_US_WEST_2",
+        "TXB06009",
+    )
+    if fail:
+        cursor.execute.side_effect = RuntimeError("PRIVATE_SENTINEL")
+    connection = Mock()
+    connection.cursor.return_value = nullcontext(cursor)
+    monkeypatch.setenv("TOPX_ENV", "prod")
+    monkeypatch.setenv("ENABLE_PRODUCTION_EXECUTION", "true")
+    monkeypatch.setattr(
+        runpy, "run_path", lambda _: {"bounded_connection": lambda **kw: connection}
+    )
+    if fail:
+        with pytest.raises(SystemExit):
+            helper["main"]()
+    else:
+        helper["main"]()
+    cursor.execute.assert_called_once_with(prod.IDENTITY_SQL)
+    connection.close.assert_called_once_with(retry=False)
+    assert "__enter__" not in [call[0] for call in connection.mock_calls]
+    connection.commit.assert_not_called()
+    assert "PRIVATE_SENTINEL" not in capsys.readouterr().out
