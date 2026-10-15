@@ -191,9 +191,14 @@ class IngestionOrchestrator:
     ) -> RunState:
         state = self.inspect(run_id)
         if state.tier is Tier.C and state.resource_key == "noaa_nclimgrid_daily_202501":
-            raise PermissionError(
-                "January PROD resume requires a separately reviewed recovery scope"
-            )
+            from ..january_prod_recovery import verified_recovery_definition
+
+            definition = verified_recovery_definition(state, definition)
+            if not isinstance(self.store, SnowflakeCheckpointStore):
+                raise PermissionError("JANUARY_RECOVERY_DURABLE_STORE_REQUIRED")
+            # Verify the original retained bytes before changing any checkpoint.
+            payload = self._restore_member_payload(self._adapter(definition), definition, state)
+            self._payloads[run_id] = payload
         if state.resource_key != definition.resource_key:
             raise ValueError("Resume definition does not match the persisted resource_key")
         if state.source_definition_version != definition.definition_version:

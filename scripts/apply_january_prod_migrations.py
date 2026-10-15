@@ -1,4 +1,4 @@
-"""Bounded canonical migration runner entry: only reviewed PROD V151/V152."""
+"""Bounded canonical migration runner entry: reviewed PROD January pair or sole V153."""
 
 import json
 import os
@@ -40,7 +40,8 @@ def main() -> None:
         "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
         os.environ["GITHUB_SHA"],
         expected_pending=expected,
-        january_climate_only=True,
+        january_climate_only=os.environ.get("JANUARY_BULK_RECOVERY_ONLY") != "true",
+        january_bulk_recovery_only=os.environ.get("JANUARY_BULK_RECOVERY_ONLY") == "true",
     )
     print(json.dumps({"applied": applied, "excluded": ["V150"]}))
 

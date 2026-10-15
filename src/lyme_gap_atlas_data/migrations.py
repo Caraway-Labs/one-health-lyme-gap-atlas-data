@@ -127,6 +127,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V150",
     "V151",
     "V152",
+    "V153",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -398,7 +399,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
         return "OH_LYME_PROD_STREAMLIT_OWNER"
-    if migration.version in {"V086", "V139", "V151"}:
+    if migration.version in {"V086", "V139", "V151", "V153"}:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
@@ -655,10 +656,19 @@ def apply_migrations(
     expected_pending: list[dict[str, str]] | None = None,
     protected_intelligence_prerequisite: bool = False,
     january_climate_only: bool = False,
+    january_bulk_recovery_only: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if january_bulk_recovery_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in expected_pending} != {"V150", "V153"}
+    ):
+        raise PermissionError("Bulk recovery requires only reviewed pending V150/V153")
     if january_climate_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -687,12 +697,20 @@ def apply_migrations(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    if january_bulk_recovery_only and not {"V151", "V152"} <= set(applied):
+        raise PermissionError("Prior January migrations must already be applied")
+    if january_bulk_recovery_only and "V117" in applied:
+        raise PermissionError("Unexpected DEV-only V117 PROD ledger entry requires reconciliation")
+    if not january_bulk_recovery_only and any(
+        item.version == "V153" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V153 requires the protected bulk recovery path")
     if not january_climate_only and any(
         item.version in {"V151", "V152"} and item.version not in applied for item in plan
     ):
         raise PermissionError("January PROD authority/views require the reviewed climate-only path")
     for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
-        if january_climate_only:
+        if january_climate_only or january_bulk_recovery_only:
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
@@ -731,6 +749,8 @@ def apply_migrations(
             ):
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        if january_bulk_recovery_only and migration.version != "V153":
+            continue
         if january_climate_only and migration.version not in {"V151", "V152"}:
             continue
         with connect(

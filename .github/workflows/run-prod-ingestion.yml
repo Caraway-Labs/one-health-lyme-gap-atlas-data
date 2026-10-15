@@ -7,6 +7,11 @@ name: Run protected governed PROD ingestion
 on:
   workflow_dispatch:
     inputs:
+      january_normalize_recovery:
+        description: One reviewed NORMALIZE recovery of retained DATA443 January PROD run only
+        required: false
+        type: boolean
+        default: false
       source_definition:
         description: Path to SourceDefinition YAML under the repo
         required: true
@@ -50,6 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
+      JANUARY_NORMALIZE_RECOVERY: ${{ inputs.january_normalize_recovery }}
       TOPX_ENV: prod
       ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && '60' || '' }}
       ENABLE_PRODUCTION_EXECUTION: "true"
@@ -77,6 +83,12 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"
           test -f "${{ inputs.source_definition }}"
+          if [[ "${{ inputs.january_normalize_recovery }}" == true ]]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "${{ inputs.source_definition }}" = config/sources/noaa_nclimgrid_daily_202501_prod.yml
+            test "${{ inputs.operation }}" = resume
+            test "${{ inputs.run_id }}" = d0e1e30b-49f1-5400-8345-af0b3e975114
+          fi
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -172,12 +184,18 @@ jobs:
               )
           PY
       - name: Execute canonical Tier C run or resume
-        timeout-minutes: ${{ inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
+        timeout-minutes: ${{ inputs.january_normalize_recovery && 31 || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.source_definition }}" = "config/sources/noaa_nclimgrid_daily_202501_prod.yml" ]; then
-            test "${{ inputs.operation }}" = run
             test "${{ inputs.run_id }}" = d0e1e30b-49f1-5400-8345-af0b3e975114
+            if [[ "${{ inputs.january_normalize_recovery }}" == true ]]; then
+              test "${{ inputs.operation }}" = resume
+              timeout --signal=INT --kill-after=15s 1800s uv run atlas-data runs resume \
+                --definition "${{ inputs.source_definition }}" --run-id "${{ inputs.run_id }}"
+              exit 0
+            fi
+            test "${{ inputs.operation }}" = run
             timeout --signal=INT --kill-after=15s 18000s uv run atlas-data source run \
               --definition "${{ inputs.source_definition }}" --tier C --run-id "${{ inputs.run_id }}"
           elif [ "${{ inputs.operation }}" = "run" ]; then
