@@ -35,3 +35,8 @@ timestamp, never email contents or workbook bytes.
   digest-bound. This ADR does not authorize use of an unreviewed image or
   bypass a required GitHub environment approval.
 - Existing DEV-only migrations remain checksum-locked and untouched.
+
+The owner-authorized [January unchanged-copy clarification](../contracts/climate/january-2025-cdc-copy-reuse.md)
+permits reuse of real prior CDC receipts only for its exact immutable release
+pair and unchanged restricted output. It does not assert a new delivery event
+or waive the external final-copy duty.
