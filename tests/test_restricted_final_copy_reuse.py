@@ -34,7 +34,8 @@ def database() -> Iterator[sqlite3.Connection]:
         """ATTACH DATABASE ':memory:' AS PRESENTATION;
         ATTACH DATABASE ':memory:' AS GOVERNANCE;
         CREATE TABLE PRESENTATION.SEMANTIC_RELEASES
-          (release_id TEXT, status TEXT, methodology_version TEXT, schema_version TEXT);
+          (release_id TEXT, status TEXT, methodology_version TEXT, schema_version TEXT,
+           bundle_sha256 TEXT);
         CREATE TABLE PRESENTATION.SEMANTIC_DATA_SOURCES
           (release_id TEXT, resource_key TEXT, source_key TEXT, source_version_id TEXT,
            source_id TEXT, dataset_id TEXT, ingestion_run_id TEXT, artifact_id TEXT,
@@ -61,7 +62,8 @@ def database() -> Iterator[sqlite3.Connection]:
            'no records is not absence','method','no risk inference'),
           ('candidate','status','tick','status','STRING','status','COUNTY','2025',
            'no records is not absence','method','no risk inference');
-        INSERT INTO PRESENTATION.SEMANTIC_RELEASES VALUES
+        INSERT INTO PRESENTATION.SEMANTIC_RELEASES
+          (release_id,status,methodology_version,schema_version) VALUES
           ('baseline','PUBLISHED','method-1','1'), ('candidate','CANDIDATE','method-1','1');
         """
     )
@@ -255,3 +257,142 @@ def test_candidate_receipt_can_mix_with_retired_prior_receipt(database: sqlite3.
         "UPDATE PRESENTATION.SEMANTIC_RELEASES SET status='RETIRED' WHERE release_id='baseline'"
     )
     _verify_restricted_final_copy_attestations(Cursor(database), "candidate")
+
+
+JANUARY = "governed-2026-10-15-january-climate-prod"
+DONOR = "governed-2026-10-06-nlcd-demo-cohort"
+JANUARY_BUNDLE = "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
+DONOR_BUNDLE = "603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9"
+
+
+@pytest.fixture
+def january_database(database: sqlite3.Connection) -> sqlite3.Connection:
+    for table in (
+        "SEMANTIC_RELEASES",
+        "SEMANTIC_DATA_SOURCES",
+        "SEMANTIC_OBSERVATIONS",
+        "SEMANTIC_MEASURES",
+        "SEMANTIC_INDICATORS",
+    ):
+        for old, new in (("candidate", JANUARY), ("baseline", DONOR)):
+            database.execute(
+                f"UPDATE PRESENTATION.{table} SET release_id=? WHERE release_id=?", (new, old)
+            )
+    database.execute(
+        "UPDATE GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS "
+        "SET semantic_release_id=? WHERE semantic_release_id='baseline'",
+        (DONOR,),
+    )
+    for release, bundle, schema, method in (
+        (JANUARY, JANUARY_BUNDLE, "2.0.0", "semantic-2.0.0"),
+        (DONOR, DONOR_BUNDLE, "1.0.0", "semantic-1.0.0"),
+    ):
+        database.execute(
+            "UPDATE PRESENTATION.SEMANTIC_RELEASES SET bundle_sha256=?,schema_version=?,"
+            "methodology_version=? WHERE release_id=?",
+            (bundle, schema, method, release),
+        )
+    for source, resource, version in (
+        ("tick", "cdc_tick_ixodes_county_status", "b81c116f-d93d-4c6b-9d11-ac2477e0e242"),
+        ("pathogen", "cdc_tick_ixodes_pathogen_status", "92b22f19-0d5d-4576-a7c6-6c9af9343edf"),
+    ):
+        database.execute(
+            "UPDATE PRESENTATION.SEMANTIC_DATA_SOURCES SET source_version_id=? WHERE source_key=?",
+            (version, source),
+        )
+        database.execute(
+            "UPDATE PRESENTATION.SEMANTIC_OBSERVATIONS SET source_version_id=? WHERE source_key=?",
+            (version, source),
+        )
+        database.execute(
+            "UPDATE GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS "
+            "SET data_source_version_id=? WHERE resource_key=?",
+            (version, resource),
+        )
+    return database
+
+
+def test_exact_january_addition_reuses_real_unchanged_copies_without_writes(january_database):
+    before = january_database.total_changes
+    _verify_restricted_final_copy_attestations(Cursor(january_database), JANUARY)
+    assert january_database.total_changes == before
+    assert january_database.execute(
+        "SELECT COUNT(*) FROM GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS "
+        "WHERE semantic_release_id=?",
+        (JANUARY,),
+    ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("release", [JANUARY, DONOR])
+@pytest.mark.parametrize(
+    "field", ["bundle_sha256", "schema_version", "methodology_version", "status"]
+)
+def test_january_exception_requires_exact_release_contract(january_database, release, field):
+    january_database.execute(
+        f"UPDATE PRESENTATION.SEMANTIC_RELEASES SET {field}='changed' WHERE release_id=?",
+        (release,),
+    )
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(january_database), JANUARY)
+
+
+@pytest.mark.parametrize("release", [JANUARY, DONOR])
+def test_january_exception_does_not_apply_to_other_release_ids(january_database, release):
+    january_database.execute(
+        "UPDATE PRESENTATION.SEMANTIC_RELEASES SET release_id='other' WHERE release_id=?",
+        (release,),
+    )
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(january_database), JANUARY)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "UPDATE PRESENTATION.SEMANTIC_DATA_SOURCES SET artifact_id='changed' WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_DATA_SOURCES SET note='changed' WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_DATA_SOURCES "
+        "SET source_version_id='changed' WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_OBSERVATIONS SET value='changed' WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_OBSERVATIONS SET source_row_hash='changed' "
+        "WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_OBSERVATIONS SET transformation_version='changed' "
+        "WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_MEASURES SET unit='changed' WHERE release_id=?",
+        "UPDATE PRESENTATION.SEMANTIC_MEASURES SET methodology='changed' WHERE release_id=?",
+        "DELETE FROM PRESENTATION.SEMANTIC_MEASURES WHERE release_id=?",
+        "DELETE FROM PRESENTATION.SEMANTIC_OBSERVATIONS WHERE release_id=?",
+    ],
+)
+def test_january_exception_never_hides_changed_copy(january_database, mutation):
+    january_database.execute(mutation, (JANUARY,))
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(january_database), JANUARY)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "DELETE FROM GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS",
+        "UPDATE GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS SET delivered_at=NULL",
+        "UPDATE GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS SET delivery_reference=''",
+        "UPDATE GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS SET attested_by=''",
+    ],
+)
+def test_january_exception_still_requires_real_prior_delivery(january_database, mutation):
+    january_database.execute(mutation)
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(january_database), JANUARY)
+
+
+def test_january_exception_cannot_reuse_other_matching_source_versions(january_database):
+    for table in ("SEMANTIC_DATA_SOURCES", "SEMANTIC_OBSERVATIONS"):
+        january_database.execute(
+            f"UPDATE PRESENTATION.{table} SET source_version_id='another-matching-version'"
+        )
+    january_database.execute(
+        "UPDATE GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS "
+        "SET data_source_version_id='another-matching-version'"
+    )
+    with pytest.raises(SemanticReleaseBlocked):
+        _verify_restricted_final_copy_attestations(Cursor(january_database), JANUARY)
