@@ -505,7 +505,11 @@ def test_valid_candidate_publication_then_repeat_is_blocked(
     repeated = _ReleaseConnection([("PUBLISHED", "b" * 64)])
     connections = iter([valid, repeated])
     monkeypatch.setattr(semantic_release, "connect", lambda _settings: next(connections))
-    result = semantic_release.publish_semantic_release(None, "candidate", reason="fixture review")
+    result = semantic_release.publish_semantic_release(
+        SimpleNamespace(snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV"),
+        "candidate",
+        reason="fixture review",
+    )
     assert result == {
         "release_id": "candidate",
         "status": "PUBLISHED",

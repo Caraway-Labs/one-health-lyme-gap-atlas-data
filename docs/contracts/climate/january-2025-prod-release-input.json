@@ -1,0 +1,8 @@
+{
+  "contract_version": "atlas-january-climate-prod-release-input-v1",
+  "release_id": "governed-2026-10-15-january-climate-prod",
+  "annual_release_id": "governed-2026-10-06-nlcd-demo-cohort",
+  "annual_bundle_sha256": "603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9",
+  "ingestion_run_id": "d0e1e30b-49f1-5400-8345-af0b3e975114",
+  "row_count": 389856
+}

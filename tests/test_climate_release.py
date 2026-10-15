@@ -102,7 +102,7 @@ def test_release_contract_rejects_unapproved_or_changed_meaning(mutation: str) -
 
 
 def test_membership_is_recomputed_from_retained_revision_tuples(monkeypatch) -> None:
-    monkeypatch.setattr(climate, "verify_payload_candidate", lambda cursor, digest: None)
+    monkeypatch.setattr(climate, "verify_payload_candidate", lambda cursor, digest, **scope: None)
     monkeypatch.setattr(climate, "ROW_COUNT", 1)
     document = extension()
     record = ("e" * 64, "revision-fixture", "record-fixture", "c" * 64, "d" * 64)
@@ -257,7 +257,7 @@ def test_persisted_validation_precedes_every_pointer_mutation(monkeypatch, opera
     connection = Connection()
     monkeypatch.setattr(releases, "connect", lambda settings: connection)
 
-    def blocked(cursor, release_id):
+    def blocked(cursor, release_id, **scope):
         assert release_id == "fixture-release"
         assert all(query.lstrip().startswith("SELECT") for query in cursor.queries)
         raise climate.ClimateReleaseBlocked("CLIMATE_MEMBERSHIP_DIGEST")
@@ -269,7 +269,11 @@ def test_persisted_validation_precedes_every_pointer_mutation(monkeypatch, opera
         else releases.rollback_semantic_release
     )
     with pytest.raises(climate.ClimateReleaseBlocked):
-        function(SimpleNamespace(), "fixture-release", reason="Offline fixture")
+        function(
+            SimpleNamespace(snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_DEV"),
+            "fixture-release",
+            reason="Offline fixture",
+        )
     assert connection.rolled_back
 
 
@@ -319,7 +323,7 @@ def test_target_payload_corruption_with_unchanged_headers_is_rejected(monkeypatc
             capture[f"native_{field}"] = value
     # Every persisted revision/header hash is deliberately unchanged.
     partition = SimpleNamespace(ordinal=0, records=[original])
-    monkeypatch.setattr(climate, "canonical_partitions", lambda cursor: iter([partition]))
+    monkeypatch.setattr(climate, "canonical_partitions", lambda cursor, **scope: iter([partition]))
 
     class Cursor:
         description = [(key,) for key in capture]
