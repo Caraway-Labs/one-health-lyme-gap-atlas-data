@@ -207,7 +207,11 @@ def build_semantic_release(
             with connection.cursor() as cursor:
                 _assert_release_absent(cursor, manifest.release_id)
                 if "climate_extension" in manifest.raw:
-                    verify_extension(cursor, manifest.raw["climate_extension"])
+                    verify_extension(
+                        cursor,
+                        manifest.raw["climate_extension"],
+                        database=settings.snowflake_database,
+                    )
                 nlcd_captures = (
                     nlcd_release.verify_extension(cursor, manifest.raw["nlcd_extension"])
                     if "nlcd_extension" in manifest.raw
@@ -348,7 +352,7 @@ def publish_semantic_release(
                 database_row = cursor.fetchone()
                 if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
                     _verify_restricted_final_copy_attestations(cursor, release_id)
-                verify_persisted_extension(cursor, release_id)
+                verify_persisted_extension(cursor, release_id, database=settings.snowflake_database)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"
@@ -417,7 +421,7 @@ def rollback_semantic_release(
                     raise SemanticReleaseBlocked(
                         "Rollback target must be a retained published release"
                     )
-                verify_persisted_extension(cursor, release_id)
+                verify_persisted_extension(cursor, release_id, database=settings.snowflake_database)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"

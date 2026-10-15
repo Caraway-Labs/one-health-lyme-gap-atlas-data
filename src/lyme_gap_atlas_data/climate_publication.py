@@ -86,7 +86,9 @@ def _timestamp(value: Any) -> str:
         raise ClimatePublicationBlocked("RETRIEVAL_TIME") from None
 
 
-def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
+def project_capture_record(
+    capture: Mapping[str, Any], *, run_id: str = RUN_ID, noaa_artifact_id: str = NOAA_ARTIFACT_ID
+) -> dict[str, Any]:
     """Validate immutable lineage and project an explicit safe field allowlist.
 
     A caller must separately prove live session identity, selected run success,
@@ -100,13 +102,13 @@ def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
         _require(isinstance(payload, dict) and isinstance(payload.get("record"), dict), "PAYLOAD")
         record = payload["record"]
         for name, expected in (
-            ("ingestion_run_id", RUN_ID),
+            ("ingestion_run_id", run_id),
             ("resource_key", RESOURCE_KEY),
             ("source_id", "noaa_nclimgrid_daily"),
             ("dataset_id", "nclimgrid-daily-v1.0.0-scaled"),
             ("source_definition_version", 2),
             ("artifact_sha256", NOAA_SHA),
-            ("artifact_id", NOAA_ARTIFACT_ID),
+            ("artifact_id", noaa_artifact_id),
         ):
             _require(capture.get(name) == expected, "CAPTURE_SCOPE")
         for name in ("source_id", "dataset_id", "source_definition_version"):
@@ -120,7 +122,7 @@ def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
         _require(capture.get("source_row_hash") == source_hash, "SOURCE_HASH")
         _require(capture.get("normalized_sha256") == normalized_hash, "NORMALIZED_HASH")
         _require(
-            capture.get("capture_record_id") == _digest(f"capture:{RUN_ID}:{record_id}"),
+            capture.get("capture_record_id") == _digest(f"capture:{run_id}:{record_id}"),
             "CAPTURE_ID",
         )
         transform = capture.get("transformation_version")
@@ -231,7 +233,7 @@ def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
             "coverage_status": status,
             "source_time_present": record["source_time_present"],
             **{k: record.get(k) for k in (*AREAS, *FRACTIONS)},
-            "capture_run_id": RUN_ID,
+            "capture_run_id": run_id,
             "capture_id": capture["capture_record_id"],
             "record_revision": revision,
             "normalized_sha256": normalized_hash,
@@ -261,7 +263,11 @@ def project_capture_record(capture: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def write_candidate_projection(
-    captures: Iterable[Mapping[str, Any]], output: Path
+    captures: Iterable[Mapping[str, Any]],
+    output: Path,
+    *,
+    run_id: str = RUN_ID,
+    noaa_artifact_id: str = NOAA_ARTIFACT_ID,
 ) -> dict[str, Any]:
     """Atomically write a complete candidate; a partial/failed export never replaces it.
 
@@ -278,7 +284,9 @@ def write_candidate_projection(
         with tempfile.NamedTemporaryFile(mode="wb", dir=output.parent, delete=False) as handle:
             temporary = Path(handle.name)
             for capture in captures:
-                projected = project_capture_record(capture)
+                projected = project_capture_record(
+                    capture, run_id=run_id, noaa_artifact_id=noaa_artifact_id
+                )
                 key = (projected["county_fips"], projected["period_start"], projected["measure_id"])
                 _require(key not in seen and len(seen) < expected, "DUPLICATE_OR_EXCESS")
                 _require(previous is None or key > previous, "ORDER")
@@ -295,7 +303,7 @@ def write_candidate_projection(
         temporary = None
         return {
             "contract_version": CONTRACT,
-            "capture_run_id": RUN_ID,
+            "capture_run_id": run_id,
             "publication_status": "CANDIDATE_NOT_RELEASED",
             "rows": len(seen),
             "projection_sha256": digest.hexdigest(),
@@ -383,16 +391,22 @@ def content_equivalent(original: Any, returned: Any) -> bool:
     )
 
 
-def reconcile_capture(capture: Mapping[str, Any], original: Mapping[str, Any]) -> dict[str, Any]:
+def reconcile_capture(
+    capture: Mapping[str, Any],
+    original: Mapping[str, Any],
+    *,
+    run_id: str = RUN_ID,
+    noaa_artifact_id: str = NOAA_ARTIFACT_ID,
+) -> dict[str, Any]:
     """Bind immutable revision content/hashes to the exact verified producer serialization."""
     returned = capture["payload"]
     if isinstance(returned, str):
         returned = json.loads(returned)
-    returned = recover_stored_doubles(capture, returned)
+    returned = recover_stored_doubles(capture, returned, run_id=run_id)
     _require(content_equivalent(original, returned), "REVISION_CONTENT")
     reconciled = dict(capture) | {"payload": canonical_source_row(original)}
     # Validates original source/normalized hashes, revision identity and scientific contract.
-    project_capture_record(reconciled)
+    project_capture_record(reconciled, run_id=run_id, noaa_artifact_id=noaa_artifact_id)
     return reconciled
 
 
@@ -409,11 +423,13 @@ def native_double_query(query: str) -> str:
     return query.replace("FROM GOVERNANCE.", f", {columns}\nFROM GOVERNANCE.", 1)
 
 
-def recover_stored_doubles(capture: Mapping[str, Any], payload: Any) -> dict[str, Any]:
+def recover_stored_doubles(
+    capture: Mapping[str, Any], payload: Any, *, run_id: str = RUN_ID
+) -> dict[str, Any]:
     """Recover DOUBLE rendering only; no NUMBER casting, tolerances or content repair."""
     _require(
         capture.get("native_record_id") == capture.get("record_id")
-        and capture.get("native_run_id") == capture.get("ingestion_run_id") == RUN_ID,
+        and capture.get("native_run_id") == capture.get("ingestion_run_id") == run_id,
         "NATIVE_PROBE_IDENTITY",
     )
     _require(isinstance(payload, dict) and isinstance(payload.get("record"), dict), "PAYLOAD")
@@ -439,7 +455,12 @@ def recover_stored_doubles(capture: Mapping[str, Any], payload: Any) -> dict[str
 
 
 def project_verified_partitions(
-    cursor: Any, partitions: Iterable[Any], output: Path
+    cursor: Any,
+    partitions: Iterable[Any],
+    output: Path,
+    *,
+    run_id: str = RUN_ID,
+    noaa_artifact_id: str = NOAA_ARTIFACT_ID,
 ) -> dict[str, Any]:
     """Reconcile partition-sized reads, disk-sort safely, and atomically emit the complete scope."""
     expected = len(COUNTIES) * 31 * 4
@@ -475,7 +496,7 @@ def project_verified_partitions(
                 + ",".join(["%s"] * len(originals))
                 + ")"
             )
-            cursor.execute(native_double_query(query), (RUN_ID, *originals))
+            cursor.execute(native_double_query(query), (run_id, *originals))
             columns = [str(column[0]).lower() for column in cursor.description]
             captures = cursor.fetchall()
             _require(len(captures) == len(originals), "REVISION_COUNT")
@@ -485,7 +506,9 @@ def project_verified_partitions(
                 record_id = capture["record_id"]
                 _require(record_id in originals and record_id not in matched, "REVISION_IDENTITY")
                 matched.add(record_id)
-                reconciled = reconcile_capture(capture, originals[record_id])
+                reconciled = reconcile_capture(
+                    capture, originals[record_id], run_id=run_id, noaa_artifact_id=noaa_artifact_id
+                )
                 reconciled["retrieved_at"] = _timestamp(reconciled["retrieved_at"])
                 record = originals[record_id]["record"]
                 try:
@@ -507,7 +530,7 @@ def project_verified_partitions(
         cursor.execute(
             "SELECT COUNT(*) FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS "
             "WHERE ingestion_run_id=%s",
-            (RUN_ID,),
+            (run_id,),
         )
         _require(cursor.fetchall() == [(expected,)], "REVISION_COUNT")
         records = (
@@ -516,7 +539,9 @@ def project_verified_partitions(
                 "SELECT capture FROM captures ORDER BY county, day, measure"
             )
         )
-        return write_candidate_projection(records, output)
+        return write_candidate_projection(
+            records, output, run_id=run_id, noaa_artifact_id=noaa_artifact_id
+        )
 
 
 def create_candidate(output: Path) -> dict[str, Any]:

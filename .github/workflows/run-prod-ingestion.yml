@@ -21,7 +21,7 @@ on:
           - run
           - resume
       run_id:
-        description: Existing run id when operation is resume
+        description: Retained resume ID or reviewed January PROD native capture ID
         required: false
         type: string
       release_commit:
@@ -51,12 +51,12 @@ jobs:
     environment: production
     env:
       TOPX_ENV: prod
-      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && '60' || '' }}
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && '60' || '' }}
       ENABLE_PRODUCTION_EXECUTION: "true"
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_RUNTIME_ROLE }}
-      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_WAREHOUSE: ${{ inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
       SNOWFLAKE_AUTH_METHOD: key_pair
       SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
@@ -84,8 +84,13 @@ jobs:
         run: uv sync --extra dev --extra pipeline --locked
       - name: Validate definition
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
+      - name: Set reviewed January connection limits
+        if: ${{ inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' }}
+        run: |
+          echo 'MAX_CON_RETRY_ATTEMPTS=0' >> "$GITHUB_ENV"
+          echo 'SNOWFLAKE_NETWORK_TIMEOUT_SECONDS=65' >> "$GITHUB_ENV"
       - name: Verify protected PROD runtime identity and approved source decision
-        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 3 || 360 }}
+        timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 3 || 360 }}
         run: |
           set -euo pipefail
           for required_var in \
@@ -166,10 +171,15 @@ jobs:
               )
           PY
       - name: Execute canonical Tier C run or resume
-        timeout-minutes: ${{ inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
+        timeout-minutes: ${{ inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.operation }}" = "run" ]; then
+          if [ "${{ inputs.source_definition }}" = "config/sources/noaa_nclimgrid_daily_202501_prod.yml" ]; then
+            test "${{ inputs.operation }}" = run
+            test "${{ inputs.run_id }}" = d0e1e30b-49f1-5400-8345-af0b3e975114
+            timeout --signal=INT --kill-after=15s 18000s uv run atlas-data source run \
+              --definition "${{ inputs.source_definition }}" --tier C --run-id "${{ inputs.run_id }}"
+          elif [ "${{ inputs.operation }}" = "run" ]; then
             uv run atlas-data source run \
               --definition "${{ inputs.source_definition }}" \
               --tier C

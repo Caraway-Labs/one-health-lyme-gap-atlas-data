@@ -1,0 +1,17 @@
+[
+  {
+    "version": "V150",
+    "filename": "V150__prod_intelligence_raw_cleanup_authority.sql",
+    "sha256": "883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"
+  },
+  {
+    "version": "V151",
+    "filename": "V151__prod_january_climate_source_admission.sql",
+    "sha256": "43ad20fc3c9d181dc3667cce5352618b438b1e013478b10e58b1e60839061cae"
+  },
+  {
+    "version": "V152",
+    "filename": "V152__prod_january_climate_consumer_views.sql",
+    "sha256": "783fe2af14af74dd0d4b8c5d36e5adfbcaee2c88c7b4734c9208d6b1259ffdfc"
+  }
+]

@@ -125,6 +125,8 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     # Extends V148's PROD authority and replaces a PROD-only final-copy procedure.
     "V149",
     "V150",
+    "V151",
+    "V152",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -396,7 +398,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
         return "OH_LYME_PROD_STREAMLIT_OWNER"
-    if migration.version in {"V086", "V139"}:
+    if migration.version in {"V086", "V139", "V151"}:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
@@ -652,10 +654,18 @@ def apply_migrations(
     *,
     expected_pending: list[dict[str, str]] | None = None,
     protected_intelligence_prerequisite: bool = False,
+    january_climate_only: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if january_climate_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or protected_intelligence_prerequisite
+        or not {item["version"] for item in expected_pending} <= {"V150", "V151", "V152"}
+    ):
+        raise PermissionError("January PROD migrations require the exact reviewed full pending set")
     plan = [
         migration
         for migration in load_migrations()
@@ -677,7 +687,14 @@ def apply_migrations(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    if not january_climate_only and any(
+        item.version in {"V151", "V152"} and item.version not in applied for item in plan
+    ):
+        raise PermissionError("January PROD authority/views require the reviewed climate-only path")
     for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
+        if january_climate_only:
+            # V150 is deliberately retained as pending, never executed in this scope.
+            continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
         protected_database = (
             DEV_DATABASE if pinned["version"] in {"V142", "V143"} else PROD_DATABASE
@@ -714,6 +731,8 @@ def apply_migrations(
             ):
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        if january_climate_only and migration.version not in {"V151", "V152"}:
+            continue
         with connect(
             _migration_settings(settings, migration, database), include_database=False
         ) as connection:

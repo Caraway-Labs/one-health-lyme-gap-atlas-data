@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import tempfile
 import uuid
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
@@ -152,6 +154,31 @@ class IngestionOrchestrator:
             dry_run=dry_run,
             next_action="run",
         )
+        if (
+            tier is Tier.C
+            and definition.resource_key == "noaa_nclimgrid_daily_202501"
+            and not dry_run
+        ):
+            from lyme_gap_atlas_shared.settings import SnowflakeSettings
+
+            from ..climate_prod_binding import approved_capture_binding
+            from ..climate_prod_manifest import PLANNED_RUN
+            from ..january_prod_evidence import NOAA_SHA
+            from ..sql_sessions import connect
+
+            if (
+                run_id != PLANNED_RUN
+                or self.store.load(run_id) is not None
+                or definition.extra.get("noaa_sha256") != NOAA_SHA
+            ):
+                raise ValueError("CLIMATE_PROD_NEW_PLANNED_CAPTURE_REQUIRED")
+            with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
+                approvals = approved_capture_binding(
+                    cursor, os.environ["SOURCE_VERSION_ID"], os.environ["SOURCE_DECISION_ID"]
+                )
+            definition = replace(
+                definition, extra={**definition.extra, "source_approvals": approvals}
+            )
         self.store.save(state)
         return self._execute(definition, state, fail_after_stage=fail_after_stage)
 
@@ -163,6 +190,10 @@ class IngestionOrchestrator:
         fail_after_stage: str | None = None,
     ) -> RunState:
         state = self.inspect(run_id)
+        if state.tier is Tier.C and state.resource_key == "noaa_nclimgrid_daily_202501":
+            raise PermissionError(
+                "January PROD resume requires a separately reviewed recovery scope"
+            )
         if state.resource_key != definition.resource_key:
             raise ValueError("Resume definition does not match the persisted resource_key")
         if state.source_definition_version != definition.definition_version:
