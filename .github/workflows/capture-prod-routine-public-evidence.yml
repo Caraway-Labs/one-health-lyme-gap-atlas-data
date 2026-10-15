@@ -14,6 +14,11 @@ on:
           - config/sources/usda_ers_rucc_2023.yml
           - config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml
           - config/sources/noaa_nclimgrid_daily_202501_prod.yml
+      identity_verification_only:
+        description: One protected January runtime identity SELECT; no source capture
+        required: false
+        default: false
+        type: boolean
       release_commit:
         description: Exact reviewed commit
         required: true
@@ -55,6 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ inputs.release_commit }}"
+          if [[ "${{ inputs.identity_verification_only }}" == true ]]; then
+            test "${{ inputs.source_definition }}" = config/sources/noaa_nclimgrid_daily_202501_prod.yml
+          fi
           case "${{ inputs.source_definition }}" in
             config/sources/cdc_atsdr_svi_2022_county.yml|config/sources/usda_ers_rucc_2023.yml|config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml|config/sources/noaa_nclimgrid_daily_202501_prod.yml) ;;
             *) echo "::error::Definition is not admitted to this protected evidence path"; exit 1 ;;
@@ -70,6 +78,7 @@ jobs:
           echo 'MAX_CON_RETRY_ATTEMPTS=0' >> "$GITHUB_ENV"
           echo 'SNOWFLAKE_NETWORK_TIMEOUT_SECONDS=65' >> "$GITHUB_ENV"
       - name: Validate definition and production runtime identity
+        if: ${{ inputs.identity_verification_only != true }}
         timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 3 || 360 }}
         run: |
           set -euo pipefail
@@ -87,7 +96,14 @@ jobs:
               raise SystemExit("Protected evidence requires the dedicated PROD runtime identity.")
           print("Verified protected PROD runtime identity.")
           PY
+      - name: Verify January runtime identity only
+        if: ${{ inputs.identity_verification_only == true }}
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          timeout --signal=INT --kill-after=15s 180s uv run python scripts/verify_january_prod_identity.py
       - name: Capture immutable candidate evidence
+        if: ${{ inputs.identity_verification_only != true }}
         timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 5 || 360 }}
         run: |
           set -euo pipefail

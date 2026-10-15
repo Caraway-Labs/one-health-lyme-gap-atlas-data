@@ -141,27 +141,62 @@ def verify_capture_binding(cursor: Any, extension: Mapping[str, Any]) -> None:
             raise ValueError("CLIMATE_PROD_CAPTURE_LINEAGE")
 
 
+ACCOUNT_LOCATOR_SHA256 = "9d740b2d2d7445285e80aea51237b1159401d6f6e29e49b996932c74f55df328"
+WAREHOUSE = "OH_LYME_PROD_APPROVAL_XS_WH"
+IDENTITY_SQL = (
+    "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),"
+    "CURRENT_WAREHOUSE(),CURRENT_REGION(),CURRENT_ACCOUNT()"
+)
+
+
+def execution_identity(cursor: Any, role: str, user: str) -> dict[str, Any]:
+    """One read, all six gates; no guesses from a compound exception."""
+    cursor.execute(IDENTITY_SQL)
+    row = cursor.fetchone()
+    shape = isinstance(row, (tuple, list)) and len(row) == 6
+    expected = (user, role, PROD, WAREHOUSE, "AWS_US_WEST_2")
+    fields = ("user", "role", "database", "warehouse", "region")
+    checks = {
+        field: bool(shape and row[index] == expected[index]) for index, field in enumerate(fields)
+    }
+    locator_hash = (
+        hashlib.sha256(row[5].upper().encode()).hexdigest()
+        if shape and isinstance(row[5], str) and row[5]
+        else None
+    )
+    checks["account_locator"] = locator_hash == ACCOUNT_LOCATOR_SHA256
+    failed = [field for field, passed in checks.items() if not passed]
+    query_id = getattr(cursor, "sfqid", None)
+    if not isinstance(query_id, str) or re.fullmatch(r"[0-9a-f-]{36}", query_id) is None:
+        query_id = None
+    return {
+        "status": "PASS" if shape and not failed else "BLOCKED",
+        "shape_verified": shape,
+        "checks": checks,
+        "failed_fields": failed,
+        "account_locator_sha256": locator_hash,
+        "warehouse_state": (
+            "MATCH"
+            if checks["warehouse"]
+            else "NO_CURRENT_WAREHOUSE"
+            if shape and row[3] is None
+            else "MISMATCH_OR_UNVERIFIED"
+        ),
+        "query_id": query_id,
+    }
+
+
 def verify_execution_resource(cursor: Any, role: str, user: str) -> None:
-    """Existing owner account evidence plus live bounds before any January writes."""
-    import hashlib
+    """Keep strict identity/capacity gates and identify which field failed."""
+    import json
 
     from .climate_membership_diagnostic import validate_warehouse_cost
 
-    warehouse = "OH_LYME_PROD_APPROVAL_XS_WH"
-    cursor.execute(
-        "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),"
-        "CURRENT_WAREHOUSE(),CURRENT_REGION(),CURRENT_ACCOUNT()"
-    )
-    row = cursor.fetchone()
-    if (
-        row is None
-        or len(row) != 6
-        or row[:4] != (user, role, PROD, warehouse)
-        or row[4] != "AWS_US_WEST_2"
-        or hashlib.sha256(str(row[5]).upper().encode()).hexdigest()
-        != "9d740b2d2d7445285e80aea51237b1159401d6f6e29e49b996932c74f55df328"
-    ):
-        raise ValueError("CLIMATE_PROD_EXECUTION_RESOURCE")
+    identity = execution_identity(cursor, role, user)
+    if identity["status"] != "PASS":
+        print(json.dumps({"january_execution_identity": identity}), flush=True)
+        raise ValueError("CLIMATE_PROD_EXECUTION_RESOURCE:" + ",".join(identity["failed_fields"]))
+    warehouse = WAREHOUSE
     cursor.execute("SHOW WAREHOUSES LIKE 'OH_LYME_PROD_APPROVAL_XS_WH'")
     columns = [str(item[0]).lower() for item in cursor.description]
     rows = [dict(zip(columns, item, strict=True)) for item in cursor.fetchall()]
