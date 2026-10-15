@@ -125,6 +125,7 @@ jobs:
         run: |
           echo 'MAX_CON_RETRY_ATTEMPTS=0' >> "$GITHUB_ENV"
           echo 'SNOWFLAKE_NETWORK_TIMEOUT_SECONDS=65' >> "$GITHUB_ENV"
+          echo 'ATLAS_JANUARY_PROD_SESSION=true' >> "$GITHUB_ENV"
       - name: Validate protected operation inputs
         env:
           OPERATION: ${{ inputs.operation }}

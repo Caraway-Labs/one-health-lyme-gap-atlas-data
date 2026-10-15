@@ -21,8 +21,15 @@ def main() -> None:
         connection = helpers["bounded_connection"](query_tag="DATA443_PROD_RUNTIME_IDENTITY")
         with connection.cursor() as cursor:
             report = execution_identity(cursor, "OH_LYME_PROD_RUNTIME", "OH_LYME_PROD_PIPELINE_SVC")
-    except (Exception, KeyboardInterrupt):
-        pass
+    except (Exception, KeyboardInterrupt) as error:
+        if isinstance(error, ValueError) and str(error) in {
+            "JANUARY_WAREHOUSE_CONFIGURATION",
+            "JANUARY_WAREHOUSE_NOT_SELECTED",
+        }:
+            report["category"] = str(error)
+        errno = getattr(error, "errno", None)
+        if type(errno) is int:
+            report["connector_errno"] = errno
     finally:
         if connection is not None:
             try:

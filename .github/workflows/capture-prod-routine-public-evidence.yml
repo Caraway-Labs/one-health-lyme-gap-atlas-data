@@ -77,6 +77,7 @@ jobs:
         run: |
           echo 'MAX_CON_RETRY_ATTEMPTS=0' >> "$GITHUB_ENV"
           echo 'SNOWFLAKE_NETWORK_TIMEOUT_SECONDS=65' >> "$GITHUB_ENV"
+          echo 'ATLAS_JANUARY_PROD_SESSION=true' >> "$GITHUB_ENV"
       - name: Validate definition and production runtime identity
         if: ${{ inputs.identity_verification_only != true }}
         timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 3 || 360 }}

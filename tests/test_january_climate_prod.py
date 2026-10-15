@@ -308,7 +308,19 @@ def test_prod_prepare_preserves_entire_existing_nlcd_release(monkeypatch):
 
 @pytest.mark.parametrize(
     "change",
-    [None, "account", "region", "warehouse", "role", "size", "generation", "qas", "suspend"],
+    [
+        None,
+        "user",
+        "database",
+        "account",
+        "region",
+        "warehouse",
+        "role",
+        "size",
+        "generation",
+        "qas",
+        "suspend",
+    ],
 )
 def test_execution_resource_requires_bound_account_and_observed_capacity(change):
     identity = [
@@ -326,8 +338,10 @@ def test_execution_resource_requires_bound_account_and_observed_capacity(change)
         "generation": "2",
         "auto_suspend": 60,
     }
-    if change in {"account", "region", "warehouse", "role"}:
-        identity[{"account": 5, "region": 4, "warehouse": 3, "role": 1}[change]] = "UNRELATED"
+    if change in {"user", "database", "account", "region", "warehouse", "role"}:
+        identity[
+            {"user": 0, "database": 2, "account": 5, "region": 4, "warehouse": 3, "role": 1}[change]
+        ] = "UNRELATED"
     elif change == "size":
         warehouse["size"] = "Large"
     elif change == "generation":
