@@ -88,32 +88,83 @@ def verified_review(
     if exact_merge:
         require(pull["merge_commit_sha"] == release_commit, "JANUARY_EXACT_REVIEW_MERGE")
     reviewed_commit = pull["head"]["sha"]
-    reviews = fetch(review_api + "/reviews?per_page=100")
-    require(isinstance(reviews, list), "JANUARY_REVIEW_RECORD")
-    matching = [
-        review
-        for review in reviews
-        if isinstance(review, dict)
-        and review.get("commit_id") == reviewed_commit
-        and review.get("state") in {"APPROVED", "COMMENTED", "CHANGES_REQUESTED"}
-        and review.get("submitted_at")
-        and isinstance(review.get("body"), str)
-        and isinstance(review.get("user", {}).get("login"), str)
-        and isinstance(review.get("html_url"), str)
-        and re.fullmatch(
-            r"https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/"
-            rf"pull/{review_pr}#pullrequestreview-[0-9]+",
-            review["html_url"],
+    require(bool(re.fullmatch(r"[0-9a-f]{40}", reviewed_commit)), "JANUARY_REVIEW_RECORD")
+    reviews: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        suffix = "" if page == 1 else f"&page={page}"
+        batch = fetch(review_api + "/reviews?per_page=100" + suffix)
+        require(isinstance(batch, list), "JANUARY_REVIEW_RECORD")
+        reviews.extend(batch)
+        if len(batch) < 100:
+            break
+    else:
+        raise ManifestPreparationBlocked("JANUARY_REVIEW_LIMIT")
+    submitted = []
+    seen: set[int] = set()
+    for review in reviews:
+        require(isinstance(review, dict), "JANUARY_REVIEW_RECORD")
+        if review.get("state") == "PENDING":
+            continue
+        identifier = review.get("id")
+        user = review.get("user")
+        require(
+            type(identifier) is int
+            and identifier > 0
+            and identifier not in seen
+            and isinstance(user, dict)
+            and isinstance(user.get("login"), str)
+            and bool(user["login"])
+            and review.get("state") in {"APPROVED", "COMMENTED", "CHANGES_REQUESTED", "DISMISSED"}
+            and isinstance(review.get("commit_id"), str)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", review["commit_id"]))
+            and isinstance(review.get("submitted_at"), str)
+            and (review.get("body") is None or isinstance(review.get("body"), str))
+            and review.get("html_url")
+            == (
+                "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/"
+                f"pull/{review_pr}#pullrequestreview-{identifier}"
+            ),
+            "JANUARY_REVIEW_RECORD",
         )
+        assert isinstance(identifier, int)  # Established by the fail-closed check above.
+        seen.add(identifier)
+        try:
+            timestamp = datetime.fromisoformat(review["submitted_at"].replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ManifestPreparationBlocked("JANUARY_REVIEW_RECORD") from error
+        require(timestamp.tzinfo is not None, "JANUARY_REVIEW_RECORD")
+        submitted.append((timestamp, identifier, review))
+
+    marker = f"Independent read-only review of exact head {reviewed_commit}: no material findings."
+    pull_user = pull.get("user")
+    author = pull_user.get("login") if isinstance(pull_user, dict) else None
+
+    def approved(review: dict[str, Any]) -> bool:
+        if review["commit_id"] != reviewed_commit:
+            return False
+        if review["state"] == "APPROVED":
+            return (
+                isinstance(author, str) and review["user"]["login"].casefold() != author.casefold()
+            )
+        return review["state"] == "COMMENTED" and (review.get("body") or "").strip() == marker
+
+    # A different reviewer or a plain comment cannot clear an unresolved request.
+    blockers: set[str] = set()
+    for _, _, review in sorted(submitted, key=lambda item: item[:2]):
+        actor = review["user"]["login"].casefold()
+        if review["state"] == "CHANGES_REQUESTED":
+            blockers.add(actor)
+        elif approved(review):
+            blockers.discard(actor)
+    require(not blockers, "JANUARY_REVIEW_RECORD")
+    matching = [
+        item
+        for item in submitted
+        if item[2]["commit_id"] == reviewed_commit and item[2]["state"] != "DISMISSED"
     ]
     require(bool(matching), "JANUARY_REVIEW_RECORD")
-    selected = max(matching, key=lambda review: review["submitted_at"])
-    require(
-        selected["state"] in {"APPROVED", "COMMENTED"}
-        and selected["body"].strip()
-        == (f"Independent read-only review of exact head {reviewed_commit}: no material findings."),
-        "JANUARY_REVIEW_RECORD",
-    )
+    selected = max(matching, key=lambda item: item[:2])[2]
+    require(approved(selected), "JANUARY_REVIEW_RECORD")
     return {
         "commit": reviewed_commit,
         "url": selected["html_url"],

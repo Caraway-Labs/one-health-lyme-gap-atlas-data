@@ -117,6 +117,7 @@ def test_review_must_match_merged_checkout_and_exact_reviewed_head(
     )
     pull = {
         "number": 657,
+        "user": {"login": "author"},
         "merged_at": "2026-10-09T00:00:00Z",
         "merge_commit_sha": release_commit,
         "base": {"ref": "main"},
@@ -124,6 +125,7 @@ def test_review_must_match_merged_checkout_and_exact_reviewed_head(
     }
     reviews = [
         {
+            "id": 123,
             "commit_id": reviewed_commit,
             "state": "COMMENTED",
             "body": clean_review,
@@ -187,6 +189,8 @@ def test_review_must_match_merged_checkout_and_exact_reviewed_head(
     reviews.append(
         {
             **reviews[0],
+            "id": 124,
+            "html_url": review_url.replace("-123", "-124"),
             "submitted_at": "2026-10-10T00:00:00Z",
             "body": "P1: new unresolved release defect",
         }
