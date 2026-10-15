@@ -336,6 +336,7 @@ def deployment_receipt():
         "head_sha": "a" * 40,
         "head_branch": "main",
         "event": "workflow_dispatch",
+        "run_attempt": 1,
         "conclusion": "success",
     }
     jobs = {"jobs": [{"name": verifier["JOB"], "conclusion": "success"}]}

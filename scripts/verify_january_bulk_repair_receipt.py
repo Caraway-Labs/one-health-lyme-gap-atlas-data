@@ -17,6 +17,7 @@ def require_receipt(run: dict[str, Any], jobs: dict[str, Any], log: str, sha: st
         or run.get("head_sha") != sha
         or run.get("head_branch") != "main"
         or run.get("event") != "workflow_dispatch"
+        or run.get("run_attempt") != 1
         or run.get("conclusion") != "success"
         or not any(
             job.get("name") == JOB and job.get("conclusion") == "success"
