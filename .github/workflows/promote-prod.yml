@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      january_bulk_recovery_only:
+        description: Apply only reviewed PROD V153 bulk-stage recovery; no image promotion
+        required: false
+        type: boolean
+        default: false
       reviewed_commit:
         description: Exact reviewed green main for January-only migrations
         required: false
@@ -35,7 +40,7 @@ concurrency:
 
 jobs:
   promote:
-    if: ${{ inputs.january_climate_only != true }}
+    if: ${{ inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -75,7 +80,7 @@ jobs:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ inputs.january_climate_only && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
@@ -103,6 +108,8 @@ jobs:
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_prod \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
+          deadline=1200s
+          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
           SNOWFLAKE_AUTH_METHOD=key_pair \
           SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
@@ -111,7 +118,9 @@ jobs:
           if [ -n "$EXPECTED_PENDING_JSON" ]; then
             test "$PROTECTED_INTELLIGENCE_PREREQUISITE" = "true"
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"}]"
-            SNOWFLAKE_AUTH_METHOD=key_pair \
+            deadline=1200s
+          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
+          SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
             uv run atlas-data pipeline apply-migrations \
@@ -120,7 +129,9 @@ jobs:
               --protected-intelligence-prerequisite --confirm
           else
             test "$PROTECTED_INTELLIGENCE_PREREQUISITE" != "true"
-            SNOWFLAKE_AUTH_METHOD=key_pair \
+            deadline=1200s
+          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
+          SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
             uv run atlas-data pipeline apply-migrations \
@@ -180,7 +191,7 @@ jobs:
 
 
   january-climate:
-    if: ${{ inputs.january_climate_only == true }}
+    if: ${{ inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true }}
     name: Protected January PROD migrations only
     runs-on: ubuntu-latest
     environment: production
@@ -191,12 +202,13 @@ jobs:
       TOPX_ENV: prod
       ENABLE_PRODUCTION_EXECUTION: "true"
       ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+      JANUARY_BULK_RECOVERY_ONLY: ${{ inputs.january_bulk_recovery_only }}
       ATLAS_JANUARY_PROD_SESSION: "true"
       SNOWFLAKE_NETWORK_TIMEOUT_SECONDS: "65"
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-      SNOWFLAKE_WAREHOUSE: ${{ inputs.january_climate_only && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
       SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
       SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
@@ -214,6 +226,7 @@ jobs:
           test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
           test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
           test '${{ inputs.image_digest }}' = january-climate-only
+          test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' != true:true
           test '${{ inputs.protected_intelligence_prerequisite }}' = false
           passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed" -gt 0
@@ -225,7 +238,9 @@ jobs:
             printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
             printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
           } > "$key_file"
+          deadline=1200s
+          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
           SNOWFLAKE_AUTH_METHOD=key_pair \
           SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
           MAX_CON_RETRY_ATTEMPTS=0 \
-          timeout --signal=INT --kill-after=15s 1200s uv run python scripts/apply_january_prod_migrations.py
+          timeout --signal=INT --kill-after=15s "$deadline" uv run python scripts/apply_january_prod_migrations.py

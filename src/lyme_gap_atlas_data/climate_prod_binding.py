@@ -62,7 +62,9 @@ def source_anchor(extension: Mapping[str, Any], key: str) -> tuple[str, str]:
     return RUN_ID, extension["sources"][key]["artifact_id"]
 
 
-def approved_capture_binding(cursor: Any, version_id: str, decision_id: str) -> dict[str, Any]:
+def approved_capture_binding(
+    cursor: Any, version_id: str, decision_id: str, *, recovery_run_id: str | None = None
+) -> dict[str, Any]:
     """Freeze both real source approvals in publication lineage."""
     from .climate_publication import NOAA_SHA, TIGER_SHA
 
@@ -73,10 +75,17 @@ def approved_capture_binding(cursor: Any, version_id: str, decision_id: str) -> 
     cursor.execute(
         "SELECT ingestion_run_id,status FROM GOVERNANCE.INGESTION_RUNS "
         "WHERE resource_key='noaa_nclimgrid_daily_202501' AND run_mode='SOURCE_INGESTION' "
-        "LIMIT 1"
+        "LIMIT 2"
     )
-    if cursor.fetchall():
-        raise ValueError("CLIMATE_PROD_CAPTURE_ALREADY_RETAINED")
+    retained = cursor.fetchall()
+    if recovery_run_id is None:
+        if retained:
+            raise ValueError("CLIMATE_PROD_CAPTURE_ALREADY_RETAINED")
+    else:
+        from .climate_prod_manifest import PLANNED_RUN
+
+        if recovery_run_id != PLANNED_RUN or retained != [(PLANNED_RUN, "FAILED")]:
+            raise ValueError("CLIMATE_PROD_RECOVERY_RETAINED_RUN")
     result = {}
     for key, resource, digest in (
         ("noaa", "noaa_nclimgrid_daily_202501", NOAA_SHA),

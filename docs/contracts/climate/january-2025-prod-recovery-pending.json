@@ -1,0 +1,12 @@
+[
+  {
+    "version": "V150",
+    "filename": "V150__prod_intelligence_raw_cleanup_authority.sql",
+    "sha256": "883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"
+  },
+  {
+    "version": "V153",
+    "filename": "V153__prod_ingestion_bulk_transport_stage.sql",
+    "sha256": "35eb193bf2f84806841e0dde2f38d0a2d326950b3d632006bbb816d25a9cda94"
+  }
+]
