@@ -21,7 +21,6 @@ from .ingestion.types import (
     StageStatus,
     Tier,
 )
-from .migrations import load_migrations
 from .sql_sessions import connect
 
 NOAA_VERSION = "94f08af7-8fa7-4452-987a-a7229f4b640d"
@@ -42,6 +41,7 @@ def require_recovery_state(state: RunState, definition: SourceDefinition) -> Non
     )
     if (
         os.environ.get("JANUARY_NORMALIZE_RECOVERY") != "true"
+        or os.environ.get("JANUARY_BULK_REPAIR_VERIFIED") != "true"
         or os.environ.get("TOPX_ENV") != "prod"
         or os.environ.get("ENABLE_PRODUCTION_EXECUTION") != "true"
         or os.environ.get("ATLAS_JANUARY_PROD_SESSION") != "true"
@@ -125,12 +125,6 @@ def verified_recovery_definition(state: RunState, definition: SourceDefinition) 
     require_recovery_state(state, definition)
     with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
         verify_execution_resource(cursor, "OH_LYME_PROD_RUNTIME", "OH_LYME_PROD_PIPELINE_SVC")
-        migration = next(item for item in load_migrations() if item.version == "V153")
-        cursor.execute(
-            "SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version='V153'"
-        )
-        if cursor.fetchall() != [(migration.filename, migration.sha256)]:
-            raise PermissionError("JANUARY_RECOVERY_MIGRATION")
         require_runtime_stage(cursor)
         approvals = approved_capture_binding(
             cursor, NOAA_VERSION, NOAA_DECISION, recovery_run_id=PLANNED_RUN

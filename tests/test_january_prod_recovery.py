@@ -1,5 +1,6 @@
 """Offline recovery invariants; no simulated result counts as PROD acceptance."""
 
+import runpy
 from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
@@ -25,6 +26,7 @@ from lyme_gap_atlas_data.ingestion.types import (
 def admitted(monkeypatch):
     for key, value in {
         "JANUARY_NORMALIZE_RECOVERY": "true",
+        "JANUARY_BULK_REPAIR_VERIFIED": "true",
         "TOPX_ENV": "prod",
         "ENABLE_PRODUCTION_EXECUTION": "true",
         "ATLAS_JANUARY_PROD_SESSION": "true",
@@ -168,9 +170,7 @@ def test_any_partial_output_prevents_state_mutation(admitted, monkeypatch, outpu
     monkeypatch.setattr(recovery, "verify_execution_resource", lambda *args: None)
     monkeypatch.setattr(recovery, "require_runtime_stage", lambda *args: None)
     cursor = Mock()
-    migration = next(m for m in migrations.load_migrations() if m.version == "V153")
     cursor.fetchall.side_effect = [
-        [(migration.filename, migration.sha256)],
         [("noaa_nclimgrid_daily_202501", 1), ("census_tiger_2025_us_county_analysis", 1)],
     ]
     cursor.fetchone.side_effect = [(0,)] * output_index + [(1,)]
@@ -235,20 +235,6 @@ def test_repair_runner_applies_only_v153(monkeypatch):
     ) == ["V153"]
     assert connection.execute_string.call_count == 1
     assert "SNOWFLAKE_SSE" in connection.execute_string.call_args.args[0]
-
-
-@pytest.mark.parametrize("ledger", [[], [("wrong.sql", "0" * 64)]])
-def test_recovery_requires_exact_applied_migration(admitted, monkeypatch, ledger):
-    monkeypatch.setattr(recovery, "verify_execution_resource", lambda *args: None)
-    monkeypatch.setattr(recovery, "SnowflakeSettings", lambda: None)
-    cursor = Mock()
-    cursor.fetchall.return_value = ledger
-    connection = Mock()
-    connection.cursor.return_value = nullcontext(cursor)
-    monkeypatch.setattr(recovery, "connect", lambda *args: nullcontext(connection))
-    with pytest.raises(PermissionError, match="RECOVERY_MIGRATION"):
-        recovery.verified_recovery_definition(*admitted)
-    connection.commit.assert_not_called()
 
 
 def test_recovery_does_not_enable_implicit_january_resume(admitted, monkeypatch):
@@ -339,3 +325,64 @@ def test_successful_recovery_replays_before_state_changes(admitted, monkeypatch)
     monkeypatch.setattr(orchestrator, "_execute", execute)
     assert orchestrator.resume(state.ingestion_run_id, definition=definition) is state
     store.save.assert_called_once()
+
+
+@pytest.fixture
+def deployment_receipt():
+    verifier = runpy.run_path("scripts/verify_january_bulk_repair_receipt.py")
+    run = {
+        "repository": {"full_name": verifier["REPOSITORY"]},
+        "path": ".github/workflows/promote-prod.yml",
+        "head_sha": "a" * 40,
+        "head_branch": "main",
+        "event": "workflow_dispatch",
+        "conclusion": "success",
+    }
+    jobs = {"jobs": [{"name": verifier["JOB"], "conclusion": "success"}]}
+    line = (
+        verifier["JOB"] + "\tApply only reviewed climate migrations\t2026-10-15Z "
+        '{"applied": ["V153"], "excluded": ["V150"]}'
+    )
+    return verifier["require_receipt"], run, jobs, line
+
+
+def test_canonical_actions_receipt_binds_exact_reviewed_migration(deployment_receipt):
+    verify, run, jobs, line = deployment_receipt
+    verify(run, jobs, line, "a" * 40)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("path", ".github/workflows/run-prod-ingestion.yml"),
+        ("head_sha", "b" * 40),
+        ("head_branch", "feature"),
+        ("event", "push"),
+        ("conclusion", "failure"),
+        ("repository", {"full_name": "other/repository"}),
+    ],
+)
+def test_unrelated_or_failed_deployment_is_rejected(deployment_receipt, key, value):
+    verify, run, jobs, line = deployment_receipt
+    run[key] = value
+    with pytest.raises(ValueError):
+        verify(run, jobs, line, "a" * 40)
+
+
+@pytest.mark.parametrize("change", ["empty", "other_migration", "duplicate", "wrong_job"])
+def test_missing_or_forged_migration_receipt_is_rejected(deployment_receipt, change):
+    verify, run, jobs, line = deployment_receipt
+    line = {
+        "empty": "",
+        "other_migration": line.replace("V153", "V152"),
+        "duplicate": line + "\n" + line,
+        "wrong_job": line.replace("Protected January", "Other January"),
+    }[change]
+    with pytest.raises(ValueError):
+        verify(run, jobs, line, "a" * 40)
+
+
+def test_no_migration_proof_means_no_resume(admitted, monkeypatch):
+    monkeypatch.delenv("JANUARY_BULK_REPAIR_VERIFIED")
+    with pytest.raises(PermissionError):
+        recovery.require_recovery_state(*admitted)

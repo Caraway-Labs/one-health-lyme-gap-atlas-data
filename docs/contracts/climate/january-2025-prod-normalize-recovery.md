@@ -42,8 +42,8 @@ FAILED at its first NORMALIZE attempt, with completed first ACQUIRE/VALIDATE
 attempts and untouched LOAD/QUALITY/PUBLISH_STAGE is admitted. Changed hashes,
 versions, failed-stage identity, attempts or stage order stop before mutation.
 
-The actual pipeline service must pass all six identity/capacity checks, read the
-exact canonical V153 filename/checksum ledger entry, see an internal stage with
+The actual pipeline service must pass all six identity/capacity checks, pass the
+verified exact-head V153 Actions receipt gate, see an internal stage with
 JSON/AUTO/MULTI_LINE=false and direct READ/WRITE, and rebind the original NOAA
 and TIGER approval IDs. Both resources must have one active version; the only
 native run must be this FAILED run. Any partitions, partition completion,
@@ -53,6 +53,10 @@ stops this zero-output recovery. Inaccessible metadata is a stop, never absence.
 The durable Snowflake member store must match the original checkpoint manifest.
 The existing adapter replays both checksum-verified retained binaries, including
 their original source-definition digest, before any checkpoint is changed.
+The Actions gate checks the canonical migration workflow, same reviewed main SHA,
+successful protected migration job and exact applied=[V153]/excluded=[V150]
+receipt before connecting. The canonical runner verified the V153 checksum and
+ledger under deployment authority; runtime receives no new ledger grant.
 ACQUIRE is skipped; no HTTP recapture, source reapproval or new run is allowed.
 The canonical state machine then increments NORMALIZE to attempt 2. Any later
 failure is outside this recovery admission; there is no application/workflow
@@ -71,6 +75,7 @@ at that exact merged SHA, within the existing cumulative $200 ceiling:
    no image promotion. Max **$3**, process **180s + 15s** grace, one attempt.
 2. Only after successful V153 application, one `run-prod-ingestion.yml` dispatch:
    `january_normalize_recovery=true`, `operation=resume`,
+   `january_bulk_repair_run_id=<successful action 1 run ID>`,
    `source_definition=config/sources/noaa_nclimgrid_daily_202501_prod.yml`,
    `run_id=d0e1e30b-49f1-5400-8345-af0b3e975114`, same exact `release_commit`,
    NOAA `source_version_id=94f08af7-8fa7-4452-987a-a7229f4b640d`,

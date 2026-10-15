@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: false
+      january_bulk_repair_run_id:
+        description: Successful exact-head V153 protected migration Actions run; recovery only
+        required: false
+        type: string
       source_definition:
         description: Path to SourceDefinition YAML under the repo
         required: true
@@ -44,6 +48,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: prod-governed-ingestion-${{ inputs.source_definition }}
@@ -56,6 +61,8 @@ jobs:
     environment: production
     env:
       JANUARY_NORMALIZE_RECOVERY: ${{ inputs.january_normalize_recovery }}
+      JANUARY_BULK_REPAIR_RUN_ID: ${{ inputs.january_bulk_repair_run_id }}
+      GH_TOKEN: ${{ github.token }}
       TOPX_ENV: prod
       ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && '60' || '' }}
       ENABLE_PRODUCTION_EXECUTION: "true"
@@ -102,6 +109,10 @@ jobs:
           echo 'MAX_CON_RETRY_ATTEMPTS=0' >> "$GITHUB_ENV"
           echo 'SNOWFLAKE_NETWORK_TIMEOUT_SECONDS=65' >> "$GITHUB_ENV"
           echo 'ATLAS_JANUARY_PROD_SESSION=true' >> "$GITHUB_ENV"
+      - name: Verify exact reviewed V153 deployment receipt
+        if: ${{ inputs.january_normalize_recovery == true }}
+        timeout-minutes: 4
+        run: timeout --signal=INT --kill-after=15s 180s uv run python scripts/verify_january_bulk_repair_receipt.py
       - name: Verify protected PROD runtime identity and approved source decision
         timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 3 || 360 }}
         run: |
