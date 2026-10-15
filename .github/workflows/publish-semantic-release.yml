@@ -28,6 +28,7 @@ on:
           - build
           - publish
           - rollback
+          - inspect_january_climate
       manifest_path:
         description: Reviewed source-pinned manifest path for build
         required: false
@@ -72,6 +73,7 @@ concurrency:
 
 jobs:
   semantic-release:
+    if: ${{ inputs.operation != 'inspect_january_climate' }}
     name: Protected semantic release operation
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment_name }}
@@ -247,3 +249,57 @@ jobs:
             snow --config-file "$config_file" sql -c oh_lyme_semantic \
               -q "${sql_limits}SELECT release_id, schema_version, methodology_version, bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V" --format JSON
           fi
+
+  climate-inspection:
+    if: ${{ inputs.operation == 'inspect_january_climate' }}
+    name: Protected read-only January inspection
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Fixed read-only inspection only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_COMMIT: ${{ inputs.release_commit }}
+          INSPECTION_ENVIRONMENT: ${{ inputs.environment_name }}
+          PREPARE_JANUARY_CLIMATE: ${{ inputs.prepare_january_climate }}
+          CONFIRM: ${{ inputs.confirm }}
+          BOUNDED_DELIVERY: ${{ inputs.bounded_delivery }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ inputs.environment_name == 'production' && 'OH_LYME_PROD_APPROVAL_XS_WH' || 'OH_LYME_DEV_INGEST_XS_WH' }}
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse origin/main)" = "$REVIEWED_COMMIT"
+          test "$PREPARE_JANUARY_CLIMATE" = false
+          test "$CONFIRM" = false
+          test "$BOUNDED_DELIVERY" = true
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed" -gt 0
+          key_file="$RUNNER_TEMP/january-inspection.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          timeout --signal=INT --kill-after=15s 180s uv run python scripts/inspect_january_climate.py
