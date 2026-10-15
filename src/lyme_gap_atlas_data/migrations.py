@@ -122,6 +122,8 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V141",
     "V146",
     "V148",
+    # Extends V148's PROD authority and replaces a PROD-only final-copy procedure.
+    "V149",
     "V150",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner

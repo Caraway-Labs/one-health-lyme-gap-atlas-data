@@ -23,7 +23,7 @@ statements. Run it only after specific authorization under:
 
 The existing protected `deploy-dev.yml` now has `metadata_preflight_only=true`.
 Set `expected_pending_json=[]` and `reviewed_commit` to the exact green merged-main
-SHA; every other boolean is false and diagnostic query inputs are empty. Supply
+SHA; every other boolean (including `ledger_diagnostic_only`) is false and diagnostic query inputs are empty. Supply
 the existing `january_budget_evidence` input with owner-reviewed forecast and
 account capability evidence as described below; empty evidence fails before login.
 This mode exits before any existing deployment/diagnostic/migration branch.
@@ -115,7 +115,9 @@ After successful reads, compare every ledger filename/checksum against
 `load_migrations()` and existing authorized legacy reconciliation rules. Compute
 the actual DEV pending set by subtracting applied versions from
 `migration_plan(DEV_DATABASE)`. Require exactly the JSON tuple above. V149 is
-DEV-eligible on current main: if pending, stop rather than apply it in this lane.
+PROD-only: it extends V148's PROD authority and replaces a PROD-only final-copy
+procedure. Its immutable SQL/checksum and PROD eligibility are unchanged. The
+previous DEV eligibility was a registry omission; no V149 DDL belongs in this lane.
 Duplicate ledger versions, more than 150 ledger rows, missing V136, unexpected
 checksum, unavailable access or unexpected view definition also stop execution.
 This is **not yet a live-verified pending set**; no ledger was queried here.

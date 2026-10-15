@@ -165,7 +165,7 @@ def test_access_error_stops_in_order_without_retry_or_exception_leak(failure):
     [
         "warehouse_unknown",
         "permission",
-        "v149",
+        "pending_v145",
         "checksum",
         "legacy",
         "column_name",
@@ -178,7 +178,7 @@ def test_failed_acceptance_does_not_continue(kind):
     expected = {
         "warehouse_unknown": 2,
         "permission": 5,
-        "v149": 9,
+        "pending_v145": 9,
         "checksum": 9,
         "legacy": 10,
         "column_name": 17,
@@ -189,8 +189,8 @@ def test_failed_acceptance_does_not_continue(kind):
         del data[1][0]["max_cluster_count"]
     elif kind == "permission":
         data[4] = [{**data[4][0], "grantee_name": "UNVERIFIED_OWNER"}]
-    elif kind == "v149":
-        data[8] = [row for row in data[8] if row["version"] != "V149"]
+    elif kind == "pending_v145":
+        data[8] = [row for row in data[8] if row["version"] != "V145"]
     elif kind == "checksum":
         data[8][0]["sha256"] = "PRIVATE_SENTINEL"
     elif kind == "legacy":
@@ -207,8 +207,8 @@ def test_failed_acceptance_does_not_continue(kind):
     assert report["status"] == "BLOCKED"
     assert report["checks"][expected - 1]["status"] == "BLOCKED"
     assert "PRIVATE_SENTINEL" not in json.dumps(report)
-    if kind == "v149":
-        assert report["v149_excluded"] is False
+    if kind == "pending_v145":
+        assert report["v149_excluded"] is True
 
 
 def test_sql_tampering_blocks_before_any_sql(tmp_path, monkeypatch):
@@ -438,12 +438,12 @@ def test_v022_reconciliation_identity_cannot_change(field, value):
     assert report["status"] == "BLOCKED" and report["pending_migrations"] is None
 
 
-def test_v019_reconciliation_does_not_admit_pending_v149():
+def test_v019_reconciliation_does_not_admit_unrelated_pending_migration():
     data = responses()
     data[8].append(copy.deepcopy(next(row for row in data[8] if row["version"] == "V019")))
-    data[8] = [row for row in data[8] if row["version"] != "V149"]
+    data[8] = [row for row in data[8] if row["version"] != "V145"]
     report = run(Cursor(data))
     assert report["status"] == "BLOCKED"
     assert report["checks"][8]["category"] == "PENDING_SET_NOT_SOLE_V147"
-    assert report["v149_excluded"] is False
-    assert [row["version"] for row in report["pending_migrations"]] == ["V147", "V149"]
+    assert report["v149_excluded"] is True
+    assert [row["version"] for row in report["pending_migrations"]] == ["V145", "V147"]
