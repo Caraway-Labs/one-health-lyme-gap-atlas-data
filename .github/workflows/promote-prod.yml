@@ -108,8 +108,6 @@ jobs:
           EOF
           snow --config-file "$config_file" sql -c oh_lyme_prod \
             -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
-          deadline=1200s
-          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
           SNOWFLAKE_AUTH_METHOD=key_pair \
           SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
@@ -118,9 +116,7 @@ jobs:
           if [ -n "$EXPECTED_PENDING_JSON" ]; then
             test "$PROTECTED_INTELLIGENCE_PREREQUISITE" = "true"
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"}]"
-            deadline=1200s
-          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
-          SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
             uv run atlas-data pipeline apply-migrations \
@@ -129,9 +125,7 @@ jobs:
               --protected-intelligence-prerequisite --confirm
           else
             test "$PROTECTED_INTELLIGENCE_PREREQUISITE" != "true"
-            deadline=1200s
-          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
-          SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
             uv run atlas-data pipeline apply-migrations \
