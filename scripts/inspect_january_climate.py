@@ -29,7 +29,9 @@ def main():
         if configured != expected:
             raise Stop("CONFIGURED_IDENTITY")
         helpers = runpy.run_path(str(Path(__file__).with_name("verify_climate_dev_views.py")))
-        connection = helpers["bounded_connection"]()
+        connection = helpers["bounded_connection"](
+            query_tag=f"atlas-january-climate-{environment}-inspection"
+        )
         with connection.cursor() as cursor:
             report = inspect(cursor, environment, expected, report, time.monotonic())
     except (Exception, KeyboardInterrupt) as error:

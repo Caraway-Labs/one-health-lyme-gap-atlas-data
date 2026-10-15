@@ -110,3 +110,18 @@ def test_unknown_prod_entitlement_does_not_assume_missing_settings(monkeypatch):
     report, cursor = run("production")
     assert report["status"] == "BLOCKED" and len(cursor.calls) == 2
     assert "rows" not in report["checks"][1]
+
+
+def test_wrong_dev_account_stops_at_identity(monkeypatch):
+    monkeypatch.setattr(inspection.time, "monotonic", lambda: 1)
+    original = Cursor.execute
+
+    def execute(cursor, sql):
+        if not cursor.calls:
+            cursor.data[0][0]["account"] = "DIFFERENT_ACCOUNT"
+        original(cursor, sql)
+
+    monkeypatch.setattr(Cursor, "execute", execute)
+    report, cursor = run("dev")
+    assert report["status"] == "BLOCKED" and len(cursor.calls) == 1
+    assert report["checks"][0]["category"] == "DEV_ACCOUNT_BINDING"

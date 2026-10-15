@@ -85,6 +85,13 @@ def inspect(
                     str(identity[5]).upper().encode()
                 ).hexdigest()
                 report["region"] = identity[4]
+                if environment == "dev":
+                    require(
+                        report["account_locator_sha256"]
+                        == "9d740b2d2d7445285e80aea51237b1159401d6f6e29e49b996932c74f55df328"
+                        and identity[4] == "AWS_US_WEST_2",
+                        "DEV_ACCOUNT_BINDING",
+                    )
             elif index == 1:
                 require(len(rows) == 1, "WAREHOUSE_VISIBILITY")
                 require(rows[0].get("name") == expected[3], "WAREHOUSE_NAME")

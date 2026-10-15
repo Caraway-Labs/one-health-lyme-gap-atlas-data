@@ -21,7 +21,7 @@ CHECKSUM = "f3a33d21cba33f27a4e1683b65f9295f33c796f445c8c9ed82c84bd16948b2c2"
 SCALAR_CHECKSUM = "22caabb8abb205316005d866286d7adb995a0b7dc5ec8b05aa6c6f053dfca83b"
 
 
-def bounded_connection() -> Any:
+def bounded_connection(query_tag: str = "atlas-climate-dev-view-readback") -> Any:
     """Set server limits at login, including the initial identity query."""
     parameters = connection_parameters(SnowflakeSettings())
     parameters.update(network_timeout=65, socket_timeout=65)
@@ -29,7 +29,7 @@ def bounded_connection() -> Any:
         STATEMENT_TIMEOUT_IN_SECONDS=60,
         STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=10,
         ABORT_DETACHED_QUERY=True,
-        QUERY_TAG="atlas-climate-dev-view-readback",
+        QUERY_TAG=query_tag,
     )
     return connect(**parameters)
 
