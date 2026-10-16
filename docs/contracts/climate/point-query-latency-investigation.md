@@ -4,6 +4,32 @@ Status: actual profile analyzed; SELECT-only candidates, no migration. DATA #443
 owns this investigation; API #84 remains disabled. No paid execution, timeout
 change, warehouse resize or PROD mutation is authorized by this document.
 
+## Authorized execution checkpoint
+
+The owner subsequently authorized one diagnostic session at reviewed commit
+`d1cb811fc50eb09018e0f8957d3f45dcb1683e7b`, maximum seven read-only statements
+and $1. The actual session stopped at identity query
+`01c7c756-030c-442e-0064-2d07012890a2`: one row returned in 0.110s client time,
+but it did not match the pinned user/role/database/warehouse/account/region tuple.
+No EXPLAIN or performance SELECT ran. Base-table access remains unverified;
+candidate performance, compilation, pruning and spilling remain unmeasured.
+
+The local runner incorrectly persisted identity values only after asserting a
+match, so the mismatched field is not in the retained report. Do not infer which
+field failed. Reporting now retains all six allowlisted fields and their match
+flags before rejection; seven offline expected/mismatch cases pass. The existing
+query-result row has been requested from the owner, without rerunning SQL.
+
+An earlier local CLI initialization failure occurred before the connector call,
+as reproduced offline with a fake connector. Its files are preserved separately;
+it was not a second Snowflake session. The corrected local context then made one
+actual connection attempt/session and submitted only the identity SELECT. SQL
+submission used the installed connector's explicit `_no_retry=True`; the process
+completed in 7.971s without triggering its 180s deadline. No fallback identity,
+grant, warehouse or object change occurred. The actual session is consumed: no
+further execution is inferred from its unrun statements or the cumulative budget.
+The $1 planning reservation remains recorded; actual billed usage is unknown.
+
 ## Evidence and reproducibility
 
 Original query `01c7c3ed-030c-3e2e-0064-2d0701278042` succeeded in 8.206s:
