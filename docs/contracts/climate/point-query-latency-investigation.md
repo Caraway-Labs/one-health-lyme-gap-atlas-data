@@ -128,6 +128,12 @@ pruning or a durable cold-cache fix.
 
 ## Relational/prunable serving alternative if B is insufficient
 
+The existing V071 SEMANTIC_OBSERVATIONS storage serves the retained annual/NLCD
+release content, not the 389,856 climate extension captures. Canonical migrations
+declare no separate persisted typed climate serving table or materialized view.
+Reusing the annual rows as a climate cache would silently change their contract
+and the accepted release; it is not a drop-in point-query optimization.
+
 A persisted, immutable release-membership projection could key each accepted
 capture by release ID plus typed county/date/measure and retained run/artifact/
 hash, built once from the validated frozen manifest. It would replace repeated
