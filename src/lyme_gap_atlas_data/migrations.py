@@ -404,7 +404,7 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138"}:
+    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138", "V155"}:
         if migration.version == "V117" and database != DEV_DATABASE:
             raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"
@@ -659,10 +659,21 @@ def apply_migrations(
     january_climate_only: bool = False,
     january_bulk_recovery_only: bool = False,
     january_point_query_only: bool = False,
+    county_context_only: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if county_context_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or january_bulk_recovery_only
+        or january_point_query_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in expected_pending} != {"V150", "V155"}
+    ):
+        raise PermissionError("County context requires only reviewed pending V150/V155")
     if january_point_query_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -727,7 +738,12 @@ def apply_migrations(
     ):
         raise PermissionError("January PROD authority/views require the reviewed climate-only path")
     for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
-        if january_climate_only or january_bulk_recovery_only or january_point_query_only:
+        if (
+            january_climate_only
+            or january_bulk_recovery_only
+            or january_point_query_only
+            or county_context_only
+        ):
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
@@ -748,6 +764,12 @@ def apply_migrations(
             raise PermissionError(
                 f"{pinned['version']} requires the protected intelligence prerequisite path"
             )
+    if (
+        database == PROD_DATABASE
+        and not county_context_only
+        and any(item.version == "V155" and item.version not in applied for item in plan)
+    ):
+        raise PermissionError("V155 requires the protected county context path")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
@@ -766,6 +788,8 @@ def apply_migrations(
             ):
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        if county_context_only and migration.version != "V155":
+            continue
         if january_point_query_only and migration.version != "V154":
             continue
         if january_bulk_recovery_only and migration.version != "V153":
