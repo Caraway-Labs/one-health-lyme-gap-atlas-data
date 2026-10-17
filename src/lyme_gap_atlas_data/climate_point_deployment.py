@@ -139,3 +139,23 @@ def scientific_gate(cursor: Any, *, optimized: bool) -> dict[str, Any]:
         "client_seconds": elapsed,
         "api_acceptance": False,
     }
+
+
+def warehouse_gate(cursor: Any) -> dict[str, Any]:
+    """Verify current capacity/idle-tail assumptions; never alter the warehouse."""
+    cursor.execute("SHOW WAREHOUSES LIKE 'OH_LYME_PROD_APPROVAL_XS_WH'")
+    columns = [item[0].lower() for item in cursor.description]
+    values = cursor.fetchall()
+    if len(values) != 1:
+        raise ValueError("POINT_WAREHOUSE_VISIBILITY")
+    row = dict(zip(columns, values[0], strict=True))
+    if (
+        row.get("name") != "OH_LYME_PROD_APPROVAL_XS_WH"
+        or str(row.get("type")).upper() != "STANDARD"
+        or str(row.get("size")).upper() != "X-SMALL"
+        or type(row.get("auto_suspend")) is not int
+        or not 1 <= row["auto_suspend"] <= 600
+        or row.get("auto_resume") not in (True, "true", "TRUE")
+    ):
+        raise ValueError("POINT_WAREHOUSE_ASSUMPTIONS")
+    return {key: row[key] for key in ("name", "type", "size", "auto_suspend", "auto_resume")}

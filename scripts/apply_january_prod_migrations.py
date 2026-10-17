@@ -35,8 +35,13 @@ def main() -> None:
             ):
                 raise SystemExit("JANUARY_PROD_IDENTITY")
             if os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true":
-                from lyme_gap_atlas_data.climate_point_deployment import scientific_gate, snapshot
+                from lyme_gap_atlas_data.climate_point_deployment import (
+                    scientific_gate,
+                    snapshot,
+                    warehouse_gate,
+                )
 
+                print(json.dumps({"warehouse_assumptions": warehouse_gate(cursor)}))
                 before = snapshot(cursor, helper["body"], optimized=False)
                 scientific_before = scientific_gate(cursor, optimized=False)
     finally:

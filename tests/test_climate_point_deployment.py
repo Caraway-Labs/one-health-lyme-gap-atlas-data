@@ -153,3 +153,25 @@ def test_full_scientific_readback_fails_on_changed_meaning(fault):
         assert point.scientific_gate(cursor, optimized=True)["returned_rows"] == 8
     assert "SELECT *" in cursor.execute.call_args.args[0]
     assert "LIMIT 9" in cursor.execute.call_args.args[0]
+
+
+@pytest.mark.parametrize("fault", [None, "size", "type", "auto_suspend", "auto_resume", "name"])
+def test_warehouse_gate_rejects_changed_or_unknown_capacity(fault):
+    cursor = Mock()
+    config = {
+        "name": "OH_LYME_PROD_APPROVAL_XS_WH",
+        "type": "STANDARD",
+        "size": "X-Small",
+        "auto_suspend": 600,
+        "auto_resume": True,
+    }
+    if fault:
+        config[fault] = None
+    cursor.description = [(key,) for key in config]
+    cursor.fetchall.return_value = [tuple(config.values())]
+    if fault:
+        with pytest.raises(ValueError, match="POINT_WAREHOUSE_ASSUMPTIONS"):
+            point.warehouse_gate(cursor)
+    else:
+        assert point.warehouse_gate(cursor)["size"] == "X-Small"
+    assert cursor.execute.call_args.args[0].startswith("SHOW WAREHOUSES")
