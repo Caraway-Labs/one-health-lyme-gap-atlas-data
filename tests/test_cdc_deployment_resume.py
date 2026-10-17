@@ -22,9 +22,8 @@ OWNER = "OH_LYME_PROD_MIGRATION_DEPLOYER"
 
 class Ledger:
     def __init__(self):
-        self.plan = [
-            m for m in migrations.load_migrations() if m.version in {"V149", "V150", "V155", "V156"}
-        ]
+        self.source_plan = migrations.load_migrations()
+        self.plan = [m for m in self.source_plan if m.version in {"V149", "V150", "V155", "V156"}]
         self.applied = {
             m.version: (m.filename, m.sha256, COMMIT)
             for m in self.plan
@@ -36,6 +35,8 @@ class Ledger:
         self.grant_drift = False
         self.missing_reader = False
         self.duplicate = False
+        self.legacy_rows = []
+        self.reconciliations = []
 
     def cursor(self):
         return nullcontext(Cursor(self))
@@ -72,8 +73,14 @@ class Cursor:
                 assert "V156" in self.db.applied
         elif sql.startswith("SELECT version, sha256"):
             self.rows = [(version, record[1]) for version, record in self.db.applied.items()]
+            self.rows.extend((v, h) for v, _, h in self.db.legacy_rows)
             if self.db.duplicate:
                 self.rows.append(self.rows[0])
+        elif "FROM GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS" in sql:
+            assert params == ("PROD",)
+            self.rows = self.db.reconciliations
+        elif sql.startswith("SELECT version, filename, sha256"):
+            self.rows = self.db.legacy_rows
         elif sql.startswith("SELECT filename,sha256,deployment_commit"):
             self.rows = [self.db.applied["V156"]]
         elif sql.startswith("INSERT INTO GOVERNANCE.SCHEMA_MIGRATIONS"):
@@ -97,7 +104,6 @@ class Cursor:
 def deployment(monkeypatch):
     db = Ledger()
     monkeypatch.setattr(migrations, "load_migrations", lambda: db.plan)
-    monkeypatch.setattr(migrations, "_reconciled_legacy_migrations", lambda *_: {})
     monkeypatch.setattr(migrations, "_migration_settings", lambda settings, *_: settings)
     for module in (migrations, runner):
         monkeypatch.setattr(module, "connect", lambda *_, **__: nullcontext(db))
@@ -115,6 +121,96 @@ def deployment(monkeypatch):
     }.items():
         monkeypatch.setenv(key, value)
     return db
+
+
+@pytest.fixture
+def historical_deployment(deployment):
+    # Use the existing supported PROD variant, not an invented duplicate policy.
+    for version, checksum in migrations.LEGACY_PROD_MIGRATION_CHECKSUMS.items():
+        migration = next(m for m in deployment.source_plan if m.version == version)
+        deployment.plan.append(migration)
+        deployment.legacy_rows.extend(
+            [(version, migrations.LEGACY_PROD_MIGRATION_FILENAMES[version], checksum)]
+            * migrations.LEGACY_PROD_MIGRATION_ROW_COUNTS[version]
+        )
+        deployment.reconciliations.append((version, checksum, migration.sha256))
+    return deployment
+
+
+def test_supported_historical_ledger_initial_and_retry(historical_deployment, capsys):
+    original = list(historical_deployment.legacy_rows)
+    runner.main()
+    assert json.loads(capsys.readouterr().out)["applied"] == ["V156"]
+    runner.main()
+    assert json.loads(capsys.readouterr().out)["validated_resume"]
+    assert len(historical_deployment.ddl) == 1
+    assert historical_deployment.legacy_rows == original
+    assert "V150" not in historical_deployment.applied
+
+
+@pytest.mark.parametrize("retry", [False, True])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "missing_row",
+        "extra_row",
+        "missing_v022",
+        "duplicate_v022",
+        "v022_checksum",
+        "conflict",
+        "filename",
+        "missing_evidence",
+        "bad_evidence",
+        "duplicate_evidence",
+        "conflicting_evidence_first",
+        "conflicting_evidence_last",
+        "duplicate_v156",
+    ],
+)
+def test_invalid_historical_ledger_blocks_initial_and_retry(historical_deployment, retry, failure):
+    db = historical_deployment
+    if retry:
+        runner.main()
+        db.ddl.clear()
+    if failure == "missing_row":
+        db.legacy_rows.pop()
+    elif failure == "extra_row":
+        db.legacy_rows.append(db.legacy_rows[-1])
+    elif failure == "missing_v022":
+        db.legacy_rows.pop(0)
+    elif failure == "duplicate_v022":
+        db.legacy_rows.append(db.legacy_rows[0])
+    elif failure == "v022_checksum":
+        version, filename, _ = db.legacy_rows[0]
+        db.legacy_rows[0] = (version, filename, "0" * 64)
+    elif failure in {"conflict", "filename"}:
+        version, filename, checksum = db.legacy_rows[-1]
+        db.legacy_rows[-1] = (
+            version,
+            "wrong.sql" if failure == "filename" else filename,
+            "0" * 64 if failure == "conflict" else checksum,
+        )
+    elif failure == "missing_evidence":
+        db.reconciliations.clear()
+    elif failure == "bad_evidence":
+        version, checksum, _ = db.reconciliations[-1]
+        db.reconciliations[-1] = (version, checksum, "0" * 64)
+    elif failure in {
+        "duplicate_evidence",
+        "conflicting_evidence_first",
+        "conflicting_evidence_last",
+    }:
+        version, checksum, source = db.reconciliations[-1]
+        row = (version, checksum, source if failure == "duplicate_evidence" else "0" * 64)
+        db.reconciliations.insert(
+            0 if failure == "conflicting_evidence_first" else len(db.reconciliations), row
+        )
+    else:
+        target = next(m for m in db.plan if m.version == "V156")
+        db.legacy_rows.extend([(target.version, target.filename, target.sha256)] * 2)
+    with pytest.raises((ValueError, PermissionError)):
+        runner.main()
+    assert not db.ddl
 
 
 def test_initial_application_validates_and_applies_only_v156(deployment, capsys):

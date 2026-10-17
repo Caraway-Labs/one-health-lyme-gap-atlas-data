@@ -136,7 +136,14 @@ grant parity and procedure ownership. Output `applied=[]` and
 V156 is not replayed; V150 is neither executed nor accepted as already applied.
 No stewardship decision is registered by either initial application or retry.
 
-An empty review, changed/duplicate/unknown ledger, wrong filename/checksum/commit,
+The supported historical PROD V022/V028 ledger remains immutable. The only
+accepted duplicate is exactly two pinned V028 rows with the historical filename
+and checksum, accompanied by the exact V022 variant and valid retained PROD
+reconciliation evidence for both versions. Initial application and retry validate
+this shape through the existing legacy reconciliation rules; they neither repair
+nor replay historical rows. Other duplicates, including V156, fail closed.
+
+An empty review, unexpected duplicate/unknown ledger, wrong filename/checksum/commit,
 unexpected pending migration, changed pointer or grant state blocks recovery.
 If DEV has moved to another digest, the original run must fail its digest check;
 restore the approved DEV proof through the protected process or obtain a new
@@ -181,6 +188,13 @@ Post safe acceptance evidence to API #246 and close only after the preventive
 gate, required reviews/approvals and all production conditions pass.
 
 ## Current limitations
+
+For API #246, the owner's final review direction explicitly uses independent
+source review followed by explicit human owner review. The unavailable `.agent`
+coordinator was not invoked and must not be reported as completed. This recorded
+task-specific direction does not change branch protections or establish a general
+review-policy exception. Required GitHub checks, resolved conversations, human
+merge decisions and protected production approvals remain in force.
 
 No admission registration, merge or deployment has occurred. Local packaging and
 fixtures do not prove production serving. Snowflake DDL/procedure execution and

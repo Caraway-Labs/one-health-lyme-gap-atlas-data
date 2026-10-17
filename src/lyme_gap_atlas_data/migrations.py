@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -611,7 +612,7 @@ def reconcile_legacy_prod_migrations(
 
 
 def _reconciled_legacy_migrations(
-    cursor: SnowflakeCursor, database: str
+    cursor: SnowflakeCursor, database: str, require_unique: bool = False
 ) -> dict[str, tuple[str, str]]:
     """Read immutable reconciliation evidence; absent evidence never relaxes checks."""
     scope = "DEV" if database == DEV_DATABASE else "PROD" if database == PROD_DATABASE else None
@@ -624,7 +625,10 @@ def _reconciled_legacy_migrations(
             WHERE reconciliation_scope = %s""",
             (scope,),
         )
-        return {version: (legacy, source) for version, legacy, source in cursor.fetchall()}
+        rows = cursor.fetchall()
+        if require_unique and len(rows) != len({version for version, _, _ in rows}):
+            raise ValueError("CDC migration reconciliation evidence contains duplicate versions")
+        return {version: (legacy, source) for version, legacy, source in rows}
     except ProgrammingError:
         return {}
 
@@ -723,14 +727,44 @@ def apply_migrations(
             cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
             ledger = cursor.fetchall()
             applied = dict(ledger)
-            if cdc_admission_only and len(ledger) != len(applied):
-                raise ValueError("CDC migration ledger contains duplicate versions")
         except ProgrammingError:
             if expected_pending is not None:
                 raise
             applied = {}
-        reconciled = _reconciled_legacy_migrations(cursor, database)
+        reconciled = _reconciled_legacy_migrations(cursor, database, cdc_admission_only)
         if cdc_admission_only:
+            duplicate_versions = {
+                version for version, count in Counter(v for v, _ in ledger).items() if count > 1
+            }
+            legacy_versions = set(LEGACY_PROD_MIGRATION_CHECKSUMS)
+            if duplicate_versions - {"V028"}:
+                raise ValueError("CDC migration ledger contains duplicate versions")
+            if duplicate_versions or any(
+                checksum == LEGACY_PROD_MIGRATION_CHECKSUMS.get(version)
+                for version, checksum in ledger
+            ):
+                # Retain the immutable historical rows. Only the exact existing
+                # PROD exception, with retained reconciliation evidence, is valid.
+                cursor.execute(
+                    "SELECT version, filename, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                    "WHERE version IN ('V022', 'V028')"
+                )
+                legacy_rows = cursor.fetchall()
+                for migration in legacy_prod_reconciliation_plan(legacy_rows, plan):
+                    if not is_authorized_legacy_reconciliation(
+                        database,
+                        migration.version,
+                        LEGACY_PROD_MIGRATION_CHECKSUMS[migration.version],
+                        migration.sha256,
+                        reconciled,
+                    ):
+                        raise ValueError(
+                            "CDC historical ledger lacks valid reconciliation evidence"
+                        )
+                if sorted((v, h) for v, _, h in legacy_rows) != sorted(
+                    (v, h) for v, h in ledger if v in legacy_versions
+                ):
+                    raise ValueError("CDC historical ledger changed during validation")
             if set(applied) - {item.version for item in plan}:
                 raise ValueError("CDC migration ledger contains unexpected versions")
             target = next(item for item in plan if item.version == "V156")
