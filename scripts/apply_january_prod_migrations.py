@@ -1,4 +1,4 @@
-"""Bounded canonical migration runner entry: reviewed PROD January pair or sole V153."""
+"""Bounded canonical migration runner entry: reviewed PROD January pair or sole V153/V154."""
 
 import json
 import os
@@ -19,6 +19,7 @@ def main() -> None:
     expected = parse_reviewed_pending_set(os.environ["EXPECTED_PENDING_JSON"])
     helper = runpy.run_path(str(Path(__file__).with_name("verify_climate_dev_views.py")))
     connection = helper["bounded_connection"](query_tag="DATA443_JANUARY_PROD_MIGRATIONS")
+    before = None
     try:
         with connection.cursor() as cursor:
             from lyme_gap_atlas_data.climate_prod_binding import verify_execution_resource
@@ -33,6 +34,10 @@ def main() -> None:
                 "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
             ):
                 raise SystemExit("JANUARY_PROD_IDENTITY")
+            if os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true":
+                from lyme_gap_atlas_data.climate_point_deployment import snapshot
+
+                before = snapshot(cursor, helper["body"], optimized=False)
     finally:
         connection.close(retry=False)
     applied = apply_migrations(
@@ -40,10 +45,26 @@ def main() -> None:
         "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
         os.environ["GITHUB_SHA"],
         expected_pending=expected,
-        january_climate_only=os.environ.get("JANUARY_BULK_RECOVERY_ONLY") != "true",
+        january_climate_only=(
+            os.environ.get("JANUARY_BULK_RECOVERY_ONLY") != "true"
+            and os.environ.get("JANUARY_POINT_QUERY_ONLY") != "true"
+        ),
+        january_point_query_only=os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true",
         january_bulk_recovery_only=os.environ.get("JANUARY_BULK_RECOVERY_ONLY") == "true",
     )
-    print(json.dumps({"applied": applied, "excluded": ["V150"]}))
+    if before is not None:
+        connection = helper["bounded_connection"](query_tag="DATA443_V154_POSTAPPLY")
+        try:
+            with connection.cursor() as cursor:
+                verify_execution_resource(
+                    cursor, "OH_LYME_PROD_MIGRATION_DEPLOYER", "OH_LYME_PROD_MIGRATION_DEPLOY_SVC"
+                )
+                after = snapshot(cursor, helper["body"], optimized=True)
+                if after != before:
+                    raise SystemExit("POINT_RELEASE_OR_GRANT_CHANGED")
+        finally:
+            connection.close(retry=False)
+    print(json.dumps({"applied": applied, "excluded": ["V150"], "point_snapshot": before}))
 
 
 if __name__ == "__main__":

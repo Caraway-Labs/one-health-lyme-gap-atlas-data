@@ -159,3 +159,131 @@ def test_retained_profile_complete_graph_and_observed_costs() -> None:
         sum(row["statistics"].get("io", {}).get("bytes_scanned", 0) for row in operators.values())
         == 30435376
     )
+
+
+@pytest.mark.parametrize("point", [False, True])
+def test_v154_multirow_record_metadata_and_retrieval_parity(point):
+    """Execute both relational branches; final Snowflake projection is byte-identical.
+
+    SQLite does not establish Snowflake numeric/VARIANT runtime acceptance.
+    Compare complete projection inputs, preserving nulls, zero and negatives.
+    """
+
+    def relational(sql):
+        query = sql[sql.index("WITH current_climate") : sql.index("\nSELECT release_id,")]
+        query = re.sub(
+            r"LATERAL FLATTEN\(INPUT => c.extension:(capture_ids|metadata)\)",
+            r"json_each(c.extension, '$.\1')",
+            query,
+        )
+        query = (
+            re.sub(
+                r"(\w+\.\w+)((?::\w+)+)",
+                lambda m: f"json_extract({m[1]}, '$.{m[2][1:].replace(':', '.')}')",
+                query.replace("::VARCHAR", ""),
+            )
+            .replace("PRESENTATION.", "")
+            .replace("GOVERNANCE.", "")
+        )
+        query = query.replace("TO_VARIANT(v.capture_record_id)", "v.capture_record_id")
+        query += " SELECT release_id,record,metadata,retrieved_at FROM records"
+        if point:
+            query += (
+                " WHERE json_extract(record, '$.county_fips')='48277'"
+                " AND json_extract(record, '$.measure')='PRCP'"
+            )
+        return query
+
+    records = []
+    for county in ("48277", "02013"):
+        for measure, value, unit in (
+            ("PRCP", 0, "mm"),
+            ("TMIN", -1.992, "degrees C"),
+            ("TMAX", 16.299, "degrees C"),
+            ("TAVG", 7.153, "degrees C"),
+        ):
+            for coverage in ("COMPLETE", "PARTIAL", "OUT_OF_SOURCE_COVERAGE"):
+                records.append(
+                    {
+                        "county_fips": county,
+                        "measure": measure,
+                        "value": value if coverage == "COMPLETE" else None,
+                        "coverage_status": coverage,
+                        "unit": unit,
+                        "observation_date": "2025-01-17",
+                        "source_time_present": coverage != "OUT_OF_SOURCE_COVERAGE",
+                        "expected_area_m2": 123.45,
+                        "intersected_area_m2": 120,
+                        "source_supported_area_m2": 119,
+                        "valid_area_m2": None,
+                        "source_coverage_fraction": 0.99,
+                        "valid_fraction_of_supported_area": None,
+                        "transformation_version": "native",
+                        "weight_version": "weight",
+                        "geometry_version": "TIGER2025",
+                        "upstream_date_modified": None,
+                    }
+                )
+    metadata = [
+        {
+            "measure": {"measure_id": f"nclimgrid_{m}_county_day", "semantic_version": "2.0.0"},
+            "revision_id": m,
+            "limitations": ["not midnight"],
+            "provenance": {"publisher": {"value": "NOAA"}},
+        }
+        for m in ("prcp", "tmin", "tmax", "tavg")
+    ]
+    ids = [f"{i:064x}" for i in range(len(records))]
+    ext = {
+        "contract_version": "atlas-january-climate-release-extension-v2",
+        "capture_ids": ids,
+        "metadata": metadata,
+        "ingestion_run_id": "run",
+        "sources": {"noaa": {"artifact_id": "artifact", "sha256": "sha"}},
+    }
+    with sqlite3.connect(":memory:") as db:
+        db.create_function("ARRAY_CONTAINS", 2, lambda value, array: value in json.loads(array))
+        db.execute("CREATE TABLE SEMANTIC_RELEASE_POINTER(pointer_key,current_release_id)")
+        db.execute("INSERT INTO SEMANTIC_RELEASE_POINTER VALUES ('ATLAS','release')")
+        db.execute("CREATE TABLE SEMANTIC_RELEASES(release_id,status,source_manifest)")
+        db.execute(
+            "INSERT INTO SEMANTIC_RELEASES VALUES ('release','PUBLISHED',?)",
+            (json.dumps({"climate_extension": ext}),),
+        )
+        db.execute(
+            "CREATE TABLE GOVERNED_SOURCE_RECORD_REVISIONS("
+            "capture_record_id,ingestion_run_id,resource_key,source_definition_version,"
+            "artifact_id,artifact_sha256,payload,retrieved_at)"
+        )
+        for i, record in enumerate(records):
+            db.execute(
+                "INSERT INTO GOVERNED_SOURCE_RECORD_REVISIONS "
+                "VALUES (?,'run','noaa_nclimgrid_daily_202501',2,'artifact','sha',?,'retrieved')",
+                (ids[i], json.dumps({"record": record})),
+            )
+        # Exact copied record and lineage but excluded from frozen membership.
+        db.execute(
+            "INSERT INTO GOVERNED_SOURCE_RECORD_REVISIONS "
+            "VALUES (?,'run','noaa_nclimgrid_daily_202501',2,'artifact','sha',?,'retrieved')",
+            ("f" * 64, json.dumps({"record": records[0]})),
+        )
+        baseline = sorted(db.execute(relational(BASE)).fetchall())
+        proposed = sorted(db.execute(relational(MEMBERSHIP)).fetchall())
+        assert baseline == proposed
+        assert len(proposed) == (3 if point else 24)
+
+
+def test_v154_is_exact_b_with_copy_grants_and_prod_only():
+    from lyme_gap_atlas_data import migrations
+
+    migration = next(m for m in migrations.load_migrations() if m.version == "V154")
+    assert "V154" in migrations.PROD_ONLY_MIGRATION_VERSIONS
+    assert (
+        migration.source[migration.source.index("WITH current_climate") :]
+        == MEMBERSHIP[MEMBERSHIP.index("WITH current_climate") :]
+    )
+    assert migration.source.count("CREATE OR REPLACE VIEW") == 1
+    assert "COPY GRANTS AS" in migration.source
+    assert not any(
+        token in migration.source for token in ("GRANT ", "INSERT ", "DELETE ", "UPDATE ", "DROP ")
+    )

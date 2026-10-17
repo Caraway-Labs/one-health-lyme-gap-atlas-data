@@ -387,3 +387,94 @@ def test_no_migration_proof_means_no_resume(admitted, monkeypatch):
     monkeypatch.delenv("JANUARY_BULK_REPAIR_VERIFIED")
     with pytest.raises(PermissionError):
         recovery.require_recovery_state(*admitted)
+
+
+@pytest.mark.parametrize("versions", [[], ["V154"], ["V150", "V153", "V154"]])
+def test_point_optimization_rejects_unscoped_pending_before_connect(monkeypatch, versions):
+    connection = Mock()
+    monkeypatch.setattr(migrations, "connect", connection)
+    canonical = {m.version: m for m in migrations.load_migrations()}
+    pending = [
+        {"version": k, "filename": canonical[k].filename, "sha256": canonical[k].sha256}
+        for k in versions
+    ]
+    with pytest.raises(PermissionError):
+        migrations.apply_migrations(
+            Mock(),
+            migrations.PROD_DATABASE,
+            expected_pending=pending,
+            january_point_query_only=True,
+        )
+    connection.assert_not_called()
+
+
+def test_point_optimization_applies_v154_and_preserves_v150(monkeypatch):
+    canonical = {m.version: m for m in migrations.load_migrations()}
+    plan = [canonical[k] for k in ("V150", "V151", "V152", "V153", "V154")]
+    monkeypatch.setattr(migrations, "load_migrations", lambda: plan)
+    monkeypatch.setattr(migrations, "_reconciled_legacy_migrations", lambda *args: {})
+    cursor = Mock()
+    cursor.fetchall.return_value = [(k, canonical[k].sha256) for k in ("V151", "V152", "V153")]
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *a, **kw: nullcontext(connection))
+    pending = [
+        {"version": k, "filename": canonical[k].filename, "sha256": canonical[k].sha256}
+        for k in ("V150", "V154")
+    ]
+    assert migrations.apply_migrations(
+        Mock(), migrations.PROD_DATABASE, expected_pending=pending, january_point_query_only=True
+    ) == ["V154"]
+    assert connection.execute_string.call_count == 1
+    assert "ARRAY_CONTAINS" in connection.execute_string.call_args.args[0]
+
+
+def test_point_workflow_does_not_promote_images_or_other_migrations():
+    workflow = Path(".github/workflows/promote-prod.yml").read_text()
+    assert "inputs.january_point_query_only != true" in workflow
+    assert "JANUARY_POINT_QUERY_ONLY: ${{ inputs.january_point_query_only }}" in workflow
+    assert "january_point_query_only }}' == true" in workflow
+    assert "= false:false" in workflow
+    runner = Path("scripts/apply_january_prod_migrations.py").read_text()
+    assert 'january_point_query_only=os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true"' in runner
+
+
+@pytest.mark.parametrize("fault", ["checksum", "missing-prior", "mixed", "dev", "extra-pending"])
+def test_point_optimization_integrity_failure_never_executes_ddl(monkeypatch, fault):
+    canonical = {m.version: m for m in migrations.load_migrations()}
+    plan = [canonical[k] for k in ("V150", "V151", "V152", "V153", "V154")]
+    monkeypatch.setattr(migrations, "load_migrations", lambda: plan)
+    monkeypatch.setattr(migrations, "_reconciled_legacy_migrations", lambda *args: {})
+    cursor = Mock()
+    applied = [
+        (k, canonical[k].sha256)
+        for k in ("V151", "V152", "V153")
+        if fault != "missing-prior" or k != "V153"
+    ]
+    cursor.fetchall.return_value = applied
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *a, **kw: nullcontext(connection))
+    pending = [
+        {"version": k, "filename": canonical[k].filename, "sha256": canonical[k].sha256}
+        for k in ("V150", "V154")
+    ]
+    if fault == "checksum":
+        pending[1]["sha256"] = "0" * 64
+    if fault == "extra-pending":
+        pending.append(
+            {
+                "version": "V153",
+                "filename": canonical["V153"].filename,
+                "sha256": canonical["V153"].sha256,
+            }
+        )
+    with pytest.raises((PermissionError, ValueError)):
+        migrations.apply_migrations(
+            Mock(),
+            migrations.DEV_DATABASE if fault == "dev" else migrations.PROD_DATABASE,
+            expected_pending=pending,
+            january_point_query_only=True,
+            january_climate_only=fault == "mixed",
+        )
+    connection.execute_string.assert_not_called()
