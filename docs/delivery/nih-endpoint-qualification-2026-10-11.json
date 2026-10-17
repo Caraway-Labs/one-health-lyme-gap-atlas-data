@@ -1,0 +1,23 @@
+{
+  "source_id": "nih-news-releases",
+  "endpoint": "https://www.nih.gov/news-releases/feed.xml",
+  "observed_at": "2026-10-11T06:18:34.229001+00:00",
+  "mode": "read_only_endpoint_qualification",
+  "maximum_attempts": 1,
+  "maximum_redirects": 0,
+  "connect_timeout_seconds": 5,
+  "read_timeout_seconds": 15,
+  "raw_transport_retained": false,
+  "article_requests": 0,
+  "user_agent": "python-requests/2.34.2",
+  "status": 200,
+  "content_type": "application/rss+xml; charset=utf-8",
+  "response_body_read": true,
+  "redirect_followed": false,
+  "transport_bytes": 7670,
+  "transport_sha256": "a96c787bfc4b92b8cb583a98fc228847244639d2b6573d6a8ce4bf12e2658642",
+  "root_tag": "rss",
+  "item_count": 10,
+  "outcome": "available_mapping_unverified",
+  "elapsed_seconds": 1.716
+}
