@@ -37,6 +37,7 @@ class Ledger:
         self.duplicate = False
         self.legacy_rows = []
         self.reconciliations = []
+        self.history_identities = []
 
     def cursor(self):
         return nullcontext(Cursor(self))
@@ -79,8 +80,10 @@ class Cursor:
         elif "FROM GOVERNANCE.SCHEMA_MIGRATION_RECONCILIATIONS" in sql:
             assert params == ("PROD",)
             self.rows = self.db.reconciliations
+        elif "TO_CHAR(CONVERT_TIMEZONE" in sql:
+            self.rows = self.db.history_identities
         elif sql.startswith("SELECT version, filename, sha256"):
-            self.rows = self.db.legacy_rows
+            self.rows = [r for r in self.db.legacy_rows if r[0] in {"V022", "V028"}]
         elif sql.startswith("SELECT filename,sha256,deployment_commit"):
             self.rows = [self.db.applied["V156"]]
         elif sql.startswith("INSERT INTO GOVERNANCE.SCHEMA_MIGRATIONS"):
@@ -125,10 +128,72 @@ def deployment(monkeypatch):
 
 @pytest.fixture
 def historical_deployment(deployment):
-    # Use the existing supported PROD variant, not an invented duplicate policy.
+    # Complete production migration membership with the observed historical pairs.
+    deployment.plan = [
+        m for m in deployment.source_plan if m.version not in migrations.DEV_ONLY_MIGRATION_VERSIONS
+    ]
+    historical_versions = {"V020", "V022", "V028", "V071"}
+    deployment.applied = {
+        m.version: (m.filename, m.sha256, COMMIT)
+        for m in deployment.plan
+        if m.version not in historical_versions | {"V150", "V156"}
+    }
+    # Independent literal ledger evidence; do not derive expected rows from the
+    # runtime authority file whose integrity the driver must validate.
+    evidence = [
+        (
+            "V020",
+            "V020__reassert_pipeline_runtime_dbt_cdc_grants.sql",
+            "8508472b42b74264ad95e9ee3431173d0f377251266234843883382aefa1535a",
+            "aeaedbf32382ef27e92a84840c1467e3cbce9bba",
+            "MATTHEWCARAWAY",
+            "2026-08-24T01:25:00.630000000",
+        ),
+        (
+            "V020",
+            "V020__reassert_pipeline_runtime_dbt_cdc_grants.sql",
+            "8508472b42b74264ad95e9ee3431173d0f377251266234843883382aefa1535a",
+            "aeaedbf32382ef27e92a84840c1467e3cbce9bba",
+            "MATTHEWCARAWAY",
+            "2026-08-24T01:25:31.205000000",
+        ),
+        (
+            "V028",
+            "V028__resumable_catalog_discovery_registration.sql",
+            "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85",
+            "3d3296b7d3042e7cff247cc132300abf0b72c755",
+            "MATTHEWCARAWAY",
+            "2026-09-07T12:34:50.514000000",
+        ),
+        (
+            "V028",
+            "V028__resumable_catalog_discovery_registration.sql",
+            "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85",
+            "3d3296b7d3042e7cff247cc132300abf0b72c755",
+            "MATTHEWCARAWAY",
+            "2026-09-07T12:35:26.428000000",
+        ),
+        (
+            "V071",
+            "V071__governed_semantic_release_storage.sql",
+            "57adf5fa43186308cbf1dfccff6c88417ea6916af1fcc7447138b7d3bf4a078b",
+            "9934b0f6f07e15f8fd1fb0d809a1fabc2f62ed69",
+            "MATTHEWCARAWAY",
+            "2026-09-16T02:53:37.937000000",
+        ),
+        (
+            "V071",
+            "V071__governed_semantic_release_storage.sql",
+            "57adf5fa43186308cbf1dfccff6c88417ea6916af1fcc7447138b7d3bf4a078b",
+            "9934b0f6f07e15f8fd1fb0d809a1fabc2f62ed69",
+            "MATTHEWCARAWAY",
+            "2026-09-16T03:00:19.606000000",
+        ),
+    ]
+    deployment.history_identities = evidence
+    deployment.legacy_rows = [r[:3] for r in evidence if r[0] in {"V020", "V071"}]
     for version, checksum in migrations.LEGACY_PROD_MIGRATION_CHECKSUMS.items():
         migration = next(m for m in deployment.source_plan if m.version == version)
-        deployment.plan.append(migration)
         deployment.legacy_rows.extend(
             [(version, migrations.LEGACY_PROD_MIGRATION_FILENAMES[version], checksum)]
             * migrations.LEGACY_PROD_MIGRATION_ROW_COUNTS[version]
@@ -139,13 +204,106 @@ def historical_deployment(deployment):
 
 def test_supported_historical_ledger_initial_and_retry(historical_deployment, capsys):
     original = list(historical_deployment.legacy_rows)
+    identities = list(historical_deployment.history_identities)
     runner.main()
     assert json.loads(capsys.readouterr().out)["applied"] == ["V156"]
     runner.main()
     assert json.loads(capsys.readouterr().out)["validated_resume"]
     assert len(historical_deployment.ddl) == 1
     assert historical_deployment.legacy_rows == original
+    assert historical_deployment.history_identities == identities
     assert "V150" not in historical_deployment.applied
+
+
+@pytest.mark.parametrize("retry", [False, True])
+@pytest.mark.parametrize("version", ["V020", "V028", "V071"])
+@pytest.mark.parametrize("column", [1, 2, 3, 4, 5])
+def test_historical_identity_conflict_rejects(historical_deployment, retry, version, column):
+    db = historical_deployment
+    if retry:
+        runner.main()
+        db.ddl.clear()
+    index = next(i for i, row in enumerate(db.history_identities) if row[0] == version)
+    row = list(db.history_identities[index])
+    row[column] = "unapproved"
+    db.history_identities[index] = tuple(row)
+    with pytest.raises(ValueError, match="historical ledger identities"):
+        runner.main()
+    assert not db.ddl and "V150" not in db.applied
+
+
+@pytest.mark.parametrize("retry", [False, True])
+@pytest.mark.parametrize("version", ["V020", "V028", "V071"])
+@pytest.mark.parametrize("change", ["missing", "excess", "checksum"])
+def test_historical_pair_shape_rejects(historical_deployment, retry, version, change):
+    db = historical_deployment
+    if retry:
+        runner.main()
+        db.ddl.clear()
+    index = next(i for i, row in enumerate(db.legacy_rows) if row[0] == version)
+    if change == "missing":
+        db.legacy_rows.pop(index)
+    elif change == "excess":
+        db.legacy_rows.append(db.legacy_rows[index])
+    else:
+        v, filename, _ = db.legacy_rows[index]
+        db.legacy_rows[index] = (v, filename, "0" * 64)
+    with pytest.raises(ValueError):
+        runner.main()
+    assert not db.ddl and "V150" not in db.applied
+
+
+@pytest.mark.parametrize("retry", [False, True])
+@pytest.mark.parametrize("missing", [True, False])
+def test_missing_or_altered_owner_authority_blocks(
+    historical_deployment, monkeypatch, tmp_path, retry, missing
+):
+    if retry:
+        runner.main()
+        historical_deployment.ddl.clear()
+    path = tmp_path / "authority.json"
+    if not missing:
+        path.write_text('{"decision_reference":"invented","records":[]}', encoding="utf-8")
+    monkeypatch.setattr(migrations, "CDC_LEGACY_LEDGER_AUTHORITY_PATH", path)
+    with pytest.raises(ValueError, match="authority"):
+        runner.main()
+    assert not historical_deployment.ddl
+
+
+def test_unexpected_duplicate_in_complete_prod_ledger_rejects(historical_deployment):
+    historical_deployment.duplicate = True
+    with pytest.raises(ValueError, match="duplicate versions"):
+        runner.main()
+    assert not historical_deployment.ddl
+
+
+@pytest.mark.parametrize("failure", ["checksum", "commit", "filename", "duplicate", "conflict"])
+def test_complete_historical_ledger_cannot_hide_bad_v156(historical_deployment, failure):
+    db = historical_deployment
+    runner.main()
+    db.ddl.clear()
+    filename, checksum, commit = db.applied["V156"]
+    if failure in {"duplicate", "conflict"}:
+        db.legacy_rows.append(("V156", filename, "0" * 64 if failure == "conflict" else checksum))
+    else:
+        db.applied["V156"] = (
+            "wrong.sql" if failure == "filename" else filename,
+            "0" * 64 if failure == "checksum" else checksum,
+            "b" * 40 if failure == "commit" else commit,
+        )
+    with pytest.raises(ValueError):
+        runner.main()
+    assert not db.ddl and "V150" not in db.applied
+
+
+def test_submillisecond_historical_timestamp_change_rejects(historical_deployment):
+    db = historical_deployment
+    row = list(db.history_identities[-1])
+    row[-1] = row[-1][:-1] + "1"
+    db.history_identities[-1] = tuple(row)
+    with pytest.raises(ValueError, match="historical ledger identities"):
+        runner.main()
+    assert not db.ddl
 
 
 @pytest.mark.parametrize("retry", [False, True])
@@ -177,12 +335,13 @@ def test_invalid_historical_ledger_blocks_initial_and_retry(historical_deploymen
     elif failure == "extra_row":
         db.legacy_rows.append(db.legacy_rows[-1])
     elif failure == "missing_v022":
-        db.legacy_rows.pop(0)
+        db.legacy_rows = [r for r in db.legacy_rows if r[0] != "V022"]
     elif failure == "duplicate_v022":
-        db.legacy_rows.append(db.legacy_rows[0])
+        db.legacy_rows.append(next(r for r in db.legacy_rows if r[0] == "V022"))
     elif failure == "v022_checksum":
-        version, filename, _ = db.legacy_rows[0]
-        db.legacy_rows[0] = (version, filename, "0" * 64)
+        index = next(i for i, r in enumerate(db.legacy_rows) if r[0] == "V022")
+        version, filename, _ = db.legacy_rows[index]
+        db.legacy_rows[index] = (version, filename, "0" * 64)
     elif failure in {"conflict", "filename"}:
         version, filename, checksum = db.legacy_rows[-1]
         db.legacy_rows[-1] = (

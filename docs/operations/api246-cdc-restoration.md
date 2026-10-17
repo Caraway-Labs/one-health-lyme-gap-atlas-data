@@ -136,12 +136,15 @@ grant parity and procedure ownership. Output `applied=[]` and
 V156 is not replayed; V150 is neither executed nor accepted as already applied.
 No stewardship decision is registered by either initial application or retry.
 
-The supported historical PROD V022/V028 ledger remains immutable. The only
-accepted duplicate is exactly two pinned V028 rows with the historical filename
-and checksum, accompanied by the exact V022 variant and valid retained PROD
-reconciliation evidence for both versions. Initial application and retry validate
-this shape through the existing legacy reconciliation rules; they neither repair
-nor replay historical rows. Other duplicates, including V156, fail closed.
+The supported historical PROD ledger remains immutable. Exactly two pinned
+V020/V028/V071 rows each are recognized only with their exact original filename,
+checksum, deployment commit, actor and full UTC timestamps, the exact V022
+variant, retained V022/V028 PROD reconciliation, and the separately reviewed
+present-dated V071 recognition decision. The packaged authority file is hash
+pinned; missing or altered evidence fails closed. See
+[historical ledger authority](api246-legacy-ledger-authority.md). Initial
+application and retry neither repair nor replay historical rows. Other duplicates,
+including V156, fail closed.
 
 An empty review, unexpected duplicate/unknown ledger, wrong filename/checksum/commit,
 unexpected pending migration, changed pointer or grant state blocks recovery.
