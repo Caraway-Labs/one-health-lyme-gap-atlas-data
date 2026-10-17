@@ -361,6 +361,20 @@ def publish_semantic_release(
                 previous_id = str(previous[0]) if previous else None
                 if previous_id == release_id:
                     raise SemanticReleaseBlocked("Release is already the current pointer")
+                if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    from .cdc_promotion import verify_cdc_candidate
+
+                    try:
+                        cdc_counts = verify_cdc_candidate(
+                            cursor, release_id, str(release[1]), previous_id
+                        )
+                        reason += "; cdc-consumer-compatibility/v1 " + ",".join(
+                            f"{measure}={count}" for measure, count in sorted(cdc_counts.items())
+                        )
+                    except Exception:
+                        raise SemanticReleaseBlocked(
+                            "CDC consumer compatibility blocks publication"
+                        ) from None
                 cursor.execute(
                     """UPDATE PRESENTATION.SEMANTIC_RELEASES
                     SET status='RETIRED' WHERE status='PUBLISHED' AND release_id<>%s""",

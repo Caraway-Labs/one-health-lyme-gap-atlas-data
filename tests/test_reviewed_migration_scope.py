@@ -18,6 +18,49 @@ def metadata(version: str) -> dict[str, str]:
     return {"version": version, "filename": f"{version}__fixture.sql", "sha256": "a" * 64}
 
 
+@pytest.mark.parametrize("with_cleanup", [False, True])
+def test_cdc_scope_preserves_pending_cleanup(monkeypatch, with_cleanup):
+    all_migrations = migrations.load_migrations()
+    plan = [m for m in all_migrations if m.version in {"V149", "V150", "V155", "V156"}]
+    applied = [
+        (m.version, m.sha256)
+        for m in plan
+        if m.version in {"V149", "V155"} or (not with_cleanup and m.version == "V150")
+    ]
+    monkeypatch.setattr(migrations, "load_migrations", lambda: plan)
+    monkeypatch.setattr(migrations, "_reconciled_legacy_migrations", lambda *_: {})
+    monkeypatch.setattr(migrations, "_migration_settings", lambda settings, *_: settings)
+    cursor = Mock()
+    cursor.fetchall.return_value = applied
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *_, **__: nullcontext(connection))
+    reviewed = [migrations._migration_metadata(m) for m in plan if m.version not in dict(applied)]
+    assert migrations.apply_migrations(
+        Mock(), migrations.PROD_DATABASE, expected_pending=reviewed, cdc_admission_only=True
+    ) == ["V156"]
+    assert connection.execute_string.call_count == 1
+    assert "CDC_SOURCE_AUTHORITY_BASE_V" in connection.execute_string.call_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "database,scope",
+    [
+        (migrations.DEV_DATABASE, [metadata("V156")]),
+        (migrations.PROD_DATABASE, None),
+        (migrations.PROD_DATABASE, [metadata("V155"), metadata("V156")]),
+    ],
+)
+def test_cdc_invalid_scope_never_connects(monkeypatch, database, scope):
+    connect = Mock()
+    monkeypatch.setattr(migrations, "connect", connect)
+    with pytest.raises(PermissionError):
+        migrations.apply_migrations(
+            Mock(), database, expected_pending=scope, cdc_admission_only=True
+        )
+    connect.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "actual,reviewed",
     [

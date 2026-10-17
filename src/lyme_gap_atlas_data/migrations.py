@@ -129,6 +129,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V152",
     "V153",
     "V154",
+    "V156",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -660,10 +661,22 @@ def apply_migrations(
     january_bulk_recovery_only: bool = False,
     january_point_query_only: bool = False,
     county_context_only: bool = False,
+    cdc_admission_only: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if cdc_admission_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or january_bulk_recovery_only
+        or january_point_query_only
+        or county_context_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in expected_pending} not in ({"V156"}, {"V150", "V156"})
+    ):
+        raise PermissionError("CDC admission requires the exact reviewed pending V156 scope")
     if county_context_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -719,6 +732,12 @@ def apply_migrations(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    if cdc_admission_only and not {"V149", "V155"} <= set(applied):
+        raise PermissionError("CDC predecessor authority and current context must already exist")
+    if not cdc_admission_only and any(
+        item.version == "V156" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V156 requires the protected CDC admission path")
     if january_point_query_only and not {"V151", "V152", "V153"} <= set(applied):
         raise PermissionError("Prior January migrations must already be applied")
     if not january_point_query_only and any(
@@ -743,6 +762,7 @@ def apply_migrations(
             or january_bulk_recovery_only
             or january_point_query_only
             or county_context_only
+            or cdc_admission_only
         ):
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
@@ -789,6 +809,8 @@ def apply_migrations(
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
         if county_context_only and migration.version != "V155":
+            continue
+        if cdc_admission_only and migration.version != "V156":
             continue
         if january_point_query_only and migration.version != "V154":
             continue
