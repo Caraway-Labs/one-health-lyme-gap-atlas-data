@@ -9,6 +9,10 @@ from typing import Any
 
 RELEASE_ID = "governed-2026-10-06-nlcd-demo-cohort"
 BUNDLE_SHA256 = "603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9"
+TARGET_RELEASE_ID = "governed-2026-10-15-january-climate-prod"
+TARGET_BUNDLE_SHA256 = "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
+# Explicit reviewed scopes, never a current-release or historical fallback.
+RELEASE_BUNDLES = {RELEASE_ID: BUNDLE_SHA256, TARGET_RELEASE_ID: TARGET_BUNDLE_SHA256}
 SOURCE_ID = "cdc_arbonet_tick_module"
 PERIOD = "2025-12-31"
 SLICES = {
@@ -83,8 +87,8 @@ def cdc_consumer_admitted(lineage: Mapping[str, Any], authority: Mapping[str, An
     observation = lineage.get("observation", {})
     if (
         not isinstance(release, Mapping)
-        or release.get("release_id") != RELEASE_ID
-        or release.get("bundle_sha256") != BUNDLE_SHA256
+        or release.get("release_id") not in RELEASE_BUNDLES
+        or release.get("bundle_sha256") != RELEASE_BUNDLES[release["release_id"]]
         or len(edges) != 1
         or not is_cdc_edge(edges[0])
         or observation.get("temporal") != {"semantics": "CUMULATIVE_THROUGH_DATE", "date": PERIOD}
@@ -95,10 +99,12 @@ def cdc_consumer_admitted(lineage: Mapping[str, Any], authority: Mapping[str, An
     scope = SLICES[metadata["measure"]["measure_id"]]
     if any(edge.get(field) != value for field, value in scope.items()):
         return False
-    membership = authority.get("releases", {}).get(RELEASE_ID, {})
+    release_id = release["release_id"]
+    bundle = RELEASE_BUNDLES[release_id]
+    membership = authority.get("releases", {}).get(release_id, {})
     source = authority.get("source_versions", {}).get(edge["source_version_id"], {})
     if (
-        membership.get("bundle_sha256") != BUNDLE_SHA256
+        membership.get("bundle_sha256") != bundle
         or metadata.get("revision_id") not in membership.get("metadata_revision_ids", [])
         or observation.get("revision_id") not in membership.get("semantic_revision_ids", [])
         or release.get("observation_id") not in membership.get("observation_ids", [])
@@ -109,9 +115,22 @@ def cdc_consumer_admitted(lineage: Mapping[str, Any], authority: Mapping[str, An
         return False
     # Existing V087 final-copy attestation rows, not a new approval boolean.
     attestations = membership.get("restricted_source_publication_attestations", [])
+    reuse = membership.get("restricted_copy_reuse", {})
+    if not isinstance(reuse, Mapping) or not isinstance(reuse.get("attestation_ids", []), list):
+        return False
     return any(
         isinstance(item, Mapping)
-        and item.get("semantic_release_id") == RELEASE_ID
+        and (
+            item.get("semantic_release_id") == release_id
+            or (
+                release_id == TARGET_RELEASE_ID
+                and item.get("semantic_release_id") == RELEASE_ID
+                and reuse.get("donor_release_id") == RELEASE_ID
+                and reuse.get("donor_bundle_sha256") == BUNDLE_SHA256
+                and item.get("attestation_id") in reuse.get("attestation_ids", [])
+                and membership.get("donor_record_equivalent") is True
+            )
+        )
         and item.get("resource_key") == scope["resource_key"]
         and item.get("data_source_version_id") == scope["source_version_id"]
         and isinstance(item.get("attestation_id"), str)

@@ -26,6 +26,7 @@ from .alpha_parity import (
 )
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
+from .cdc_consumer_admission import RELEASE_ID as CDC_LEGACY_RELEASE_ID
 from .cdc_consumer_runtime import CDCConsumerUnavailable, read_cdc_consumer_named
 from .cdc_operations import check_cdc_metadata, check_cdc_overdue, verify_cdc_ready
 from .cdc_publication import bootstrap_publication, rollback_publication
@@ -1463,10 +1464,14 @@ def runs_retry(
 
 
 @pipeline_app.command("cdc-consumer-readback")
-def cdc_consumer_readback_command(measure: str, county: str, environment: str = "prod") -> None:
+def cdc_consumer_readback_command(
+    measure: str, county: str, environment: str = "prod", release_id: str = CDC_LEGACY_RELEASE_ID
+) -> None:
     """Bounded intended-reader acceptance. No publication or scientific approval."""
     try:
-        result = read_cdc_consumer_named(measure, county, environment=environment)
+        result = read_cdc_consumer_named(
+            measure, county, environment=environment, release_id=release_id
+        )
     except CDCConsumerUnavailable as error:
         typer.echo(str(error))
         raise typer.Exit(1) from None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -129,6 +130,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V152",
     "V153",
     "V154",
+    "V156",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -610,7 +612,7 @@ def reconcile_legacy_prod_migrations(
 
 
 def _reconciled_legacy_migrations(
-    cursor: SnowflakeCursor, database: str
+    cursor: SnowflakeCursor, database: str, require_unique: bool = False
 ) -> dict[str, tuple[str, str]]:
     """Read immutable reconciliation evidence; absent evidence never relaxes checks."""
     scope = "DEV" if database == DEV_DATABASE else "PROD" if database == PROD_DATABASE else None
@@ -623,7 +625,10 @@ def _reconciled_legacy_migrations(
             WHERE reconciliation_scope = %s""",
             (scope,),
         )
-        return {version: (legacy, source) for version, legacy, source in cursor.fetchall()}
+        rows = cursor.fetchall()
+        if require_unique and len(rows) != len({version for version, _, _ in rows}):
+            raise ValueError("CDC migration reconciliation evidence contains duplicate versions")
+        return {version: (legacy, source) for version, legacy, source in rows}
     except ProgrammingError:
         return {}
 
@@ -660,10 +665,22 @@ def apply_migrations(
     january_bulk_recovery_only: bool = False,
     january_point_query_only: bool = False,
     county_context_only: bool = False,
+    cdc_admission_only: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    if cdc_admission_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or january_bulk_recovery_only
+        or january_point_query_only
+        or county_context_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in expected_pending} not in ({"V150"}, {"V150", "V156"})
+    ):
+        raise PermissionError("CDC admission requires the exact reviewed pending V156 scope")
     if county_context_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -708,17 +725,87 @@ def apply_migrations(
         try:
             cursor.execute(f"USE DATABASE {database}")
             cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
-            applied = dict(cursor.fetchall())
+            ledger = cursor.fetchall()
+            applied = dict(ledger)
         except ProgrammingError:
             if expected_pending is not None:
                 raise
             applied = {}
-        reconciled = _reconciled_legacy_migrations(cursor, database)
+        reconciled = _reconciled_legacy_migrations(cursor, database, cdc_admission_only)
+        if cdc_admission_only:
+            duplicate_versions = {
+                version for version, count in Counter(v for v, _ in ledger).items() if count > 1
+            }
+            legacy_versions = set(LEGACY_PROD_MIGRATION_CHECKSUMS)
+            if duplicate_versions - {"V028"}:
+                raise ValueError("CDC migration ledger contains duplicate versions")
+            if duplicate_versions or any(
+                checksum == LEGACY_PROD_MIGRATION_CHECKSUMS.get(version)
+                for version, checksum in ledger
+            ):
+                # Retain the immutable historical rows. Only the exact existing
+                # PROD exception, with retained reconciliation evidence, is valid.
+                cursor.execute(
+                    "SELECT version, filename, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                    "WHERE version IN ('V022', 'V028')"
+                )
+                legacy_rows = cursor.fetchall()
+                for migration in legacy_prod_reconciliation_plan(legacy_rows, plan):
+                    if not is_authorized_legacy_reconciliation(
+                        database,
+                        migration.version,
+                        LEGACY_PROD_MIGRATION_CHECKSUMS[migration.version],
+                        migration.sha256,
+                        reconciled,
+                    ):
+                        raise ValueError(
+                            "CDC historical ledger lacks valid reconciliation evidence"
+                        )
+                if sorted((v, h) for v, _, h in legacy_rows) != sorted(
+                    (v, h) for v, h in ledger if v in legacy_versions
+                ):
+                    raise ValueError("CDC historical ledger changed during validation")
+            if set(applied) - {item.version for item in plan}:
+                raise ValueError("CDC migration ledger contains unexpected versions")
+            target = next(item for item in plan if item.version == "V156")
+            if "V150" in applied:
+                raise PermissionError("CDC scope requires V150 to remain pending")
+            if "V156" in applied:
+                # A failed image promotion may follow a successful immutable DDL
+                # step. Resume only the same reviewed commit and exact checksum.
+                cursor.execute(
+                    "SELECT filename,sha256,deployment_commit FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                    "WHERE version=%s",
+                    ("V156",),
+                )
+                if (
+                    not commit
+                    or not re.fullmatch(r"[0-9a-f]{40}", commit)
+                    or applied["V156"] != target.sha256
+                    or cursor.fetchall() != [(target.filename, target.sha256, commit)]
+                ):
+                    raise ValueError("CDC retry requires the exact reviewed V156 ledger receipt")
+                reviewed_target = [
+                    item for item in expected_pending or [] if item["version"] == "V156"
+                ]
+                if reviewed_target and reviewed_target != [_migration_metadata(target)]:
+                    raise ValueError("CDC retry reviewed V156 metadata mismatch")
+                # Original dispatch inputs remain valid on a GitHub run retry;
+                # remove only the independently verified, already-applied V156.
+                expected_pending = [
+                    item for item in expected_pending or [] if item["version"] != "V156"
+                ]
     if expected_pending is not None:
         require_reviewed_pending_set(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    if cdc_admission_only and not {"V149", "V155"} <= set(applied):
+        raise PermissionError("CDC predecessor authority and current context must already exist")
+    if not cdc_admission_only and any(
+        item.version == "V156" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V156 requires the protected CDC admission path")
     if january_point_query_only and not {"V151", "V152", "V153"} <= set(applied):
         raise PermissionError("Prior January migrations must already be applied")
     if not january_point_query_only and any(
@@ -743,6 +830,7 @@ def apply_migrations(
             or january_bulk_recovery_only
             or january_point_query_only
             or county_context_only
+            or cdc_admission_only
         ):
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
@@ -789,6 +877,8 @@ def apply_migrations(
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
         if county_context_only and migration.version != "V155":
+            continue
+        if cdc_admission_only and migration.version != "V156":
             continue
         if january_point_query_only and migration.version != "V154":
             continue

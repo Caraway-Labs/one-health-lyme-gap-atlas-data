@@ -19,7 +19,14 @@ from typing import Any
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_shared.snowflake import connect
 
-from .cdc_consumer_admission import BUNDLE_SHA256, PERIOD, RELEASE_ID, SLICES, is_cdc_metadata
+from .cdc_consumer_admission import (
+    PERIOD,
+    RELEASE_BUNDLES,
+    RELEASE_ID,
+    SLICES,
+    TARGET_RELEASE_ID,
+    is_cdc_metadata,
+)
 from .semantic_metadata import validate_metadata_revisions
 from .semantic_source_mappings import load_mapping_registry, map_record
 from .surveillance_evidence_mapping import project_surveillance_evidence
@@ -66,26 +73,36 @@ def _json(resource: Traversable) -> Any:
         raise CDCConsumerUnavailable("accepted CDC metadata resource unavailable") from None
 
 
-def _metadata(root: Traversable, measure: str) -> dict[str, Any]:
-    binding = _json(root.joinpath("release-binding.json"))
+def _metadata(root: Traversable, measure: str, release_id: str = RELEASE_ID) -> dict[str, Any]:
+    if release_id not in RELEASE_BUNDLES:
+        raise CDCConsumerUnavailable("unreviewed CDC release")
+    revision = 3 if release_id == TARGET_RELEASE_ID else 2
+    binding = _json(
+        root.joinpath(
+            "release-binding-2026-10-15.json" if revision == 3 else "release-binding.json"
+        )
+    )
     if (
-        binding.get("release_id") != RELEASE_ID
-        or binding.get("bundle_sha256") != BUNDLE_SHA256
+        binding.get("release_id") != release_id
+        or binding.get("bundle_sha256") != RELEASE_BUNDLES[release_id]
         or binding.get("slices") != SLICES
     ):
         raise CDCConsumerUnavailable("packaged CDC release scope mismatch")
     pending = _json(root.joinpath(f"{measure}.metadata.json"))
-    reviewed = _json(root.joinpath(f"{measure}.revision-2.metadata.json"))
-    validate_metadata_revisions([pending, reviewed])
+    reviewed = _json(root.joinpath(f"{measure}.revision-{revision}.metadata.json"))
+    revisions = [pending]
+    if revision == 3:
+        revisions.append(_json(root.joinpath(f"{measure}.revision-2.metadata.json")))
+    validate_metadata_revisions([*revisions, reviewed])
     if (
         pending.get("revision_id") != PENDING_IDS[measure]
         or pending.get("steward_review", {}).get("state") != "PENDING"
-        or reviewed.get("metadata_revision") != 2
+        or reviewed.get("metadata_revision") != revision
         or reviewed.get("steward_review", {}).get("state") != "REVIEWED"
         or reviewed.get("visibility") != "CONSUMER_SAFE"
         or not is_cdc_metadata(reviewed)
     ):
-        raise CDCConsumerUnavailable("immutable reviewed CDC revision 2 required")
+        raise CDCConsumerUnavailable("immutable reviewed CDC metadata required")
     return dict(reviewed)
 
 
@@ -102,7 +119,11 @@ def _packet(
             or not review.get("decision_id")
             or not isinstance(review.get("rationale"), str)
             or len(review["rationale"].strip()) < 10
-            or review.get("decided_at") != metadata["steward_review"]["reviewed_at"]["value"]
+            or not review.get("decided_at")
+            or (
+                row["release_id"] == RELEASE_ID
+                and review.get("decided_at") != metadata["steward_review"]["reviewed_at"]["value"]
+            )
             or not isinstance(review.get("conditions"), list)
         ):
             continue
@@ -113,14 +134,22 @@ def _packet(
             if not isinstance(packet, dict):
                 continue
             if (
-                packet.get("release_id") == RELEASE_ID
-                and packet.get("bundle_sha256") == BUNDLE_SHA256
+                packet.get("release_id") == row["release_id"]
+                and packet.get("bundle_sha256") == RELEASE_BUNDLES.get(row["release_id"])
                 and packet.get("scope") == SLICES[metadata["measure"]["measure_id"]]
                 and packet.get("metadata_revision_id") == metadata["revision_id"]
                 and isinstance(packet.get("decision_reference"), str)
                 and len(packet["decision_reference"].strip()) >= 6
                 and isinstance(packet.get("observation_bindings"), dict)
                 and row["observation_id"] in packet["observation_bindings"]
+                and (
+                    row["release_id"] == RELEASE_ID
+                    or (
+                        packet.get("reviewed_at")
+                        == metadata["steward_review"]["reviewed_at"]["value"]
+                        and review["decided_at"] >= packet["reviewed_at"]
+                    )
+                )
             ):
                 accepted.append(packet)
     if len(accepted) != 1:
@@ -129,10 +158,14 @@ def _packet(
 
 
 def _inputs(
-    row: dict[str, Any], metadata: Mapping[str, Any]
+    row: dict[str, Any], metadata: Mapping[str, Any], *, expected_status: str = "PUBLISHED"
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     measure = metadata["measure"]["measure_id"]
     scope = SLICES[measure]
+    release_id = row["release_id"]
+    bundle = RELEASE_BUNDLES.get(release_id)
+    if bundle is None or expected_status not in {"PUBLISHED", "CANDIDATE", "RETIRED"}:
+        raise CDCConsumerUnavailable("unreviewed CDC release")
     facts = row["cdc_runtime_authority"]
     if isinstance(facts, str):
         facts = json.loads(facts)
@@ -143,9 +176,8 @@ def _inputs(
         or row.get("source_id") != "cdc_arbonet_tick_module"
         or facts.get("source_vintage") != f"through {PERIOD}"
         or row.get("measure_id") != measure
-        or row.get("release_id") != RELEASE_ID
-        or row.get("release_bundle_sha256") != BUNDLE_SHA256
-        or facts.get("release_status") != "PUBLISHED"
+        or row.get("release_bundle_sha256") != bundle
+        or facts.get("release_status") != expected_status
         or row.get("temporal_window") != f"through {PERIOD}"
         or row.get("record_match_kind") != "RESTRICTED_CDC_CONFORMED"
         or row.get("governed_source_version_id") != scope["source_version_id"]
@@ -265,24 +297,38 @@ def _inputs(
     binding = packet["observation_bindings"][row["observation_id"]]
     if not isinstance(binding, dict) or binding.get("record_id") != record_id:
         raise CDCConsumerUnavailable("reviewed observation/record membership mismatch")
-    authority["releases"][RELEASE_ID] = {
-        "bundle_sha256": BUNDLE_SHA256,
+    if release_id == TARGET_RELEASE_ID and (
+        facts.get("donor_record_equivalent") is not True
+        or not facts.get("donor_observation_id")
+        or binding.get("donor_observation_id") != facts.get("donor_observation_id")
+    ):
+        raise CDCConsumerUnavailable("reviewed unchanged donor record required")
+    authority["releases"][release_id] = {
+        "bundle_sha256": bundle,
         "metadata_revision_ids": [metadata["revision_id"]],
         "semantic_revision_ids": [binding.get("semantic_revision_id")],
         "observation_ids": [row["observation_id"]],
         "observation_records": {row["observation_id"]: record_id},
         "restricted_source_publication_attestations": facts.get("attestations") or [],
+        "restricted_copy_reuse": packet.get("restricted_copy_reuse", {}),
+        "donor_record_equivalent": facts.get("donor_record_equivalent") is True,
     }
     record["release"] = {
-        "release_id": RELEASE_ID,
-        "bundle_sha256": BUNDLE_SHA256,
+        "release_id": release_id,
+        "bundle_sha256": bundle,
         "observation_id": row["observation_id"],
     }
     return record, authority
 
 
 def _project(
-    query: Query, root: Traversable, measure: str, county: str, environment: str
+    query: Query,
+    root: Traversable,
+    measure: str,
+    county: str,
+    environment: str,
+    *,
+    release_id: str = RELEASE_ID,
 ) -> dict[str, Any]:
     if (
         measure not in SLICES
@@ -299,8 +345,8 @@ def _project(
         or identity[0].get("DATABASE") != f"ONE_HEALTH_LYME_GAP_ATLAS_{suffix}"
     ):
         raise CDCConsumerUnavailable("CDC intended reader identity required")
-    metadata = _metadata(root, measure)
-    rows = query(AUTHORITY_SQL, (RELEASE_ID, measure, county, SLICES[measure]["source_version_id"]))
+    metadata = _metadata(root, measure, release_id)
+    rows = query(AUTHORITY_SQL, (release_id, measure, county, SLICES[measure]["source_version_id"]))
     if len(rows) != 1:
         raise CDCConsumerUnavailable("exactly one authoritative CDC observation required")
     row = {str(k).lower(): v for k, v in rows[0].items()}
@@ -315,7 +361,9 @@ def _project(
     return project_surveillance_evidence(record, metadata, authority, mappings)
 
 
-def read_cdc_consumer(measure: str, county: str, *, environment: str = "prod") -> dict[str, Any]:
+def read_cdc_consumer(
+    measure: str, county: str, *, environment: str = "prod", release_id: str = RELEASE_ID
+) -> dict[str, Any]:
     """Service entry point, existing PAT/key-pair settings; exact reader role required."""
     try:
         with connect(SnowflakeSettings()) as connection, connection.cursor() as cursor:
@@ -327,7 +375,9 @@ def read_cdc_consumer(measure: str, county: str, *, environment: str = "prod") -
                 columns = [str(col[0]) for col in cursor.description or []]
                 return [dict(zip(columns, row, strict=True)) for row in cursor.fetchmany(2)]
 
-            return _project(query, _resources(), measure, county, environment)
+            return _project(
+                query, _resources(), measure, county, environment, release_id=release_id
+            )
     except CDCConsumerUnavailable:
         raise
     except Exception:
@@ -335,7 +385,7 @@ def read_cdc_consumer(measure: str, county: str, *, environment: str = "prod") -
 
 
 def read_cdc_consumer_named(
-    measure: str, county: str, *, environment: str = "prod"
+    measure: str, county: str, *, environment: str = "prod", release_id: str = RELEASE_ID
 ) -> dict[str, Any]:
     """Operator acceptance via installed snow CLI and repository-approved named PAT."""
     if environment not in {"dev", "prod"}:
@@ -374,7 +424,7 @@ def read_cdc_consumer_named(
         return list(rows)
 
     try:
-        return _project(query, _resources(), measure, county, environment)
+        return _project(query, _resources(), measure, county, environment, release_id=release_id)
     except CDCConsumerUnavailable:
         raise
     except Exception:

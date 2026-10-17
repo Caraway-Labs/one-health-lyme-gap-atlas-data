@@ -1,0 +1,19 @@
+{
+  "release_id": "governed-2026-10-15-january-climate-prod",
+  "bundle_sha256": "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d",
+  "slices": {
+    "scapularis_status": {
+      "resource_key": "cdc_tick_ixodes_county_status",
+      "dataset_id": "cdc-ixodes-county-status-2025",
+      "source_version_id": "b81c116f-d93d-4c6b-9d11-ac2477e0e242"
+    },
+    "burgdorferi_status": {
+      "resource_key": "cdc_tick_ixodes_pathogen_status",
+      "dataset_id": "cdc-ixodes-pathogen-status-2025",
+      "source_version_id": "92b22f19-0d5d-4576-a7c6-6c9af9343edf"
+    }
+  },
+  "review_state": "REVIEWED",
+  "metadata_revision": 3,
+  "decision_reference": "API #246 owner decision in Codex, 2026-10-17; conditional A-C approval"
+}
