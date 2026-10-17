@@ -60,11 +60,15 @@ version values and unchanged CDC persisted meanings.
 3. Dispatch `promote-prod.yml` with `cdc_admission_only=true`, exact reviewed
    commit and full pending checksum set (V156, and V150 if still pending).
    The script applies only V156 and verifies grant parity; V150 stays pending.
-4. Through the required steward channel, inspect the private reconciled packet
+4. Through the existing named human-steward connection (not Streamlit), inspect the private reconciled packet
    and real signed reference. The real active global steward calls
    `GOVERNANCE.SP_REGISTER_CDC_TARGET_ADMISSION` once per measure. This operation
    appends a decision and validates all 3,109 bindings; never run as pipeline user.
    Approval date stays October 17; registration timestamp is actual execution.
+   The owner's explicit one-time channel exception of October 17 is recorded in
+   ADR 0044. It preserves all scientific/production controls and establishes no
+   general waiver of ADR 0027. Separate protected production approval is still
+   required before executing this registration.
 5. Read both measures through the actual production consumer identity and
    immutable Data producer. Confirm known NO_RECORDS remains unknown.
 6. Merge/deploy the compatible API binding through its established workflow.

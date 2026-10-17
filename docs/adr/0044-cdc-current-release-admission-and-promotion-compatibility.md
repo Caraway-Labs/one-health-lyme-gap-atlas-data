@@ -38,8 +38,25 @@ Granted: Execute CDC Production Restoration,” dated 2026-10-17. Authenticated
 GitHub identity was verified as CarawayLabs / Matthew Caraway. This document
 records that decision, not a fabricated database signature. Registration must
 record the real active global steward, actual execution timestamp and actual
-signed reference. ADR 0027's Streamlit approval-console rule remains applicable
-unless a separate explicit bounded channel exception is recorded.
+signed reference.
+
+### One-time registration-channel exception (owner decision, 2026-10-17)
+
+In direct response to the ADR 0027 channel question in the same Codex
+conversation, the owner explicitly authorized the existing named human-steward
+connection and narrowly scoped registration procedure for API #246's approved
+October 15 CDC carry-forward, and instructed: “Do not use Streamlit.” The
+rationale is to record the already-approved, completely reconciled unchanged
+admission without adding a console integration that delays restoration.
+
+This exception changes only the channel, for the exact release/bundle, donor,
+source/version scopes and two measures above. It does not authorize pipeline
+approval, unchecked membership, a fabricated identity/date/reference, receipt
+rewrites, merge, or protected production execution. Actual active-steward identity,
+October 17 review date, real registration timestamp and signed decision reference
+remain required. All scientific, immutable metadata, audit, separation-of-duties
+and protected deployment controls remain in force. ADR 0027's general Streamlit
+requirement is unchanged; this creates no general exception for other releases.
 
 Deploy V156 and the immutable Data runtime through the existing protected
 digest-identical workflow; retain V150 pending. The registration procedure has
