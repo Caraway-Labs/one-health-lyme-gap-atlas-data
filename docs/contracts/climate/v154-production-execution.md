@@ -49,11 +49,11 @@ because an operation failed or a conditional stage was unused. Manual owner
 activity/shared warehouse traffic and invoices are not available to this agent.
 This is a conservative planning ledger, not verified remaining cash.
 
-Propose one delivery envelope **maximum35 additional**, preserving the300ceiling:
+Propose one delivery envelope **maximum40 additional**, preserving the300ceiling:
 
-1. One protected V154 workflow with its pre/post scientific checks: maximum7.
+1. One protected V154 workflow with its pre/post scientific checks: maximum8.
 2. One read-only postdeployment performance/profile session via explicitly
-   authorized ATLAS_PROD_MIGRATOR on COMPUTE_WH: maximum7,180s+15s,60s statement,
+   authorized ATLAS_PROD_MIGRATOR on COMPUTE_WH: maximum8,180s+15s,60s statement,
    queue10/network65,resultcachefalse,no retries. Maximum12 statements: identity;
    SHOW warehouse; full-projection PRCP EXPLAIN; full-projection point once;
    bounded8-row read once; currentrelease/bundle; metadata4rows; own queryhistory
@@ -61,7 +61,7 @@ Propose one delivery envelope **maximum35 additional**, preserving the300ceiling
    Stop on identity/access/resource/semantic failure; missing monitoring access
    is unknown and never permission to addgrants. No repeated performanceSELECT.
 3. One existing API production redeployment/startup probe at its reconciled
-   exact reviewedmain, climate stilldisabled: maximum7. ThreeSELECTmaximum,
+   exact reviewedmain, climate stilldisabled: maximum8. ThreeSELECTmaximum,
    actual OH_LYME_API_SVC / OH_LYME_PROD_READ / COMPUTE_WH,5sstatementunchanged.
 4. Only after serviceprobePASS: controlled ENVIRONMENTAL_CONTEXT_ENABLED=true
    through the current app configuration path, preserving every other setting;
@@ -70,15 +70,15 @@ Propose one delivery envelope **maximum35 additional**, preserving the300ceiling
    Maximum7. Verify decoded units/values/coverage/provenance/dates, no geometry
    or restricted CDC data. No automatic HTTPretry. Onfailure disableflag and
    preserve evidence; never claimAPIacceptance fromDataidentity.
-5. Reserve7contingency for reviewed forward rollback; this does **not** authorize
+5. Reserve8contingency for reviewed forward rollback; this does **not** authorize
    speculative DDL or rewrite of V154 history. Any necessary rollback must be
    exact reviewed restoration of V152 body withCOPYGRANTS under protected owner,
    preservingrelease/grants, never release-pointer rollback or ledgerdeletion.
 
 Forecast: four operation windows each <=195active/grace seconds plus600idle,
-assumed1credit/hour, conservative20dollars/credit (notcontractual rate),25percent
-contingency = **22.083334**, maximum28normaldelivery +7rollbackreserve =35.
-Reservations become281/300,19unallocated, subject to no intervening allocations.
+conservative1.35credits/hour (AWS Gen2 bound; blank generation is not Gen1 proof), conservative20dollars/credit (notcontractual rate),25percent
+contingency = **29.8125**, maximum32normaldelivery +8rollbackreserve =40.
+Reservations become286/300,14unallocated, subject to no intervening allocations.
 Stop if actual warehouseconfiguration/capacity or accepted cost assumptions
 cannot be verified. No warehousealteration or timeoutincrease. Rollbackreserve
 is retained, not evidence of actual spend. No duplicate/retry attempt allowed.
@@ -95,3 +95,5 @@ scientifically correct. KeepDATA443/API84open and climateoff until respective
 real acceptance passes. NotifyWeb414only on acceptedAPIendpoint/contract.
 
 Canonical V154 SHA-256: `087e24f350730176d805ecfda271b8c59e4507bb9bfd67067c430a94b0a74c35`.
+
+Warehouse capacity uses prior owner-verified TXB06009 Standard Edition capability evidence, not warehouse type as account edition. Missing min/max/QAS fields remain unobserved; contradictory returned counts or enabled QAS block. References: https://docs.snowflake.com/en/user-guide/warehouses-multicluster and https://docs.snowflake.com/en/user-guide/query-acceleration-service .

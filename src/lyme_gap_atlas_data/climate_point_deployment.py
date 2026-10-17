@@ -158,4 +158,20 @@ def warehouse_gate(cursor: Any) -> dict[str, Any]:
         or row.get("auto_resume") not in (True, "true", "TRUE")
     ):
         raise ValueError("POINT_WAREHOUSE_ASSUMPTIONS")
-    return {key: row[key] for key in ("name", "type", "size", "auto_suspend", "auto_resume")}
+    # Same TXB06009 owner-supplied Standard Edition evidence used by PR684.
+    # Existing six-field runtime binding precedes this check. Omitted fields are
+    # not observed defaults: Standard entitlement excludes multicluster/QAS.
+    for key in ("min_cluster_count", "max_cluster_count"):
+        if row.get(key) is not None and (type(row[key]) is not int or row[key] not in (0, 1)):
+            raise ValueError("POINT_WAREHOUSE_CAPABILITY_CONTRADICTION")
+    if row.get("enable_query_acceleration") not in (None, False):
+        raise ValueError("POINT_WAREHOUSE_CAPABILITY_CONTRADICTION")
+    return {
+        "observed": {
+            key: row[key] for key in ("name", "type", "size", "auto_suspend", "auto_resume")
+        },
+        "cost_capability_basis": "OWNER_VERIFIED_TXB06009_STANDARD_EDITION",
+        "cluster_cost_bound": 1,
+        "query_acceleration_capability": "UNAVAILABLE",
+        "generation_observed": row.get("generation"),
+    }
