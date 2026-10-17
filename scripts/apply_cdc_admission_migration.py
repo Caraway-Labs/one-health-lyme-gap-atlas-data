@@ -5,6 +5,7 @@ Does not register any human decision or move a release pointer. V150 stays pendi
 
 import json
 import os
+import re
 from typing import Any
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
@@ -41,6 +42,10 @@ def snapshot(settings: SnowflakeSettings, *, deployed: bool) -> list[tuple[Any, 
             g["privilege"] == "OWNERSHIP" and g["grantee_name"] == identity[1] for g in grants
         ):
             raise ValueError("CDC_EXISTING_OWNER_REQUIRED")
+        if not any(
+            g["privilege"] == "SELECT" and g["grantee_name"] == "OH_LYME_PROD_READ" for g in grants
+        ):
+            raise ValueError("CDC_EXISTING_READER_REQUIRED")
         stable = sorted(
             (g["privilege"], g["granted_to"], g["grantee_name"], g["grant_option"]) for g in grants
         )
@@ -64,6 +69,7 @@ def main() -> None:
         or os.environ.get("GITHUB_REF") != "refs/heads/main"
         or not os.environ.get("REVIEWED_COMMIT")
         or os.environ.get("REVIEWED_COMMIT") != os.environ.get("GITHUB_SHA")
+        or not re.fullmatch(r"[0-9a-f]{40}", os.environ["REVIEWED_COMMIT"])
     ):
         raise SystemExit("CDC_PROTECTED_REVIEWED_MAIN_REQUIRED")
     settings = SnowflakeSettings()
@@ -76,9 +82,18 @@ def main() -> None:
         expected_pending=expected,
         cdc_admission_only=True,
     )
-    if applied != ["V156"] or snapshot(settings, deployed=True) != before:
+    if applied not in (["V156"], []) or snapshot(settings, deployed=True) != before:
         raise SystemExit("CDC_MIGRATION_GRANT_PARITY")
-    print(json.dumps({"applied": applied, "grants_unchanged": True, "admission_registered": False}))
+    print(
+        json.dumps(
+            {
+                "applied": applied,
+                "validated_resume": not applied,
+                "grants_unchanged": True,
+                "admission_registered": False,
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

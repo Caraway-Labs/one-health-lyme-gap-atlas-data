@@ -674,7 +674,7 @@ def apply_migrations(
         or january_point_query_only
         or county_context_only
         or protected_intelligence_prerequisite
-        or {item["version"] for item in expected_pending} not in ({"V156"}, {"V150", "V156"})
+        or {item["version"] for item in expected_pending} not in ({"V150"}, {"V150", "V156"})
     ):
         raise PermissionError("CDC admission requires the exact reviewed pending V156 scope")
     if county_context_only and (
@@ -721,12 +721,46 @@ def apply_migrations(
         try:
             cursor.execute(f"USE DATABASE {database}")
             cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
-            applied = dict(cursor.fetchall())
+            ledger = cursor.fetchall()
+            applied = dict(ledger)
+            if cdc_admission_only and len(ledger) != len(applied):
+                raise ValueError("CDC migration ledger contains duplicate versions")
         except ProgrammingError:
             if expected_pending is not None:
                 raise
             applied = {}
         reconciled = _reconciled_legacy_migrations(cursor, database)
+        if cdc_admission_only:
+            if set(applied) - {item.version for item in plan}:
+                raise ValueError("CDC migration ledger contains unexpected versions")
+            target = next(item for item in plan if item.version == "V156")
+            if "V150" in applied:
+                raise PermissionError("CDC scope requires V150 to remain pending")
+            if "V156" in applied:
+                # A failed image promotion may follow a successful immutable DDL
+                # step. Resume only the same reviewed commit and exact checksum.
+                cursor.execute(
+                    "SELECT filename,sha256,deployment_commit FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                    "WHERE version=%s",
+                    ("V156",),
+                )
+                if (
+                    not commit
+                    or not re.fullmatch(r"[0-9a-f]{40}", commit)
+                    or applied["V156"] != target.sha256
+                    or cursor.fetchall() != [(target.filename, target.sha256, commit)]
+                ):
+                    raise ValueError("CDC retry requires the exact reviewed V156 ledger receipt")
+                reviewed_target = [
+                    item for item in expected_pending or [] if item["version"] == "V156"
+                ]
+                if reviewed_target and reviewed_target != [_migration_metadata(target)]:
+                    raise ValueError("CDC retry reviewed V156 metadata mismatch")
+                # Original dispatch inputs remain valid on a GitHub run retry;
+                # remove only the independently verified, already-applied V156.
+                expected_pending = [
+                    item for item in expected_pending or [] if item["version"] != "V156"
+                ]
     if expected_pending is not None:
         require_reviewed_pending_set(
             [_migration_metadata(item) for item in plan if item.version not in applied],

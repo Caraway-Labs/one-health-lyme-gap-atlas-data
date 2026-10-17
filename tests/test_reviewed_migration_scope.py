@@ -36,6 +36,13 @@ def test_cdc_scope_preserves_pending_cleanup(monkeypatch, with_cleanup):
     connection.cursor.side_effect = lambda: nullcontext(cursor)
     monkeypatch.setattr(migrations, "connect", lambda *_, **__: nullcontext(connection))
     reviewed = [migrations._migration_metadata(m) for m in plan if m.version not in dict(applied)]
+    if not with_cleanup:
+        with pytest.raises(PermissionError):
+            migrations.apply_migrations(
+                Mock(), migrations.PROD_DATABASE, expected_pending=reviewed, cdc_admission_only=True
+            )
+        connection.execute_string.assert_not_called()
+        return
     assert migrations.apply_migrations(
         Mock(), migrations.PROD_DATABASE, expected_pending=reviewed, cdc_admission_only=True
     ) == ["V156"]

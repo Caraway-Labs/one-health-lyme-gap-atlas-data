@@ -58,8 +58,8 @@ version values and unchanged CDC persisted meanings.
 2. Build the exact reviewed Data main image, pass hosted checks and established
    DEV proof, then obtain protected PROD approval for that same digest.
 3. Dispatch `promote-prod.yml` with `cdc_admission_only=true`, exact reviewed
-   commit and full pending checksum set (V156, and V150 if still pending).
-   The script applies only V156 and verifies grant parity; V150 stays pending.
+   commit and the exact reviewed V150/V156 pending set below.
+   The script applies only V156 and verifies grant parity; V150 must stay pending.
 4. Through the existing named human-steward connection (not Streamlit), inspect the private reconciled packet
    and real signed reference. The real active global steward calls
    `GOVERNANCE.SP_REGISTER_CDC_TARGET_ADMISSION` once per measure. This operation
@@ -73,6 +73,91 @@ version values and unchanged CDC persisted meanings.
    immutable Data producer. Confirm known NO_RECORDS remains unknown.
 6. Merge/deploy the compatible API binding through its established workflow.
    API merge triggers deployment; obtain the explicit required merge approval.
+
+## Protected inputs and deployment recovery
+
+Use the existing `promote-prod.yml` workflow. No new dispatch input, connection,
+credential, infrastructure or migration is introduced by the retry correction.
+All of these inputs exist in that workflow:
+
+| Input | Reviewed value |
+| --- | --- |
+| `cdc_admission_only` | `true` |
+| `january_climate_only` | `false` |
+| `january_bulk_recovery_only` | `false` |
+| `january_point_query_only` | `false` |
+| `county_context_only` | `false` |
+| `protected_intelligence_prerequisite` | `false` |
+| `reviewed_commit` | Actual reviewed green **merged Data main SHA**, equal to the run's `GITHUB_SHA` |
+| `image_digest` | Actual immutable image digest for that SHA, already active and tested in DEV |
+| `expected_pending_json` | Exact reviewed JSON array below for initial application |
+
+The final merged SHA and built/DEV-tested digest do not exist before human merge
+and protected DEV execution. Do not substitute the PR head, invent a digest or
+dispatch this template as-is. The workflow independently checks DEV's digest and
+the `sha-${GITHUB_SHA}` image manifest before the migration step on **every** run.
+
+Source-derived initial pending metadata (not a claim about a newly inspected
+production ledger; revalidate through the authorized named identity before
+dispatch):
+
+```json
+[
+  {
+    "version": "V150",
+    "filename": "V150__prod_intelligence_raw_cleanup_authority.sql",
+    "sha256": "883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"
+  },
+  {
+    "version": "V156",
+    "filename": "V156__cdc_current_release_consumer_authority.sql",
+    "sha256": "c35bcbe24a88d31ef4f2325217735e474064348f484d1415ff1de78f5368df4f"
+  }
+]
+```
+
+If V156 applied successfully and the later image promotion fails, preserve the
+original run, reviewed SHA, expected inputs and approved DEV-tested digest.
+Inspect the provider's actual ACTIVE/failed deployment before claiming rollback
+or success. A failed provider command alone does not establish which image is
+active. Obtain the required production-environment approval for recovery and
+rerun the failed `promote` job of that **original run**, retaining its source SHA
+and dispatch inputs. This reruns all preceding digest, identity and migration
+checks; do not resume at the provider step or switch to normal promotion.
+
+The CDC driver accepts either the original V150+V156 review or an explicitly
+refreshed V150-only review at the same reviewed source SHA. It removes V156 from
+the reviewed pending comparison only after proving exactly one ledger receipt
+with its source filename, exact checksum and that same deployment commit. It
+validates all other applied checksums, unique/known ledger versions, required
+V149/V155 prerequisites, actual pending set, exact release/bundle, existing view
+grant parity and procedure ownership. Output `applied=[]` and
+`validated_resume=true` means these checks passed, not that they were skipped.
+V156 is not replayed; V150 is neither executed nor accepted as already applied.
+No stewardship decision is registered by either initial application or retry.
+
+An empty review, changed/duplicate/unknown ledger, wrong filename/checksum/commit,
+unexpected pending migration, changed pointer or grant state blocks recovery.
+If DEV has moved to another digest, the original run must fail its digest check;
+restore the approved DEV proof through the protected process or obtain a new
+recorded recovery decision. Do not change the V156 ledger or use a different
+commit to bypass its receipt. Partial DDL without a successful ledger receipt is
+not this validated image-failure case; stop for bounded protected inspection.
+
+Before registration, separately validate the actual full secure view and
+procedure under the deployment owner, including successful DDL, owner/reader
+grants, 3,144 distinct rows/IDs/counties per measure, 3,109 donor-equivalent rows,
+35 excluded rows, unchanged donor cardinality and actual consumer visibility.
+The prior SELECT-only samples do **not** prove V156 is deployed or that these
+complete checks passed. Record the approved digest and deployment receipt.
+
+If a promoted image must be rolled back, use the existing protected deployment
+runbook and the previously recorded approved digest. Leave applied V156 and its
+ledger checksum intact; never rewrite historical receipts, decisions or the
+current release pointer. Keep the API deployment held until Data admission and
+consumer readback pass. After an API rollout, rollback uses its established
+protected deployment workflow and a compatible previously approved artifact;
+do not compensate by falling back to October 6 or weakening admission.
 
 ## Production acceptance
 
