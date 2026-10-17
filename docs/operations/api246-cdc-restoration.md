@@ -34,8 +34,16 @@ measure definitions each have exactly two matching pairs and zero differences.
 This includes quality, missingness, limitations and persisted interpretation.
 No grant expansion or production write was used. The ordinary reader cannot
 read raw tables, while the owner cannot read the lineage schema; complete new
-view compilation still requires its existing deployment owner at the protected
-step, rather than combining privileges or changing grants.
+view evaluation therefore uses its existing deployment owner, rather than
+combining privileges or changing grants. Named ATLAS_PROD_MIGRATOR identity was
+verified separately (MATTHEWCARAWAY / OH_LYME_PROD_MIGRATION_DEPLOYER / PROD /
+OH_LYME_PROD_APPROVAL_XS_WH, empty secondary roles). SELECT-only evaluation
+caught Snowflake's wildcard-in-join and correlated-subquery restrictions. The
+refined ordinary-join expression then returned both tick 01001 and pathogen
+06001 with equivalent=true and exactly one genuine donor receipt, in 16.392
+seconds including CLI/connection startup. This is not HTTP/application latency.
+Actual DDL/procedure execution, full deployed cardinality and serving readback
+remain protected acceptance requirements.
 
 The global release schema/methodology differs (1.0.0 / semantic-1.0.0 donor,
 2.0.0 / semantic-2.0.0 target); release limitations match. This is the existing

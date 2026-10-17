@@ -154,6 +154,47 @@ LEFT JOIN cdc_attestations attest ON attest.semantic_release_id=o.release_id
 
 
 CREATE OR REPLACE SECURE VIEW LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V COPY GRANTS AS
+WITH observation_content AS (
+ SELECT observation_id,release_id,measure_id,fips,source_key,
+   OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(o.*),'OBSERVATION_ID','RELEASE_ID','CREATED_AT') AS content
+ FROM PRESENTATION.SEMANTIC_OBSERVATIONS o
+ WHERE release_id IN ('governed-2026-10-15-january-climate-prod','governed-2026-10-06-nlcd-demo-cohort')
+   AND measure_id IN ('scapularis_status','burgdorferi_status')
+), source_content AS (
+ SELECT release_id,source_key,resource_key,
+   OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(s.*),'RELEASE_ID','CREATED_AT') AS content
+ FROM PRESENTATION.SEMANTIC_DATA_SOURCES s
+), dataset_content AS (
+ SELECT release_id,dataset_id,
+   OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(d.*),'RELEASE_ID','CREATED_AT') AS content
+ FROM PRESENTATION.SEMANTIC_DATASETS d
+), measure_content AS (
+ SELECT release_id,measure_id,
+   OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(m.*),'RELEASE_ID','CREATED_AT') AS content
+ FROM PRESENTATION.SEMANTIC_MEASURES m
+), equivalent_pairs AS (
+ SELECT a.observation_id AS current_observation_id,b.observation_id AS donor_observation_id
+ FROM observation_content a
+ JOIN observation_content b ON a.measure_id=b.measure_id AND a.fips=b.fips AND a.content=b.content
+ JOIN source_content sa ON sa.release_id=a.release_id AND sa.source_key=a.source_key
+ JOIN source_content sb ON sb.release_id=b.release_id AND sb.source_key=b.source_key
+   AND sa.content=sb.content
+ JOIN dataset_content da ON da.release_id=a.release_id
+   AND da.dataset_id=sa.content:DATASET_ID::VARCHAR
+ JOIN dataset_content db ON db.release_id=b.release_id AND db.dataset_id=da.dataset_id
+   AND da.content=db.content
+ JOIN measure_content ma ON ma.release_id=a.release_id AND ma.measure_id=a.measure_id
+ JOIN measure_content mb ON mb.release_id=b.release_id AND mb.measure_id=b.measure_id
+   AND ma.content=mb.content
+ JOIN PRESENTATION.SEMANTIC_RELEASES ra ON ra.release_id=a.release_id
+ JOIN PRESENTATION.SEMANTIC_RELEASES rb ON rb.release_id=b.release_id
+ -- Existing DATA443 January exact-pair version exception, unchanged CDC meaning.
+ WHERE a.release_id='governed-2026-10-15-january-climate-prod'
+   AND b.release_id='governed-2026-10-06-nlcd-demo-cohort'
+   AND ra.schema_version='2.0.0' AND ra.methodology_version='semantic-2.0.0'
+   AND rb.schema_version='1.0.0' AND rb.methodology_version='semantic-1.0.0'
+   AND ra.limitations=rb.limitations
+)
 SELECT current_row.* REPLACE (
   CASE WHEN current_row.release_id='governed-2026-10-15-january-climate-prod'
     THEN OBJECT_INSERT(OBJECT_INSERT(OBJECT_INSERT(current_row.cdc_runtime_authority,
@@ -162,8 +203,10 @@ SELECT current_row.* REPLACE (
       'donor_observation_id', donor.observation_id, TRUE)
     ELSE current_row.cdc_runtime_authority END AS cdc_runtime_authority)
 FROM LINEAGE_AUDIT.CDC_SOURCE_AUTHORITY_BASE_V current_row
+LEFT JOIN equivalent_pairs proof ON proof.current_observation_id=current_row.observation_id
 LEFT JOIN LINEAGE_AUDIT.CDC_SOURCE_AUTHORITY_BASE_V donor
  ON current_row.release_id='governed-2026-10-15-january-climate-prod'
+ AND donor.observation_id=proof.donor_observation_id
  AND current_row.release_bundle_sha256='53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d'
  AND donor.release_id='governed-2026-10-06-nlcd-demo-cohort'
  AND donor.release_bundle_sha256='603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9'
@@ -190,41 +233,7 @@ LEFT JOIN LINEAGE_AUDIT.CDC_SOURCE_AUTHORITY_BASE_V donor
  AND current_row.cdc_runtime_authority:coverage_state IS NOT DISTINCT FROM donor.cdc_runtime_authority:coverage_state
  AND current_row.cdc_runtime_authority:retrieved_at IS NOT DISTINCT FROM donor.cdc_runtime_authority:retrieved_at
  AND current_row.cdc_runtime_authority:transformation_version IS NOT DISTINCT FROM donor.cdc_runtime_authority:transformation_version
- AND COALESCE(donor.cdc_runtime_authority:coverage_state::VARCHAR,'')<>'UNKNOWN_SOURCE_COVERAGE'
- AND EXISTS (
-   SELECT 1 FROM PRESENTATION.SEMANTIC_OBSERVATIONS a
-   JOIN PRESENTATION.SEMANTIC_OBSERVATIONS b ON b.observation_id=donor.observation_id
-   WHERE a.observation_id=current_row.observation_id
-     AND OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(a.*),'OBSERVATION_ID','RELEASE_ID','CREATED_AT')
-       =OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(b.*),'OBSERVATION_ID','RELEASE_ID','CREATED_AT'))
- AND EXISTS (
-   SELECT 1 FROM PRESENTATION.SEMANTIC_DATA_SOURCES a
-   JOIN PRESENTATION.SEMANTIC_DATA_SOURCES b ON a.source_key=b.source_key
-   WHERE a.release_id=current_row.release_id AND b.release_id=donor.release_id
-     AND a.resource_key=current_row.resource_key
-     AND OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(a.*),'RELEASE_ID','CREATED_AT')
-       =OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(b.*),'RELEASE_ID','CREATED_AT'))
- AND EXISTS (
-   SELECT 1 FROM PRESENTATION.SEMANTIC_DATASETS a
-   JOIN PRESENTATION.SEMANTIC_DATASETS b ON a.dataset_id=b.dataset_id
-   WHERE a.release_id=current_row.release_id AND b.release_id=donor.release_id
-     AND a.dataset_id=current_row.dataset_id
-     AND OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(a.*),'RELEASE_ID','CREATED_AT')
-       =OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(b.*),'RELEASE_ID','CREATED_AT'))
- AND EXISTS (
-   SELECT 1 FROM PRESENTATION.SEMANTIC_MEASURES a
-   JOIN PRESENTATION.SEMANTIC_MEASURES b ON a.measure_id=b.measure_id
-   WHERE a.release_id=current_row.release_id AND b.release_id=donor.release_id
-     AND a.measure_id=current_row.measure_id
-     AND OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(a.*),'RELEASE_ID','CREATED_AT')
-       =OBJECT_DELETE(OBJECT_CONSTRUCT_KEEP_NULL(b.*),'RELEASE_ID','CREATED_AT'))
- AND EXISTS (
-   SELECT 1 FROM PRESENTATION.SEMANTIC_RELEASES a
-   JOIN PRESENTATION.SEMANTIC_RELEASES b ON b.release_id=donor.release_id
-   -- DATA443 January exact-pair version exception; CDC copy meaning is unchanged.
-   WHERE a.release_id=current_row.release_id AND a.schema_version='2.0.0'
-     AND a.methodology_version='semantic-2.0.0' AND b.schema_version='1.0.0'
-     AND b.methodology_version='semantic-1.0.0' AND a.limitations=b.limitations);
+ AND COALESCE(donor.cdc_runtime_authority:coverage_state::VARCHAR,'')<>'UNKNOWN_SOURCE_COVERAGE';
 
 -- An authenticated active human steward, never a pipeline runtime, appends the
 -- separately reviewed target packet after protected deployment. No source
