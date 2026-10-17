@@ -165,6 +165,10 @@ LEGACY_PROD_MIGRATION_FILENAMES = {
 }
 LEGACY_PROD_MIGRATION_ROW_COUNTS = {"V022": 1, "V028": 2}
 PROD_RECONCILIATION_REASON = "Protected qtbi-xd4i rollout owner authorization, 2026-09-08"
+CDC_LEGACY_LEDGER_AUTHORITY_PATH = Path(__file__).with_name("cdc_legacy_ledger_authority.json")
+CDC_LEGACY_LEDGER_AUTHORITY_SHA256 = (
+    "4e18aa0fb8be26841eeefbf1fc44060aae65be341adaa1abcc9d81a212c00f86"
+)
 REQUIRED_REGISTRATION_COLUMNS = {
     "ARTIFACT_ID",
     "CONFIG_SHA256",
@@ -737,7 +741,7 @@ def apply_migrations(
                 version for version, count in Counter(v for v, _ in ledger).items() if count > 1
             }
             legacy_versions = set(LEGACY_PROD_MIGRATION_CHECKSUMS)
-            if duplicate_versions - {"V028"}:
+            if duplicate_versions - {"V020", "V028", "V071"}:
                 raise ValueError("CDC migration ledger contains duplicate versions")
             if duplicate_versions or any(
                 checksum == LEGACY_PROD_MIGRATION_CHECKSUMS.get(version)
@@ -765,6 +769,36 @@ def apply_migrations(
                     (v, h) for v, h in ledger if v in legacy_versions
                 ):
                     raise ValueError("CDC historical ledger changed during validation")
+                # Exact retained rows, not an allowance inferred from equal hashes.
+                # V020 authority is the reconciled historical V022; V071 has a
+                # new dated owner recognition, not retrospective execution approval.
+                try:
+                    authority_text = CDC_LEGACY_LEDGER_AUTHORITY_PATH.read_text(encoding="utf-8")
+                except OSError as exc:
+                    raise ValueError("CDC historical ledger authority is missing") from exc
+                if (
+                    hashlib.sha256(authority_text.encode()).hexdigest()
+                    != CDC_LEGACY_LEDGER_AUTHORITY_SHA256
+                ):
+                    raise ValueError(
+                        "CDC historical ledger authority does not match reviewed evidence"
+                    )
+                authority = json.loads(authority_text)
+                cursor.execute(
+                    """SELECT version, filename, sha256, deployment_commit, applied_by,
+                    TO_CHAR(CONVERT_TIMEZONE('UTC', applied_at), 'YYYY-MM-DD"T"HH24:MI:SS.FF9')
+                    FROM GOVERNANCE.SCHEMA_MIGRATIONS
+                    WHERE version IN ('V020', 'V028', 'V071')"""
+                )
+                identity_rows = cursor.fetchall()
+                if sorted(tuple(row) for row in authority["records"]) != sorted(identity_rows):
+                    raise ValueError(
+                        "CDC historical ledger identities do not match reviewed authority"
+                    )
+                if sorted((r[0], r[2]) for r in identity_rows) != sorted(
+                    (v, h) for v, h in ledger if v in {"V020", "V028", "V071"}
+                ):
+                    raise ValueError("CDC historical ledger changed during identity validation")
             if set(applied) - {item.version for item in plan}:
                 raise ValueError("CDC migration ledger contains unexpected versions")
             target = next(item for item in plan if item.version == "V156")

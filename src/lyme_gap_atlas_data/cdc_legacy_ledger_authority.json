@@ -1,0 +1,13 @@
+{
+  "decision_date": "2026-10-17",
+  "decision_reference": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-api/issues/246#issuecomment-6240165767",
+  "scope": "Exact retained PROD ledger compatibility only; no historical execution approval, replay or production write authority",
+  "records": [
+    ["V020", "V020__reassert_pipeline_runtime_dbt_cdc_grants.sql", "8508472b42b74264ad95e9ee3431173d0f377251266234843883382aefa1535a", "aeaedbf32382ef27e92a84840c1467e3cbce9bba", "MATTHEWCARAWAY", "2026-08-24T01:25:00.630000000"],
+    ["V020", "V020__reassert_pipeline_runtime_dbt_cdc_grants.sql", "8508472b42b74264ad95e9ee3431173d0f377251266234843883382aefa1535a", "aeaedbf32382ef27e92a84840c1467e3cbce9bba", "MATTHEWCARAWAY", "2026-08-24T01:25:31.205000000"],
+    ["V028", "V028__resumable_catalog_discovery_registration.sql", "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85", "3d3296b7d3042e7cff247cc132300abf0b72c755", "MATTHEWCARAWAY", "2026-09-07T12:34:50.514000000"],
+    ["V028", "V028__resumable_catalog_discovery_registration.sql", "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85", "3d3296b7d3042e7cff247cc132300abf0b72c755", "MATTHEWCARAWAY", "2026-09-07T12:35:26.428000000"],
+    ["V071", "V071__governed_semantic_release_storage.sql", "57adf5fa43186308cbf1dfccff6c88417ea6916af1fcc7447138b7d3bf4a078b", "9934b0f6f07e15f8fd1fb0d809a1fabc2f62ed69", "MATTHEWCARAWAY", "2026-09-16T02:53:37.937000000"],
+    ["V071", "V071__governed_semantic_release_storage.sql", "57adf5fa43186308cbf1dfccff6c88417ea6916af1fcc7447138b7d3bf4a078b", "9934b0f6f07e15f8fd1fb0d809a1fabc2f62ed69", "MATTHEWCARAWAY", "2026-09-16T03:00:19.606000000"]
+  ]
+}
