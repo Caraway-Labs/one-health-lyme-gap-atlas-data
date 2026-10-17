@@ -270,7 +270,7 @@ and owner's $2/credit public rate = $0.441667 compute. Explicit 25% contingency
 makes $0.552084; proposed maximum $1 within the cumulative project ceiling after
 reservation reconciliation. This is not actual/contractual billing or a hard
 warehouse-wide spend cap. Shared traffic/cloud charges are unknown. No consumed
-allowance is reused; no benchmark has executed.
+allowance is reused; no benchmark had executed at preparation time; see the completed attempt below.
 
 Only after measured evidence and parity: prepare a forward-only view migration,
 COPY GRANTS, unchanged ownership/reader grants, sole-approved pending migration
@@ -286,3 +286,60 @@ actual service and four-measure scientific HTTP acceptance succeed.
 
 References: https://docs.snowflake.com/en/sql-reference/functions/get_query_operator_stats
 and https://docs.snowflake.com/en/sql-reference/functions/array_contains .
+
+
+## Fresh migrator benchmark: completed 2026-10-16
+
+Owner authorized the exact changed diagnostic identity in the task conversation.
+One fresh $1 reservation (forecast $0.552084) is consumed; previous reservations
+remain consumed and actual billing is unknown. No statement or connection retry,
+DDL, grant, API change or additional metadata query occurred. The session took
+16.250s; the enclosing process took 20.578s without triggering its deadline.
+All seven reviewed statements passed. SQL hashes remain those of d1cb811.
+The live identity matched MATTHEWCARAWAY / OH_LYME_PROD_MIGRATION_DEPLOYER /
+ONE_HEALTH_LYME_GAP_ATLAS_PROD / COMPUTE_WH / TXB06009 / AWS_US_WEST_2.
+All three EXPLAINs passed before any benchmark SELECT.
+
+| Statement | Query ID | Client elapsed seconds |
+|---|---|---:|
+| Identity | 01c7c78e-030c-43ea-0064-2d07012876ae | 0.157 |
+| Baseline EXPLAIN | 01c7c78e-030c-43ea-0064-2d07012876b2 | 0.812 |
+| A EXPLAIN | 01c7c78e-030c-442e-0064-2d0701289366 | 0.609 |
+| B EXPLAIN | 01c7c78e-030c-442e-0064-2d070128936a | 0.266 |
+| Baseline SELECT | 01c7c78e-030c-43ea-0064-2d07012876b6 | 6.906 |
+| B SELECT | 01c7c78e-030c-43ea-0064-2d07012876ba | 0.531 |
+| A SELECT | 01c7c78e-030c-43ea-0064-2d07012876be | 5.532 |
+
+Each SELECT returned exactly the accepted January published release ID. A was
+executed because its work signature differs (release/pointer join order changes).
+It retains the same membership expansion and is still above five seconds.
+B's EXPLAIN has 13 operators versus 22 in baseline/A. Its only FLATTEN is the
+four-measure metadata array; capture-ID FLATTEN and shared WithClause/WithReference
+branches disappear. ARRAY_CONTAINS is a join filter tied to the unchanged
+run/artifact/hash membership join. This is a structural improvement, not evidence
+that a measured runtime operator produced zero membership rows.
+
+All three plans assign 31/31 aggregate partitions and 107,813,888 bytes, including
+29/29 revision partitions and 95,180,800 assigned revision bytes. These are
+EXPLAIN estimates, not actual bytes scanned or pruning statistics. Revision
+predicate filtering remains; partition pruning is not improved by B.
+
+B was 92.3% faster in this one ordered client measurement. Result cache was
+disabled, but warehouse/local metadata and data caches were not cleared; B and A
+ran after baseline. This is preliminary evidence supporting B, not a reliability,
+p95, cold-cache, full projection or actual API service-reader acceptance claim.
+The approved diagnostic selects only release_id: optimizer projection pruning
+means it does not measure all scientific output fields used by the API.
+Server compilation/execution split, actual operator row counts, actual scan bytes
+and runtime spill are not returned by these seven statements. They remain
+unverified for these new query IDs; no eighth history/profile query was executed.
+
+Full sanitized plans, checksums, identities and results are retained in
+[evidence/2026-10-16-migrator-point-benchmark.json](evidence/2026-10-16-migrator-point-benchmark.json).
+Keep this PR in draft. Next independently safe work is complete offline parity
+for the admitted unique-string membership contract and a minimal forward-only
+B view migration design preserving COPY GRANTS and all scientific projection.
+Before deployment, independent review and CI must pass; separately scoped
+runtime profiles/full scientific projection and intended service-role acceptance
+must address cache order, scan/spill and broad-read uncertainty. No optimization
+is merged or deployed by this benchmark authorization.
