@@ -14,6 +14,14 @@ ROOT = Path(__file__).parents[1]
 VIEW = "PRESENTATION.CURRENT_COUNTY_OBSERVATIONS_V"
 RELEASE = "governed-2026-10-15-january-climate-prod"
 BUNDLE = "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
+CONTEXT_MEASURES = (
+    "population_2022",
+    "svi_percentile_2022",
+    "uninsured_percent_2022",
+    "uninsured_percentile_2022",
+    "rucc_2023",
+)
+CONTEXT_CONTRACT = "atlas-county-context-consumer/1"
 LEGACY_COLUMNS = (
     "observation_id,measure_id,geography_id,geography_type,county_fips,period_start,"
     "period_end,temporal_grain,value,value_state,unit,denominator,supported_stratifications,"
@@ -56,13 +64,20 @@ def snapshot(cursor: Any, *, deployed: bool) -> dict[str, Any]:
     if len(legacy) != 23:
         raise ValueError("CONTEXT_LEGACY_BASELINE")
     source = VIEW if deployed else f"({candidate()})"
+    placeholders = ",".join(["%s"] * len(CONTEXT_MEASURES))
     cursor.execute(
         f"SELECT measure_id,county_fips,value,value_state,period_start,period_end,"
         f"temporal_grain,vintage_year,metadata_revision_id,context_limitations FROM {source} "
-        "WHERE county_fips IN ('01001','08001') ORDER BY measure_id,county_fips LIMIT 11"
+        "WHERE county_fips IN ('01001','08001') "
+        f"AND measure_id IN ({placeholders}) AND context_contract_version=%s "
+        "ORDER BY measure_id,county_fips LIMIT 11",
+        (*CONTEXT_MEASURES, CONTEXT_CONTRACT),
     )
     observations = cursor.fetchall()
-    if len(observations) != 10 or len({(r[0], r[1]) for r in observations}) != 10:
+    expected_pairs = {
+        (measure, fips) for measure in CONTEXT_MEASURES for fips in ("01001", "08001")
+    }
+    if len(observations) != 10 or {(r[0], r[1]) for r in observations} != expected_pairs:
         raise ValueError("CONTEXT_TEN_OBSERVATIONS")
     cursor.execute(
         "SELECT fips,population,svi_percentile,uninsured_percent,uninsured_percentile,rucc_2023 "
