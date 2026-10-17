@@ -77,7 +77,20 @@ def test_preapply_scientific_parity_checks_all_fields_without_mutation(rows):
 
 
 @pytest.mark.parametrize(
-    "fault", [None, "zero", "temperature", "tavg", "unit", "null", "coverage", "duplicate"]
+    "fault",
+    [
+        None,
+        "zero",
+        "temperature",
+        "tavg",
+        "unit",
+        "null",
+        "coverage",
+        "duplicate",
+        "nan",
+        "infinite",
+        "boolean",
+    ],
 )
 def test_full_scientific_readback_fails_on_changed_meaning(fault):
     fields = [
@@ -110,6 +123,12 @@ def test_full_scientific_readback_fails_on_changed_meaning(fault):
                     "mm" if measure == "prcp" else "degree_Celsius",
                 ]
             )
+    if fault == "nan":
+        records[5][3] = float("nan")
+    if fault == "infinite":
+        records[5][3] = float("inf")
+    if fault == "boolean":
+        records[4][3] = False
     if fault == "zero":
         records[4][3] = None
     if fault == "temperature":

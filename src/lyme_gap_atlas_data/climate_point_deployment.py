@@ -1,6 +1,7 @@
 """Fail-closed V154 release/owner invariants, using the existing protected runner."""
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +81,7 @@ SCOPE = (
 
 
 def scientific_gate(cursor: Any, *, optimized: bool) -> dict[str, Any]:
-    """Fixed eight-row full-projection acceptance; no unbounded scientific scan."""
+    """Fixed eight-row acceptance scope; timeout bounds time, not physical scanning."""
     import time
 
     if not optimized:
@@ -125,6 +126,8 @@ def scientific_gate(cursor: Any, *, optimized: bool) -> dict[str, Any]:
                 raise ValueError("POINT_SCIENTIFIC_UNAVAILABLE")
         elif (
             row["value"] is None
+            or isinstance(row["value"], bool)
+            or not math.isfinite(float(row["value"]))
             or abs(float(row["value"]) - expected[code]) > 1e-10
             or row["coverage_status"] != "COMPLETE"
             or row["value_state"] != ("ZERO" if code == "prcp" else "OBSERVED")
