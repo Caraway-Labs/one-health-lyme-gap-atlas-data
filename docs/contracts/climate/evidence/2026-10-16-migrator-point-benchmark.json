@@ -1,0 +1,769 @@
+{
+  "status": "COMPLETED_DIAGNOSTIC_ONLY",
+  "approved_commit": "d1cb811fc50eb09018e0f8957d3f45dcb1683e7b",
+  "maximum_usd": 1,
+  "actual_billing": "UNKNOWN",
+  "statements": [
+    {
+      "purpose": "identity",
+      "sql_sha256": "f47870408ca46a52f84b690ffe8f18e4b640404b0a7fb2fd04c7baf47e654b33",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-43ea-0064-2d07012876ae",
+      "elapsed_seconds": 0.1569999999992433,
+      "returned_rows": 1,
+      "identity_shape_valid": true,
+      "actual_identity": {
+        "user": "MATTHEWCARAWAY",
+        "role": "OH_LYME_PROD_MIGRATION_DEPLOYER",
+        "database": "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "warehouse": "COMPUTE_WH",
+        "account": "TXB06009",
+        "region": "AWS_US_WEST_2"
+      },
+      "identity_matches": {
+        "user": true,
+        "role": true,
+        "database": true,
+        "warehouse": true,
+        "account": true,
+        "region": true
+      }
+    },
+    {
+      "purpose": "explain_baseline",
+      "sql_sha256": "1e0ee2326fd5adc7a5a134b32e5a11cc615416fa0692eb8fc8cca36063ba6889",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-43ea-0064-2d07012876b2",
+      "elapsed_seconds": 0.8119999999998981,
+      "returned_rows": 1,
+      "plan": {
+        "GlobalStats": {
+          "partitionsTotal": 31,
+          "partitionsAssigned": 31,
+          "bytesAssigned": 107813888
+        },
+        "Operations": [
+          [
+            {
+              "id": 0,
+              "operation": "Result",
+              "expressions": [
+                "C.RELEASE_ID"
+              ]
+            },
+            {
+              "id": 1,
+              "operation": "Limit",
+              "expressions": [
+                "rowCount: 1"
+              ],
+              "parentOperators": [
+                0
+              ]
+            },
+            {
+              "id": 2,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')"
+              ],
+              "parentOperators": [
+                1
+              ]
+            },
+            {
+              "id": 3,
+              "operation": "Filter",
+              "expressions": [
+                "((TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id'))) = 'nclimgrid_prcp_county_day') AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) IS NOT NULL)"
+              ],
+              "parentOperators": [
+                2
+              ]
+            },
+            {
+              "id": 4,
+              "operation": "Flatten",
+              "expressions": [
+                "\"GET(SYS_VW.EXTENSION_0, 'metadata')\""
+              ],
+              "parentOperators": [
+                3
+              ]
+            },
+            {
+              "id": 5,
+              "operation": "WithReference",
+              "expressions": [
+                "C"
+              ],
+              "parentOperators": [
+                4
+              ]
+            },
+            {
+              "id": 6,
+              "operation": "WithClause",
+              "expressions": [
+                "CURRENT_CLIMATE"
+              ],
+              "parentOperators": [
+                5,
+                18
+              ]
+            },
+            {
+              "id": 7,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (P.CURRENT_RELEASE_ID = R.RELEASE_ID)"
+              ],
+              "parentOperators": [
+                6
+              ]
+            },
+            {
+              "id": 8,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASE_POINTER"
+              ],
+              "expressions": [
+                "CURRENT_RELEASE_ID"
+              ],
+              "alias": "P",
+              "partitionsAssigned": 1,
+              "partitionsTotal": 1,
+              "bytesAssigned": 1024,
+              "parentOperators": [
+                7
+              ]
+            },
+            {
+              "id": 9,
+              "operation": "Filter",
+              "expressions": [
+                "(R.STATUS = 'PUBLISHED') AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.contract_version')) = 'atlas-january-climate-release-extension-v2')"
+              ],
+              "parentOperators": [
+                7
+              ]
+            },
+            {
+              "id": 10,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (P.CURRENT_RELEASE_ID = R.RELEASE_ID)"
+              ],
+              "parentOperators": [
+                9
+              ]
+            },
+            {
+              "id": 11,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASES"
+              ],
+              "expressions": [
+                "RELEASE_ID",
+                "STATUS"
+              ],
+              "alias": "R",
+              "partitionsAssigned": 1,
+              "partitionsTotal": 1,
+              "bytesAssigned": 12632064,
+              "parentOperators": [
+                10
+              ]
+            },
+            {
+              "id": 12,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')"
+              ],
+              "parentOperators": [
+                2
+              ]
+            },
+            {
+              "id": 13,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (TO_CHAR(C.\"SYS_EXPR_06bb7e7b-b695-4632-afbc-d353730c7941\") = V.ARTIFACT_ID) AND (TO_CHAR(C.\"SYS_EXPR_7891508b-83c6-483f-8f89-81a8226c9f11\") = V.ARTIFACT_SHA256) AND (TO_CHAR(C.\"SYS_EXPR_cd53b968-f07f-4c84-89ef-2b3729f3b0e3\") = V.INGESTION_RUN_ID) AND (TO_CHAR(MEMBER.VALUE) = V.CAPTURE_RECORD_ID)"
+              ],
+              "parentOperators": [
+                12
+              ]
+            },
+            {
+              "id": 14,
+              "operation": "Filter",
+              "expressions": [
+                "TO_CHAR(MEMBER.VALUE) IS NOT NULL"
+              ],
+              "parentOperators": [
+                13
+              ]
+            },
+            {
+              "id": 15,
+              "operation": "Flatten",
+              "expressions": [
+                "\"GET(SYS_VW.EXTENSION_0, 'capture_ids')\""
+              ],
+              "parentOperators": [
+                14
+              ]
+            },
+            {
+              "id": 16,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')"
+              ],
+              "parentOperators": [
+                15
+              ]
+            },
+            {
+              "id": 17,
+              "operation": "WithReference",
+              "expressions": [
+                "C"
+              ],
+              "parentOperators": [
+                16
+              ]
+            },
+            {
+              "id": 18,
+              "operation": "Filter",
+              "expressions": [
+                "(TO_CHAR(C.\"SYS_EXPR_06bb7e7b-b695-4632-afbc-d353730c7941\") IS NOT NULL) AND (TO_CHAR(C.\"SYS_EXPR_7891508b-83c6-483f-8f89-81a8226c9f11\") IS NOT NULL) AND (TO_CHAR(C.\"SYS_EXPR_cd53b968-f07f-4c84-89ef-2b3729f3b0e3\") IS NOT NULL)"
+              ],
+              "parentOperators": [
+                17
+              ]
+            },
+            {
+              "id": 19,
+              "operation": "Filter",
+              "expressions": [
+                "(V.RESOURCE_KEY = 'noaa_nclimgrid_daily_202501') AND (V.SOURCE_DEFINITION_VERSION = 2) AND (TO_CHAR(GET_PATH(V.PAYLOAD, 'record.county_fips')) = '48277') AND (TO_DATE(GET_PATH(V.PAYLOAD, 'record.observation_date')) = '2025-01-17') AND (('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day') = 'nclimgrid_prcp_county_day') AND ('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day' IS NOT NULL)"
+              ],
+              "parentOperators": [
+                13
+              ]
+            },
+            {
+              "id": 20,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (TO_CHAR(C.\"SYS_EXPR_06bb7e7b-b695-4632-afbc-d353730c7941\") = V.ARTIFACT_ID) AND (TO_CHAR(C.\"SYS_EXPR_7891508b-83c6-483f-8f89-81a8226c9f11\") = V.ARTIFACT_SHA256) AND (TO_CHAR(C.\"SYS_EXPR_cd53b968-f07f-4c84-89ef-2b3729f3b0e3\") = V.INGESTION_RUN_ID) AND (TO_CHAR(MEMBER.VALUE) = V.CAPTURE_RECORD_ID)"
+              ],
+              "parentOperators": [
+                19
+              ]
+            },
+            {
+              "id": 21,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS"
+              ],
+              "expressions": [
+                "CAPTURE_RECORD_ID",
+                "RESOURCE_KEY",
+                "SOURCE_DEFINITION_VERSION",
+                "INGESTION_RUN_ID",
+                "ARTIFACT_ID",
+                "ARTIFACT_SHA256"
+              ],
+              "alias": "V",
+              "partitionsAssigned": 29,
+              "partitionsTotal": 29,
+              "bytesAssigned": 95180800,
+              "parentOperators": [
+                20
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "purpose": "explain_projection",
+      "sql_sha256": "2c5f5e65e69e8352e2d4a1be5440846b0401f319f5e2a581b0b95f121240cda4",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-442e-0064-2d0701289366",
+      "elapsed_seconds": 0.6090000000003783,
+      "returned_rows": 1,
+      "plan": {
+        "GlobalStats": {
+          "partitionsTotal": 31,
+          "partitionsAssigned": 31,
+          "bytesAssigned": 107813888
+        },
+        "Operations": [
+          [
+            {
+              "id": 0,
+              "operation": "Result",
+              "expressions": [
+                "C.RELEASE_ID"
+              ]
+            },
+            {
+              "id": 1,
+              "operation": "Limit",
+              "expressions": [
+                "rowCount: 1"
+              ],
+              "parentOperators": [
+                0
+              ]
+            },
+            {
+              "id": 2,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')"
+              ],
+              "parentOperators": [
+                1
+              ]
+            },
+            {
+              "id": 3,
+              "operation": "Filter",
+              "expressions": [
+                "((TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id'))) = 'nclimgrid_prcp_county_day') AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) IS NOT NULL)"
+              ],
+              "parentOperators": [
+                2
+              ]
+            },
+            {
+              "id": 4,
+              "operation": "Flatten",
+              "expressions": [
+                "\"GET(SYS_VW.EXTENSION_0, 'metadata')\""
+              ],
+              "parentOperators": [
+                3
+              ]
+            },
+            {
+              "id": 5,
+              "operation": "WithReference",
+              "expressions": [
+                "C"
+              ],
+              "parentOperators": [
+                4
+              ]
+            },
+            {
+              "id": 6,
+              "operation": "WithClause",
+              "expressions": [
+                "CURRENT_CLIMATE"
+              ],
+              "parentOperators": [
+                5,
+                18
+              ]
+            },
+            {
+              "id": 7,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (R.RELEASE_ID = P.CURRENT_RELEASE_ID)"
+              ],
+              "parentOperators": [
+                6
+              ]
+            },
+            {
+              "id": 8,
+              "operation": "Filter",
+              "expressions": [
+                "(R.STATUS = 'PUBLISHED') AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.contract_version')) = 'atlas-january-climate-release-extension-v2')"
+              ],
+              "parentOperators": [
+                7
+              ]
+            },
+            {
+              "id": 9,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASES"
+              ],
+              "expressions": [
+                "RELEASE_ID",
+                "STATUS"
+              ],
+              "alias": "R",
+              "partitionsAssigned": 1,
+              "partitionsTotal": 1,
+              "bytesAssigned": 12632064,
+              "parentOperators": [
+                8
+              ]
+            },
+            {
+              "id": 10,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (R.RELEASE_ID = P.CURRENT_RELEASE_ID)"
+              ],
+              "parentOperators": [
+                7
+              ]
+            },
+            {
+              "id": 11,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASE_POINTER"
+              ],
+              "expressions": [
+                "CURRENT_RELEASE_ID"
+              ],
+              "alias": "P",
+              "partitionsAssigned": 1,
+              "partitionsTotal": 1,
+              "bytesAssigned": 1024,
+              "parentOperators": [
+                10
+              ]
+            },
+            {
+              "id": 12,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')"
+              ],
+              "parentOperators": [
+                2
+              ]
+            },
+            {
+              "id": 13,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (TO_CHAR(C.\"SYS_EXPR_930571f9-8661-4756-a521-73ce6fb8c0bb\") = V.INGESTION_RUN_ID) AND (TO_CHAR(C.\"SYS_EXPR_d3710a80-7f1a-4343-992a-f9fb59b1d453\") = V.ARTIFACT_SHA256) AND (TO_CHAR(C.\"SYS_EXPR_ee5e5369-55e7-4c78-bf39-c0005b0dc137\") = V.ARTIFACT_ID) AND (TO_CHAR(MEMBER.VALUE) = V.CAPTURE_RECORD_ID)"
+              ],
+              "parentOperators": [
+                12
+              ]
+            },
+            {
+              "id": 14,
+              "operation": "Filter",
+              "expressions": [
+                "TO_CHAR(MEMBER.VALUE) IS NOT NULL"
+              ],
+              "parentOperators": [
+                13
+              ]
+            },
+            {
+              "id": 15,
+              "operation": "Flatten",
+              "expressions": [
+                "\"GET(SYS_VW.EXTENSION_0, 'capture_ids')\""
+              ],
+              "parentOperators": [
+                14
+              ]
+            },
+            {
+              "id": 16,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')"
+              ],
+              "parentOperators": [
+                15
+              ]
+            },
+            {
+              "id": 17,
+              "operation": "WithReference",
+              "expressions": [
+                "C"
+              ],
+              "parentOperators": [
+                16
+              ]
+            },
+            {
+              "id": 18,
+              "operation": "Filter",
+              "expressions": [
+                "(TO_CHAR(C.\"SYS_EXPR_930571f9-8661-4756-a521-73ce6fb8c0bb\") IS NOT NULL) AND (TO_CHAR(C.\"SYS_EXPR_d3710a80-7f1a-4343-992a-f9fb59b1d453\") IS NOT NULL) AND (TO_CHAR(C.\"SYS_EXPR_ee5e5369-55e7-4c78-bf39-c0005b0dc137\") IS NOT NULL)"
+              ],
+              "parentOperators": [
+                17
+              ]
+            },
+            {
+              "id": 19,
+              "operation": "Filter",
+              "expressions": [
+                "(V.RESOURCE_KEY = 'noaa_nclimgrid_daily_202501') AND (V.SOURCE_DEFINITION_VERSION = 2) AND (('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day') = 'nclimgrid_prcp_county_day') AND (TO_CHAR(GET_PATH(V.PAYLOAD, 'record.county_fips')) = '48277') AND (TO_DATE(GET_PATH(V.PAYLOAD, 'record.observation_date')) = '2025-01-17') AND ('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day' IS NOT NULL)"
+              ],
+              "parentOperators": [
+                13
+              ]
+            },
+            {
+              "id": 20,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (TO_CHAR(C.\"SYS_EXPR_930571f9-8661-4756-a521-73ce6fb8c0bb\") = V.INGESTION_RUN_ID) AND (TO_CHAR(C.\"SYS_EXPR_d3710a80-7f1a-4343-992a-f9fb59b1d453\") = V.ARTIFACT_SHA256) AND (TO_CHAR(C.\"SYS_EXPR_ee5e5369-55e7-4c78-bf39-c0005b0dc137\") = V.ARTIFACT_ID) AND (TO_CHAR(MEMBER.VALUE) = V.CAPTURE_RECORD_ID)"
+              ],
+              "parentOperators": [
+                19
+              ]
+            },
+            {
+              "id": 21,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS"
+              ],
+              "expressions": [
+                "CAPTURE_RECORD_ID",
+                "RESOURCE_KEY",
+                "SOURCE_DEFINITION_VERSION",
+                "INGESTION_RUN_ID",
+                "ARTIFACT_ID",
+                "ARTIFACT_SHA256"
+              ],
+              "alias": "V",
+              "partitionsAssigned": 29,
+              "partitionsTotal": 29,
+              "bytesAssigned": 95180800,
+              "parentOperators": [
+                20
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "purpose": "explain_membership",
+      "sql_sha256": "41a8c1267353f3854c8b7145a5ee03cb5e966987892a4cd1c3cc7d9b8e10dc49",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-442e-0064-2d070128936a",
+      "elapsed_seconds": 0.26599999999962165,
+      "returned_rows": 1,
+      "plan": {
+        "GlobalStats": {
+          "partitionsTotal": 31,
+          "partitionsAssigned": 31,
+          "bytesAssigned": 107813888
+        },
+        "Operations": [
+          [
+            {
+              "id": 0,
+              "operation": "Result",
+              "expressions": [
+                "R.RELEASE_ID"
+              ]
+            },
+            {
+              "id": 1,
+              "operation": "Limit",
+              "expressions": [
+                "rowCount: 1"
+              ],
+              "parentOperators": [
+                0
+              ]
+            },
+            {
+              "id": 2,
+              "operation": "Filter",
+              "expressions": [
+                "((TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id'))) = 'nclimgrid_prcp_county_day') AND ((TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id'))) = ('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day'))"
+              ],
+              "parentOperators": [
+                1
+              ]
+            },
+            {
+              "id": 3,
+              "operation": "Flatten",
+              "expressions": [
+                "\"GET(SYS_VW.EXTENSION_0, 'metadata')\""
+              ],
+              "parentOperators": [
+                2
+              ]
+            },
+            {
+              "id": 4,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.artifact_id')) = V.ARTIFACT_ID) AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.sha256')) = V.ARTIFACT_SHA256) AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.ingestion_run_id')) = V.INGESTION_RUN_ID)",
+                "joinFilter: ARRAY_CONTAINS(TO_VARIANT(V.CAPTURE_RECORD_ID), TO_ARRAY(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.capture_ids')))"
+              ],
+              "parentOperators": [
+                3
+              ]
+            },
+            {
+              "id": 5,
+              "operation": "InnerJoin",
+              "expressions": [
+                "joinKey: (R.RELEASE_ID = P.CURRENT_RELEASE_ID)"
+              ],
+              "parentOperators": [
+                4
+              ]
+            },
+            {
+              "id": 6,
+              "operation": "Filter",
+              "expressions": [
+                "(R.STATUS = 'PUBLISHED') AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.contract_version')) = 'atlas-january-climate-release-extension-v2') AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.artifact_id')) IS NOT NULL) AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.sha256')) IS NOT NULL) AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.ingestion_run_id')) IS NOT NULL)"
+              ],
+              "parentOperators": [
+                5
+              ]
+            },
+            {
+              "id": 7,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASES"
+              ],
+              "expressions": [
+                "RELEASE_ID",
+                "STATUS"
+              ],
+              "alias": "R",
+              "partitionsAssigned": 1,
+              "partitionsTotal": 1,
+              "bytesAssigned": 12632064,
+              "parentOperators": [
+                6
+              ]
+            },
+            {
+              "id": 8,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (R.RELEASE_ID = P.CURRENT_RELEASE_ID)"
+              ],
+              "parentOperators": [
+                5
+              ]
+            },
+            {
+              "id": 9,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASE_POINTER"
+              ],
+              "expressions": [
+                "CURRENT_RELEASE_ID"
+              ],
+              "alias": "P",
+              "partitionsAssigned": 1,
+              "partitionsTotal": 1,
+              "bytesAssigned": 1024,
+              "parentOperators": [
+                8
+              ]
+            },
+            {
+              "id": 10,
+              "operation": "Filter",
+              "expressions": [
+                "(V.RESOURCE_KEY = 'noaa_nclimgrid_daily_202501') AND (V.SOURCE_DEFINITION_VERSION = 2) AND (TO_CHAR(GET_PATH(V.PAYLOAD, 'record.county_fips')) = '48277') AND (TO_DATE(GET_PATH(V.PAYLOAD, 'record.observation_date')) = '2025-01-17')"
+              ],
+              "parentOperators": [
+                4
+              ]
+            },
+            {
+              "id": 11,
+              "operation": "JoinFilter",
+              "expressions": [
+                "joinKey: (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.artifact_id')) = V.ARTIFACT_ID) AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.sha256')) = V.ARTIFACT_SHA256) AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.ingestion_run_id')) = V.INGESTION_RUN_ID)",
+                "joinFilter: ARRAY_CONTAINS(TO_VARIANT(V.CAPTURE_RECORD_ID), TO_ARRAY(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.capture_ids')))"
+              ],
+              "parentOperators": [
+                10
+              ]
+            },
+            {
+              "id": 12,
+              "operation": "TableScan",
+              "objects": [
+                "ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS"
+              ],
+              "expressions": [
+                "CAPTURE_RECORD_ID",
+                "RESOURCE_KEY",
+                "SOURCE_DEFINITION_VERSION",
+                "INGESTION_RUN_ID",
+                "ARTIFACT_ID",
+                "ARTIFACT_SHA256"
+              ],
+              "alias": "V",
+              "partitionsAssigned": 29,
+              "partitionsTotal": 29,
+              "bytesAssigned": 95180800,
+              "parentOperators": [
+                11
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "purpose": "execute_baseline",
+      "sql_sha256": "81d10f7b6cbe5b7c0435edc7ba3db5bb242e3418d7b01de4917b0395cc11e374",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-43ea-0064-2d07012876b6",
+      "elapsed_seconds": 6.906000000000859,
+      "returned_rows": 1,
+      "release_id": "governed-2026-10-15-january-climate-prod"
+    },
+    {
+      "purpose": "execute_membership",
+      "sql_sha256": "f2edf26fc6967876002ce9754def916e9947595b4ddac5d30fafb180f5f5c992",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-43ea-0064-2d07012876ba",
+      "elapsed_seconds": 0.5310000000008586,
+      "returned_rows": 1,
+      "release_id": "governed-2026-10-15-january-climate-prod"
+    },
+    {
+      "purpose": "execute_projection",
+      "sql_sha256": "73a5e2352338f1f13c103649cb0247128e80367b2cdf77895263a2019228924d",
+      "status": "PASS",
+      "query_id": "01c7c78e-030c-43ea-0064-2d07012876be",
+      "elapsed_seconds": 5.531999999999243,
+      "returned_rows": 1,
+      "release_id": "governed-2026-10-15-january-climate-prod"
+    }
+  ],
+  "session_count": 1,
+  "api_timeout_changed": false,
+  "connection_attempt_count": 1,
+  "base_access": "ALL_THREE_EXPLAINS_COMPILED_BEFORE_EXECUTION",
+  "projection_plan_work_signature_differs": true,
+  "total_elapsed_seconds": 16.25
+}

@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      january_point_query_only:
+        description: Apply only reviewed PROD V154 point-query view; no image promotion
+        required: false
+        type: boolean
+        default: false
       reviewed_commit:
         description: Exact reviewed green main for January-only migrations
         required: false
@@ -40,7 +45,7 @@ concurrency:
 
 jobs:
   promote:
-    if: ${{ inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true }}
+    if: ${{ inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -80,7 +85,7 @@ jobs:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only || inputs.january_point_query_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
@@ -185,7 +190,7 @@ jobs:
 
 
   january-climate:
-    if: ${{ inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true }}
+    if: ${{ inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true }}
     name: Protected January PROD migrations only
     runs-on: ubuntu-latest
     environment: production
@@ -196,13 +201,14 @@ jobs:
       TOPX_ENV: prod
       ENABLE_PRODUCTION_EXECUTION: "true"
       ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+      JANUARY_POINT_QUERY_ONLY: ${{ inputs.january_point_query_only }}
       JANUARY_BULK_RECOVERY_ONLY: ${{ inputs.january_bulk_recovery_only }}
       ATLAS_JANUARY_PROD_SESSION: "true"
       SNOWFLAKE_NETWORK_TIMEOUT_SECONDS: "65"
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-      SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only || inputs.january_point_query_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
       SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
       SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
@@ -221,6 +227,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
           test '${{ inputs.image_digest }}' = january-climate-only
           test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' != true:true
+          if [[ '${{ inputs.january_point_query_only }}' == true ]]; then
+            test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' = false:false
+          fi
           test '${{ inputs.protected_intelligence_prerequisite }}' = false
           passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed" -gt 0
@@ -233,7 +242,7 @@ jobs:
             printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
           } > "$key_file"
           deadline=1200s
-          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true ]]; then deadline=180s; fi
+          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true || "$JANUARY_POINT_QUERY_ONLY" == true ]]; then deadline=180s; fi
           SNOWFLAKE_AUTH_METHOD=key_pair \
           SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
           MAX_CON_RETRY_ATTEMPTS=0 \
