@@ -32,6 +32,50 @@ The $1 planning reservation remains recorded; actual billed usage is unknown.
 
 ## Evidence and reproducibility
 
+### Access correction after the second diagnostic session
+
+The fresh OWNER session passed all six identity fields, including COMPUTE_WH,
+then baseline EXPLAIN `01c7c768-030c-43ea-0064-2d0701287512` failed 002003/42S02.
+Retained owner export `Untitled 33_2026-10-16-1832.csv` identifies the inaccessible
+climate view and explicitly names the primary OWNER role. No benchmark ran.
+
+Retained grant exports independently inspected locally establish the existing
+MIGRATION_DEPLOYER permissions; no new Snowflake session was needed:
+
+| Object | Existing MIGRATION_DEPLOYER access | Retained export |
+|---|---|---|
+| CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V | OWNERSHIP | 1833.csv |
+| SEMANTIC_RELEASE_POINTER | SELECT | 1834.csv |
+| SEMANTIC_RELEASES | SELECT | 1834 (1).csv |
+| GOVERNED_SOURCE_RECORD_REVISIONS | OWNERSHIP and SELECT | 1834 (3).csv |
+
+All filenames share prefix `Untitled 33_2026-10-16-`. V099/V103 corroborate the
+intended table privileges. The stable role model documents MIGRATION_DEPLOYER
+holding OWNER, so the new direct OWNER warehouse USAGE should be inherited.
+The current inheritance edge is not in these exports: the first live identity
+check must confirm effective COMPUTE_WH selection, not presume it from the model.
+
+Minimal proposal: use existing named ATLAS_PROD_MIGRATOR, configured principal
+MATTHEWCARAWAY, role OH_LYME_PROD_MIGRATION_DEPLOYER, account TXB06009. Its stored
+database and warehouse are unset; explicitly select the suffixed PROD database
+and COMPUTE_WH at connection initialization, without altering stored configuration
+or credentials. Configured identity is verified offline; live identity/authentication
+remain gated. This is an exceptional read-only diagnostic use of a deployment
+role, not routine lineage-audit authority or actual API service acceptance.
+
+Do not add revision SELECT to OWNER or READ. No new grant is recommended from
+the present evidence. If the effective warehouse check fails, stop; do not add
+USAGE or change roles automatically. Only if current evidence then proves a
+warehouse grant necessary would warehouse-only USAGE to the existing diagnostic
+role be considered separately; it grants lasting compute-use/billing capability,
+not additional revision-data access, and requires explicit owner authorization.
+
+Both previous session approvals are consumed. Switching to ATLAS_PROD_MIGRATOR
+requires approval of the changed role and one fresh bounded diagnostic attempt.
+All seven statement hashes, candidate SQL, point filters and resource safeguards
+are unchanged. No alternate identity, grant, data mutation or new paid session
+has been used for this reconciliation.
+
 Original query `01c7c3ed-030c-3e2e-0064-2d0701278042` succeeded in 8.206s:
 2.162s compilation, 5.914s execution, 0.130s provisioning, no queue, 141,499,392
 aggregate history bytes scanned. Existing reader role: OH_LYME_PROD_READ;
@@ -184,14 +228,14 @@ three and therefore requires its own explicit authorization. Maximum **7 read-on
 statements**, one session, no automatic retries, 180s process + 15s grace, at most
 60s per diagnostic statement. The deployed API five-second limit stays unchanged.
 
-**Access prerequisite:** OH_LYME_PROD_READ is view-only; inline candidates reference
-protected base tables and cannot be assumed accessible to it. Do not add grants.
-Propose existing ATLAS_PROD_OWNER / OH_LYME_PROD_OWNER for authorized diagnostic
-SELECT/EXPLAIN only on COMPUTE_WH, subject to verifying its actual identity and
-existing base-table SELECT/warehouse access. Stop if inaccessible; never treat
-an access error as object absence or substitute an admin identity. Owner-role
-measurements are diagnostic evidence, **not** API service-role acceptance. Exact
-connection binding must be reviewed before authorization/dispatch.
+**Access prerequisite:** OH_LYME_PROD_READ is view-only; OWNER was proven to lack
+the climate-view/revision privileges. Use the proposed existing ATLAS_PROD_MIGRATOR
+binding above only after explicit changed-scope authorization. This reuses retained,
+verified object privileges rather than broadening access. Effective warehouse,
+database/schema access and all EXPLAINs must pass before runtime queries. Do not
+add grants or substitute an admin identity. Diagnostic-role measurements are not
+API service-role acceptance. The consumed OWNER approval does not authorize this
+role change or another session.
 
 1. SELECT effective user/role/database/warehouse. Require approved diagnostic
    identity, PROD database and COMPUTE_WH; stop on mismatch.
