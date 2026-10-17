@@ -40,6 +40,8 @@ def bounded_connection(query_tag: str = "atlas-climate-dev-view-readback") -> An
         ABORT_DETACHED_QUERY=True,
         QUERY_TAG=query_tag,
     )
+    if os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true":
+        parameters["session_parameters"]["USE_CACHED_RESULT"] = False
     connection = connect(**parameters)
     if january:
         require_january_warehouse(connection)

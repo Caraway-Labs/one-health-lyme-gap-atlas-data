@@ -35,9 +35,10 @@ def main() -> None:
             ):
                 raise SystemExit("JANUARY_PROD_IDENTITY")
             if os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true":
-                from lyme_gap_atlas_data.climate_point_deployment import snapshot
+                from lyme_gap_atlas_data.climate_point_deployment import scientific_gate, snapshot
 
                 before = snapshot(cursor, helper["body"], optimized=False)
+                scientific_before = scientific_gate(cursor, optimized=False)
     finally:
         connection.close(retry=False)
     applied = apply_migrations(
@@ -62,6 +63,15 @@ def main() -> None:
                 after = snapshot(cursor, helper["body"], optimized=True)
                 if after != before:
                     raise SystemExit("POINT_RELEASE_OR_GRANT_CHANGED")
+                scientific_after = scientific_gate(cursor, optimized=True)
+                print(
+                    json.dumps(
+                        {
+                            "scientific_before": scientific_before,
+                            "scientific_after": scientific_after,
+                        }
+                    )
+                )
         finally:
             connection.close(retry=False)
     print(json.dumps({"applied": applied, "excluded": ["V150"], "point_snapshot": before}))

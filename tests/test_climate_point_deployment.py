@@ -59,3 +59,78 @@ def test_snapshot_fails_closed_and_retains_exact_grants(monkeypatch, fault):
         call.args[0].startswith(("SELECT ", "SHOW GRANTS"))
         for call in cursor.execute.call_args_list
     )
+
+
+@pytest.mark.parametrize("rows", [[(8, 8, 0, 0)], [(8, 9, 0, 1)], [(8, 8, 1, 0)], []])
+def test_preapply_scientific_parity_checks_all_fields_without_mutation(rows):
+    cursor = Mock()
+    cursor.fetchall.return_value = rows
+    if rows == [(8, 8, 0, 0)]:
+        point.scientific_gate(cursor, optimized=False)
+    else:
+        with pytest.raises(ValueError, match="POINT_FULL_PROJECTION_PARITY"):
+            point.scientific_gate(cursor, optimized=False)
+    sql = cursor.execute.call_args.args[0]
+    assert "SELECT * FROM baseline MINUS SELECT * FROM candidate" in sql
+    assert "SELECT * FROM candidate MINUS SELECT * FROM baseline" in sql
+    assert "48277" in sql and "02013" in sql and "2025-01-17" in sql
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "zero", "temperature", "tavg", "unit", "null", "coverage", "duplicate"]
+)
+def test_full_scientific_readback_fails_on_changed_meaning(fault):
+    fields = [
+        "county_fips",
+        "measure_id",
+        "release_id",
+        "value",
+        "coverage_status",
+        "value_state",
+        "unit",
+    ]
+    records = []
+    for county in ("02013", "48277"):
+        for measure, value in (
+            ("prcp", 0),
+            ("tmin", -1.992294192037333),
+            ("tmax", 16.29939307942125),
+            ("tavg", 7.153611977327104),
+        ):
+            records.append(
+                [
+                    county,
+                    f"nclimgrid_{measure}_county_day",
+                    point.RELEASE,
+                    value if county == "48277" else None,
+                    "COMPLETE" if county == "48277" else "OUT_OF_SOURCE_COVERAGE",
+                    ("ZERO" if measure == "prcp" else "OBSERVED")
+                    if county == "48277"
+                    else "UNAVAILABLE",
+                    "mm" if measure == "prcp" else "degree_Celsius",
+                ]
+            )
+    if fault == "zero":
+        records[4][3] = None
+    if fault == "temperature":
+        records[5][3] = 0
+    if fault == "tavg":
+        records[7][3] = 7.0
+    if fault == "unit":
+        records[4][6] = "inches"
+    if fault == "null":
+        records[0][3] = 0
+    if fault == "coverage":
+        records[0][4] = "MISSING"
+    if fault == "duplicate":
+        records[-1] = records[-2]
+    cursor = Mock()
+    cursor.description = [(field,) for field in fields]
+    cursor.fetchmany.return_value = records
+    if fault:
+        with pytest.raises(ValueError):
+            point.scientific_gate(cursor, optimized=True)
+    else:
+        assert point.scientific_gate(cursor, optimized=True)["returned_rows"] == 8
+    assert "SELECT *" in cursor.execute.call_args.args[0]
+    assert "LIMIT 9" in cursor.execute.call_args.args[0]

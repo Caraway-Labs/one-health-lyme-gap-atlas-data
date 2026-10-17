@@ -70,3 +70,69 @@ def snapshot(cursor: Any, normalize: Any, *, optimized: bool) -> dict[str, Any]:
         "membership_sha256": extension["capture_membership_sha256"],
         "row_count": extension["row_count"],
     }
+
+
+SCOPE = (
+    "county_fips IN ('48277','02013') AND period_start=DATE '2025-01-17' "
+    "AND measure_id IN ('nclimgrid_prcp_county_day','nclimgrid_tmin_county_day',"
+    "'nclimgrid_tmax_county_day','nclimgrid_tavg_county_day')"
+)
+
+
+def scientific_gate(cursor: Any, *, optimized: bool) -> dict[str, Any]:
+    """Fixed eight-row full-projection acceptance; no unbounded scientific scan."""
+    import time
+
+    if not optimized:
+        query = (ROOT / "sql/january_climate_full_projection_parity.sql").read_text()
+        cursor.execute(query, timeout=60, _no_retry=True)
+        if cursor.fetchall() != [(8, 8, 0, 0)]:
+            raise ValueError("POINT_FULL_PROJECTION_PARITY")
+        return {"full_projection_parity_query_id": cursor.sfqid}
+    start = time.monotonic()
+    cursor.execute(
+        f"SELECT * FROM {VIEW} WHERE {SCOPE} ORDER BY county_fips,measure_id LIMIT 9",
+        timeout=60,
+        _no_retry=True,
+    )
+    elapsed = time.monotonic() - start
+    columns = [item[0].lower() for item in cursor.description]
+    values = cursor.fetchmany(9)
+    if len(values) != 8:
+        raise ValueError("POINT_SCIENTIFIC_ROW_COUNT")
+    expected = {
+        "prcp": 0,
+        "tmin": -1.992294192037333,
+        "tmax": 16.29939307942125,
+        "tavg": 7.153611977327104,
+    }
+    seen = set()
+    for value in values:
+        row = dict(zip(columns, value, strict=True))
+        code = row["measure_id"].removeprefix("nclimgrid_").removesuffix("_county_day")
+        key = (row["county_fips"], code)
+        if key in seen or code not in expected or row["release_id"] != RELEASE:
+            raise ValueError("POINT_SCIENTIFIC_IDENTITY")
+        seen.add(key)
+        if row["unit"] != ("mm" if code == "prcp" else "degree_Celsius"):
+            raise ValueError("POINT_SCIENTIFIC_UNIT")
+        if row["county_fips"] == "02013":
+            if (
+                row["value"] is not None
+                or row["coverage_status"] != "OUT_OF_SOURCE_COVERAGE"
+                or row["value_state"] != "UNAVAILABLE"
+            ):
+                raise ValueError("POINT_SCIENTIFIC_UNAVAILABLE")
+        elif (
+            row["value"] is None
+            or abs(float(row["value"]) - expected[code]) > 1e-10
+            or row["coverage_status"] != "COMPLETE"
+            or row["value_state"] != ("ZERO" if code == "prcp" else "OBSERVED")
+        ):
+            raise ValueError("POINT_SCIENTIFIC_VALUE")
+    return {
+        "full_projection_query_id": cursor.sfqid,
+        "returned_rows": len(values),
+        "client_seconds": elapsed,
+        "api_acceptance": False,
+    }

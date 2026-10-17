@@ -1,6 +1,6 @@
 # January PROD point-query latency investigation
 
-Status: actual profile analyzed; SELECT-only candidates, no migration. DATA #443
+Status: B measured; forward-only V154 prepared with offline parity. DATA #443
 owns this investigation; API #84 remains disabled. No paid execution, timeout
 change, warehouse resize or PROD mutation is authorized by this document.
 

@@ -336,3 +336,14 @@ def test_target_payload_corruption_with_unchanged_headers_is_rejected(monkeypatc
 
     with pytest.raises(ClimatePublicationBlocked, match="REVISION_CONTENT"):
         climate.verify_payload_candidate(Cursor(), climate.CANDIDATE_SHA)
+
+
+@pytest.mark.parametrize(
+    "capture_ids", [["a" * 64, "a" * 64], [None, "b" * 64], [1, "b" * 64], ["b" * 64, "a" * 64]]
+)
+def test_published_membership_rejects_nonunique_nonstring_or_unsorted_ids(monkeypatch, capture_ids):
+    monkeypatch.setattr(climate, "ROW_COUNT", 2)
+    document = extension()
+    document["capture_ids"] = capture_ids
+    with pytest.raises(ValueError, match="CLIMATE_CAPTURE_IDS"):
+        climate.validate_extension(document)
