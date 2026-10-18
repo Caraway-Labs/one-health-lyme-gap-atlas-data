@@ -108,7 +108,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
 
     if projected:
         assert not any("PRESENTATION.SEMANTIC_" in sql for sql in emitted)
-    if change in {"mapping", "source", "row", "membership"}:
+    if change:
         assert json.loads(receipt.read_text())["mismatches"]
 
 

@@ -201,18 +201,31 @@ def main():
                 args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
                 raise ValueError("Audit projection duplicated an observation identity")
             expected_bundle = ORIGINAL_BUNDLE if release == ORIGINAL else BUNDLE
-            if not result or any(
-                r["RECORD_MATCH_KIND"] == "UNMATCHED"
-                or r["GOVERNED_SOURCE_VERSION_ID"] is None
-                or r["GOVERNED_INGESTION_RUN_ID"] is None
-                or r["ARTIFACT_SHA256"] is None
-                or r["RELEASE_BUNDLE_SHA256"] != expected_bundle
-                or r["SOURCE_VERSION_ID"] != r["GOVERNED_SOURCE_VERSION_ID"]
-                or r["INGESTION_RUN_ID"] != r["GOVERNED_INGESTION_RUN_ID"]
-                or r["SEMANTIC_SOURCE_ROW_HASH"] is None
-                or r["SEMANTIC_SOURCE_ROW_HASH"] != r["GOVERNED_SOURCE_ROW_HASH"]
-                for r in result
-            ):
+            invalid = Counter()
+            for row in result:
+                checks = {
+                    "record_match_kind": row["RECORD_MATCH_KIND"] != "UNMATCHED",
+                    "source_version": row["GOVERNED_SOURCE_VERSION_ID"] is not None
+                    and row["SOURCE_VERSION_ID"] == row["GOVERNED_SOURCE_VERSION_ID"],
+                    "ingestion_run": row["GOVERNED_INGESTION_RUN_ID"] is not None
+                    and row["INGESTION_RUN_ID"] == row["GOVERNED_INGESTION_RUN_ID"],
+                    "artifact_sha256": row["ARTIFACT_SHA256"] is not None,
+                    "release_bundle": row["RELEASE_BUNDLE_SHA256"] == expected_bundle,
+                    "source_row_hash": row["SEMANTIC_SOURCE_ROW_HASH"] is not None
+                    and row["SEMANTIC_SOURCE_ROW_HASH"] == row["GOVERNED_SOURCE_ROW_HASH"],
+                }
+                invalid.update(field for field, valid in checks.items() if not valid)
+            if not result or invalid:
+                receipt["mismatches"].append(
+                    {
+                        "kind": "governed_lineage_validation",
+                        "state": state,
+                        "release": release,
+                        "invalid_rows_by_field": dict(invalid),
+                        "empty_partition": not result,
+                    }
+                )
+                args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
                 raise ValueError("Missing governed row lineage in partition " + state)
             rows.append(
                 multiset(
