@@ -32,7 +32,16 @@ do not extrapolate observations to AK/HI or fill missing support.
 The local ATLAS_PROD_READ connection authenticates MATTHEWCARAWAY, not the API
 service. Its successful SELECT is role evidence only. Runtime audit lacks SELECT
 on Tier 1/base semantic observations; this was not worked around with ACCOUNTADMIN.
-Full historical Tier 1 feature equality and service-user permissions remain unproven.
+The subsequent checksum-bound input comparison proved equality of all six Tier 1
+predictors across 3,144 counties (18,864 cells), with zero changed evidence/context
+fields and identical membership. See
+[`tier1-input-comparison-2026-10-18.json`](tier1-input-comparison-2026-10-18.json).
+The original CSV SHA is `84caef339dd87ad85e2b72be4bddfee6ec40412e803cdf926fc3c3e104b98bf2`;
+the ML projection is byte-equivalent to approved source 024bbbf. The read checked
+the current release before and after capture and retained all row identities.
+Only the aggregate receipt is committed. This supports proposed carry-forward;
+it neither approves it nor replaces the owner procedure's independent source
+lineage/mapping/hash comparison. Service-user permission proof remains pending.
 
 ## Frozen handoff
 
