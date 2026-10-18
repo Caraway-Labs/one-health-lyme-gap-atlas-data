@@ -96,6 +96,8 @@ def main():
     )
     pins = []
     features = []
+    source_identities = {}
+    source_checksums = {}
     for release, bundle in ((ORIGINAL, ORIGINAL_BUNDLE), (TARGET, BUNDLE)):
         release_rows = read(
             "SELECT bundle_sha256,source_manifest FROM "
@@ -176,6 +178,8 @@ def main():
             )
             args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ValueError("Incomplete required source metadata")
+        source_identities[release] = {row["SOURCE_KEY"]: row for row in source_rows}
+        source_checksums[release] = {row["source_key"]: row["artifact_sha256"] for row in selected}
         pins.append((multiset(selected), multiset(source_rows)))
     receipt["canonical_membership_equal"] = True
     changed = {
@@ -259,12 +263,24 @@ def main():
             expected_bundle = ORIGINAL_BUNDLE if release == ORIGINAL else BUNDLE
             invalid = Counter()
             for row in result:
+                source = source_identities[release].get(row.get("SOURCE_KEY"), {})
+                checksum = source_checksums[release].get(row.get("SOURCE_KEY"))
                 complete = all(
                     row.get(field.upper()) is not None and str(row[field.upper()]).strip()
                     for field in ROW_FIELDS.split(",")
                 )
                 checks = {
                     "required_observation_metadata": complete,
+                    "retained_source_identity": all(
+                        row.get(observation) == source.get(metadata)
+                        for observation, metadata in (
+                            ("SOURCE_VERSION_ID", "SOURCE_VERSION_ID"),
+                            ("INGESTION_RUN_ID", "INGESTION_RUN_ID"),
+                            ("ARTIFACT_ID", "ARTIFACT_ID"),
+                        )
+                    ),
+                    "retained_artifact_checksum": str(row.get("ARTIFACT_SHA256")).lower()
+                    == str(checksum).lower(),
                     "record_match_kind": bool(row.get("RECORD_MATCH_KIND"))
                     and row["RECORD_MATCH_KIND"] != "UNMATCHED",
                     "source_version": row["GOVERNED_SOURCE_VERSION_ID"] is not None

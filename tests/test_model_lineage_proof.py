@@ -24,6 +24,8 @@ import pytest
         "missing_metadata",
         "missing_row_field",
         "malformed_checksum",
+        "manifest_artifact_disagreement",
+        "metadata_run_disagreement",
     ],
 )
 def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
@@ -73,7 +75,11 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             sources = [
                 {
                     "source_key": s,
-                    "artifact_sha256": "a" * 64 if change != "malformed_checksum" else "bad",
+                    "artifact_sha256": "bad"
+                    if change == "malformed_checksum"
+                    else "f" * 64
+                    if change == "manifest_artifact_disagreement"
+                    else "a" * 64,
                     "definition_version": 1,
                     "field_map": {"x": "changed" if target and change == "mapping" else "y"},
                 }
@@ -92,6 +98,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
                     "SOURCE_KEY": s,
                     "ARTIFACT_ID": "changed" if target and change == "source" else "a",
                     "SOURCE_VERSION_ID": None if change == "missing_metadata" else "v",
+                    "INGESTION_RUN_ID": "wrong" if change == "metadata_run_disagreement" else "r",
                 }
                 for s in module.SOURCES
             ]
@@ -102,6 +109,8 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             "OBSERVATION_ID": "observation",
             "RELEASE_BUNDLE_SHA256": module.BUNDLE if target else module.ORIGINAL_BUNDLE,
             "SOURCE_VERSION_ID": "v",
+            "SOURCE_KEY": "human",
+            "ARTIFACT_ID": "a",
             "INGESTION_RUN_ID": "r",
             "GOVERNED_SOURCE_ROW_HASH": (
                 "wrong"
