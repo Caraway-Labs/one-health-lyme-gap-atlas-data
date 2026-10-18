@@ -310,6 +310,8 @@ jobs:
         if: ${{ inputs.environment_name == 'production' && inputs.operation != 'build' }}
         timeout-minutes: 10
         env:
+          ATLAS_JANUARY_PROD_SESSION: ''
+          ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: '60'
           SNOWFLAKE_AUTH_METHOD: key_pair
           SNOWFLAKE_USER: OH_LYME_API_SVC
           SNOWFLAKE_ROLE: OH_LYME_PROD_READ

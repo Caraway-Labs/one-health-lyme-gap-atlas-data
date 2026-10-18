@@ -132,6 +132,7 @@ JOIN PRESENTATION.CURRENT_RELEASE_V r ON (
  (r.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR AND r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
  OR EXISTS (SELECT 1 FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY admission
  WHERE admission.artifact_id=a.model_id AND admission.batch_id=b.batch_id
+ AND admission.model_version=a.model_version AND admission.batch_version=b.batch_version
  AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
  AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
  AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256))
@@ -149,6 +150,7 @@ SELECT c.fips AS county_fips,m.model_id,r.release_id,r.bundle_sha256,
            r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
  AND NOT EXISTS(SELECT 1 FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY admission
   WHERE admission.artifact_id=m.model_id AND admission.batch_id=b.batch_id
+  AND admission.model_version='v1' AND admission.batch_version=b.batch_version
   AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
   AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
   AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256)

@@ -55,6 +55,8 @@ def manifest() -> dict:
                 "approval_reference": "owner decision",
                 "expected_rows": 3144,
                 "batch_id": "batch",
+                "batch_version": "v1",
+                "model_version": "v1",
                 "input_release_id": "new",
                 "input_bundle_sha256": "a" * 64,
                 "compatibility_decision": "decision",
@@ -103,6 +105,28 @@ def test_missing_manifest_is_not_legacy_bypass() -> None:
     cursor.fetchmany.return_value = [({}, "a" * 64)]
     with pytest.raises(gate.ReleaseCompletenessBlocked, match="manifest missing"):
         gate.verify_candidate(cursor, "new")
+
+
+def test_exception_requires_matching_retained_owner_record() -> None:
+    artifacts = gate.validate_manifest(manifest())
+    item = artifacts["tier1"]
+    item.update(disposition="excluded", expected_rows=0, exception_decision="owner-exception")
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (0,)
+    with pytest.raises(gate.ReleaseCompletenessBlocked, match="owner exception missing"):
+        gate.authorize_artifacts(cursor, "new", "a" * 64, artifacts)
+    cursor.fetchone.return_value = (1,)
+    assert (
+        gate.authorize_artifacts(cursor, "new", "a" * 64, artifacts)["tier1"]["expected_rows"] == 0
+    )
+
+
+def test_regenerated_bundle_token_binds_persisted_digest_without_mutating_manifest() -> None:
+    artifacts = gate.validate_manifest(manifest())
+    artifacts["tier1"]["input_bundle_sha256"] = "TARGET_BUNDLE"
+    resolved = gate.authorize_artifacts(MagicMock(), "new", "a" * 64, artifacts)
+    assert resolved["tier1"]["input_bundle_sha256"] == "a" * 64
+    assert artifacts["tier1"]["input_bundle_sha256"] == "TARGET_BUNDLE"
 
 
 @pytest.mark.parametrize("operation", ["publish", "rollback"])

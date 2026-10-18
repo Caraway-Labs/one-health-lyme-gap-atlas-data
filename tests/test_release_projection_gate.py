@@ -37,6 +37,8 @@ class ProjectionCursor:
                 (k, 3144) for k in ("human", "context_svi", "context_rucc", "context_nlcd_2025")
             ]
         if "GROUP BY" in self.sql:
+            if self.missing_model:
+                return []
             return [("class", 3144)] if self.distribution else [("other", 3144)]
         return [("required",)] if self.metadata else [("replacement",)]
 
@@ -49,6 +51,8 @@ def receipt():
                 "presentation_rows": 3144,
                 "input_release_id": "old",
                 "batch_id": "batch",
+                "batch_version": "v1",
+                "model_version": "v1",
                 "class_counts": {"class": 3144},
             }
             for k in gate.REQUIRED
@@ -61,6 +65,17 @@ def receipt():
 
 def test_valid_projected_release_passes():
     gate.verify_current(ProjectionCursor(), "new", receipt())
+
+
+def test_explicit_zero_eligibility_receipt_is_checked_without_inventing_classes():
+    expected = receipt()
+    for key in (
+        "tier1",
+        "surveillance-situation-four-state",
+        "surveillance-situation-tick-pathogen",
+    ):
+        expected["artifacts"][key].update(expected_rows=0, class_counts={})
+    gate.verify_current(ProjectionCursor(missing_model=True), "new", expected)
 
 
 @pytest.mark.parametrize(

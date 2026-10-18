@@ -19,7 +19,9 @@
       "vintage": "2023",
       "disposition": "carry_forward",
       "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "source_id": "cdc_lyme",
+      "dataset_id": "x5j9-wybp"
     },
     {
       "id": "tick",
@@ -34,8 +36,10 @@
       "presentation_rows": null,
       "vintage": "through 2025-12-31",
       "disposition": "carry_forward",
-      "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "observed_status": "source metadata published; complete typed consumer eligibility not verified in this session",
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "source_id": "cdc_arbonet_tick_module",
+      "dataset_id": "cdc-ixodes-county-status-2025"
     },
     {
       "id": "pathogen",
@@ -50,8 +54,10 @@
       "presentation_rows": null,
       "vintage": "through 2025-12-31",
       "disposition": "carry_forward",
-      "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "observed_status": "source metadata published; complete typed consumer eligibility not verified in this session",
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "source_id": "cdc_arbonet_tick_module",
+      "dataset_id": "cdc-ixodes-pathogen-status-2025"
     },
     {
       "id": "context_svi",
@@ -67,7 +73,9 @@
       "vintage": "2022 (2018-2022 ACS)",
       "disposition": "carry_forward",
       "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "source_id": "cdc_atsdr_svi",
+      "dataset_id": "atsdr-svi-2022-county-layer"
     },
     {
       "id": "context_rucc",
@@ -83,7 +91,9 @@
       "vintage": "2023",
       "disposition": "carry_forward",
       "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "source_id": "usda_ers",
+      "dataset_id": "rural-urban-continuum-codes-2023"
     },
     {
       "id": "context_nlcd_2025",
@@ -99,7 +109,9 @@
       "vintage": "C1V2-2025",
       "disposition": "carry_forward",
       "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "source_id": "mrlc_annual_nlcd_derived_county_aggregates",
+      "dataset_id": "annual-nlcd-c1v2-2025-reviewed-demo-cohort"
     },
     {
       "id": "climate",
@@ -135,10 +147,12 @@
       "batch_id": "tier1-review-priority-5536b5caad95cf47",
       "input_release_id": "governed-2026-09-18-unknown-coverage",
       "input_bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026",
-      "compatibility_decision": "PENDING_TIER1_OWNER_ADMISSION",
+      "compatibility_decision": "tier1-september-to-january-compatibility-v1",
       "disposition": "carry_forward",
       "observed_status": "stored/API available; Web release mismatch; scientifically eligible count unverified",
-      "read_role_access": "Tier1 view SELECT verified; service canary pending"
+      "read_role_access": "Tier1 view SELECT verified; service canary pending",
+      "batch_version": "tier1-review-priority-5536b5caad95cf47",
+      "model_version": "tier1-statistical-reference-v1"
     },
     {
       "id": "surveillance-situation-four-state",
@@ -162,7 +176,9 @@
       "compatibility_decision": "ML143/ML145 exact release and bundle",
       "disposition": "regenerated",
       "observed_status": "approved ML handoff; not published in Snowflake",
-      "read_role_access": "pending V158 DEV validation and protected PROD promotion"
+      "read_role_access": "pending V158 DEV validation and protected PROD promotion",
+      "batch_version": "v1",
+      "model_version": "v1"
     },
     {
       "id": "surveillance-situation-tick-pathogen",
@@ -186,7 +202,9 @@
       "compatibility_decision": "ML143/ML145 exact release and bundle",
       "disposition": "regenerated",
       "observed_status": "approved ML handoff; not published in Snowflake",
-      "read_role_access": "pending V158 DEV validation and protected PROD promotion"
+      "read_role_access": "pending V158 DEV validation and protected PROD promotion",
+      "batch_version": "v1",
+      "model_version": "v1"
     }
   ],
   "views": [
@@ -203,7 +221,8 @@
     "INTELLIGENCE_FEED_V",
     "INTELLIGENCE_FEED_V2",
     "CURRENT_COUNTY_SURVEILLANCE_SITUATIONS_V",
-    "COUNTY_SURVEILLANCE_SITUATION_AVAILABILITY_V"
+    "COUNTY_SURVEILLANCE_SITUATION_AVAILABILITY_V",
+    "CURRENT_RELEASE_COMPLETENESS_V"
   ],
   "independent_consumers": [
     {

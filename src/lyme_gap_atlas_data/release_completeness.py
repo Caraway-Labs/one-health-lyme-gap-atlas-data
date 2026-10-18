@@ -28,6 +28,7 @@ VIEWS = (
     "INTELLIGENCE_FEED_V2",
     "CURRENT_COUNTY_SURVEILLANCE_SITUATIONS_V",
     "COUNTY_SURVEILLANCE_SITUATION_AVAILABILITY_V",
+    "CURRENT_RELEASE_COMPLETENESS_V",
 )
 REQUIRED = {
     "human",
@@ -91,6 +92,8 @@ def validate_manifest(document: Any) -> dict[str, dict[str, Any]]:
         }:
             for field in (
                 "batch_id",
+                "batch_version",
+                "model_version",
                 "input_release_id",
                 "input_bundle_sha256",
                 "compatibility_decision",
@@ -120,6 +123,72 @@ def validate_manifest(document: Any) -> dict[str, dict[str, Any]]:
         if INDEPENDENT[item["view"]] and not item.get("expected_keys"):
             raise ReleaseCompletenessBlocked("Required metadata identities missing")
     return result
+
+
+def authorize_artifacts(
+    cursor: Any, release_id: str, bundle_sha256: str, artifacts: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Verify retained human decisions using READ-accessible projections only."""
+    artifacts = {identity: dict(item) for identity, item in artifacts.items()}
+    for identity, item in artifacts.items():
+        if item["disposition"] in {"excluded", "degraded"}:
+            cursor.execute(
+                "SELECT COUNT(*) FROM PRESENTATION.RELEASE_COMPLETENESS_EXCEPTIONS_V "
+                "WHERE decision_id=%s AND target_release_id=%s AND target_bundle_sha256=%s "
+                "AND artifact_id=%s AND expected_rows=%s",
+                (
+                    item["exception_decision"],
+                    release_id,
+                    bundle_sha256,
+                    identity,
+                    item["expected_rows"],
+                ),
+            )
+            decision = cursor.fetchone()
+            if decision is None or int(decision[0]) != 1:
+                raise ReleaseCompletenessBlocked("Retained owner exception missing: " + identity)
+            continue
+        if identity in {
+            "tier1",
+            "surveillance-situation-four-state",
+            "surveillance-situation-tick-pathogen",
+        }:
+            # Avoid a circular content hash when a regenerated model is fitted
+            # to this candidate. This token binds only to the persisted digest;
+            # post-pointer validation still requires the real output identity.
+            if (
+                item["input_release_id"] == release_id
+                and item["input_bundle_sha256"] == "TARGET_BUNDLE"
+            ):
+                item["input_bundle_sha256"] = bundle_sha256
+            if (item["input_release_id"], item["input_bundle_sha256"]) != (
+                release_id,
+                bundle_sha256,
+            ):
+                cursor.execute(
+                    "SELECT COUNT(*) FROM PRESENTATION.MODEL_RELEASE_COMPATIBILITY_V "
+                    "WHERE decision_id=%s AND artifact_id=%s AND batch_id=%s "
+                    "AND model_version=%s AND batch_version=%s "
+                    "AND input_release_id=%s AND input_bundle_sha256=%s "
+                    "AND target_release_id=%s AND target_bundle_sha256=%s",
+                    (
+                        item["compatibility_decision"],
+                        identity,
+                        item["batch_id"],
+                        item["model_version"],
+                        item["batch_version"],
+                        item["input_release_id"],
+                        item["input_bundle_sha256"],
+                        release_id,
+                        bundle_sha256,
+                    ),
+                )
+                match = cursor.fetchone()
+                if match is None or int(match[0]) != 1:
+                    raise ReleaseCompletenessBlocked(
+                        "Historical model requires approved compatibility admission: " + identity
+                    )
+    return artifacts
 
 
 def verify_candidate(cursor: Any, release_id: str) -> dict[str, Any]:
@@ -154,60 +223,16 @@ def verify_candidate(cursor: Any, release_id: str) -> dict[str, Any]:
     ).hexdigest()
     artifacts = validate_manifest(manifest)
     assert isinstance(manifest, dict)  # validate_manifest has already enforced this.
-    artifacts = {identity: dict(item) for identity, item in artifacts.items()}
+    artifacts = authorize_artifacts(cursor, release_id, rows[0][1], artifacts)
     for identity, item in artifacts.items():
         if item["disposition"] in {"excluded", "degraded"}:
-            cursor.execute(
-                "SELECT COUNT(*) FROM PRESENTATION.RELEASE_COMPLETENESS_EXCEPTIONS_V "
-                "WHERE decision_id=%s AND target_release_id=%s AND target_bundle_sha256=%s "
-                "AND artifact_id=%s AND expected_rows=%s",
-                (
-                    item["exception_decision"],
-                    release_id,
-                    rows[0][1],
-                    identity,
-                    item["expected_rows"],
-                ),
-            )
-            decision = cursor.fetchone()
-            if decision is None or int(decision[0]) != 1:
-                raise ReleaseCompletenessBlocked("Retained owner exception missing: " + identity)
             continue
-        if identity in {
+        if identity not in {
             "tier1",
             "surveillance-situation-four-state",
             "surveillance-situation-tick-pathogen",
+            "climate",
         }:
-            # Avoid a circular content hash when a regenerated model is fitted
-            # to this candidate. This token binds only to the persisted digest;
-            # post-pointer validation still requires the real output identity.
-            if (
-                item["input_release_id"] == release_id
-                and item["input_bundle_sha256"] == "TARGET_BUNDLE"
-            ):
-                item["input_bundle_sha256"] = rows[0][1]
-            if (item["input_release_id"], item["input_bundle_sha256"]) != (release_id, rows[0][1]):
-                cursor.execute(
-                    "SELECT COUNT(*) FROM PRESENTATION.MODEL_RELEASE_COMPATIBILITY_V "
-                    "WHERE decision_id=%s AND artifact_id=%s AND batch_id=%s "
-                    "AND input_release_id=%s AND input_bundle_sha256=%s "
-                    "AND target_release_id=%s AND target_bundle_sha256=%s",
-                    (
-                        item["compatibility_decision"],
-                        identity,
-                        item["batch_id"],
-                        item["input_release_id"],
-                        item["input_bundle_sha256"],
-                        release_id,
-                        rows[0][1],
-                    ),
-                )
-                match = cursor.fetchone()
-                if match is None or int(match[0]) != 1:
-                    raise ReleaseCompletenessBlocked(
-                        "Historical model requires approved compatibility admission: " + identity
-                    )
-        elif identity != "climate":
             cursor.execute(
                 "SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_OBSERVATIONS "
                 "WHERE release_id=%s AND source_key=%s",
@@ -270,17 +295,32 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
     }
     for identity, (view, batch_column) in probes.items():
         item = artifacts[identity]
-        model_filter = " AND model_id=%s" if identity != "tier1" else ""
+        model_filter = " AND model_version=%s"
         expected_release = item["input_release_id"] if identity == "tier1" else release_id
-        params = (
-            (item["batch_id"], expected_release, identity)
-            if model_filter
-            else (item["batch_id"], expected_release)
-        )
+        params: tuple[Any, ...] = (item["batch_id"], expected_release, item["model_version"])
+        if identity != "tier1":
+            model_filter += " AND model_id=%s AND batch_version=%s"
+            params += (identity, item["batch_version"])
+        if identity == "tier1":
+            model_filter += (
+                " AND EXISTS (SELECT 1 FROM PRESENTATION.CURRENT_RELEASE_V r_current "
+                "WHERE r_current.release_id=%s AND ((v.release_id=r_current.release_id "
+                "AND v.bundle_sha256=r_current.bundle_sha256) OR EXISTS (SELECT 1 FROM "
+                "PRESENTATION.MODEL_RELEASE_COMPATIBILITY_V admission "
+                "WHERE admission.artifact_id='tier1' "
+                "AND admission.batch_id=v.prediction_batch_version "
+                "AND admission.batch_version=v.prediction_batch_version "
+                "AND admission.model_version=v.model_version "
+                "AND admission.input_release_id=v.release_id "
+                "AND admission.input_bundle_sha256=v.bundle_sha256 "
+                "AND admission.target_release_id=r_current.release_id "
+                "AND admission.target_bundle_sha256=r_current.bundle_sha256)))"
+            )
+            params += (release_id,)
         cursor.execute(
             "SELECT COUNT(*), COUNT(DISTINCT county_fips) FROM PRESENTATION."
             + view
-            + " WHERE "
+            + " AS v WHERE "
             + batch_column
             + "=%s AND release_id=%s"
             + model_filter,
@@ -298,7 +338,7 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
             + class_column
             + ",COUNT(*) FROM PRESENTATION."
             + view
-            + " WHERE "
+            + " AS v WHERE "
             + batch_column
             + "=%s AND release_id=%s"
             + model_filter

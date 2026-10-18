@@ -124,6 +124,10 @@ The production environment currently has neither. The account/security owner mus
 provision these directly; never copy them into chat, local files or Git. The
 protected workflow checks provisioning before any publish/rollback pointer write
 and runs the real service-identity verification afterwards.
+It consumes the exact current release's reviewed completeness projection, including
+separately retained owner exceptions; it does not apply a hardcoded full-coverage
+profile to an intentionally degraded release. The completeness manifest must
+contain only non-secret lineage references, never private artifact URLs or tokens.
 
 DEV currently points to `governed-2026-10-09-january-climate-dev`, bundle
 `67cdf470a8c39973251d8325777132a840f63ee42b67f129973936c30e66d9f4`.

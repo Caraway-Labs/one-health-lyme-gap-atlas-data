@@ -7,11 +7,15 @@ not a personal PAT workaround. Never log exception text or connection settings.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from lyme_gap_atlas_data.release_completeness import VIEWS, validate_manifest, verify_current
+from lyme_gap_atlas_data.release_completeness import (
+    VIEWS,
+    authorize_artifacts,
+    validate_manifest,
+    verify_current,
+)
 from lyme_gap_atlas_data.sql_sessions import connect
 
 
@@ -37,17 +41,19 @@ def run() -> dict:
         if len(releases) != 1:
             raise ValueError("Current release ambiguous")
         release, bundle = releases[0]
-        profile_path = (
-            Path(__file__).parents[1]
-            / "docs/contracts/semantic-release"
-            / "release-completeness-2026-10-18.json"
-        )
-        profile = json.loads(profile_path.read_text())
+        cursor.execute("SELECT completeness FROM PRESENTATION.CURRENT_RELEASE_COMPLETENESS_V")
+        profiles = cursor.fetchmany(2)
+        if len(profiles) != 1:
+            raise ValueError("Current completeness admission ambiguous")
+        profile = profiles[0][0]
+        if isinstance(profile, str):
+            profile = json.loads(profile)
+        artifacts = authorize_artifacts(cursor, release, bundle, validate_manifest(profile))
         verify_current(
             cursor,
             release,
             {
-                "artifacts": validate_manifest(profile),
+                "artifacts": artifacts,
                 "independent_consumers": profile["independent_consumers"],
             },
         )
@@ -57,40 +63,14 @@ def run() -> dict:
         if tuple(cursor.fetchone()) != (3144, 3144):
             raise ValueError("Incomplete county release")
         cursor.execute(
-            "SELECT release_id,bundle_sha256,prediction_batch_version,priority_tier,COUNT(*) "
-            "FROM PRESENTATION.CURRENT_TIER1_COUNTY_REVIEW_V GROUP BY ALL"
-        )
-        rows = cursor.fetchall()
-        if {r[3]: r[4] for r in rows} != {"HIGH": 315, "MEDIUM": 628, "LOW": 2201}:
-            raise ValueError("Incomplete Tier 1 output")
-        identities = {(r[0], r[1], r[2]) for r in rows}
-        if len(identities) != 1:
-            raise ValueError("Ambiguous model batch")
-        input_release, input_bundle, batch = identities.pop()
-        if (input_release, input_bundle) != (release, bundle):
-            cursor.execute(
-                "SELECT COUNT(*) FROM PRESENTATION.MODEL_RELEASE_COMPATIBILITY_V "
-                "WHERE artifact_id='tier1' AND batch_id=%s AND input_release_id=%s "
-                "AND input_bundle_sha256=%s AND target_release_id=%s AND target_bundle_sha256=%s",
-                (batch, input_release, input_bundle, release, bundle),
-            )
-            if cursor.fetchone()[0] != 1:
-                raise ValueError("Tier 1 not admitted for current release")
-        cursor.execute(
-            "SELECT model_id,COUNT(*),COUNT(DISTINCT county_fips) "
-            "FROM PRESENTATION.CURRENT_COUNTY_SURVEILLANCE_SITUATIONS_V GROUP BY model_id"
-        )
-        counts = cursor.fetchall()
-        if {r[0]: (r[1], r[2]) for r in counts} != {
-            "surveillance-situation-four-state": (3144, 3144),
-            "surveillance-situation-tick-pathogen": (3144, 3144),
-        }:
-            raise ValueError("Incomplete surveillance situation output")
-        cursor.execute(
             "SELECT COUNT(*),COUNT_IF(availability<>'AVAILABLE') FROM "
             "PRESENTATION.COUNTY_SURVEILLANCE_SITUATION_AVAILABILITY_V"
         )
-        if tuple(cursor.fetchone()) != (6288, 0):
+        expected_situations = sum(
+            artifacts[key]["expected_rows"]
+            for key in ("surveillance-situation-four-state", "surveillance-situation-tick-pathogen")
+        )
+        if tuple(cursor.fetchone()) != (6288, 6288 - expected_situations):
             raise ValueError("Surveillance situation eligibility regression")
         cursor.execute(
             "SELECT COUNT(*) FROM (SELECT model_id,county_fips,COUNT(*) AS n,"
@@ -98,17 +78,18 @@ def run() -> dict:
             "TRY_TO_DOUBLE(p.value:probability::VARCHAR) NOT BETWEEN 0 AND 1) AS bad,"
             "SUM(TRY_TO_DOUBLE(p.value:probability::VARCHAR)) AS total "
             "FROM PRESENTATION.CURRENT_COUNTY_SURVEILLANCE_SITUATIONS_V s,"
-            "LATERAL FLATTEN(INPUT=>s.probabilities) p GROUP BY model_id,county_fips) "
+            "LATERAL FLATTEN(INPUT=>s.probabilities,OUTER=>TRUE) p GROUP BY model_id,county_fips) "
             "WHERE n<>4 OR bad<>0 OR ABS(total-1)>1e-6"
         )
         if cursor.fetchone()[0] != 0:
             raise ValueError("Invalid published membership probabilities")
-        cursor.execute(
-            "SELECT county_fips,priority_tier FROM PRESENTATION.CURRENT_TIER1_COUNTY_REVIEW_V "
-            "WHERE county_fips IN ('36001','01003','01001')"
-        )
-        if dict(cursor.fetchall()) != {"36001": "HIGH", "01003": "MEDIUM", "01001": "LOW"}:
-            raise ValueError("Tier 1 representative county regression")
+        if artifacts["tier1"]["expected_rows"] > 0:
+            cursor.execute(
+                "SELECT county_fips,priority_tier FROM PRESENTATION.CURRENT_TIER1_COUNTY_REVIEW_V "
+                "WHERE county_fips IN ('36001','01003','01001')"
+            )
+            if dict(cursor.fetchall()) != {"36001": "HIGH", "01003": "MEDIUM", "01001": "LOW"}:
+                raise ValueError("Tier 1 representative county regression")
         # Probe only denial-safe SELECT/SHOW. Never execute a publisher or DML
         # to test privileges against real approved production data.
         for table in (
@@ -139,8 +120,8 @@ def run() -> dict:
         "service_identity": "OH_LYME_API_SVC",
         "release_id": release,
         "bundle_sha256": bundle,
-        "tier1_rows": 3144,
-        "situations_rows_per_fit": 3144,
+        "tier1_eligible_rows": artifacts["tier1"]["expected_rows"],
+        "situations_eligible_rows": expected_situations,
     }
 
 
