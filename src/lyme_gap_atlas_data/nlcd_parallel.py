@@ -126,6 +126,13 @@ def contained(root: Path, relative: str) -> Path:
     return path
 
 
+def plain_path(path: Path) -> None:
+    require(
+        not any(p.is_symlink() for p in [path, *path.parents]),
+        "Symlink paths cannot own scientific checkpoints",
+    )
+
+
 def fips_list(values: list[str]) -> list[str]:
     require(
         all(isinstance(f, str) and re.fullmatch(r"[0-9]{5}", f) for f in values),
@@ -237,6 +244,7 @@ def validate_rows(rows: list[Json], fips: str, lineage_id: str, basis: Json) -> 
 
 def audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> list[Json]:
     """Validate saved partitions, not merely attempt receipts. No files are written."""
+    plain_path(root)
     contexts = sorted(root.glob("*.lineage.json"))
     if not contexts:
         require(not list(root.rglob("*.json")), "Partitions without lineage")

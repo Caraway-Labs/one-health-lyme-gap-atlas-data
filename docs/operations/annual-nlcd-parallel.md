@@ -44,9 +44,11 @@ Preserve directory contents and bytes when staging:
 /srv/nlcd/state/                      # new owned writable checkpoints/receipts
 ```
 
-Use a cached immutable image ID or repository digest. The prior image ID is
+Use a cached immutable image ID or repository digest resolving to the exact audited
+Linux/amd64 image. Its required image ID is
 `sha256:a1a2939b969fd2ec8ca78a973f921b95486f97a71b7ddfc4c4be4be1a6c3b6d7`.
-Transport that exact image separately when authorized; the operator never pulls.
+Transport that exact image separately when authorized; the operator never pulls
+and rejects rebuilt/substituted image IDs even if package version strings match.
 It verifies image software against the original lineage with a short network-off
 container, and rehashes all prepared inputs before launching workers.
 
@@ -195,6 +197,13 @@ retries and host headroom. Report cold/warm cache conditions without clearing
 system caches automatically. Do not assume linear speedup or extrapolate this
 small panel without geographic limitations. Benchmark scope cannot emit a
 national assembly.
+
+For the opt-in one-county integration test, set `NLCD_DOCKER_ROOT` to the retained
+task-8 directory and run `pytest tests/test_nlcd_parallel.py -k linux_docker`.
+On Windows, select a new short `--basetemp C:\temp\nlcd-proof-UNIQUE` path to
+avoid legacy path-length limits. This test uses only the cached audited image,
+a 900-second deadline and a new temporary Arlington result; it removes only its
+test-owned container. Unset the variable for normal fixture-only quality runs.
 
 ## Invariant / evidence matrix
 

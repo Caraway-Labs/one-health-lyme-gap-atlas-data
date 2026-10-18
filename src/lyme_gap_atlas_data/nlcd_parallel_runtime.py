@@ -25,17 +25,28 @@ from .nlcd_parallel import (
     canonical,
     file_hash,
     immutable,
+    plain_path,
     read_json,
     require,
     verify_accepted,
 )
 
 LABEL = "atlas.nlcd.plan"
+RUNTIME_IMAGE_ID = "sha256:a1a2939b969fd2ec8ca78a973f921b95486f97a71b7ddfc4c4be4be1a6c3b6d7"
 
 
 def boot_id() -> str:
     path = Path("/proc/sys/kernel/random/boot_id")
     return path.read_text().strip() if path.exists() else "unavailable"
+
+
+def validate_image(image: Json) -> None:
+    require(
+        image["Os"] == "linux"
+        and image["Architecture"] == "amd64"
+        and image["Id"] == RUNTIME_IMAGE_ID,
+        "Exact audited Linux/amd64 image required; do not substitute a rebuilt runtime",
+    )
 
 
 def command(arguments: list[str], timeout: int = 60) -> str:
@@ -128,12 +139,22 @@ class Docker:
         return command(["docker", *arguments])
 
 
-def owned(container: Json, plan_id: str, worker: int) -> None:
+def owned(container: Json, plan_id: str, worker: int, output: Path | None = None) -> None:
     labels = container["Config"]["Labels"]
     require(
         labels.get(LABEL) == plan_id and labels.get("atlas.nlcd.worker") == str(worker),
         "Container ownership conflict; never stop or adopt a foreign container",
     )
+    if output is not None:
+        require(
+            any(
+                m["Destination"] == "/results"
+                and m["RW"]
+                and Path(m["Source"]).resolve() == output.resolve()
+                for m in container.get("Mounts", [])
+            ),
+            "Container output mount belongs to a different state directory",
+        )
 
 
 def worker_command(
@@ -214,7 +235,19 @@ def status(plan: Json, state: Path) -> Json:
     workers = []
     for index, selected in enumerate(plan["workers"]):
         root = state / f"worker-{index:02d}"
-        refs = audit_run(root / "results", plan["basis"], selected)
+        try:
+            refs = audit_run(root / "results", plan["basis"], selected)
+        except (json.JSONDecodeError, FileNotFoundError):
+            workers.append(
+                {
+                    "worker": index,
+                    "assigned": len(selected),
+                    "completed": 0,
+                    "state": "SNAPSHOT_PENDING",
+                    "last_operator_status": None,
+                }
+            )
+            continue
         status_path = root / "status.json"
         workers.append(
             {
@@ -251,7 +284,7 @@ def reconcile_lock(root: Path, container: Json, meta: Json) -> None:
 
 
 def finish_attempt(plan: Json, root: Path, meta: Json, container: Json, docker: Docker) -> Json:
-    owned(container, plan["plan_id"], meta["worker"])
+    owned(container, plan["plan_id"], meta["worker"], root / "results")
     refs = audit_run(root / "results", plan["basis"], plan["workers"][meta["worker"]])
     require(
         [r["file_sha256"] for r in refs[: len(meta["prefix"])]] == meta["prefix"],
@@ -275,6 +308,11 @@ def finish_attempt(plan: Json, root: Path, meta: Json, container: Json, docker: 
         "exit_code": code,
         "completed": len(refs),
         "new_counties": len(refs) - len(meta["prefix"]),
+        "next_county": (
+            plan["workers"][meta["worker"]][len(refs)]
+            if len(refs) < len(plan["workers"][meta["worker"]])
+            else None
+        ),
         "kind": (
             "SUCCESS"
             if code == 0
@@ -300,24 +338,41 @@ def finish_attempt(plan: Json, root: Path, meta: Json, container: Json, docker: 
 def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bool:
     """One worker transition. Immutable intent exists before any Docker mutation."""
     root = args.state / f"worker-{index:02d}"
+    plain_path(root / "results")
     selected = plan["workers"][index]
     (root / "results").mkdir(parents=True, exist_ok=True)
     metas = sorted(root.glob("attempt-*.intent.json"))
-    refs = audit_run(root / "results", plan["basis"], selected)
+    refs: list[Json]
     if metas:
         meta = read_json(metas[-1])
+        require(
+            meta["plan_id"] == plan["plan_id"]
+            and meta["worker"] == index
+            and meta["attempt"] == len(metas)
+            and meta["name"] == f"atlas-nlcd-{plan['plan_id'][:20]}-{index:02d}-{len(metas):05d}",
+            "Attempt intent conflicts with assignment/worker identity",
+        )
         result_path = root / f"attempt-{meta['attempt']:05d}.result.json"
         container = docker.inspect(meta["name"])
         if container is None:
             raise ValueError("Recorded container missing; halt, preserve evidence")
-        owned(container, plan["plan_id"], index)
+        owned(container, plan["plan_id"], index, root / "results")
         if container["State"]["Running"]:
-            require(not result_path.exists(), "Terminal receipt has a running owner")
             started = datetime.fromisoformat(container["State"]["StartedAt"].replace("Z", "+00:00"))
             require(
                 (datetime.now(UTC) - started).total_seconds() <= args.seconds + 60,
                 f"Worker {index} stalled beyond hard deadline; stopping owned workload",
             )
+        try:
+            refs = audit_run(root / "results", plan["basis"], selected)
+        except (json.JSONDecodeError, FileNotFoundError):
+            # The unchanged calculator's initial lineage uses open("x"); observing
+            # its filename before the write completes is not a successful audit.
+            require(container["State"]["Running"], "Terminal worker has unreadable checkpoints")
+            atomic_status(root / "status.json", {"state": "SNAPSHOT_PENDING"})
+            return False
+        if container["State"]["Running"]:
+            require(not result_path.exists(), "Terminal receipt has a running owner")
             atomic_status(
                 root / "status.json",
                 {
@@ -340,7 +395,8 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
         if result["kind"] == "FAILED":
             atomic_status(root / "status.json", {"state": "FAILED", "result": result})
             raise ValueError(
-                f"Worker {index} failed exit {result['exit_code']}; inspect logs; no auto retry"
+                f"Worker {index} failed exit {result['exit_code']} at county "
+                f"{result.get('next_county')}; inspect logs/deadline; no auto retry"
             )
         reconcile_lock(root, container, meta)
         if result["kind"] == "TIMEOUT_WITH_PROGRESS":
@@ -358,6 +414,8 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
                 read_json(p)["kind"] == "INTERRUPTED" for p in root.glob("attempt-*.result.json")
             )
             require(interrupted_count <= 2, "Repeated interruptions: halt for operator diagnosis")
+    else:
+        refs = audit_run(root / "results", plan["basis"], selected)
     if len(refs) == len(selected):
         atomic_status(root / "status.json", {"state": "COMPLETE", "completed": len(refs)})
         return True
@@ -382,22 +440,27 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
 
 
 def stop_owned(plan: Json, state: Path, docker: Docker) -> None:
+    errors = []
     for index in range(len(plan["workers"])):
-        metas = sorted((state / f"worker-{index:02d}").glob("attempt-*.intent.json"))
-        if metas:
-            meta = read_json(metas[-1])
-            container = docker.inspect(meta["name"])
-            if container is not None:
-                owned(container, plan["plan_id"], index)
-                if container["State"]["Running"]:
-                    path = (
-                        state / f"worker-{index:02d}" / f"attempt-{meta['attempt']:05d}.stop.json"
-                    )
-                    if not path.exists():
-                        immutable(
-                            path, {"reason": "SUPERVISOR_SHUTDOWN", "requested_at": time.time()}
-                        )
-                    docker.action("stop", "--time", "15", meta["name"])
+        try:
+            stop_worker(plan, state, docker, index)
+        except Exception as exc:
+            errors.append(f"worker {index}: {exc}")
+    require(not errors, "Owned shutdown requires attention: " + "; ".join(errors))
+
+
+def stop_worker(plan: Json, state: Path, docker: Docker, index: int) -> None:
+    metas = sorted((state / f"worker-{index:02d}").glob("attempt-*.intent.json"))
+    if metas:
+        meta = read_json(metas[-1])
+        container = docker.inspect(meta["name"])
+        if container is not None:
+            owned(container, plan["plan_id"], index, state / f"worker-{index:02d}" / "results")
+            if container["State"]["Running"]:
+                path = state / f"worker-{index:02d}" / f"attempt-{meta['attempt']:05d}.stop.json"
+                if not path.exists():
+                    immutable(path, {"reason": "SUPERVISOR_SHUTDOWN", "requested_at": time.time()})
+                docker.action("stop", "--time", "15", meta["name"])
 
 
 def preflight(plan: Json, args: argparse.Namespace, docker: Docker) -> None:
@@ -441,7 +504,7 @@ def preflight(plan: Json, args: argparse.Namespace, docker: Docker) -> None:
         "Insufficient Docker CPU/RAM plus 2 GiB reserve",
     )
     image = json.loads(docker.action("image", "inspect", args.image))[0]
-    require(image["Os"] == "linux", "Linux image required")
+    validate_image(image)
     software_code = (
         "import json,platform,numpy,rasterio,pyproj,shapely;"
         "print(json.dumps(dict(python=platform.python_version(),numpy=numpy.__version__,"
@@ -489,6 +552,7 @@ def preflight(plan: Json, args: argparse.Namespace, docker: Docker) -> None:
 
 
 def run(plan: Json, args: argparse.Namespace) -> None:
+    plain_path(args.state)
     args.state.mkdir(parents=True, exist_ok=True)
     with ownership(args.state):
         docker = Docker()

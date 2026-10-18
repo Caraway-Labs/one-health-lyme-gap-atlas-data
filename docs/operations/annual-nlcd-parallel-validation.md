@@ -50,12 +50,26 @@ Generated private manifests remain outside Git.
   committing a county; the supervisor halted with exit 124 and did not retry.
   The controlled proof test uses the existing wrapper's 900-second default and
   one CPU. The calculator's 1,800-second maximum is unchanged.
+- The 900-second proof passed (one temporary Arlington county; 262.95 seconds
+  pytest wall time). Its test-owned container was removed. The final output-mount
+  ownership check was also exercised against the real Docker container metadata.
+- A repeat using a long workspace-local Windows test path failed at the Windows
+  file-path limit. Use a short `--basetemp` (for example a new directory under
+  `C:\temp`) for retained-input Windows Docker tests. Linux execution is the
+  supported deployment target. Monitoring now also reports partially published
+  initial lineage as `SNAPSHOT_PENDING`; terminal/assembly audits remain strict.
 - Repository lint/format pass. The new modules pass strict mypy locally. A reused
   Windows development environment lacks Shapely typing stubs for pre-existing
   modules; that full typing attempt is not claimed passed.
 - A Windows full pytest attempt was stopped at 7% without a reported failure
   because it competed with another active repository job and the bounded Docker
   proof. Exact-commit hosted Linux quality is the full-suite/build/dbt authority.
+- Native Windows `dbt parse --no-partial-parse` passed without Snowflake queries.
+- Initial commit `e9c6b5016d5e5d2491784e0b9993e2fcad447c11` passed hosted Quality
+  run `39088950582`: 4,516 tests passed / two skipped, full strict typing,
+  lint/format, dbt parse, Docker build/packaged runtime, both dry runs and secret
+  scanning. Final review adds ownership/symlink/runtime-image regression checks;
+  the PR check must pass again at the final reviewed head.
 - No multi-worker source-backed benchmark, VM provisioning, transfer, national
   execution, Snowflake operation, deployment or scientific admission is claimed.
 

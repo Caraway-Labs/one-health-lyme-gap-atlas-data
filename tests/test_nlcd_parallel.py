@@ -280,6 +280,17 @@ class FakeDocker(rt.Docker):
             )
             self.containers[name] = {
                 "Config": {"Labels": labels},
+                "Mounts": [
+                    {
+                        "Source": fields["src"],
+                        "Destination": fields["dst"],
+                        "RW": "readonly" not in spec.split(","),
+                    }
+                    for i, arg in enumerate(arguments)
+                    if arg == "--mount"
+                    for spec in [arguments[i + 1]]
+                    for fields in [dict(v.split("=", 1) for v in spec.split(",") if "=" in v)]
+                ],
                 "State": {
                     "Running": False,
                     "Status": "created",
@@ -630,3 +641,70 @@ def test_final_assembly_is_deterministic_and_keeps_original_runs(
     p.immutable(output, result)
     p.immutable(output, result)
     assert p.read_json(output) == result
+
+
+def test_copied_state_cannot_adopt_or_stop_another_output(tmp_path: Path) -> None:
+    container = {
+        "Config": {"Labels": {rt.LABEL: "plan", "atlas.nlcd.worker": "0"}},
+        "Mounts": [{"Destination": "/results", "Source": str(tmp_path / "original"), "RW": True}],
+    }
+    rt.owned(container, "plan", 0, tmp_path / "original")
+    with pytest.raises(ValueError, match="different state directory"):
+        rt.owned(container, "plan", 0, tmp_path / "copy")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Portable CI symlink creation")
+def test_symlink_cannot_alias_worker_outputs(tmp_path: Path, basis: p.Json) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    with pytest.raises(ValueError, match="Symlink"):
+        p.audit_run(alias / "results", basis)
+
+
+def test_shutdown_attempts_other_workers_after_ownership_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    visited = []
+
+    def stop(plan: p.Json, state: Path, docker: rt.Docker, index: int) -> None:
+        visited.append(index)
+        if index == 0:
+            raise ValueError("foreign owner")
+
+    monkeypatch.setattr(rt, "stop_worker", stop)
+    with pytest.raises(ValueError, match="shutdown requires attention"):
+        rt.stop_owned({"workers": [[], []]}, tmp_path, FakeDocker())
+    assert visited == [0, 1]
+
+
+def test_rebuilt_runtime_cannot_substitute_for_audited_image() -> None:
+    image = {"Os": "linux", "Architecture": "amd64", "Id": rt.RUNTIME_IMAGE_ID}
+    rt.validate_image(image)
+    with pytest.raises(ValueError, match="Exact audited"):
+        rt.validate_image({**image, "Id": "sha256:" + "0" * 64})
+    with pytest.raises(ValueError, match="Exact audited"):
+        rt.validate_image({**image, "Architecture": "arm64"})
+
+
+def test_in_progress_lineage_is_pending_but_terminal_audit_is_strict(
+    tmp_path: Path,
+    basis: p.Json,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = runtime_args(tmp_path)
+    plan = {"plan_id": "d" * 64, "basis": basis, "workers": [["01001"]], "accepted": []}
+    monkeypatch.setattr(rt, "verify_code", lambda *a: None)
+    docker = FakeDocker()
+    rt.tick(plan, args, 0, docker)
+    context = args.state / "worker-00/results/in-progress.lineage.json"
+    context.write_text("{")  # Writer has created the file but has not published its JSON yet.
+    assert rt.tick(plan, args, 0, docker) is False
+    assert rt.status(plan, args.state)["workers"][0]["state"] == "SNAPSHOT_PENDING"
+    next(iter(docker.containers.values()))["State"].update(
+        Running=False, Status="exited", ExitCode=1
+    )
+    with pytest.raises(ValueError, match="Terminal worker has unreadable"):
+        rt.tick(plan, args, 0, docker)
