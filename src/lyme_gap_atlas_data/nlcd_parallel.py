@@ -328,7 +328,11 @@ def _audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> li
 def output_inventory(plan: Json, root: Path, index: int, refs: list[Json]) -> Json:
     """Bind original bytes and identities, without rewriting scientific artifacts."""
     receipts = [
-        {"path": str(p.relative_to(root)), "file_sha256": file_hash(p), "receipt": read_json(p)}
+        {
+            "path": p.relative_to(root).as_posix(),
+            "file_sha256": file_hash(p),
+            "receipt": read_json(p),
+        }
         for p in sorted((root / "partitions").glob("*partitions-complete.json"))
     ]
     body = {

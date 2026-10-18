@@ -512,6 +512,8 @@ def test_frozen_terminal_rejects_self_consistent_tampering(
     )
     assert rt.tick(plan, args, 0, docker)
     part = next((root / "partitions").glob("*.part-*.json"))
+    receipt_ref = p.read_json(root.parent / "completed.inventory.json")["completion_receipts"][0]
+    assert receipt_ref["path"].startswith("partitions/") and "\\" not in receipt_ref["path"]
     if change == "payload":
         payload = p.read_json(part)
         payload["records"][0]["value"] = 0.5
@@ -583,6 +585,44 @@ def test_worker_rejects_wrong_container_user(tmp_path: Path) -> None:
     container = {"Config": {"User": "0:0", "Labels": {}}}
     with pytest.raises(ValueError, match="UID/GID"):
         rt.owned(container, "plan", 0, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "crash_after", ["inventory.json", "result.json", "completed.inventory.json"]
+)
+def test_terminal_publication_crash_recovers_original_inventory(
+    tmp_path: Path, basis: p.Json, monkeypatch: pytest.MonkeyPatch, crash_after: str
+) -> None:
+    args = runtime_args(tmp_path)
+    plan = {"plan_id": "d" * 64, "basis": basis, "workers": [["01001"]]}
+    monkeypatch.setattr(rt, "verify_code", lambda *a: None)
+    docker = FakeDocker()
+    rt.tick(plan, args, 0, docker)
+    root = args.state / "worker-00/results"
+    digest = seed(root, basis, ["01001"], 1)
+    p.immutable(root / "partitions" / f"mrlc2025_{digest}.partitions-complete.json", {"count": 1})
+    original = p.audit_run(root, basis)
+    next(iter(docker.containers.values()))["State"].update(
+        Running=False, Status="exited", ExitCode=0
+    )
+
+    def crash(path: Path, value: p.Json) -> None:
+        p.immutable(path, value)
+        target = (
+            "attempt-00001." + crash_after
+            if crash_after != "completed.inventory.json"
+            else crash_after
+        )
+        if path.name == target:
+            raise RuntimeError("simulated operator death")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rt, "immutable", crash)
+        with pytest.raises(RuntimeError, match="operator death"):
+            rt.tick(plan, args, 0, docker)
+    assert rt.tick(plan, args, 0, docker)
+    assert p.audit_run(root, basis) == original
+    assert len(docker.containers) == 1
 
 
 def test_worker_uses_explicit_nonroot_identity(tmp_path: Path, basis: p.Json) -> None:

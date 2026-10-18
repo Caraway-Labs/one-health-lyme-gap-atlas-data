@@ -264,6 +264,21 @@ def validate_retained(plan: Json, root: Path, index: int) -> None:
         verify_inventory(plan, root / "results", index, completed, complete=True)
 
 
+def publish_completed(plan: Json, root: Path, index: int, result: Json) -> None:
+    """Recover the operator marker only from an already-bound terminal inventory."""
+    if result["kind"] == "FAILED":
+        return
+    path = root / f"attempt-{result['attempt']:05d}.inventory.json"
+    require(file_hash(path) == result["inventory_sha256"], "Attempt inventory changed")
+    inventory = verify_inventory(plan, root / "results", index, path, complete=False)
+    if inventory["completion_receipts"]:
+        require(
+            inventory["partition_count"] == len(plan["workers"][index]),
+            "Completion inventory is incomplete",
+        )
+        immutable(root / "completed.inventory.json", inventory)
+
+
 def status(plan: Json, state: Path) -> Json:
     workers = []
     for index, selected in enumerate(plan["workers"]):
@@ -377,9 +392,8 @@ def finish_attempt(plan: Json, root: Path, meta: Json, container: Json, docker: 
         inventory_path = root / f"attempt-{meta['attempt']:05d}.inventory.json"
         immutable(inventory_path, inventory)
         result["inventory_sha256"] = file_hash(inventory_path)
-        if inventory["completion_receipts"]:
-            immutable(root / "completed.inventory.json", inventory)
     immutable(root / f"attempt-{meta['attempt']:05d}.result.json", result)
+    publish_completed(plan, root, meta["worker"], result)
     # Scientific/integrity failure leaves the lock in place for investigation.
     if result["kind"] != "FAILED":
         reconcile_lock(root, container, meta)
@@ -444,6 +458,7 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
             if result_path.exists()
             else finish_attempt(plan, root, meta, container, docker)
         )
+        publish_completed(plan, root, index, result)
         if result["kind"] == "FAILED":
             atomic_status(root / "status.json", {"state": "FAILED", "result": result})
             raise ValueError(
