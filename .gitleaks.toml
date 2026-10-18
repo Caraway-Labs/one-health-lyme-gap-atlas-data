@@ -6,7 +6,7 @@ condition = "AND"
 commits = ["d33a6b3c3cf251594950a59cd1a85fbaba36e9b2"]
 paths = ['''^\.github/workflows/deploy-dev\.yml$''']
 regexTarget = "match"
-regexes = ['''SNOWFLAKE_PRIVATE_KEY_B64''']
+regexes = ['''SNOWFLAKE_PRIVATE_KEY_B64''', '''RI706_RUNTIME_PRIVATE_KEY_B64''']
 
 [[allowlists]]
 description = "Exact public API source commit in the RI706 consumer audit, not a credential"
