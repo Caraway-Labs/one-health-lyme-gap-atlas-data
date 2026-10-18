@@ -411,6 +411,7 @@ def make_plan(
     workers: int,
     benchmark: bool = False,
     timings: dict[str, float] | None = None,
+    recovery_root: str | None = None,
 ) -> Json:
     require(
         len(names) == len(set(names)) == 2, "Exactly national and reviewed proof roots required"
@@ -449,6 +450,13 @@ def make_plan(
             seen.add(ref["county_fips"])
             accepted.append({**ref, "origin": name})
     require(len(seen) == 198 and seen <= set(universe), "Expected 198 accepted CONUS counties")
+    if recovery_root is not None:
+        from .nlcd_parallel_recovery import recovered_refs
+
+        recovered = recovered_refs(artifacts, recovery_root, basis)
+        require(not seen & {r["county_fips"] for r in recovered}, "Overlapping recovered counties")
+        accepted.extend(recovered)
+        seen.update(r["county_fips"] for r in recovered)
     remaining = sorted(set(universe) - seen)
     if benchmark:
         remaining = sorted(set(remaining) & set(BENCHMARK))
@@ -465,6 +473,11 @@ def make_plan(
         "timings": timings,
         "timings_sha256": fingerprint(timings),
     }
+    if recovery_root is not None:
+        from .nlcd_parallel_recovery import ARCHIVE_SHA256
+
+        body["recovery_root"] = recovery_root
+        body["recovery_archive_sha256"] = ARCHIVE_SHA256
     return {**body, "plan_id": fingerprint(body)}
 
 
@@ -498,12 +511,28 @@ def load_plan(directory: Path) -> Json:
         len(flat) == len(set(flat)) and sorted(flat) == remaining, "Overlapping/missing assignments"
     )
     accepted = [r["county_fips"] for r in plan["accepted"]]
-    require(len(accepted) == len(set(accepted)) == 198, "Accepted inventory differs")
+    recovered_count = 0
+    if "recovery_root" in plan:
+        from .nlcd_parallel_recovery import ARCHIVE_SHA256, RECOVERED_COUNTIES
+
+        require(
+            isinstance(plan["recovery_root"], str)
+            and plan.get("recovery_archive_sha256") == ARCHIVE_SHA256,
+            "Invalid recovery root/archive pin",
+        )
+        recovered_count = RECOVERED_COUNTIES
+    require(
+        len(accepted) == len(set(accepted)) == 198 + recovered_count,
+        "Accepted inventory differs",
+    )
     target = sorted(set(plan["universe"]) - set(accepted))
     if plan["scope"] == "benchmark":
         target = sorted(set(target) & set(BENCHMARK))
     else:
-        require(plan["scope"] == "national" and len(target) == 2911, "National scope differs")
+        require(
+            plan["scope"] == "national" and len(target) == 2911 - recovered_count,
+            "National scope differs",
+        )
     require(remaining == target and not set(accepted) & set(remaining), "Selection differs")
     for index, group in enumerate(plan["workers"]):
         require(
@@ -547,6 +576,10 @@ def verify_accepted(plan: Json, artifacts: Path) -> None:
         refs.extend(
             {**r, "origin": name} for r in saved if not r["county_fips"].startswith(("02", "15"))
         )
+    if "recovery_root" in plan:
+        from .nlcd_parallel_recovery import recovered_refs
+
+        refs.extend(recovered_refs(artifacts, plan["recovery_root"], plan["basis"]))
     require(
         sorted(refs, key=lambda r: r["county_fips"]) == plan["accepted"],
         "Accepted scientific artifacts changed",
@@ -604,6 +637,7 @@ def main() -> None:
     plan.add_argument("--plan", type=Path, required=True)
     plan.add_argument("--benchmark", action="store_true")
     plan.add_argument("--timings", type=Path)
+    plan.add_argument("--recovery-root", help="Relative owner-pinned recovered archive root")
     for name in ("run", "status", "assemble"):
         item = sub.add_parser(name)
         item.add_argument("--plan", type=Path, required=True)
@@ -629,6 +663,7 @@ def main() -> None:
             args.workers,
             args.benchmark,
             read_json(args.timings) if args.timings else None,
+            args.recovery_root,
         )
         save_plan(args.plan, document)
         print(json.dumps({"plan_id": document["plan_id"], "remaining": len(document["remaining"])}))
