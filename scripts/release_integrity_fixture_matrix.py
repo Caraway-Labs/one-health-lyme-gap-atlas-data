@@ -120,6 +120,9 @@ def run_matrix(f, migration, documents):
         ("SEMANTIC_COUNTY_ATLAS", "human_status", "changed", "CHANGED_MODEL_INPUT"),
         ("SEMANTIC_OBSERVATIONS", "source_row_hash", "changed", "CHANGED_OBSERVATION_LINEAGE"),
         ("SEMANTIC_DATA_SOURCES", "artifact_id", "changed", "CHANGED_SCIENTIFIC_LINEAGE"),
+        ("SEMANTIC_DATA_SOURCES", "source_version_id", "changed", "CHANGED_SCIENTIFIC_LINEAGE"),
+        ("SEMANTIC_DATA_SOURCES", "ingestion_run_id", "changed", "CHANGED_SCIENTIFIC_LINEAGE"),
+        ("SEMANTIC_COUNTY_ATLAS", "fips", "99999", "CHANGED_MODEL_INPUT"),
     ):
         # Own synthetic fixtures only; transactionally restore after each negative case.
         q(migration, "negative_begin", "BEGIN")
@@ -136,7 +139,7 @@ def run_matrix(f, migration, documents):
         migration.commit()
         try:
             case(
-                expected_error,
+                "reject_" + table + "_" + column,
                 lambda error=expected_error: fail(
                     "incompatible_lineage",
                     owner,
@@ -154,6 +157,24 @@ def run_matrix(f, migration, documents):
                     "UPDATE PRESENTATION.SEMANTIC_COUNTY_ATLAS "
                     "SET human_status='Unknown' WHERE release_id='synthetic-ri706-target'",
                 )
+                if column == "fips":
+                    # All synthetic rows were changed; restore exact retained membership.
+                    q(
+                        migration,
+                        "restore_fixture_membership",
+                        "DELETE FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS "
+                        "WHERE release_id='synthetic-ri706-target'",
+                    )
+                    q(
+                        migration,
+                        "restore_fixture_membership_rows",
+                        "INSERT INTO PRESENTATION.SEMANTIC_COUNTY_ATLAS SELECT "
+                        "'synthetic-ri706-target',fips,state,population,human_status,"
+                        "case_count_floor_2023,tick_status,scapularis_status,pacificus_status,"
+                        "burgdorferi_status,svi_percentile,rucc_2023 FROM "
+                        "PRESENTATION.SEMANTIC_COUNTY_ATLAS WHERE release_id=%s",
+                        (OLD,),
+                    )
             elif table == "SEMANTIC_OBSERVATIONS":
                 q(
                     migration,
@@ -168,8 +189,47 @@ def run_matrix(f, migration, documents):
                     migration,
                     "restore_fixture_artifact",
                     "UPDATE PRESENTATION.SEMANTIC_DATA_SOURCES "
-                    "SET artifact_id=source_key WHERE release_id='synthetic-ri706-target'",
+                    "SET " + column + "=source_key WHERE release_id='synthetic-ri706-target'",
                 )
+            migration.commit()
+
+    for field, replacement in (("artifact_sha256", "f" * 64), ("field_map", {"fips": ["bad"]})):
+        raw = q(
+            migration,
+            "retain_synthetic_source_manifest",
+            "SELECT source_manifest FROM PRESENTATION.SEMANTIC_RELEASES "
+            "WHERE release_id='synthetic-ri706-target'",
+        )[0][0]
+        original = raw if isinstance(raw, str) else json.dumps(raw)
+        changed = json.loads(original)
+        changed["sources"][0][field] = replacement
+        try:
+            q(
+                migration,
+                "change_synthetic_source_manifest",
+                "UPDATE PRESENTATION.SEMANTIC_RELEASES SET source_manifest=PARSE_JSON(%s) "
+                "WHERE release_id='synthetic-ri706-target'",
+                (json.dumps(changed),),
+            )
+            migration.commit()
+            case(
+                "reject_manifest_" + field,
+                lambda: fail(
+                    "incompatible_source_manifest",
+                    owner,
+                    "CALL FEATURE_STORE.SP_ADMIT_MODEL_RELEASE(%s,%s,%s,%s,%s)",
+                    ("tier1", "synthetic-ri706-target", "a" * 64, "synthetic-negative", MARKER),
+                    text="CHANGED_SOURCE_MAPPING_OR_HASH",
+                ),
+            )
+        finally:
+            q(
+                migration,
+                "restore_synthetic_source_manifest",
+                "UPDATE PRESENTATION.SEMANTIC_RELEASES SET source_manifest=PARSE_JSON(%s) "
+                "WHERE release_id='synthetic-ri706-target'",
+                (original,),
+            )
             migration.commit()
 
     # Separately authenticated roles must fail at access control, not input validation.
