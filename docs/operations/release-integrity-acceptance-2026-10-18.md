@@ -16,7 +16,10 @@ was performed in DEV or PROD during this follow-up.
 - Same-count county substitution now fails on release ID and exact canonical
   FIPS membership; pointer check also binds bundle. Every required source
   metadata row must have the correct release, source/dataset identifiers,
-  label, vintage, URL and limitations. Missing/replaced rows fail before commit.
+  label, vintage, URL and limitations. Missing/replaced rows fail before commit. Candidate validation also binds each
+  source version/run/artifact to retained source metadata and immutable manifest
+  artifact SHA, and requires every observation to match those exact pins; same
+  counts with substituted private source identity fail.
 - Canary loads the actual admitted profile. Fixed Tier1 example counties were
   removed because they conflict with approved partial-coverage rollback.
   Zero and nonzero degraded-model coverage have regression tests; retained
@@ -49,8 +52,8 @@ counts checked, county SHA256
 `02b62d7a4cb8970b3cd2506f5206a386a9ceed7cb2253baea16299be2d06ec9b`.
 No model was refitted, relabelled or published.
 
-Local Ruff, format, mypy and dbt parse passed. Targeted tests: 69 plus five
-lineage-proof adversarial tests passed. Final hosted CI is authoritative for
+Local Ruff, format, mypy and dbt parse passed. Targeted tests: 74 plus four
+retained-source pin adversarial tests passed. Final hosted CI is authoritative for
 full pytest, container and secret scanning; exact fix SHA/run recorded in PR.
 
 ## Inventory and production compatibility

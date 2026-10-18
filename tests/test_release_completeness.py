@@ -162,3 +162,23 @@ def test_guard_failure_rolls_back_before_commit(
     connection.commit.assert_not_called()
     connection.rollback.assert_called_once()
     assert not any("UPDATE PRESENTATION" in c.args[0] for c in cursor.execute.call_args_list)
+
+
+@pytest.mark.parametrize("bad", [None, "metadata", "manifest", "observations"])
+def test_equal_source_counts_require_exact_retained_lineage(bad):
+    item = dict.fromkeys(gate.SOURCE_PINS, "pin")
+    item.update(artifact_sha256="hash", expected_rows=3144)
+    source = {"source_key": "human", **item}
+    source["data_source_version_id"] = source.pop("source_version_id")
+    if bad == "manifest":
+        source["artifact_sha256"] = "replacement"
+    cursor = MagicMock()
+    cursor.fetchmany.return_value = [
+        tuple("wrong" if bad == "metadata" else "pin" for _ in gate.SOURCE_PINS)
+    ]
+    cursor.fetchone.return_value = (3144, 3143 if bad == "observations" else 3144)
+    if bad:
+        with pytest.raises(gate.ReleaseCompletenessBlocked, match="lineage differs"):
+            gate.verify_source_pins(cursor, "new", "human", item, {"sources": [source]})
+    else:
+        gate.verify_source_pins(cursor, "new", "human", item, {"sources": [source]})

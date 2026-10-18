@@ -73,6 +73,44 @@ CLIMATE_MEASURES = {
     "nclimgrid_" + name + "_county_day" for name in ("prcp", "tavg", "tmin", "tmax")
 }
 SOURCE_FIELDS = ("source_id", "dataset_id", "label", "vintage", "source_url", "note")
+SOURCE_PINS = ("source_id", "dataset_id", "source_version_id", "ingestion_run_id", "artifact_id")
+
+
+def verify_source_pins(
+    cursor: Any, release_id: str, identity: str, item: dict[str, Any], raw: Any
+) -> None:
+    """Bind the inventory to retained source rows, manifest bytes and observations."""
+    expected = tuple(item.get(f) for f in SOURCE_PINS)
+    if not all(isinstance(value, str) and value for value in expected):
+        raise ReleaseCompletenessBlocked("Required source lineage pins missing: " + identity)
+    cursor.execute(
+        "SELECT "
+        + ",".join(SOURCE_PINS)
+        + " FROM PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id=%s AND source_key=%s",
+        (release_id, identity),
+    )
+    if cursor.fetchmany(2) != [expected]:
+        raise ReleaseCompletenessBlocked("Retained source lineage differs: " + identity)
+    sources = raw.get("sources", []) if isinstance(raw, dict) else []
+    matches = [s for s in sources if isinstance(s, dict) and s.get("source_key") == identity]
+    if (
+        len(matches) != 1
+        or any(
+            matches[0].get("data_source_version_id" if f == "source_version_id" else f) != value
+            for f, value in zip(SOURCE_PINS, expected, strict=True)
+        )
+        or not item.get("artifact_sha256")
+        or matches[0].get("artifact_sha256") != item["artifact_sha256"]
+    ):
+        raise ReleaseCompletenessBlocked("Immutable source manifest lineage differs: " + identity)
+    cursor.execute(
+        "SELECT COUNT(*),COUNT_IF(source_version_id=%s AND ingestion_run_id=%s AND artifact_id=%s) "
+        "FROM PRESENTATION.SEMANTIC_OBSERVATIONS WHERE release_id=%s AND source_key=%s",
+        (*expected[2:], release_id, identity),
+    )
+    counts = cursor.fetchone()
+    if counts is None or tuple(map(int, counts)) != (item["expected_rows"], item["expected_rows"]):
+        raise ReleaseCompletenessBlocked("Observation source lineage differs: " + identity)
 
 
 def verify_projection_identity(
@@ -341,14 +379,7 @@ def verify_candidate(cursor: Any, release_id: str) -> dict[str, Any]:
             "surveillance-situation-tick-pathogen",
             "climate",
         }:
-            cursor.execute(
-                "SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_OBSERVATIONS "
-                "WHERE release_id=%s AND source_key=%s",
-                (release_id, identity),
-            )
-            actual = cursor.fetchone()
-            if actual is None or int(actual[0]) != item["expected_rows"]:
-                raise ReleaseCompletenessBlocked("Candidate source coverage mismatch: " + identity)
+            verify_source_pins(cursor, release_id, identity, item, raw)
     return {
         "schema": SCHEMA,
         "bundle_sha256": rows[0][1],
