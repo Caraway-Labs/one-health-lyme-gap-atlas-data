@@ -1,5 +1,11 @@
 # Governed semantic release runbook
 
+DATA #698 adds mandatory [release completeness and model compatibility](release-integrity.md)
+checks before pointer movement and against the actual projections before commit.
+Every new candidate must include the versioned completeness manifest. Legacy
+targets without that evidence fail closed, including rollback targets; arrange
+a reviewed forward admission before relying on them for emergency recovery.
+
 This runbook is for Epic #252. The semantic release is the only product-facing
 data boundary. The API reads the current-release views in `PRESENTATION`; it
 does not read RAW, STAGING, CONFORMED, or the retained Alpha POC database.

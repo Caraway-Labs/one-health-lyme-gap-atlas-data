@@ -1,0 +1,77 @@
+{
+  "algorithm": "in-repository categorical latent class EM",
+  "approval_state": "approved_for_data_handoff",
+  "batch_id": "surveillance-situation-batch",
+  "batch_schema": "docs/contracts/138-surveillance-situation-batch-v1.schema.json",
+  "batch_version": "v1",
+  "bundle_sha256": "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d",
+  "class_dictionary": "config/models/138-surveillance-situation-class-dictionary-v1.json",
+  "class_dictionary_sha256": "c0fecc0766c7e485b670624793cd2b02a1c8bafd49c740bcc8db9c62e9d2494b",
+  "config": "config/experiments/119-latent-class-v1.json",
+  "county_artifact": "outputs/138-surveillance-situation-batch-v1/county-assignments.json",
+  "county_row_count": 6288,
+  "county_sha256": "02b62d7a4cb8970b3cd2506f5206a386a9ceed7cb2253baea16299be2d06ec9b",
+  "dependencies": {
+    "numpy": "2.2.6",
+    "scikit-learn": "1.9.1"
+  },
+  "feature_contract": {
+    "dataset_id": "surveillance-latent-class-counties",
+    "dataset_version": "v1.1",
+    "document": "docs/contracts/119-surveillance-latent-class-dataset-v1.md",
+    "feature_set_id": "surveillance-latent-class-indicators",
+    "feature_set_version": "v1.1"
+  },
+  "git_sha": "cd936fe345664e606c916b137dd642caa0d6d73b",
+  "handoff_document": "docs/contracts/138-surveillance-situation-batch-v1.md",
+  "inheritance_rule": "A later Atlas release does not silently inherit these assignments. Carry-forward, a new batch version, or a block requires a dated decision.",
+  "missingness_contract": {
+    "document": "config/models/138-surveillance-situation-models-v1.json",
+    "imputation": "forbidden",
+    "no_records": "category",
+    "unavailable_is_not_zero": true,
+    "unknown": "real_class_not_missing_assignment"
+  },
+  "model_contract": "config/models/138-surveillance-situation-models-v1.json",
+  "models": [
+    {
+      "class_count": 4,
+      "id": "surveillance-situation-four-state",
+      "role": "primary_descriptive_classification",
+      "version": "v1"
+    },
+    {
+      "class_count": 4,
+      "id": "surveillance-situation-tick-pathogen",
+      "role": "secondary_tick_pathogen_grouping",
+      "version": "v1"
+    }
+  ],
+  "population_scope": {
+    "county_count": 3144,
+    "geography": "US counties and county equivalents, including Alaska and Hawaii",
+    "population": 331097593,
+    "population_role": "reporting denominator"
+  },
+  "primary_seed": 1192026,
+  "probability_sum_tolerance": 1e-06,
+  "prohibited_readings": [
+    "disease risk",
+    "incidence",
+    "pathogen absence",
+    "tier 1 priority"
+  ],
+  "release_id": "governed-2026-10-15-january-climate-prod",
+  "result": "config/experiments/119-latent-class-v1-result.json",
+  "result_commit": "a2f9bad41f1ddb793e364399afbdd5fbad008b7a",
+  "run": {
+    "log_likelihood_tolerance": 1e-08,
+    "max_em_iterations": 2000,
+    "random_starts_per_seed": 20,
+    "training_location": "local machine",
+    "wall_clock_seconds_recorded": false
+  },
+  "schema": "atlas-ml-surveillance-situation-batch-manifest/138-v1",
+  "snowflake_objects_written": [],
+  "stored_estimator": "in-repository categorical latent class EM"
+}
