@@ -15,6 +15,21 @@ the filesystem/volume level; grant write permission only to new plan/state paths
 Docker access is a privileged host capability; restrict it to the authorized
 operator account. Do not expose the Docker socket to containers.
 
+The operator must run as a non-root Linux user with a nonzero primary GID.
+Every worker receives an explicit `--user <operator UID>:<operator GID>`;
+the execution receipt pins these identities and adoption checks `Config.User`.
+New result directories use mode 0750. Atomic calculator files retain their
+0600 permissions and remain readable/writable by the same host operator.
+Do not use root, `chmod 777`, privileged workers or a different resume account.
+Inputs and the scientific checkout must be readable by that account.
+
+Raw scientific file hashes are part of the accepted lineage. A plain Linux
+checkout normalizes the retained Windows CRLF bytes and fails preflight.
+Stage byte-preserving copies of the reviewed calculator, weight and geometry
+files alongside the exact Git revision; keep Git line-ending configuration
+consistent (`core.autocrlf=true`) and verify a clean status and the three raw
+hashes before execution. Do not edit formulas or replace the expected hashes.
+
 The seed runs are byte-pinned:
 
 - National: `2cc8c5a6e1069945bce1c9e4a5fa0b51ac1043bac9cee58db568eea5930db1ba`.
@@ -198,12 +213,46 @@ system caches automatically. Do not assume linear speedup or extrapolate this
 small panel without geographic limitations. Benchmark scope cannot emit a
 national assembly.
 
-For the opt-in one-county integration test, set `NLCD_DOCKER_ROOT` to the retained
-task-8 directory and run `pytest tests/test_nlcd_parallel.py -k linux_docker`.
-On Windows, select a new short `--basetemp C:\temp\nlcd-proof-UNIQUE` path to
-avoid legacy path-length limits. This test uses only the cached audited image,
-a 900-second deadline and a new temporary Arlington result; it removes only its
-test-owned container. Unset the variable for normal fixture-only quality runs.
+For the opt-in Linux Docker integration test, stage disposable copies of the
+exact clean calculator and verified inputs under a fresh native Linux root
+containing `code/` and `inputs/`. Keep historical sources read-only.
+Run as the intended non-root operator with the cached audited image:
+
+```bash
+export NLCD_NATIVE_DOCKER_ROOT=/srv/nlcd/test-UNIQUE
+export NLCD_NATIVE_BASIS=/srv/nlcd/artifacts/data594-weight-repair-results-national/mrlc2025_2cc8c5a6e1069945bce1c9e4a5fa0b51ac1043bac9cee58db568eea5930db1ba.lineage.json
+PYTHONPATH=src pytest tests/test_nlcd_parallel.py -k linux_docker
+```
+
+The test runner `scripts/verify_nlcd_linux_identity.py` reproduces the original
+root/cap-drop permission failure, then calculates only Arlington (51013) and
+Falls Church (51610), with a 900-second invocation deadline and 1 CPU/2 GiB.
+It audits the first commit as the non-root host, stops the second invocation,
+resumes, checks unchanged committed hashes, and writes a verification receipt.
+It removes only its owned worker containers and retains its new test evidence.
+Windows bind mounts do not prove Linux permissions. A local Linux operator test
+container may use a Docker socket to exercise native-volume permissions; that
+test harness has Docker host authority. Calculation workers never receive it.
+
+## Frozen terminal output inventories
+
+Each non-failed terminal attempt publishes an immutable `attempt-NNNNN.inventory.json`
+and records its physical SHA-256 in the attempt result. It binds the exact county
+prefix, seven measures, source/calculation identities, original run/lineage,
+physical partition hashes and payload hashes, and any actual completion receipt.
+A full worker also publishes `completed.inventory.json`; full completion requires
+the calculator's own valid receipt, including after an interruption between the
+last partition and receipt. The operator never manufactures a scientific receipt.
+
+Tick/restart, status and assembly validate the retained inventories. Assembly
+also binds each completed inventory hash to an original terminal attempt and
+records inventory hashes in its reference-only manifest. Cached legacy successes
+without inventories fail closed; do not backfill inventories from unverified
+current bytes or alter historical seeds. Diagnose and review any such state.
+
+The auditor rechecks once only when a valid completion receipt appears after a
+partition snapshot and a rescan proves the partition-file list changed. Stable
+missing partitions, malformed receipts and other corruption fail closed.
 
 ## Invariant / evidence matrix
 

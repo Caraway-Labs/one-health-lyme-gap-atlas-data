@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import copy
 import os
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,11 @@ import pytest
 
 from lyme_gap_atlas_data import nlcd_parallel as p
 from lyme_gap_atlas_data import nlcd_parallel_runtime as rt
+
+
+@pytest.fixture(autouse=True)
+def offline_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rt, "operator_identity", lambda: (1001, 1001))
 
 
 @pytest.fixture
@@ -279,7 +283,7 @@ class FakeDocker(rt.Docker):
                 arguments[i + 1].split("=", 1) for i, a in enumerate(arguments) if a == "--label"
             )
             self.containers[name] = {
-                "Config": {"Labels": labels},
+                "Config": {"Labels": labels, "User": "1001:1001"},
                 "Mounts": [
                     {
                         "Source": fields["src"],
@@ -473,6 +477,13 @@ def test_successful_completed_worker_does_not_launch_again(
     docker = FakeDocker()
     rt.tick(plan, args, 0, docker)
     seed(args.state / "worker-00/results", basis, ["01001"], 1)
+    context = next((args.state / "worker-00/results").glob("*.lineage.json"))
+    p.immutable(
+        context.parent
+        / "partitions"
+        / context.name.replace(".lineage.json", ".partitions-complete.json"),
+        {"count": 1},
+    )
     next(iter(docker.containers.values()))["State"].update(
         Running=False, Status="exited", ExitCode=0
     )
@@ -481,48 +492,192 @@ def test_successful_completed_worker_does_not_launch_again(
     assert len(docker.containers) == 1
 
 
-@pytest.mark.skipif(
-    not os.environ.get("NLCD_DOCKER_ROOT"), reason="Explicit retained-input Docker test only"
-)
-def test_linux_docker_one_bounded_county(tmp_path: Path) -> None:
-    """Real cached image + unchanged calculator; only a new temporary Arlington run."""
-    retained = Path(os.environ["NLCD_DOCKER_ROOT"])
-    context = (
-        retained / "data594-weight-repair-results-national" / f"mrlc2025_{p.REFERENCE}.lineage.json"
-    )
-    assert p.file_hash(context) == p.REFERENCE
-    basis = p.identity(p.read_json(context))
+@pytest.mark.parametrize("change", ["payload", "physical", "receipt"])
+def test_frozen_terminal_rejects_self_consistent_tampering(
+    tmp_path: Path, basis: p.Json, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
     args = runtime_args(tmp_path)
-    args.code = retained / "data594-weight-repair"
-    args.inputs = retained / "data594-local-inputs"
-    args.image = "sha256:a1a2939b969fd2ec8ca78a973f921b95486f97a71b7ddfc4c4be4be1a6c3b6d7"
-    args.seconds = 900  # Existing wrapper default; calculator cap remains 1800.
-    args.cpus = 1
-    args.batch_counties = 1
-    plan = {
-        "plan_id": p.fingerprint({"test": str(tmp_path)}),
-        "basis": basis,
-        "workers": [["51013"]],
-    }
-    docker = rt.Docker()
-    start = time.monotonic()
-    try:
-        while not rt.tick(plan, args, 0, docker):
-            assert time.monotonic() - start < 930, "Bounded Docker integration timeout"
-            time.sleep(2)
-        refs = p.audit_run(args.state / "worker-00/results", basis, ["51013"])
-        assert len(refs) == 1
-        report = p.read_json(next((args.state / "worker-00").glob("*.result.json")))
-        assert report["kind"] == "SUCCESS" and report["new_counties"] == 1
-    finally:
-        rt.stop_owned(plan, args.state, docker)
-        for intent in (args.state / "worker-00").glob("*.intent.json"):
-            name = p.read_json(intent)["name"]
-            container = docker.inspect(name)
-            if container is not None:
-                rt.owned(container, plan["plan_id"], 0)
-                assert not container["State"]["Running"]
-                docker.action("rm", name)
+    plan = {"plan_id": "d" * 64, "basis": basis, "workers": [["01001"]], "accepted": []}
+    monkeypatch.setattr(rt, "verify_code", lambda *a: None)
+    monkeypatch.setattr(p, "verify_accepted", lambda *a: None)
+    plan["scope"] = "national"
+    docker = FakeDocker()
+    rt.tick(plan, args, 0, docker)
+    root = args.state / "worker-00/results"
+    digest = seed(root, basis, ["01001"], 1)
+    marker = root / "partitions" / f"mrlc2025_{digest}.partitions-complete.json"
+    p.immutable(marker, {"count": 1})
+    next(iter(docker.containers.values()))["State"].update(
+        Running=False, Status="exited", ExitCode=0
+    )
+    assert rt.tick(plan, args, 0, docker)
+    part = next((root / "partitions").glob("*.part-*.json"))
+    if change == "payload":
+        payload = p.read_json(part)
+        payload["records"][0]["value"] = 0.5
+        payload["sha256"] = p.fingerprint(payload["records"])
+        payload["byte_count"] = len(p.canonical(payload["records"]))
+        part.write_bytes(p.canonical(payload))
+    else:
+        target = marker if change == "receipt" else part
+        target.write_bytes(target.read_bytes() + b"\n")
+    for operation in (
+        lambda: rt.tick(plan, args, 0, docker),
+        lambda: rt.status(plan, args.state),
+        lambda: p.assembly(plan, tmp_path, args.state),
+        lambda: p.verify_inventory(
+            plan, root, 0, root.parent / "completed.inventory.json", complete=True
+        ),
+    ):
+        with pytest.raises(ValueError, match="inventory changed"):
+            operation()
+
+
+def test_final_marker_publication_race_has_one_stable_reaudit(
+    tmp_path: Path, basis: p.Json, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected = ["01001", "01003"]
+    digest = seed(tmp_path, basis, selected, 1)
+    original = Path.glob
+    published = False
+
+    def interleaving(path: Path, pattern: str) -> Any:
+        nonlocal published
+        if (
+            path == tmp_path / "partitions"
+            and pattern == "*partitions-complete.json"
+            and not published
+        ):
+            published = True
+            seed(tmp_path, basis, selected, 2)
+            p.immutable(path / f"mrlc2025_{digest}.partitions-complete.json", {"count": 2})
+        return original(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", interleaving)
+    assert len(p.audit_run(tmp_path, basis, selected)) == 2
+    assert published
+
+
+@pytest.mark.parametrize("marker", [{"count": 1}, {"count": 2}, {"count": 2, "extra": True}])
+def test_stable_bad_completion_fails_closed(tmp_path: Path, basis: p.Json, marker: p.Json) -> None:
+    digest = seed(tmp_path, basis, ["01001", "01003"], 1)
+    p.immutable(tmp_path / "partitions" / f"mrlc2025_{digest}.partitions-complete.json", marker)
+    with pytest.raises(ValueError, match="completion receipt"):
+        p.audit_run(tmp_path, basis)
+
+
+def test_publication_retry_is_strictly_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def changing(*args: Any) -> list[p.Json]:
+        calls.append(1)
+        raise p.PublicationChanged("still changing")
+
+    monkeypatch.setattr(p, "_audit_run", changing)
+    with pytest.raises(p.PublicationChanged):
+        p.audit_run(Path("unused"), {})
+    assert len(calls) == 2
+
+
+def test_worker_rejects_wrong_container_user(tmp_path: Path) -> None:
+    container = {"Config": {"User": "0:0", "Labels": {}}}
+    with pytest.raises(ValueError, match="UID/GID"):
+        rt.owned(container, "plan", 0, tmp_path)
+
+
+def test_worker_uses_explicit_nonroot_identity(tmp_path: Path, basis: p.Json) -> None:
+    args = runtime_args(tmp_path)
+    command = rt.worker_command({"plan_id": "a", "workers": [["01001"]]}, args, 0, 1, "test")
+    assert command[command.index("--user") + 1] == "1001:1001"
+    assert "--cap-drop=ALL" in command and "--network=none" in command
+
+
+def test_last_partition_without_receipt_requires_calculator_resume(
+    tmp_path: Path, basis: p.Json, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = runtime_args(tmp_path)
+    plan = {"plan_id": "d" * 64, "basis": basis, "workers": [["01001"]]}
+    monkeypatch.setattr(rt, "verify_code", lambda *a: None)
+    docker = FakeDocker()
+    rt.tick(plan, args, 0, docker)
+    root = args.state / "worker-00/results"
+    digest = seed(root, basis, ["01001"], 1)
+    next(iter(docker.containers.values()))["State"].update(
+        Running=False, Status="exited", ExitCode=0
+    )
+    assert not rt.tick(plan, args, 0, docker)
+    assert len(docker.containers) == 2
+    original = p.audit_run(root, basis)
+    p.immutable(root / "partitions" / f"mrlc2025_{digest}.partitions-complete.json", {"count": 1})
+    list(docker.containers.values())[-1]["State"].update(Running=False, Status="exited", ExitCode=0)
+    assert rt.tick(plan, args, 0, docker)
+    assert p.audit_run(root, basis) == original
+
+
+def test_interrupted_restart_rejects_rehashed_completed_prefix(
+    tmp_path: Path, basis: p.Json, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = runtime_args(tmp_path)
+    plan = {"plan_id": "d" * 64, "basis": basis, "workers": [["01001", "01003"]]}
+    monkeypatch.setattr(rt, "verify_code", lambda *a: None)
+    docker = FakeDocker()
+    rt.tick(plan, args, 0, docker)
+    root = args.state / "worker-00/results"
+    seed(root, basis, plan["workers"][0], 1)
+    p.immutable(root.parent / "attempt-00001.stop.json", {"reason": "SUPERVISOR_SHUTDOWN"})
+    next(iter(docker.containers.values()))["State"].update(
+        Running=False, Status="exited", ExitCode=143
+    )
+    assert not rt.tick(plan, args, 0, docker)
+    path = next((root / "partitions").glob("*.part-*.json"))
+    payload = p.read_json(path)
+    payload["records"][0]["value"] = 0.5
+    payload["sha256"] = p.fingerprint(payload["records"])
+    payload["byte_count"] = len(p.canonical(payload["records"]))
+    path.write_bytes(p.canonical(payload))
+    with pytest.raises(ValueError, match="inventory changed"):
+        rt.tick(plan, args, 0, docker)
+
+
+def test_malformed_marker_is_never_pending(
+    tmp_path: Path, basis: p.Json, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = runtime_args(tmp_path)
+    plan = {"plan_id": "d" * 64, "basis": basis, "workers": [["01001"]], "accepted": []}
+    monkeypatch.setattr(rt, "verify_code", lambda *a: None)
+    docker = FakeDocker()
+    rt.tick(plan, args, 0, docker)
+    root = args.state / "worker-00/results"
+    digest = seed(root, basis, ["01001"], 1)
+    (root / "partitions" / f"mrlc2025_{digest}.partitions-complete.json").write_text("{")
+    import json
+
+    with pytest.raises(json.JSONDecodeError):
+        rt.tick(plan, args, 0, docker)
+    with pytest.raises(json.JSONDecodeError):
+        rt.status(plan, args.state)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("NLCD_NATIVE_DOCKER_ROOT"), reason="Explicit native Linux Docker proof only"
+)
+def test_linux_docker_nonroot_commit_interrupt_resume() -> None:
+    """Real Linux UID/GID, two real counties, host audit, stop/resume and byte hashes."""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/verify_nlcd_linux_identity.py",
+            "--root",
+            os.environ["NLCD_NATIVE_DOCKER_ROOT"],
+            "--basis",
+            os.environ["NLCD_NATIVE_BASIS"],
+        ],
+        check=True,
+        timeout=1900,
+    )
 
 
 def test_timeout_with_progress_requires_explicit_bounded_recovery(
@@ -617,6 +772,7 @@ def test_final_assembly_is_deterministic_and_keeps_original_runs(
             file_sha256="original-file",
         )
     monkeypatch.setattr(p, "verify_accepted", lambda *a: None)
+    monkeypatch.setattr(p, "verify_inventory", lambda *a, **kw: {})
     monkeypatch.setattr(
         p,
         "audit_run",
@@ -632,6 +788,8 @@ def test_final_assembly_is_deterministic_and_keeps_original_runs(
         ],
     )
     before = copy.deepcopy(plan["accepted"])
+    for index in range(8):
+        p.immutable(tmp_path / f"worker-{index:02d}/completed.inventory.json", {"fixture": index})
     result = p.assembly(plan, tmp_path, tmp_path)
     assert result == p.assembly(plan, tmp_path, tmp_path)
     assert result["observations"] == 21763 and result["counties"] == 3109
@@ -645,7 +803,7 @@ def test_final_assembly_is_deterministic_and_keeps_original_runs(
 
 def test_copied_state_cannot_adopt_or_stop_another_output(tmp_path: Path) -> None:
     container = {
-        "Config": {"Labels": {rt.LABEL: "plan", "atlas.nlcd.worker": "0"}},
+        "Config": {"Labels": {rt.LABEL: "plan", "atlas.nlcd.worker": "0"}, "User": "1001:1001"},
         "Mounts": [{"Destination": "/results", "Source": str(tmp_path / "original"), "RW": True}],
     }
     rt.owned(container, "plan", 0, tmp_path / "original")

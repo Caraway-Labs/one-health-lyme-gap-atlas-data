@@ -242,7 +242,23 @@ def validate_rows(rows: list[Json], fips: str, lineage_id: str, basis: Json) -> 
     require(len({r["geometry_digest"] for r in rows}) == 1, "Mixed county geometry")
 
 
+class PublicationChanged(ValueError):
+    """A valid marker appeared after the partition directory snapshot."""
+
+
+class LineagePending(ValueError):
+    """Only the calculator's initial, non-atomic lineage publication is pending."""
+
+
 def audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> list[Json]:
+    """Retry once, exclusively for a demonstrated final-publication race."""
+    try:
+        return _audit_run(root, basis, selected)
+    except PublicationChanged:
+        return _audit_run(root, basis, selected)
+
+
+def _audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> list[Json]:
     """Validate saved partitions, not merely attempt receipts. No files are written."""
     plain_path(root)
     contexts = sorted(root.glob("*.lineage.json"))
@@ -251,7 +267,10 @@ def audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> lis
         return []
     require(len(contexts) == 1, "One immutable run per output directory required")
     path = contexts[0]
-    lineage = read_json(path)
+    try:
+        lineage = read_json(path)
+    except (json.JSONDecodeError, FileNotFoundError) as exc:
+        raise LineagePending("Initial lineage publication pending") from exc
     lineage_id = fingerprint(lineage)
     run = "mrlc2025_" + lineage_id
     require(
@@ -263,7 +282,8 @@ def audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> lis
     if selected is not None:
         require(counties == selected, "Worker assignment differs from scientific lineage")
     refs = []
-    for ordinal, part_path in enumerate(sorted((root / "partitions").glob("*.part-*.json"))):
+    paths = sorted((root / "partitions").glob("*.part-*.json"))
+    for ordinal, part_path in enumerate(paths):
         part = read_json(part_path)
         rows = part["records"]
         require(
@@ -291,13 +311,71 @@ def audit_run(root: Path, basis: Json, selected: list[str] | None = None) -> lis
         )
     markers = list((root / "partitions").glob("*partitions-complete.json"))
     for marker in markers:
+        receipt = read_json(marker)
         require(
             marker.name == run + ".partitions-complete.json"
-            and read_json(marker) == {"count": len(counties)}
-            and len(refs) == len(counties),
+            and type(receipt.get("count")) is int
+            and receipt == {"count": len(counties)},
             "Invalid completion receipt",
         )
+        if len(refs) != len(counties):
+            if paths != sorted((root / "partitions").glob("*.part-*.json")):
+                raise PublicationChanged("Final partitions published during audit; re-audit once")
+            raise ValueError("Invalid completion receipt: stable incomplete partitions")
     return refs
+
+
+def output_inventory(plan: Json, root: Path, index: int, refs: list[Json]) -> Json:
+    """Bind original bytes and identities, without rewriting scientific artifacts."""
+    receipts = [
+        {"path": str(p.relative_to(root)), "file_sha256": file_hash(p), "receipt": read_json(p)}
+        for p in sorted((root / "partitions").glob("*partitions-complete.json"))
+    ]
+    body = {
+        "schema": "atlas-nlcd-output-inventory/1",
+        "plan_id": plan["plan_id"],
+        "worker": index,
+        "selected_counties": plan["workers"][index],
+        "basis": plan["basis"],
+        "partitions": refs,
+        "partition_count": len(refs),
+        "measures": sorted(MEASURES),
+        "observations": len(refs) * 7,
+        "completion_receipts": receipts,
+    }
+    return {**body, "inventory_id": fingerprint(body)}
+
+
+def verify_inventory(plan: Json, root: Path, index: int, path: Path, *, complete: bool) -> Json:
+    require(path.is_file(), "Frozen output inventory missing; do not adopt legacy success")
+    saved = read_json(path)
+    refs = audit_run(root, plan["basis"], plan["workers"][index])
+    count = saved["partition_count"]
+    current = output_inventory(plan, root, index, refs[:count])
+    # An interrupted prefix may subsequently gain the calculator's real marker.
+    if not saved["completion_receipts"] and not complete:
+        current["completion_receipts"] = []
+        current["inventory_id"] = fingerprint(
+            {k: v for k, v in current.items() if k != "inventory_id"}
+        )
+    require(current == saved, "Frozen output inventory changed")
+    if complete:
+        require(
+            count == len(refs) == len(plan["workers"][index])
+            and bool(saved["completion_receipts"]),
+            "Completed inventory requires all counties and original completion receipt",
+        )
+        digest = file_hash(path)
+        require(
+            any(
+                result.get("inventory_sha256") == digest
+                and file_hash(root.parent / f"attempt-{result['attempt']:05d}.inventory.json")
+                == digest
+                for result in (read_json(p) for p in root.parent.glob("attempt-*.result.json"))
+            ),
+            "Completed inventory is not bound to an original terminal attempt",
+        )
+    return saved
 
 
 def assign(
@@ -475,8 +553,13 @@ def assembly(plan: Json, artifacts: Path, state: Path) -> Json:
     verify_accepted(plan, artifacts)
     require(plan["scope"] == "national", "Benchmark cannot produce a national assembly")
     refs = [{**r, "kind": "accepted"} for r in plan["accepted"]]
+    inventories = []
     for index, selected in enumerate(plan["workers"]):
         root = state / f"worker-{index:02d}" / "results"
+        verify_inventory(plan, root, index, root.parent / "completed.inventory.json", complete=True)
+        inventories.append(
+            {"worker": index, "file_sha256": file_hash(root.parent / "completed.inventory.json")}
+        )
         refs.extend(
             {**r, "origin": f"worker-{index:02d}/results", "kind": "worker"}
             for r in audit_run(root, plan["basis"], selected)
@@ -491,6 +574,7 @@ def assembly(plan: Json, artifacts: Path, state: Path) -> Json:
         "observations": 21763,
         "exclusions": {"02": "OUT_OF_SOURCE_COVERAGE", "15": "OUT_OF_SOURCE_COVERAGE"},
         "runs": sorted({r["run_id"] for r in refs}),
+        "worker_inventories": inventories,
         "partitions": sorted(refs, key=lambda r: r["county_fips"]),
     }
     return {**body, "assembly_id": fingerprint(body)}

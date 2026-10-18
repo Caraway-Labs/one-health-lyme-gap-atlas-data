@@ -10,6 +10,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Iterator
@@ -21,14 +22,17 @@ from typing import Any
 from .nlcd_parallel import (
     REVISION,
     Json,
+    LineagePending,
     audit_run,
     canonical,
     file_hash,
     immutable,
+    output_inventory,
     plain_path,
     read_json,
     require,
     verify_accepted,
+    verify_inventory,
 )
 
 LABEL = "atlas.nlcd.plan"
@@ -140,6 +144,10 @@ class Docker:
 
 
 def owned(container: Json, plan_id: str, worker: int, output: Path | None = None) -> None:
+    uid, gid = operator_identity()
+    require(
+        container["Config"].get("User") == f"{uid}:{gid}", "Container UID/GID ownership conflict"
+    )
     labels = container["Config"]["Labels"]
     require(
         labels.get(LABEL) == plan_id and labels.get("atlas.nlcd.worker") == str(worker),
@@ -162,9 +170,12 @@ def worker_command(
 ) -> list[str]:
     root = args.state.resolve() / f"worker-{index:02d}"
     selected = plan["workers"][index]
+    uid, gid = operator_identity()
     return [
         "create",
         "--pull=never",
+        "--user",
+        f"{uid}:{gid}",
         "--name",
         name,
         "--label",
@@ -231,13 +242,35 @@ def worker_command(
     ]
 
 
+def operator_identity() -> tuple[int, int]:
+    if sys.platform != "linux":
+        raise ValueError("Worker execution requires a native Linux operator")
+    require(os.name == "posix", "Worker execution requires a native Linux operator")
+    uid, gid = os.getuid(), os.getgid()
+    require(uid > 0 and gid > 0, "Run the operator as a non-root Linux UID/GID")
+    return uid, gid
+
+
+def validate_retained(plan: Json, root: Path, index: int) -> None:
+    for result_path in sorted(root.glob("attempt-*.result.json")):
+        result = read_json(result_path)
+        if result["kind"] == "FAILED":
+            continue
+        inventory = root / f"attempt-{result['attempt']:05d}.inventory.json"
+        require(file_hash(inventory) == result["inventory_sha256"], "Attempt inventory changed")
+        verify_inventory(plan, root / "results", index, inventory, complete=False)
+    completed = root / "completed.inventory.json"
+    if completed.exists():
+        verify_inventory(plan, root / "results", index, completed, complete=True)
+
+
 def status(plan: Json, state: Path) -> Json:
     workers = []
     for index, selected in enumerate(plan["workers"]):
         root = state / f"worker-{index:02d}"
         try:
             refs = audit_run(root / "results", plan["basis"], selected)
-        except (json.JSONDecodeError, FileNotFoundError):
+        except LineagePending:
             workers.append(
                 {
                     "worker": index,
@@ -248,13 +281,16 @@ def status(plan: Json, state: Path) -> Json:
                 }
             )
             continue
+        validate_retained(plan, root, index)
         status_path = root / "status.json"
         workers.append(
             {
                 "worker": index,
                 "assigned": len(selected),
                 "completed": len(refs),
-                "state": "COMPLETE" if len(refs) == len(selected) else "INCOMPLETE",
+                "state": "COMPLETE"
+                if (root / "completed.inventory.json").exists()
+                else "INCOMPLETE",
                 "last_operator_status": read_json(status_path) if status_path.exists() else None,
             }
         )
@@ -327,7 +363,22 @@ def finish_attempt(plan: Json, root: Path, meta: Json, container: Json, docker: 
         "observed_at": time.time(),
     }
     if code == 0:
-        require(result["new_counties"] > 0, "Successful invocation made no progress")
+        require(
+            result["new_counties"] > 0
+            or bool(
+                output_inventory(plan, root / "results", meta["worker"], refs)[
+                    "completion_receipts"
+                ]
+            ),
+            "Successful invocation made no progress",
+        )
+    if result["kind"] != "FAILED":
+        inventory = output_inventory(plan, root / "results", meta["worker"], refs)
+        inventory_path = root / f"attempt-{meta['attempt']:05d}.inventory.json"
+        immutable(inventory_path, inventory)
+        result["inventory_sha256"] = file_hash(inventory_path)
+        if inventory["completion_receipts"]:
+            immutable(root / "completed.inventory.json", inventory)
     immutable(root / f"attempt-{meta['attempt']:05d}.result.json", result)
     # Scientific/integrity failure leaves the lock in place for investigation.
     if result["kind"] != "FAILED":
@@ -340,7 +391,8 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
     root = args.state / f"worker-{index:02d}"
     plain_path(root / "results")
     selected = plan["workers"][index]
-    (root / "results").mkdir(parents=True, exist_ok=True)
+    (root / "results").mkdir(parents=True, exist_ok=True, mode=0o750)
+    validate_retained(plan, root, index)
     metas = sorted(root.glob("attempt-*.intent.json"))
     refs: list[Json]
     if metas:
@@ -365,7 +417,7 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
             )
         try:
             refs = audit_run(root / "results", plan["basis"], selected)
-        except (json.JSONDecodeError, FileNotFoundError):
+        except LineagePending:
             # The unchanged calculator's initial lineage uses open("x"); observing
             # its filename before the write completes is not a successful audit.
             require(container["State"]["Running"], "Terminal worker has unreadable checkpoints")
@@ -416,7 +468,10 @@ def tick(plan: Json, args: argparse.Namespace, index: int, docker: Docker) -> bo
             require(interrupted_count <= 2, "Repeated interruptions: halt for operator diagnosis")
     else:
         refs = audit_run(root / "results", plan["basis"], selected)
-    if len(refs) == len(selected):
+    if (root / "completed.inventory.json").exists():
+        verify_inventory(
+            plan, root / "results", index, root / "completed.inventory.json", complete=True
+        )
         atomic_status(root / "status.json", {"state": "COMPLETE", "completed": len(refs)})
         return True
     require(not (root / "results/calculation.lock").exists(), "Unreconciled calculator lock")
@@ -464,6 +519,7 @@ def stop_worker(plan: Json, state: Path, docker: Docker, index: int) -> None:
 
 
 def preflight(plan: Json, args: argparse.Namespace, docker: Docker) -> None:
+    uid, gid = operator_identity()
     require(
         math.isfinite(args.cpus) and 0 < args.cpus <= 16 and 1 <= args.memory_gib <= 32,
         "Invalid per-worker limits",
@@ -516,6 +572,8 @@ def preflight(plan: Json, args: argparse.Namespace, docker: Docker) -> None:
             "run",
             "--rm",
             "--pull=never",
+            "--user",
+            f"{uid}:{gid}",
             "--network=none",
             "--read-only",
             "--cpus=0.5",
@@ -540,6 +598,8 @@ def preflight(plan: Json, args: argparse.Namespace, docker: Docker) -> None:
         {
             "plan_id": plan["plan_id"],
             "image_id": image["Id"],
+            "uid": uid,
+            "gid": gid,
             "cpus": args.cpus,
             "memory_gib": args.memory_gib,
             "seconds": args.seconds,
