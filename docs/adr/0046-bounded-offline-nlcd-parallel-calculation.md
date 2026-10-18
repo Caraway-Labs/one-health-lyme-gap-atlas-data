@@ -53,3 +53,19 @@ national evidence. Benchmark 1/4/8 workers before choosing cloud concurrency.
 Stop with SIGTERM; retain every committed result and operational receipt.
 Rollback stops the operator and its owned containers, preserving originals.
 Cloud teardown must follow verified artifact export and explicit owner approval.
+
+### Interrupted-run recovery implementation (2026-10-18)
+
+The owner-verified recovery archive pins 905 additional corrected county prefixes.
+A new assignment may reference those original files read-only alongside the198
+original counties, leaving2006 for new isolated workers. Prior incomplete run
+identities, locks and receipts remain immutable evidence; no old container is
+adopted and no completion receipt is synthesized. Final assembly retains each
+original run identity. The frozen archive is an explicit bounded admission,
+not arbitrary checkpoint discovery or a change to the scientific calculations.
+
+Run the supervisor directly with durable stdout/stderr and journal capture;
+keep optional resource sampling in a separate process so a telemetry exception
+cannot terminate healthy calculations. The previous initiating exception remains
+unknown. Infrastructure, scientific admission and production publication gates
+remain as described above.

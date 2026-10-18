@@ -270,3 +270,33 @@ missing partitions, malformed receipts and other corruption fail closed.
 
 Offline unit/integration fixtures prove orchestration behavior, not national
 scientific results. Source-backed Docker validation must be reported separately.
+
+## Recover the owner-verified interrupted cloud run
+
+The bounded `--recovery-root recovered-610148769` option admits only archive
+`ef1defeaa9ba1f211d5f99b85abcec73a0edeec9bd187b801ced37e8b226409f`.
+Stage `archive.tar.gz` and its byte-identical extracted `contents/` below that
+relative artifacts root. Keep the two original seed roots at the artifacts root.
+The old assignment and all original files are checked against the pinned archive;
+all905 saved county prefixes and terminal inventories are revalidated read-only.
+This is prefix admission, not adoption of destroyed Docker containers. The old
+locks, assignments and interrupted attempt receipts remain historical evidence.
+No scientific completion receipt is generated for an interrupted run.
+
+`plan --workers 4 --recovery-root recovered-610148769` freezes1103 accepted
+counties and exactly2006 remaining counties into a new immutable assignment.
+The same `run`, resource limits, checkpoint rules and `assemble` commands apply.
+Existing plans without this option retain their original198/2911 contract.
+No scientific calculator file or formula changes.
+
+Run the reviewed `nlcd_parallel run` directly as the non-root systemd service
+process. Persist its complete stdout/stderr to an append-only supervisor log;
+export the service journal, unit configuration, Docker creation/start/stop events,
+filtered container inspection state, checkpoints, terminal inventories and cost
+ledger every few minutes and before teardown. Run optional
+`python -m lyme_gap_atlas_data.nlcd_parallel_monitor --root /srv/nlcd
+--output /srv/nlcd/evidence/metrics.jsonl --max-duration 432000` separately.
+Monitoring exceptions retain full tracebacks and never signal calculation workers.
+Do not couple worker lifetime to a `docker stats` sampling subprocess. This is
+hardening against a demonstrated failure mode, not an established explanation
+of the prior wrapper exit1: its initiating traceback was not retained.
