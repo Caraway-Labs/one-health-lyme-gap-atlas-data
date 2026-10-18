@@ -60,6 +60,7 @@ def run() -> dict:
             cursor,
             release,
             {
+                "bundle_sha256": bundle,
                 "artifacts": artifacts,
                 "independent_consumers": profile["independent_consumers"],
             },
@@ -90,13 +91,8 @@ def run() -> dict:
         )
         if cursor.fetchone()[0] != 0:
             raise ValueError("Invalid published membership probabilities")
-        if artifacts["tier1"]["expected_rows"] > 0:
-            cursor.execute(
-                "SELECT county_fips,priority_tier FROM PRESENTATION.CURRENT_TIER1_COUNTY_REVIEW_V "
-                "WHERE county_fips IN ('36001','01003','01001')"
-            )
-            if dict(cursor.fetchall()) != {"36001": "HIGH", "01003": "MEDIUM", "01001": "LOW"}:
-                raise ValueError("Tier 1 representative county regression")
+        # verify_current checks the admitted batch, eligibility and distribution.
+        # Fixed county examples cannot constrain an approved partial-coverage rollback.
         # Probe only denial-safe SELECT/SHOW. Never execute a publisher or DML
         # to test privileges against real approved production data.
         for table in (

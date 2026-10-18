@@ -151,37 +151,30 @@ JOIN (SELECT release_id,OBJECT_AGG(source_key,OBJECT_CONSTRUCT(
  'source_url',source_url,'limitations',note)) AS sources
  FROM PRESENTATION.SEMANTIC_DATA_SOURCES GROUP BY release_id) provenance
  ON provenance.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
-JOIN PRESENTATION.CURRENT_RELEASE_V r ON (
- (r.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR AND r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
- OR EXISTS (SELECT 1 FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY admission
- WHERE admission.artifact_id=a.model_id AND admission.batch_id=b.batch_id
+CROSS JOIN PRESENTATION.CURRENT_RELEASE_V r
+LEFT JOIN (SELECT DISTINCT artifact_id,batch_id,batch_version,model_version,
+ input_release_id,input_bundle_sha256,target_release_id,target_bundle_sha256
+ FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY) admission
+ ON admission.artifact_id=a.model_id AND admission.batch_id=b.batch_id
  AND admission.model_version=a.model_version AND admission.batch_version=b.batch_version
  AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
  AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
- AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256))
-WHERE p.pointer_key='CURRENT';
+ AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256
+WHERE p.pointer_key='CURRENT' AND (
+ (r.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
+ AND r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
+ OR admission.artifact_id IS NOT NULL);
 GRANT SELECT ON VIEW PRESENTATION.CURRENT_COUNTY_SURVEILLANCE_SITUATIONS_V TO ROLE OH_LYME_{{ ENV }}_READ;
 CREATE OR REPLACE VIEW PRESENTATION.COUNTY_SURVEILLANCE_SITUATION_AVAILABILITY_V AS
 SELECT c.fips AS county_fips,m.model_id,r.release_id,r.bundle_sha256,
  IFF(s.class_id IS NOT NULL,'AVAILABLE','UNAVAILABLE') AS availability,
  CASE WHEN s.class_id IS NOT NULL THEN NULL
- WHEN p.batch_id IS NULL THEN IFF(EXISTS(
-  SELECT 1 FROM FEATURE_STORE.SURVEILLANCE_SITUATION_BATCHES WHERE state='APPROVED'),
-  'DEACTIVATED','NOT_PUBLISHED')
- WHEN b.batch_id IS NULL OR b.state<>'APPROVED' OR NOT EXISTS(
- SELECT 1 FROM FEATURE_STORE.SURVEILLANCE_SITUATION_AUTHORIZATIONS data_authority
- WHERE data_authority.decision_id=b.data_authorization_id AND data_authority.county_sha256=b.county_sha256
- AND data_authority.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
- AND data_authority.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
+ WHEN p.batch_id IS NULL THEN IFF(history.approved_batches>0,'DEACTIVATED','NOT_PUBLISHED')
+ WHEN b.batch_id IS NULL OR b.state<>'APPROVED' OR authority.decision_id IS NULL
  THEN 'UNAPPROVED_BATCH'
  WHEN NOT (r.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR AND
            r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
- AND NOT EXISTS(SELECT 1 FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY admission
-  WHERE admission.artifact_id=m.model_id AND admission.batch_id=b.batch_id
-  AND admission.model_version='v1' AND admission.batch_version=b.batch_version
-  AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
-  AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
-  AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256)
+ AND admission.artifact_id IS NULL
  THEN 'INCOMPATIBLE_RELEASE' ELSE 'MISSING_ASSIGNMENT' END AS unavailable_reason,
  b.batch_id,b.batch_version,PARSE_JSON(b.manifest_json):release_id::VARCHAR AS input_release_id,
  s.class_id
@@ -191,6 +184,20 @@ CROSS JOIN (SELECT column1 AS model_id FROM VALUES
 CROSS JOIN PRESENTATION.CURRENT_RELEASE_V r
 LEFT JOIN FEATURE_STORE.SURVEILLANCE_SITUATION_POINTER p ON p.pointer_key='CURRENT'
 LEFT JOIN FEATURE_STORE.SURVEILLANCE_SITUATION_BATCHES b ON b.batch_id=p.batch_id AND b.batch_version=p.batch_version
+CROSS JOIN (SELECT COUNT(*) AS approved_batches FROM FEATURE_STORE.SURVEILLANCE_SITUATION_BATCHES WHERE state='APPROVED') history
+LEFT JOIN (SELECT DISTINCT decision_id,county_sha256,release_id,bundle_sha256
+ FROM FEATURE_STORE.SURVEILLANCE_SITUATION_AUTHORIZATIONS) authority
+ ON authority.decision_id=b.data_authorization_id AND authority.county_sha256=b.county_sha256
+ AND authority.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
+ AND authority.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
+LEFT JOIN (SELECT DISTINCT artifact_id,batch_id,batch_version,model_version,
+ input_release_id,input_bundle_sha256,target_release_id,target_bundle_sha256
+ FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY) admission
+ ON admission.artifact_id=m.model_id AND admission.batch_id=b.batch_id
+ AND admission.model_version='v1' AND admission.batch_version=b.batch_version
+ AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
+ AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
+ AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256
 LEFT JOIN PRESENTATION.CURRENT_COUNTY_SURVEILLANCE_SITUATIONS_V s ON s.county_fips=c.fips AND s.model_id=m.model_id;
 GRANT SELECT ON VIEW PRESENTATION.COUNTY_SURVEILLANCE_SITUATION_AVAILABILITY_V TO ROLE OH_LYME_{{ ENV }}_READ;
 GRANT USAGE ON PROCEDURE FEATURE_STORE.SP_STAGE_SURVEILLANCE_SITUATION_PART(VARCHAR,VARCHAR,FLOAT,VARCHAR) TO ROLE OH_LYME_{{ ENV }}_ML_PUBLISHER;
@@ -237,15 +244,23 @@ try {
  if(P_ACTIVE) {
   if(one(`SELECT COUNT(*) FROM FEATURE_STORE.SURVEILLANCE_SITUATION_BATCHES b
    JOIN FEATURE_STORE.SURVEILLANCE_SITUATION_AUTHORIZATIONS a ON a.decision_id=b.data_authorization_id AND a.county_sha256=b.county_sha256
-   JOIN PRESENTATION.CURRENT_RELEASE_V r ON (
-    (r.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR AND r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
-    OR (SELECT COUNT(DISTINCT artifact_id) FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY admission
-     WHERE admission.artifact_id IN ('surveillance-situation-four-state','surveillance-situation-tick-pathogen')
-     AND admission.model_version='v1' AND admission.batch_id=b.batch_id AND admission.batch_version=b.batch_version
-     AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
-     AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
-     AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256)=2)
-   WHERE b.batch_id='surveillance-situation-batch' AND b.batch_version='v1' AND b.state='APPROVED'`)!==1)throw 'NO_COMPATIBLE_APPROVED_BATCH';
+   CROSS JOIN PRESENTATION.CURRENT_RELEASE_V r
+   LEFT JOIN (SELECT batch_id,batch_version,input_release_id,input_bundle_sha256,
+    target_release_id,target_bundle_sha256,COUNT(DISTINCT artifact_id) AS admitted_models
+    FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY
+    WHERE artifact_id IN ('surveillance-situation-four-state','surveillance-situation-tick-pathogen')
+    AND model_version='v1'
+    GROUP BY batch_id,batch_version,input_release_id,input_bundle_sha256,target_release_id,target_bundle_sha256) admission
+    ON admission.batch_id=b.batch_id AND admission.batch_version=b.batch_version
+    AND admission.input_release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
+    AND admission.input_bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
+    AND admission.target_release_id=r.release_id AND admission.target_bundle_sha256=r.bundle_sha256
+   WHERE b.batch_id='surveillance-situation-batch' AND b.batch_version='v1' AND b.state='APPROVED'
+   AND a.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
+   AND a.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR
+   AND ((r.release_id=PARSE_JSON(b.manifest_json):release_id::VARCHAR
+    AND r.bundle_sha256=PARSE_JSON(b.manifest_json):bundle_sha256::VARCHAR)
+    OR admission.admitted_models=2)`)!==1)throw 'NO_COMPATIBLE_APPROVED_BATCH';
   q("UPDATE FEATURE_STORE.SURVEILLANCE_SITUATION_POINTER SET batch_id='surveillance-situation-batch',batch_version='v1' WHERE pointer_key='CURRENT'");
  }else q("UPDATE FEATURE_STORE.SURVEILLANCE_SITUATION_POINTER SET batch_id=NULL,batch_version=NULL WHERE pointer_key='CURRENT'");
  q('INSERT INTO FEATURE_STORE.SURVEILLANCE_SITUATION_EVENTS(action,reason,actor) SELECT ?,?,CURRENT_USER()',[P_ACTIVE?'ACTIVATE':'DEACTIVATE',P_REASON]);

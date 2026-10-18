@@ -34,6 +34,11 @@ lineage before recording the caller, evidence reference and exact release/bundle
 pair. Installation records no decision and changes no Tier 1 output or view.
 No retraining is required when this strict proof succeeds and the owner approves.
 Changed scientific inputs require ML review/recomputation, not retagging.
+The proof includes complete source mappings and per-observation source record
+and row-hash identities, with multiplicities, compared in both directions by
+canonical state partitions. Predictor equality or sampled source pins alone
+cannot satisfy it. A read-only pre-approval verifier retains incomplete results
+on timeout/access failure; it must not issue an admission itself.
 
 V158 independently stores the frozen ML138 handoff. Existing ML_PUBLISHER may
 stage exact chunks and publish only the approved SHA-bound v1 documents. It cannot

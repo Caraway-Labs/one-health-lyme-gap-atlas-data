@@ -46,6 +46,7 @@ def manifest() -> dict:
         "artifacts": [
             {
                 "id": identity,
+                **dict.fromkeys(gate.SOURCE_FIELDS, "pin"),
                 "disposition": "carry_forward",
                 "owner": "Data",
                 "consumer": "API",

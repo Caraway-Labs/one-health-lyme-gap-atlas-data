@@ -161,3 +161,19 @@ DEV currently points to `governed-2026-10-09-january-climate-dev`, bundle
 That differs from the approved ML138 frozen input. Positive server publication
 validation therefore needs a reviewed DEV validation plan with the frozen release
 identity; the existing DEV pointer was not changed to satisfy this prerequisite.
+
+## 2026-10-18 exact-head follow-up
+
+See `release-integrity-acceptance-2026-10-18.md` for the review disposition,
+actual read-only Snowflake query receipts and remaining installed DEV gates.
+`verify_model_source_lineage.py` is a read-only pre-approval verifier: it checks
+retained source metadata and complete manifest mappings first, then compares
+all model-source observation lineage with multiplicities in bounded state
+partitions. Each CLI statement has a 60-second timeout; receipts remain
+incomplete on failure. Audit row counts must equal base observation counts,
+so inner joins cannot silently hide missing provenance. No approval is recorded.
+The current READ role cannot access retained manifests; do not grant broad base
+access or substitute sampled lineage. Use a separately authorized, least-privilege
+protected diagnostic with those existing dependency reads. V157 independently
+repeats source/mapping and bidirectional per-state observation-lineage checks
+before an OWNER can record compatibility. Its result reports partitions/rows.

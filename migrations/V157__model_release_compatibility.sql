@@ -60,10 +60,35 @@ try {
   var a=k===0?source:P_TARGET_RELEASE,b=k===0?P_TARGET_RELEASE:source;
   if(one(`SELECT COUNT(*) FROM (SELECT ${lineage} FROM PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id=? AND source_key IN (${slots}) MINUS SELECT ${lineage} FROM PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id=? AND source_key IN (${slots}))`,[a,b])!==0) throw 'CHANGED_SCIENTIFIC_LINEAGE';
   if(one(`SELECT COUNT(*) FROM (
-   SELECT f.value:source_key::VARCHAR,f.value:artifact_sha256::VARCHAR,f.value:definition_version::VARCHAR,TO_JSON(f.value:field_map)
+   SELECT f.value:source_key::VARCHAR,f.value:artifact_sha256::VARCHAR,f.value:definition_version::VARCHAR,f.value:field_map
    FROM PRESENTATION.SEMANTIC_RELEASES r,LATERAL FLATTEN(INPUT=>r.source_manifest:sources) f WHERE r.release_id=? AND f.value:source_key::VARCHAR IN (${slots})
-   MINUS SELECT f.value:source_key::VARCHAR,f.value:artifact_sha256::VARCHAR,f.value:definition_version::VARCHAR,TO_JSON(f.value:field_map)
+   MINUS SELECT f.value:source_key::VARCHAR,f.value:artifact_sha256::VARCHAR,f.value:definition_version::VARCHAR,f.value:field_map
    FROM PRESENTATION.SEMANTIC_RELEASES r,LATERAL FLATTEN(INPUT=>r.source_manifest:sources) f WHERE r.release_id=? AND f.value:source_key::VARCHAR IN (${slots}))`,[a,b])!==0)throw 'CHANGED_SOURCE_MAPPING_OR_HASH';
+ }
+ // Compare full observation lineage, retaining multiplicities; equal predictors
+ // or source-level pins cannot authorize changed county-record provenance.
+ var rowLineage='fips,measure_id,temporal_window,source_key,source_version_id,ingestion_run_id,artifact_id,source_record_id,source_row_hash';
+ var partitions=q("SELECT DISTINCT SUBSTR(fips,1,2) FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS WHERE release_id=? ORDER BY 1",[source]);
+ var partitionCount=0,comparedRows=0;
+ while(partitions.next()) {
+  var state=partitions.getColumnValue(1);partitionCount++;
+  if(partitionCount>60||!/^[0-9]{2}$/.test(state))throw 'INVALID_LINEAGE_PARTITION';
+  for(var direction=0;direction<2;direction++) {
+   var left=direction===0?source:P_TARGET_RELEASE,right=direction===0?P_TARGET_RELEASE:source;
+   if(one(`SELECT COUNT(*) FROM (
+    SELECT ${rowLineage},COUNT(*) AS multiplicity FROM PRESENTATION.SEMANTIC_OBSERVATIONS
+    WHERE release_id=? AND source_key IN (${slots}) AND SUBSTR(fips,1,2)=? GROUP BY ${rowLineage}
+    MINUS SELECT ${rowLineage},COUNT(*) AS multiplicity FROM PRESENTATION.SEMANTIC_OBSERVATIONS
+    WHERE release_id=? AND source_key IN (${slots}) AND SUBSTR(fips,1,2)=? GROUP BY ${rowLineage})`,[left,state,right,state])!==0)throw 'CHANGED_OBSERVATION_LINEAGE';
+  }
+  comparedRows+=one(`SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_OBSERVATIONS WHERE release_id=? AND source_key IN (${slots}) AND SUBSTR(fips,1,2)=?`,[source,state]);
+ }
+ if(partitionCount===0||comparedRows===0)throw 'MISSING_OBSERVATION_LINEAGE';
+ var expectedSources=slots.split(',').length;
+ for(var side=0;side<2;side++) {
+  var identity=side===0?source:P_TARGET_RELEASE;
+  if(one(`SELECT COUNT(DISTINCT source_key) FROM PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id=? AND source_key IN (${slots})`,[identity])!==expectedSources)throw 'MISSING_SOURCE_LINEAGE';
+  if(one(`SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_RELEASES r,LATERAL FLATTEN(INPUT=>r.source_manifest:sources) f WHERE r.release_id=? AND f.value:source_key::VARCHAR IN (${slots})`,[identity])!==expectedSources)throw 'MISSING_SOURCE_MAPPING';
  }
  var existing=q('SELECT target_release_id,target_bundle_sha256,evidence_reference,artifact_id,batch_id,model_version,batch_version FROM FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY WHERE decision_id=?',[P_DECISION]);
  if(existing.next()) {
@@ -72,7 +97,7 @@ try {
  }
  q(`INSERT INTO FEATURE_STORE.MODEL_RELEASE_COMPATIBILITY(decision_id,artifact_id,model_version,batch_id,batch_version,input_release_id,input_bundle_sha256,target_release_id,target_bundle_sha256,evidence_reference,approved_by)
  SELECT ?,?,?,?,?,?,?,?,?,?,CURRENT_USER()`,[P_DECISION,P_ARTIFACT,modelVersion,batch,batchVersion,source,sourceBundle,P_TARGET_RELEASE,P_TARGET_BUNDLE,P_EVIDENCE]);
- q('COMMIT'); return {decision_id:P_DECISION,replay:false};
+ q('COMMIT'); return {decision_id:P_DECISION,replay:false,lineage_partitions:partitionCount,lineage_rows:comparedRows};
 } catch(e) {q('ROLLBACK');throw e;}
 $$;
 -- Human owner only. Ingestion and ML publishers cannot approve compatibility.

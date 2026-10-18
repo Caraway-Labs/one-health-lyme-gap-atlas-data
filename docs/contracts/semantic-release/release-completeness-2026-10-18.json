@@ -34,7 +34,10 @@
         "human_status",
         "incidence_floor_2023"
       ],
-      "presentation_counties": 3144
+      "presentation_counties": 3144,
+      "label": "CDC Lyme surveillance",
+      "source_url": "https://data.cdc.gov/resource/x5j9-wybp.json",
+      "note": "County-of-residence surveillance. County-linked values are published privacy-protected floors, not complete incidence estimates."
     },
     {
       "id": "tick",
@@ -59,7 +62,10 @@
       "artifact_sha256": "e35a5066a7c77b2e79c50f315a18e042405ab7baa8a414a1a907792bb25d2adc",
       "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
       "actual_typed_consumer_rows": null,
-      "coverage_verification_status": "current wide county projection exists; typed authority/provenance reconciliation remains pending"
+      "coverage_verification_status": "current wide county projection exists; typed authority/provenance reconciliation remains pending",
+      "label": "CDC ArboNET county tick status",
+      "source_url": "https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html",
+      "note": "Tick status is cumulative surveillance evidence; no records is not absence and status is not abundance, pathogen prevalence, diagnosis, or individual risk."
     },
     {
       "id": "pathogen",
@@ -84,7 +90,10 @@
       "artifact_sha256": "68baef5f20b1e41821d0e6955cbb1809262e0f3624e387e88c04f6ddb0266f2f",
       "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
       "actual_typed_consumer_rows": null,
-      "coverage_verification_status": "current wide county projection exists; typed authority/provenance reconciliation remains pending"
+      "coverage_verification_status": "current wide county projection exists; typed authority/provenance reconciliation remains pending",
+      "label": "CDC ArboNET tickborne pathogen status",
+      "source_url": "https://www.cdc.gov/ticks/data-research/facts-stats/tick-surveillance-data-sets.html",
+      "note": "This is a distinct restricted pathogen source. No records is not absence; 33 absent canonical counties are classified as unknown source coverage."
     },
     {
       "id": "context_svi",
@@ -116,7 +125,10 @@
         "uninsured_percent_2022",
         "uninsured_percentile_2022"
       ],
-      "presentation_counties": 3144
+      "presentation_counties": 3144,
+      "label": "CDC/ATSDR Social Vulnerability Index",
+      "source_url": "https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html",
+      "note": "Contextual population and vulnerability measures are not causal drivers or individual risk factors. The same reviewed source supplies county identity and geometry."
     },
     {
       "id": "context_rucc",
@@ -145,7 +157,10 @@
       "presentation_measures": [
         "rucc_2023"
       ],
-      "presentation_counties": 3144
+      "presentation_counties": 3144,
+      "label": "USDA ERS Rural-Urban Continuum Codes",
+      "source_url": "https://www.ers.usda.gov/data-products/rural-urban-continuum-codes/",
+      "note": "RUCC is a contextual county classification; vintages are not automatically comparable and it is not a causal or individual risk measure."
     },
     {
       "id": "context_nlcd_2025",
@@ -180,7 +195,10 @@
         "nlcd_open_water_area_share_county_year",
         "nlcd_wetland_area_share_county_year"
       ],
-      "presentation_counties": 2
+      "presentation_counties": 2,
+      "label": "MRLC Annual NLCD 2025 reviewed demo cohort",
+      "source_url": "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_LndCov_2025_CU_C1V2.zip",
+      "note": "Selected 2025 TIGER geographies 09110 and 51013 only; unselected counties are not zero. COMPLETE describes valid source-supported area; preserve source coverage fraction. 09110 is Capitol Planning Region, with no historical Connecticut county crosswalk. Official MRLC mosaic lineage, not USGS S3 tiles. Descriptive land-cover context only; no Lyme causal/risk estimate or automatic ML admission."
     },
     {
       "id": "climate",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from importlib.resources import files
 from typing import Any
 
 SCHEMA = "atlas-release-completeness/v1"
@@ -71,6 +72,70 @@ PRESENTATION_MEASURES = {
 CLIMATE_MEASURES = {
     "nclimgrid_" + name + "_county_day" for name in ("prcp", "tavg", "tmin", "tmax")
 }
+SOURCE_FIELDS = ("source_id", "dataset_id", "label", "vintage", "source_url", "note")
+
+
+def verify_projection_identity(
+    cursor: Any, release_id: str, artifacts: dict[str, dict[str, Any]]
+) -> None:
+    """Check row identities and attribution, including same-count substitutions."""
+    canonical = set(
+        files("lyme_gap_atlas_data")
+        .joinpath("data/canonical-county-fips-2022.txt")
+        .read_text()
+        .split()
+    )
+    cursor.execute("SELECT release_id,fips FROM PRESENTATION.CURRENT_COUNTY_ATLAS_V")
+    counties = cursor.fetchall()
+    if (
+        len(counties) != len(canonical)
+        or {r[1] for r in counties} != canonical
+        or any(r[0] != release_id for r in counties)
+    ):
+        raise ReleaseCompletenessBlocked("County release identity or canonical membership differs")
+    cursor.execute(
+        "SELECT release_version,source_key,"
+        + ",".join(SOURCE_FIELDS)
+        + " FROM PRESENTATION.CURRENT_SOURCE_METADATA_V"
+    )
+    sources = cursor.fetchall()
+    required = {
+        key
+        for key in REQUIRED
+        if key
+        not in {
+            "tier1",
+            "climate",
+            "surveillance-situation-four-state",
+            "surveillance-situation-tick-pathogen",
+        }
+    }
+    for key in required:
+        expected = artifacts[key]
+        rows = [r for r in sources if r[1] == key]
+        if len(rows) != 1 or rows[0][0] != release_id:
+            raise ReleaseCompletenessBlocked("Source release identity missing: " + key)
+        for field, actual in zip(SOURCE_FIELDS, rows[0][2:], strict=True):
+            if not expected.get(field) or actual != expected[field]:
+                raise ReleaseCompletenessBlocked("Source attribution differs: " + key + ":" + field)
+
+
+def tier1_eligibility_join() -> str:
+    """Deduplicate admission identities before joining model rows."""
+    return (
+        " CROSS JOIN PRESENTATION.CURRENT_RELEASE_V r_current LEFT JOIN "
+        "(SELECT DISTINCT artifact_id,batch_id,batch_version,model_version,"
+        "input_release_id,input_bundle_sha256,target_release_id,target_bundle_sha256 "
+        "FROM PRESENTATION.MODEL_RELEASE_COMPATIBILITY_V) admission ON "
+        "admission.artifact_id='tier1' "
+        "AND admission.batch_id=v.prediction_batch_version "
+        "AND admission.batch_version=v.prediction_batch_version "
+        "AND admission.model_version=v.model_version "
+        "AND admission.input_release_id=v.release_id "
+        "AND admission.input_bundle_sha256=v.bundle_sha256 "
+        "AND admission.target_release_id=r_current.release_id "
+        "AND admission.target_bundle_sha256=r_current.bundle_sha256"
+    )
 
 
 class ReleaseCompletenessBlocked(ValueError):
@@ -107,6 +172,13 @@ def validate_manifest(document: Any) -> dict[str, dict[str, Any]]:
             0 if exception else 1
         ):
             raise ReleaseCompletenessBlocked("Artifact coverage missing: " + identity)
+        if identity in REQUIRED - {
+            "tier1",
+            "climate",
+            "surveillance-situation-four-state",
+            "surveillance-situation-tick-pathogen",
+        } and any(not isinstance(item.get(f), str) or not item[f].strip() for f in SOURCE_FIELDS):
+            raise ReleaseCompletenessBlocked("Required source attribution missing: " + identity)
         if identity in PRESENTATION_MEASURES and (
             not isinstance(item.get("presentation_measures"), list)
             or (
@@ -279,6 +351,7 @@ def verify_candidate(cursor: Any, release_id: str) -> dict[str, Any]:
                 raise ReleaseCompletenessBlocked("Candidate source coverage mismatch: " + identity)
     return {
         "schema": SCHEMA,
+        "bundle_sha256": rows[0][1],
         "manifest_sha256": manifest_digest,
         "artifacts": artifacts,
         "independent_consumers": manifest["independent_consumers"],
@@ -302,10 +375,11 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
             for g in grants
         ):
             raise ReleaseCompletenessBlocked("API read grant missing: " + view)
-    cursor.execute("SELECT release_id FROM PRESENTATION.CURRENT_RELEASE_V")
-    if cursor.fetchmany(2) != [(release_id,)]:
+    cursor.execute("SELECT release_id,bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V")
+    if cursor.fetchmany(2) != [(release_id, receipt["bundle_sha256"])]:
         raise ReleaseCompletenessBlocked("Current release pointer is not unique or differs")
     artifacts = receipt["artifacts"]
+    verify_projection_identity(cursor, release_id, artifacts)
     for item in receipt["independent_consumers"]:
         view = item["view"]
         column = INDEPENDENT[view]
@@ -331,34 +405,29 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
     }
     for identity, (view, batch_column) in probes.items():
         item = artifacts[identity]
-        model_filter = " AND model_version=%s"
+        model_filter = " AND v.model_version=%s"
         expected_release = item["input_release_id"] if identity == "tier1" else release_id
         params: tuple[Any, ...] = (item["batch_id"], expected_release, item["model_version"])
         if identity != "tier1":
-            model_filter += " AND model_id=%s AND batch_version=%s"
+            model_filter += " AND v.model_id=%s AND v.batch_version=%s"
             params += (identity, item["batch_version"])
         if identity == "tier1":
             model_filter += (
-                " AND EXISTS (SELECT 1 FROM PRESENTATION.CURRENT_RELEASE_V r_current "
-                "WHERE r_current.release_id=%s AND ((v.release_id=r_current.release_id "
-                "AND v.bundle_sha256=r_current.bundle_sha256) OR EXISTS (SELECT 1 FROM "
-                "PRESENTATION.MODEL_RELEASE_COMPATIBILITY_V admission "
-                "WHERE admission.artifact_id='tier1' "
-                "AND admission.batch_id=v.prediction_batch_version "
-                "AND admission.batch_version=v.prediction_batch_version "
-                "AND admission.model_version=v.model_version "
-                "AND admission.input_release_id=v.release_id "
-                "AND admission.input_bundle_sha256=v.bundle_sha256 "
-                "AND admission.target_release_id=r_current.release_id "
-                "AND admission.target_bundle_sha256=r_current.bundle_sha256)))"
+                " AND ((v.release_id=r_current.release_id "
+                "AND v.bundle_sha256=r_current.bundle_sha256) "
+                "OR admission.artifact_id IS NOT NULL)"
             )
-            params += (release_id,)
+        joins = ""
+        if identity == "tier1":
+            joins = tier1_eligibility_join()
         cursor.execute(
             "SELECT COUNT(*), COUNT(DISTINCT county_fips) FROM PRESENTATION."
             + view
-            + " AS v WHERE "
+            + " AS v"
+            + joins
+            + " WHERE v."
             + batch_column
-            + "=%s AND release_id=%s"
+            + "=%s AND v.release_id=%s"
             + model_filter,
             params,
         )
@@ -374,9 +443,11 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
             + class_column
             + ",COUNT(*) FROM PRESENTATION."
             + view
-            + " AS v WHERE "
+            + " AS v"
+            + joins
+            + " WHERE v."
             + batch_column
-            + "=%s AND release_id=%s"
+            + "=%s AND v.release_id=%s"
             + model_filter
             + " GROUP BY "
             + class_column,

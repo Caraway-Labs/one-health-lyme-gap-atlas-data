@@ -22,7 +22,7 @@ class ProjectionCursor:
         self.sql, self.params = sql, params
 
     def fetchmany(self, size):
-        return [("new",)]
+        return [("new", "bundle")]
 
     def fetchone(self):
         if "COUNT(DISTINCT county_fips)" in self.sql:
@@ -30,6 +30,10 @@ class ProjectionCursor:
         return (3144,)
 
     def fetchall(self):
+        if "SELECT release_id,fips" in self.sql:
+            return [("new", f) for f in canonical()]
+        if "SELECT release_version,source_key" in self.sql:
+            return [("new", k, *(["pin"] * len(gate.SOURCE_FIELDS))) for k in sources()]
         if self.sql.startswith("SHOW GRANTS"):
             return [("SELECT", "OH_LYME_PROD_READ")] if self.grant else []
         if "CURRENT_CLIMATE_MEASURE_METADATA_V" in self.sql:
@@ -53,8 +57,10 @@ class ProjectionCursor:
 
 def receipt():
     return {
+        "bundle_sha256": "bundle",
         "artifacts": {
             k: {
+                **dict.fromkeys(gate.SOURCE_FIELDS, "pin"),
                 "expected_rows": 389856 if k == "climate" else 3144,
                 "presentation_measures": sorted(gate.PRESENTATION_MEASURES.get(k, [])),
                 "presentation_counties": 3144,
@@ -76,6 +82,59 @@ def receipt():
             {"view": v, "minimum_rows": 0, "expected_keys": ["required"]} for v in gate.INDEPENDENT
         ],
     }
+
+
+def canonical():
+    return (
+        gate.files("lyme_gap_atlas_data")
+        .joinpath("data/canonical-county-fips-2022.txt")
+        .read_text()
+        .split()
+    )
+
+
+def sources():
+    return gate.REQUIRED - {
+        "tier1",
+        "climate",
+        "surveillance-situation-four-state",
+        "surveillance-situation-tick-pathogen",
+    }
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "old_release",
+        "replaced_fips",
+        "empty_sources",
+        "replaced_source",
+        "wrong_source_release",
+        "lost_provenance",
+    ],
+)
+def test_same_counts_do_not_authorize_wrong_projection_identity(kind):
+    class WrongIdentity(ProjectionCursor):
+        def fetchall(self):
+            rows = super().fetchall()
+            if "SELECT release_id,fips" in self.sql:
+                if kind == "old_release":
+                    return [("old", f) for _, f in rows]
+                if kind == "replaced_fips":
+                    rows[0] = ("new", "99999")
+            if "SELECT release_version,source_key" in self.sql:
+                if kind == "empty_sources":
+                    return []
+                if kind == "replaced_source":
+                    rows[0] = ("new", "replacement", *rows[0][2:])
+                if kind == "wrong_source_release":
+                    rows[0] = ("old", *rows[0][1:])
+                if kind == "lost_provenance":
+                    rows[0] = (*rows[0][:-1], None)
+            return rows
+
+    with pytest.raises(gate.ReleaseCompletenessBlocked, match="identity|attribution"):
+        gate.verify_current(WrongIdentity(), "new", receipt())
 
 
 def test_valid_projected_release_passes():

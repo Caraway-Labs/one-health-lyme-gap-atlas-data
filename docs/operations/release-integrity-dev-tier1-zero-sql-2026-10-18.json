@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-10-18T21:20:00.411198+00:00",
+  "kind": "read_only_inline_engine_fixtures_not_installed_acceptance",
+  "context": {
+    "U": "MATTHEWCARAWAY",
+    "R": "OH_LYME_DEV_READ",
+    "D": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "W": "OH_LYME_DEV_INGEST_XS_WH"
+  },
+  "cases": [
+    {
+      "case": "zero",
+      "query": "tier1",
+      "result": {
+        "N": 0
+      },
+      "query_id": "01c7d200-030c-4eac-0064-2d07012cd65e"
+    }
+  ]
+}
