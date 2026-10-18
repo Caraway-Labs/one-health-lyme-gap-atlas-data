@@ -185,6 +185,25 @@ def run_matrix(f, migration, documents):
         )
     for session, name in ((reader, "reader"), (publisher, "publisher"), (runtime, "runtime")):
         case(
+            name + "_private_dml_denied",
+            lambda session=session: fail(
+                "denied_private_dml",
+                session,
+                "DELETE FROM FEATURE_STORE.SURVEILLANCE_SITUATION_AUTHORIZATIONS WHERE 1=0",
+                permission=True,
+            ),
+        )
+        case(
+            name + "_cannot_authorize_publication",
+            lambda session=session: fail(
+                "denied_data_authorization",
+                session,
+                "CALL FEATURE_STORE.SP_AUTHORIZE_SURVEILLANCE_SITUATION_PUBLICATION("
+                "'bad','bad','bad','bad','bad')",
+                permission=True,
+            ),
+        )
+        case(
             name + "_private_table_denied",
             lambda session=session: fail(
                 "denied_base",
@@ -207,6 +226,16 @@ def run_matrix(f, migration, documents):
         )
 
     authority = "synthetic-ri706-data-authorization"
+    for session, name in ((reader, "reader"), (runtime, "runtime")):
+        case(
+            name + "_staging_denied",
+            lambda session=session: fail(
+                "denied_staging",
+                session,
+                "CALL FEATURE_STORE.SP_STAGE_SURVEILLANCE_SITUATION_PART('bad','bad',0,'{}')",
+                permission=True,
+            ),
+        )
     case(
         "missing_data_authority",
         lambda: fail(
