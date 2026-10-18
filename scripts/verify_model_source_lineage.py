@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -138,6 +139,17 @@ def main():
             {k: r[k] for k in ("source_key", "artifact_sha256", "definition_version", "field_map")}
             for r in mapped
         ]
+        if any(
+            not re.fullmatch(r"[0-9a-fA-F]{64}", str(row["artifact_sha256"]))
+            or row["definition_version"] is None
+            or not str(row["definition_version"]).strip()
+            or not isinstance(row["field_map"], dict)
+            or not row["field_map"]
+            for row in selected
+        ):
+            receipt["mismatches"].append({"release": release, "field": "source_manifest_integrity"})
+            args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+            raise ValueError("Incomplete source mapping or checksum")
         source_rows = read(
             "SELECT " + SOURCE_FIELDS + " FROM "
             f"PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id='{release}' "
@@ -147,6 +159,23 @@ def main():
             SOURCES
         ):
             raise ValueError("Missing or duplicate source metadata")
+        incomplete = [
+            {"source_key": row["SOURCE_KEY"], "missing_fields": missing}
+            for row in source_rows
+            if (
+                missing := [
+                    field.upper()
+                    for field in SOURCE_FIELDS.split(",")
+                    if row.get(field.upper()) is None or not str(row[field.upper()]).strip()
+                ]
+            )
+        ]
+        if incomplete:
+            receipt["mismatches"].append(
+                {"release": release, "field": "required_source_metadata", "sources": incomplete}
+            )
+            args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+            raise ValueError("Incomplete required source metadata")
         pins.append((multiset(selected), multiset(source_rows)))
     receipt["canonical_membership_equal"] = True
     changed = {
@@ -230,15 +259,25 @@ def main():
             expected_bundle = ORIGINAL_BUNDLE if release == ORIGINAL else BUNDLE
             invalid = Counter()
             for row in result:
+                complete = all(
+                    row.get(field.upper()) is not None and str(row[field.upper()]).strip()
+                    for field in ROW_FIELDS.split(",")
+                )
                 checks = {
-                    "record_match_kind": row["RECORD_MATCH_KIND"] != "UNMATCHED",
+                    "required_observation_metadata": complete,
+                    "record_match_kind": bool(row.get("RECORD_MATCH_KIND"))
+                    and row["RECORD_MATCH_KIND"] != "UNMATCHED",
                     "source_version": row["GOVERNED_SOURCE_VERSION_ID"] is not None
                     and row["SOURCE_VERSION_ID"] == row["GOVERNED_SOURCE_VERSION_ID"],
                     "ingestion_run": row["GOVERNED_INGESTION_RUN_ID"] is not None
                     and row["INGESTION_RUN_ID"] == row["GOVERNED_INGESTION_RUN_ID"],
-                    "artifact_sha256": row["ARTIFACT_SHA256"] is not None,
+                    "artifact_sha256": bool(
+                        re.fullmatch(r"[0-9a-fA-F]{64}", str(row.get("ARTIFACT_SHA256")))
+                    ),
                     "release_bundle": row["RELEASE_BUNDLE_SHA256"] == expected_bundle,
-                    "source_row_hash": row["SEMANTIC_SOURCE_ROW_HASH"] is not None
+                    "source_row_hash": bool(
+                        re.fullmatch(r"[0-9a-fA-F]{64}", str(row.get("SEMANTIC_SOURCE_ROW_HASH")))
+                    )
                     and row["SEMANTIC_SOURCE_ROW_HASH"] == row["GOVERNED_SOURCE_ROW_HASH"],
                 }
                 invalid.update(field for field, valid in checks.items() if not valid)

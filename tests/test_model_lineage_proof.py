@@ -21,6 +21,9 @@ import pytest
         "duplicate_id",
         "feature",
         "missing_feature",
+        "missing_metadata",
+        "missing_row_field",
+        "malformed_checksum",
     ],
 )
 def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
@@ -70,7 +73,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             sources = [
                 {
                     "source_key": s,
-                    "artifact_sha256": "a",
+                    "artifact_sha256": "a" * 64 if change != "malformed_checksum" else "bad",
                     "definition_version": 1,
                     "field_map": {"x": "changed" if target and change == "mapping" else "y"},
                 }
@@ -85,14 +88,17 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
         if "SEMANTIC_DATA_SOURCES" in sql:
             return [
                 {
+                    **dict.fromkeys(module.SOURCE_FIELDS.upper().split(","), "same"),
                     "SOURCE_KEY": s,
                     "ARTIFACT_ID": "changed" if target and change == "source" else "a",
+                    "SOURCE_VERSION_ID": None if change == "missing_metadata" else "v",
                 }
                 for s in module.SOURCES
             ]
         if "COUNT(*) AS N" in sql:
             return [{"N": 2 if target and change in {"dropped", "duplicate_id"} else 1}]
         row = {
+            **dict.fromkeys(module.ROW_FIELDS.upper().split(","), "same"),
             "OBSERVATION_ID": "observation",
             "RELEASE_BUNDLE_SHA256": module.BUNDLE if target else module.ORIGINAL_BUNDLE,
             "SOURCE_VERSION_ID": "v",
@@ -100,15 +106,16 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             "GOVERNED_SOURCE_ROW_HASH": (
                 "wrong"
                 if target and change == "governed_hash"
-                else "changed"
+                else "b" * 64
                 if target and change == "row"
-                else "original"
+                else "a" * 64
             ),
             "RECORD_MATCH_KIND": "IMMUTABLE_REVISION",
             "GOVERNED_SOURCE_VERSION_ID": "v",
             "GOVERNED_INGESTION_RUN_ID": "r",
-            "ARTIFACT_SHA256": "a",
-            "SEMANTIC_SOURCE_ROW_HASH": "changed" if target and change == "row" else "original",
+            "ARTIFACT_SHA256": "a" * 64,
+            "SEMANTIC_SOURCE_ROW_HASH": "b" * 64 if target and change == "row" else "a" * 64,
+            "SEMANTIC_SOURCE_RECORD_ID": None if change == "missing_row_field" else "record",
         }
         return [row, dict(row)] if target and change == "duplicate_id" else [row]
 
@@ -119,9 +126,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
         argv.append("--reviewed-projections")
     monkeypatch.setattr("sys.argv", argv)
     if change:
-        with pytest.raises(
-            ValueError, match="differ|dropped|governed|duplicated|Incomplete feature"
-        ):
+        with pytest.raises(ValueError, match="differ|dropped|governed|duplicated|Incomplete"):
             module.main()
         assert json.loads(receipt.read_text())["status"] != "complete_equal_not_approval"
     else:
