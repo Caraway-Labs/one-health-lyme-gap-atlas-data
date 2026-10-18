@@ -37,6 +37,14 @@ on:
         description: Exact reviewed green main for scoped migrations
         required: false
         type: string
+      fixture_source_commit:
+        description: Exact independently reviewed RI706 source SHA tested in isolated DEV
+        required: false
+        type: string
+      fixture_validation_run_id:
+        description: Successful protected RI706 fixture workflow run containing acceptance receipts
+        required: false
+        type: string
       image_digest:
         description: DEV-tested DOCR image digest to promote
         required: true
@@ -53,6 +61,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: prod-app-topology
@@ -71,11 +81,14 @@ jobs:
       IMAGE_DIGEST: ${{ inputs.image_digest }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           version: "1.160.1"
       - name: Verify digest is currently deployed and approved in DEV
+        if: ${{ inputs.release_integrity_only != true }}
         run: |
           test -n "$IMAGE_DIGEST"
           dev_digest="$(doctl apps spec get "$DEV_APP_ID" --format json | jq -r '.jobs[0].image.digest')"
@@ -84,6 +97,7 @@ jobs:
             | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
           test "$source_digest" = "$IMAGE_DIGEST"
       - name: Verify PROD target has been explicitly provisioned
+        if: ${{ inputs.release_integrity_only != true }}
         run: |
           test -n "$PROD_APP_ID"
           doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
@@ -91,6 +105,18 @@ jobs:
       - name: Install Snowflake CLI for the protected PROD migration step
         run: python -m pip install snowflake-cli-labs==3.25.0
       - run: uv sync --frozen --extra dev --extra pipeline
+      - name: Verify isolated DEV acceptance and identical reviewed source before pair-only installation
+        if: ${{ inputs.release_integrity_only == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          FIXTURE_SOURCE_COMMIT: ${{ inputs.fixture_source_commit }}
+          FIXTURE_VALIDATION_RUN_ID: ${{ inputs.fixture_validation_run_id }}
+        run: |
+          set -euo pipefail
+          uv run python scripts/verify_release_integrity_promotion.py
+          source_digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "ri706-$FIXTURE_SOURCE_COMMIT" '[.[] | select((.tags // []) | index($tag)) | .digest] | if length == 1 then .[0] else empty end')"
+          test "$source_digest" = "$IMAGE_DIGEST"
       - name: Apply checksum-validated PROD migrations before image promotion
         if: ${{ inputs.cdc_admission_only != true && inputs.release_integrity_only != true }}
         env:
@@ -220,6 +246,7 @@ jobs:
           MAX_CON_RETRY_ATTEMPTS=0 \
           timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_release_integrity_migrations.py
       - name: Promote the immutable image across the existing operational topology without exposing secrets
+        if: ${{ inputs.release_integrity_only != true }}
         run: |
           prod_spec="$(mktemp)"
           next_spec="$(mktemp)"

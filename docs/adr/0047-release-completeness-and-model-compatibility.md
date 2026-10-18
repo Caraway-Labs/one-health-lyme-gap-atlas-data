@@ -104,6 +104,16 @@ installation/replay, staging, transactions, concurrency, permissions and complet
 inventory rejection. Exact-head independent engineering/security review and
 dedicated service credentials remain required before privileged execution.
 
+Pair-only PROD installation consumes the successful isolated DEV acceptance
+receipt and registry digest without deploying either operational App. The tested
+source commit remains the image and migration-ledger identity. Its ordinary
+merge commit must be the protected workflow's exact main SHA, contain that
+source commit as an ancestor, and have an identical complete Git tree. Both
+identities are retained; changed trees, incomplete receipts and digest mismatches
+fail before credentials are used. Protected production authorization remains
+required. Installing support objects does not admit Tier 1 compatibility,
+publish model batches or move a semantic release pointer.
+
 Full retained-lineage access should reuse the existing READ audit boundary via
 four exact-release/source secure projections, rather than broad base-table
 SELECT or OWNER/MIGRATOR escalation. The proposed views/grants are review-only

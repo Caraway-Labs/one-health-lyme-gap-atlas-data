@@ -555,7 +555,7 @@ jobs:
       RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
       RI706_REVIEW_POLICY: ${{ vars.RI706_REVIEW_POLICY }}
       RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
-      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/.ri706-review.json
+      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
       IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
       GH_TOKEN: ${{ github.token }}
     steps:

@@ -53,13 +53,20 @@ def main():
         or not re.fullmatch(r"[0-9a-f]{40}", commit)
     ):
         raise SystemExit("INTEGRITY_PROTECTED_REVIEWED_MAIN_REQUIRED")
+    source = os.environ.get("RI706_VALIDATED_SOURCE_COMMIT", "")
+    if (
+        os.environ.get("GITHUB_ACTIONS") != "true"
+        or os.environ.get("RI706_VALIDATED_MERGE_COMMIT") != commit
+        or not re.fullmatch(r"[0-9a-f]{40}", source)
+    ):
+        raise SystemExit("INTEGRITY_DEV_TESTED_SOURCE_RECEIPT_REQUIRED")
     settings = SnowflakeSettings()
     reviewed = parse_reviewed_pending_set(os.environ["EXPECTED_PENDING_JSON"])
     before = snapshot(settings)
     applied = apply_migrations(
         settings,
         "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
-        commit,
+        source,
         expected_pending=reviewed,
         release_integrity_only=True,
     )
@@ -69,6 +76,8 @@ def main():
         json.dumps(
             {
                 "applied": applied,
+                "source_commit": source,
+                "merged_main_commit": commit,
                 "unrelated_ledger_unchanged": True,
                 "release_pointer_unchanged": True,
                 "decisions_recorded": False,
