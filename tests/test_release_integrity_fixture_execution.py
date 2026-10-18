@@ -21,6 +21,44 @@ def module(monkeypatch, name):
     return result
 
 
+@pytest.mark.parametrize("publication_granted", [None, "reader", "runtime"])
+def test_publication_only_privilege_cannot_pass_service_acceptance(
+    monkeypatch, publication_granted
+):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    fixture = SimpleNamespace(receipt={"cases": []}, save=MagicMock())
+    sql, params = "CALL fixture_publish(%s)", ("complete-valid-staged-artifact",)
+    calls = []
+
+    def query(session, label, statement, arguments):
+        calls.append(session)
+        assert (statement, arguments) == (sql, params)
+        if session == publication_granted:
+            return [("published",)]
+        error = RuntimeError("fixture permission denial")
+        error.sqlstate = "42501"
+        raise error
+
+    fixture.query = query
+    sessions = (("reader", "reader"), ("runtime", "runtime"))
+    if publication_granted:
+        with pytest.raises(AssertionError, match="did not fail closed"):
+            matrix.verify_publication_denials(fixture, sessions, sql, params)
+    else:
+        matrix.verify_publication_denials(fixture, sessions, sql, params)
+        assert calls == ["reader", "runtime"]
+        assert len(fixture.receipt["cases"]) == 2
+
+
+def test_publication_validation_error_is_not_permission_evidence(monkeypatch):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    fixture = SimpleNamespace(receipt={"cases": []}, save=MagicMock())
+    fixture.query = MagicMock(side_effect=ValueError("input validation failed"))
+    with pytest.raises(AssertionError, match="other than access denial"):
+        matrix.verify_publication_denials(fixture, (("reader", "reader"),), "CALL valid()", ())
+    assert not fixture.receipt["cases"]
+
+
 def review_data():
     head = "a" * 40
     pr = {

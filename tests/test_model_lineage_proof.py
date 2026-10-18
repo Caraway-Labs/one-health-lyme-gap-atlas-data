@@ -20,6 +20,7 @@ import pytest
         "governed_hash",
         "duplicate_id",
         "feature",
+        "missing_feature",
     ],
 )
 def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
@@ -60,7 +61,11 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             ]
             if target and change == "feature":
                 rows[0]["HUMAN_STATUS"] = "changed"
-            return rows
+            # Emulate a real cursor: never return fields absent from the SELECT.
+            selected = sql.split(" FROM ", 1)[0].removeprefix("SELECT ").upper().split(",")
+            if target and change == "missing_feature":
+                selected.remove("HUMAN_STATUS")
+            return [{key: row[key] for key in selected} for row in rows]
         if "source_manifest" in sql:
             sources = [
                 {
@@ -114,7 +119,9 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
         argv.append("--reviewed-projections")
     monkeypatch.setattr("sys.argv", argv)
     if change:
-        with pytest.raises(ValueError, match="differ|dropped|governed|duplicated"):
+        with pytest.raises(
+            ValueError, match="differ|dropped|governed|duplicated|Incomplete feature"
+        ):
             module.main()
         assert json.loads(receipt.read_text())["status"] != "complete_equal_not_approval"
     else:

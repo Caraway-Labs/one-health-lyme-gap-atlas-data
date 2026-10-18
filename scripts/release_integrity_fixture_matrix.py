@@ -13,6 +13,32 @@ def require_equal(actual, expected, label):
         raise AssertionError(label)
 
 
+def require_permission_denied(action, label):
+    try:
+        action()
+    except Exception as error:
+        if (
+            getattr(error, "errno", None) not in {2003, 3001}
+            and getattr(error, "sqlstate", None) != "42501"
+        ):
+            raise AssertionError(label + " failed for a reason other than access denial") from error
+    else:
+        raise AssertionError(label + " did not fail closed")
+
+
+def verify_publication_denials(f, sessions, publish_sql, publish_params):
+    for session, name in sessions:
+        label = name + "_publication_denied_after_valid_staging"
+        require_permission_denied(
+            lambda session=session, label=label: f.query(
+                session, label, publish_sql, publish_params
+            ),
+            label,
+        )
+        f.receipt["cases"].append({"case": label, "status": "PASS", "marker": MARKER})
+        f.save()
+
+
 def run_matrix(f, migration, documents):
     owner, publisher, reader, runtime = (
         f.open(p) for p in ("owner", "publisher", "reader", "runtime")
@@ -27,18 +53,13 @@ def run_matrix(f, migration, documents):
         f.save()
 
     def fail(label, session, sql, params=(), *, text=None, permission=False):
+        if permission:
+            require_permission_denied(lambda: q(session, label, sql, params), label)
+            return
         try:
             q(session, label, sql, params)
         except Exception as error:
-            if permission:
-                if (
-                    getattr(error, "errno", None) not in {2003, 3001}
-                    and getattr(error, "sqlstate", None) != "42501"
-                ):
-                    raise AssertionError(
-                        label + " failed for a reason other than access denial"
-                    ) from error
-            elif text is None or text not in str(error):
+            if text is None or text not in str(error):
                 raise
         else:
             raise AssertionError(label + " did not fail closed")
@@ -349,6 +370,9 @@ def run_matrix(f, migration, documents):
         "stage_identical_replay",
         "CALL FEATURE_STORE.SP_STAGE_SURVEILLANCE_SITUATION_PART(%s,%s,0,%s)",
         (authority, attempt, payload[:200000]),
+    )
+    verify_publication_denials(
+        f, ((reader, "reader"), (runtime, "runtime")), publish_sql, publish_params
     )
     case(
         "immutable_staging",

@@ -103,7 +103,8 @@ def main():
         if len(release_rows) != 1 or release_rows[0]["BUNDLE_SHA256"] != bundle:
             raise ValueError("Retained release identity differs")
         members = read(
-            f"SELECT fips FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS WHERE release_id='{release}'",
+            f"SELECT {FEATURE_FIELDS} FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS "
+            f"WHERE release_id='{release}'",
         )
         if len(members) != len(canonical) or {r["FIPS"] for r in members} != canonical:
             receipt["mismatches"].append(
@@ -117,7 +118,14 @@ def main():
             )
             args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ValueError("Canonical membership differs")
-        if any(set(FEATURE_FIELDS.split(",")) - row.keys() for row in members):
+        missing = sorted(
+            {field for row in members for field in FEATURE_FIELDS.split(",") if field not in row}
+        )
+        if missing:
+            receipt["mismatches"].append(
+                {"release": release, "field": "feature_projection", "missing_columns": missing}
+            )
+            args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ValueError("Incomplete feature projection")
         features.append({row["FIPS"]: row for row in members})
         manifest = release_rows[0]["SOURCE_MANIFEST"]
