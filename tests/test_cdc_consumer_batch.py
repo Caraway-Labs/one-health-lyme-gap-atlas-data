@@ -339,7 +339,8 @@ def test_sql_bounds_and_parameterization():
     sql = batch._authority_sql(50)
     assert sql.count("%s") == 53
     assert "PARTITION BY county_fips" in sql and "<= 2" in sql
-    assert "COALESCE(p.shared=a.shared, FALSE)" in sql
+    assert "COALESCE(shared=shared_anchor, FALSE)" in sql
+    assert "FIRST_VALUE(shared)" in sql
     assert "OBJECT_DELETE(cdc_runtime_authority" in sql
     assert "FROM LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V" in sql
     for forbidden in ("CONFORMED.", "GOVERNANCE.", "ALTER ", "CREATE ", "GRANT ", "UPDATE "):

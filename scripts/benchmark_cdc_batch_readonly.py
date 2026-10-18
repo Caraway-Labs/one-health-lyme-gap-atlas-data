@@ -12,6 +12,7 @@ import json
 import re
 import subprocess
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -42,6 +43,7 @@ def _literal_sql(sql: str, params: tuple[str, ...]) -> str:
 def run(output: Path) -> None:
     output.mkdir(parents=True, exist_ok=False)
     run_id = "cdc_batch_benchmark_v1_" + uuid4().hex
+    window_start = datetime.now(UTC).isoformat()
     receipts: list[dict[str, Any]] = []
     statements = 0
 
@@ -146,8 +148,10 @@ def run(output: Path) -> None:
  queued_provisioning_time+queued_repair_time+queued_overload_time AS queued_ms,
  bytes_scanned, rows_produced, bytes_written_to_result, execution_status
  FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY(
- END_TIME_RANGE_START=>DATEADD('hour',-1,CURRENT_TIMESTAMP()),RESULT_LIMIT=>1000))
- WHERE query_text LIKE '/* {run_id}%' AND query_text NOT ILIKE '%QUERY_HISTORY%'
+ END_TIME_RANGE_START=>'{window_start}'::TIMESTAMP_LTZ,RESULT_LIMIT=>1000))
+ WHERE query_type='SELECT'
+ AND query_text ILIKE '%FROM LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V%'
+ AND query_text NOT ILIKE '%QUERY_HISTORY%'
  ORDER BY start_time""",
             "history",
         )
@@ -155,9 +159,32 @@ def run(output: Path) -> None:
         for row in history:
             text = row.pop("QUERY_TEXT")
             marker = re.search(re.escape(run_id) + r"_([a-zA-Z0-9_]+)", text)
-            row["LABEL"] = marker.group(1) if marker else "unknown"
+            if marker:
+                label = marker.group(1)
+            else:
+                # The CLI may strip comments. Correlate the bounded window and
+                # closed source-controlled query shapes; never persist SQL text.
+                measures = [measure for measure in CASES if measure in text]
+                if len(measures) != 1:
+                    raise ValueError("ambiguous benchmark history")
+                measure = measures[0]
+                if "AS batch_authority" in text:
+                    label = measure + "_batch2"
+                else:
+                    counties = [county for county in CASES[measure] if "'" + county + "'" in text]
+                    if len(counties) != 1:
+                        raise ValueError("ambiguous singleton history")
+                    label = measure + "_" + counties[0]
+            row["LABEL"] = label
             row["CACHE_CLASSIFICATION"] = "unproven; secure scan metrics not cache proof"
             safe_history.append(row)
+        expected_labels = {
+            measure + "_" + suffix
+            for measure, counties in CASES.items()
+            for suffix in (*counties, "batch2")
+        }
+        if len(safe_history) != 6 or {row["LABEL"] for row in safe_history} != expected_labels:
+            raise ValueError("incomplete or ambiguous benchmark history")
         if safe_history:
             with (output / "query_history.csv").open("w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=list(safe_history[0]))

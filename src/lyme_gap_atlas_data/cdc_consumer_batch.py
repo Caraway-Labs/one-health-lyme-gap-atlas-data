@@ -86,15 +86,18 @@ def _authority_sql(count: int) -> str:
    'review_decisions', cdc_runtime_authority:review_decisions,
    'attestations', cdc_runtime_authority:attestations) AS shared
  FROM scoped
-), anchor AS (
- SELECT shared FROM packed ORDER BY county_fips, observation_id LIMIT 1
+), anchored AS (
+ SELECT *, FIRST_VALUE(shared) OVER (
+   ORDER BY county_fips, observation_id
+   ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS shared_anchor
+ FROM packed
 )
 SELECT OBJECT_CONSTRUCT_KEEP_NULL(
- 'shared_authority', ANY_VALUE(a.shared),
- 'shared_consistent', COALESCE(BOOLAND_AGG(COALESCE(p.shared=a.shared, FALSE)), FALSE),
- 'records', ARRAY_AGG(p.record) WITHIN GROUP (ORDER BY p.county_fips, p.observation_id)
+ 'shared_authority', ANY_VALUE(shared_anchor),
+ 'shared_consistent', COALESCE(BOOLAND_AGG(COALESCE(shared=shared_anchor, FALSE)), FALSE),
+ 'records', ARRAY_AGG(record) WITHIN GROUP (ORDER BY county_fips, observation_id)
 ) AS batch_authority
-FROM packed p CROSS JOIN anchor a"""
+FROM anchored"""
 
 
 def _object(value: Any) -> dict[str, Any]:
