@@ -7,9 +7,13 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("change", [None, "mapping", "source", "row", "dropped"])
+@pytest.mark.parametrize("projected", [False, True])
+@pytest.mark.parametrize(
+    "change",
+    [None, "mapping", "source", "row", "dropped", "membership", "governed_hash", "duplicate_id"],
+)
 def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
-    monkeypatch, tmp_path, change
+    monkeypatch, tmp_path, change, projected
 ):
     root = Path(__file__).parents[1]
     monkeypatch.syspath_prepend(str(root / "scripts"))
@@ -19,10 +23,29 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    emitted = []
+
     def query(connection, sql):
+        emitted.append(sql)
+        for view, base in {
+            "LINEAGE_AUDIT.RETAINED_MODEL_RELEASES_V": "PRESENTATION.SEMANTIC_RELEASES",
+            "LINEAGE_AUDIT.RETAINED_MODEL_SOURCES_V": "PRESENTATION.SEMANTIC_DATA_SOURCES",
+            "LINEAGE_AUDIT.RETAINED_MODEL_MEMBERSHIP_V": "PRESENTATION.SEMANTIC_COUNTY_ATLAS",
+            "LINEAGE_AUDIT.RETAINED_MODEL_OBSERVATIONS_V": "PRESENTATION.SEMANTIC_OBSERVATIONS",
+        }.items():
+            sql = sql.replace(view, base)
         target = module.TARGET in sql
         if "CURRENT_USER" in sql:
             return [{"D": "ONE_HEALTH_LYME_GAP_ATLAS_PROD", "R": "OH_LYME_PROD_READ"}]
+        if "SELECT fips FROM" in sql:
+            fips = (
+                (root / "src/lyme_gap_atlas_data/data/canonical-county-fips-2022.txt")
+                .read_text()
+                .split()
+            )
+            if target and change == "membership":
+                fips[0] = "99999"
+            return [{"FIPS": f} for f in fips]
         if "source_manifest" in sql:
             sources = [
                 {
@@ -48,24 +71,69 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
                 for s in module.SOURCES
             ]
         if "COUNT(*) AS N" in sql:
-            return [{"N": 2 if target and change == "dropped" else 1}]
-        return [
-            {
-                "RECORD_MATCH_KIND": "IMMUTABLE_REVISION",
-                "GOVERNED_SOURCE_VERSION_ID": "v",
-                "GOVERNED_INGESTION_RUN_ID": "r",
-                "ARTIFACT_SHA256": "a",
-                "SEMANTIC_SOURCE_ROW_HASH": "changed" if target and change == "row" else "original",
-            }
-        ]
+            return [{"N": 2 if target and change in {"dropped", "duplicate_id"} else 1}]
+        row = {
+            "OBSERVATION_ID": "observation",
+            "RELEASE_BUNDLE_SHA256": module.BUNDLE if target else module.ORIGINAL_BUNDLE,
+            "SOURCE_VERSION_ID": "v",
+            "INGESTION_RUN_ID": "r",
+            "GOVERNED_SOURCE_ROW_HASH": (
+                "wrong"
+                if target and change == "governed_hash"
+                else "changed"
+                if target and change == "row"
+                else "original"
+            ),
+            "RECORD_MATCH_KIND": "IMMUTABLE_REVISION",
+            "GOVERNED_SOURCE_VERSION_ID": "v",
+            "GOVERNED_INGESTION_RUN_ID": "r",
+            "ARTIFACT_SHA256": "a",
+            "SEMANTIC_SOURCE_ROW_HASH": "changed" if target and change == "row" else "original",
+        }
+        return [row, dict(row)] if target and change == "duplicate_id" else [row]
 
     monkeypatch.setattr(module, "query", query)
     receipt = tmp_path / "receipt.json"
-    monkeypatch.setattr("sys.argv", ["proof", "--connection", "fixture", "--receipt", str(receipt)])
+    argv = ["proof", "--connection", "fixture", "--receipt", str(receipt)]
+    if projected:
+        argv.append("--reviewed-projections")
+    monkeypatch.setattr("sys.argv", argv)
     if change:
-        with pytest.raises(ValueError, match="differs|dropped"):
+        with pytest.raises(ValueError, match="differs|dropped|governed|duplicated"):
             module.main()
         assert json.loads(receipt.read_text())["status"] != "complete_equal_not_approval"
     else:
         module.main()
         assert json.loads(receipt.read_text())["status"] == "complete_equal_not_approval"
+
+    if projected:
+        assert not any("PRESENTATION.SEMANTIC_" in sql for sql in emitted)
+    if change in {"mapping", "source", "row", "membership"}:
+        assert json.loads(receipt.read_text())["mismatches"]
+
+
+@pytest.mark.parametrize(
+    "role", ["ACCOUNTADMIN", "OH_LYME_PROD_OWNER", "OH_LYME_PROD_MIGRATION_DEPLOYER"]
+)
+def test_diagnostic_rejects_elevated_context_before_retained_reads(monkeypatch, tmp_path, role):
+    root = Path(__file__).parents[1]
+    monkeypatch.syspath_prepend(str(root / "scripts"))
+    spec = importlib.util.spec_from_file_location(
+        "lineage_context", root / "scripts/verify_model_source_lineage.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+
+    def query(connection, sql):
+        calls.append(sql)
+        return [{"D": "ONE_HEALTH_LYME_GAP_ATLAS_PROD", "R": role}]
+
+    monkeypatch.setattr(module, "query", query)
+    receipt = tmp_path / "receipt.json"
+    monkeypatch.setattr("sys.argv", ["proof", "--connection", "fixture", "--receipt", str(receipt)])
+    with pytest.raises(ValueError, match="read context required"):
+        module.main()
+    assert len(calls) == 1
+    assert "CURRENT_USER" in calls[0]
+    assert json.loads(receipt.read_text())["status"] == "incomplete"

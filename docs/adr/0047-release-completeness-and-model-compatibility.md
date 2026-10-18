@@ -89,3 +89,18 @@ actor/time/reason in V158's events. Never delete staged bytes or historical rows
 to recover a failed publication. Retry identical chunks/documents. Model rollback
 uses the owner procedure, leaves the batch retained and yields an empty current
 view when deactivated. Model refresh requires a new reviewed version/migration.
+
+
+## Pending isolation and diagnostic security review
+
+The human review package proposes three fixed RI706 fixture schemas in existing
+DEV, using only a separately reviewed mode of the protected DEV workflow. This
+is not authority to rewrite the live DEV ledger/pointer or broaden the current
+PROD-only scoped migration guard. Synthetic owner-control fixture calls are not
+scientific/Data-owner approvals and require explicit test-only scope.
+
+Full retained-lineage access should reuse the existing READ audit boundary via
+four exact-release/source secure projections, rather than broad base-table
+SELECT or OWNER/MIGRATOR escalation. The proposed views/grants are review-only
+SQL under `sql/validation/`; provisioning them in PROD requires its own protected
+DDL authorization. No such grant/DDL is authorized or executed by preparation.

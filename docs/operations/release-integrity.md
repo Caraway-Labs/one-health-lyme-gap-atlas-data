@@ -177,3 +177,15 @@ access or substitute sampled lineage. Use a separately authorized, least-privile
 protected diagnostic with those existing dependency reads. V157 independently
 repeats source/mapping and bidirectional per-state observation-lineage checks
 before an OWNER can record compatibility. Its result reports partitions/rows.
+
+
+## Isolated DEV and human review preparation
+
+The current gate-by-gate package is
+[release-integrity-human-review-package.md](release-integrity-human-review-package.md).
+It includes fresh named-READ access probes, exact minimum diagnostic grants,
+fixture-only migration rendering/checksums and an installed acceptance matrix.
+The proposal renderings are not an executable/deployed scoped migration mode.
+Do not run the generic DEV migration entry point: its observed pending set also
+includes V155. No GitHub environment reviewer restriction was inferred; the
+blocker is the absence of a reviewed scoped DEV fixture mechanism.

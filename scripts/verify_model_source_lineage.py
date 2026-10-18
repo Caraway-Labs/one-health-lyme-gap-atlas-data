@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
 from compare_tier1_release_inputs import BUNDLE, TARGET, query
@@ -39,28 +40,78 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--connection", required=True)
     parser.add_argument("--receipt", required=True, type=Path)
+    parser.add_argument(
+        "--reviewed-projections",
+        action="store_true",
+        help="Use separately security-approved, scoped LINEAGE_AUDIT views",
+    )
     args = parser.parse_args()
+
+    def read(sql):
+        if args.reviewed_projections:
+            for base, view in {
+                "PRESENTATION.SEMANTIC_RELEASES": "LINEAGE_AUDIT.RETAINED_MODEL_RELEASES_V",
+                "PRESENTATION.SEMANTIC_DATA_SOURCES": "LINEAGE_AUDIT.RETAINED_MODEL_SOURCES_V",
+                "PRESENTATION.SEMANTIC_COUNTY_ATLAS": "LINEAGE_AUDIT.RETAINED_MODEL_MEMBERSHIP_V",
+                "PRESENTATION.SEMANTIC_OBSERVATIONS": "LINEAGE_AUDIT.RETAINED_MODEL_OBSERVATIONS_V",
+            }.items():
+                sql = sql.replace(base, view)
+        return query(args.connection, sql)
+
     if args.receipt.exists():
         raise ValueError("Use a fresh receipt path; prior evidence is immutable")
     args.receipt.write_text(json.dumps({"status": "incomplete", "kind": "not_approval"}) + "\n")
-    context = query(
-        args.connection,
+    context = read(
         "SELECT CURRENT_USER() AS U,CURRENT_ROLE() AS R,"
         "CURRENT_DATABASE() AS D,CURRENT_WAREHOUSE() AS W",
     )
-    if len(context) != 1 or context[0]["D"] != "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+    if len(context) != 1 or (context[0]["D"], context[0]["R"]) != (
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        "OH_LYME_PROD_READ",
+    ):
         raise ValueError("Explicitly authorized retained PROD read context required")
     # Proof prerequisites: original source descriptions and complete mappings.
     # READ lacks this retained-manifest projection today; fail before long scans.
+    receipt = {
+        "kind": "full_lineage_comparison_not_approval",
+        "status": "incomplete",
+        "observed_at": datetime.now(UTC).isoformat(),
+        "original_release": ORIGINAL,
+        "target_release": TARGET,
+        "context": context,
+        "partitions": [],
+        "mismatches": [],
+        "canonical_membership_equal": False,
+    }
+    args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+    canonical = set(
+        (Path(__file__).parents[1] / "src/lyme_gap_atlas_data/data/canonical-county-fips-2022.txt")
+        .read_text()
+        .split()
+    )
     pins = []
     for release, bundle in ((ORIGINAL, ORIGINAL_BUNDLE), (TARGET, BUNDLE)):
-        release_rows = query(
-            args.connection,
+        release_rows = read(
             "SELECT bundle_sha256,source_manifest FROM "
             f"PRESENTATION.SEMANTIC_RELEASES WHERE release_id='{release}'",
         )
         if len(release_rows) != 1 or release_rows[0]["BUNDLE_SHA256"] != bundle:
             raise ValueError("Retained release identity differs")
+        members = read(
+            f"SELECT fips FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS WHERE release_id='{release}'",
+        )
+        if len(members) != len(canonical) or {r["FIPS"] for r in members} != canonical:
+            receipt["mismatches"].append(
+                {
+                    "release": release,
+                    "field": "canonical_membership",
+                    "actual_rows": len(members),
+                    "missing_fips": sorted(canonical - {r["FIPS"] for r in members}),
+                    "extra_fips": sorted({r["FIPS"] for r in members} - canonical),
+                }
+            )
+            args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+            raise ValueError("Canonical membership differs")
         manifest = release_rows[0]["SOURCE_MANIFEST"]
         if isinstance(manifest, str):
             manifest = json.loads(manifest)
@@ -71,8 +122,7 @@ def main():
             {k: r[k] for k in ("source_key", "artifact_sha256", "definition_version", "field_map")}
             for r in mapped
         ]
-        source_rows = query(
-            args.connection,
+        source_rows = read(
             "SELECT " + SOURCE_FIELDS + " FROM "
             f"PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id='{release}' "
             "AND source_key IN ('human','pathogen','context_svi','context_rucc','tick')",
@@ -82,50 +132,100 @@ def main():
         ):
             raise ValueError("Missing or duplicate source metadata")
         pins.append((multiset(selected), multiset(source_rows)))
+    receipt["canonical_membership_equal"] = True
     if pins[0] != pins[1]:
+        for kind, position in (("source_mapping", 0), ("source_metadata", 1)):
+            before = {
+                json.loads(r).get("source_key", json.loads(r).get("SOURCE_KEY")): json.loads(r)
+                for r in pins[0][position]
+            }
+            after = {
+                json.loads(r).get("source_key", json.loads(r).get("SOURCE_KEY")): json.loads(r)
+                for r in pins[1][position]
+            }
+            for source in sorted(set(before) | set(after)):
+                old, new = before.get(source, {}), after.get(source, {})
+                for field in sorted(set(old) | set(new)):
+                    if old.get(field) != new.get(field):
+                        receipt["mismatches"].append(
+                            {
+                                "kind": kind,
+                                "source_key": source,
+                                "field": field,
+                                "original": old.get(field),
+                                "target": new.get(field),
+                            }
+                        )
+        receipt["status"] = "different_not_eligible_not_approval"
+        args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
         raise ValueError("Scientific source mapping or identity differs; ML review required")
-    canonical = (
-        (Path(__file__).parents[1] / "src/lyme_gap_atlas_data/data/canonical-county-fips-2022.txt")
-        .read_text()
-        .split()
-    )
     states = sorted({f[:2] for f in canonical})
-    receipt = {
-        "kind": "full_lineage_comparison_not_approval",
-        "status": "incomplete",
-        "original_release": ORIGINAL,
-        "target_release": TARGET,
-        "source_pins_equal": True,
-        "context": context,
-        "partitions": [],
-    }
+    receipt["source_pins_equal"] = True
     for state in states:
         rows = []
         for release in (ORIGINAL, TARGET):
-            result = query(
-                args.connection,
-                "SELECT " + ROW_FIELDS + " FROM "
+            result = read(
+                "SELECT " + ROW_FIELDS + ",observation_id,release_bundle_sha256 FROM "
                 "LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V "
                 f"WHERE release_id='{release}' AND SUBSTR(county_fips,1,2)='{state}' "
                 "AND source_key IN ('human','pathogen','context_svi','context_rucc','tick')",
             )
-            base = query(
-                args.connection,
+            base = read(
                 "SELECT COUNT(*) AS N FROM PRESENTATION.SEMANTIC_OBSERVATIONS "
                 f"WHERE release_id='{release}' AND SUBSTR(fips,1,2)='{state}' "
                 "AND source_key IN ('human','pathogen','context_svi','context_rucc','tick')",
             )
             if len(base) != 1 or len(result) != base[0]["N"]:
+                receipt["mismatches"].append(
+                    {
+                        "kind": "audit_base_cardinality",
+                        "state": state,
+                        "release": release,
+                        "audit_rows": len(result),
+                        "base_counts": base,
+                    }
+                )
+                args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
                 raise ValueError("Audit projection dropped or multiplied observation lineage")
+            ids = [r["OBSERVATION_ID"] for r in result]
+            if len(set(ids)) != len(ids) or any(value is None for value in ids):
+                receipt["mismatches"].append(
+                    {
+                        "kind": "nonunique_audit_identity",
+                        "state": state,
+                        "release": release,
+                        "rows": len(ids),
+                        "distinct_ids": len(set(ids)),
+                    }
+                )
+                args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+                raise ValueError("Audit projection duplicated an observation identity")
+            expected_bundle = ORIGINAL_BUNDLE if release == ORIGINAL else BUNDLE
             if not result or any(
                 r["RECORD_MATCH_KIND"] == "UNMATCHED"
                 or r["GOVERNED_SOURCE_VERSION_ID"] is None
                 or r["GOVERNED_INGESTION_RUN_ID"] is None
                 or r["ARTIFACT_SHA256"] is None
+                or r["RELEASE_BUNDLE_SHA256"] != expected_bundle
+                or r["SOURCE_VERSION_ID"] != r["GOVERNED_SOURCE_VERSION_ID"]
+                or r["INGESTION_RUN_ID"] != r["GOVERNED_INGESTION_RUN_ID"]
+                or r["SEMANTIC_SOURCE_ROW_HASH"] is None
+                or r["SEMANTIC_SOURCE_ROW_HASH"] != r["GOVERNED_SOURCE_ROW_HASH"]
                 for r in result
             ):
                 raise ValueError("Missing governed row lineage in partition " + state)
-            rows.append(multiset(result))
+            rows.append(
+                multiset(
+                    [
+                        {
+                            k: v
+                            for k, v in row.items()
+                            if k not in {"OBSERVATION_ID", "RELEASE_BUNDLE_SHA256"}
+                        }
+                        for row in result
+                    ]
+                )
+            )
         equal = rows[0] == rows[1]
         digest = hashlib.sha256(json.dumps(sorted(rows[0].items())).encode()).hexdigest()
         receipt["partitions"].append(
@@ -138,6 +238,16 @@ def main():
         )
         args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
         if not equal:
+            receipt["status"] = "different_not_eligible_not_approval"
+            receipt["mismatches"].append(
+                {
+                    "kind": "observation_lineage",
+                    "state": state,
+                    "original_only_multiplicity": sum((rows[0] - rows[1]).values()),
+                    "target_only_multiplicity": sum((rows[1] - rows[0]).values()),
+                }
+            )
+            args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ValueError("Observation lineage differs; ML review required")
     receipt["status"] = "complete_equal_not_approval"
     args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
