@@ -101,7 +101,13 @@ def literal(value: str) -> str:
     return "HEX_DECODE_STRING('" + value.encode("utf-8").hex() + "')"
 
 
-def publish(connection: str, documents: dict[str, str], environment: str) -> None:
+def publish(
+    connection: str,
+    documents: dict[str, str],
+    environment: str,
+    attempt: str = "ml138-v1-02b62d7a4cb8970b",
+    authorization: str | None = None,
+) -> None:
     env = environment.upper()
     context = query(
         connection,
@@ -116,17 +122,24 @@ def publish(connection: str, documents: dict[str, str], environment: str) -> Non
     )
     if len(context) != 1 or tuple(context[0][k] for k in ("U", "R", "D", "W")) != expected:
         raise ValueError("Publisher identity, role, database or warehouse differs")
+    if not authorization:
+        raise ValueError("A separate Data owner publication authorization is required")
     prefix = f"ONE_HEALTH_LYME_GAP_ATLAS_{env}.FEATURE_STORE."
     county = documents[next(reversed(PINS))]
     for number, start in enumerate(range(0, len(county), 200000)):
         query(
             connection,
             f"CALL {prefix}SP_STAGE_SURVEILLANCE_SITUATION_PART("
-            f"{number},{literal(county[start : start + 200000])})",
+            f"{literal(authorization)},{literal(attempt)},{number},"
+            f"{literal(county[start : start + 200000])})",
         )
     names = list(PINS)
     args = ",".join(literal(documents[names[i]]) for i in (0, 2, 1))
-    result = query(connection, f"CALL {prefix}SP_PUBLISH_SURVEILLANCE_SITUATIONS({args})")
+    result = query(
+        connection,
+        f"CALL {prefix}SP_PUBLISH_SURVEILLANCE_SITUATIONS("
+        f"{literal(authorization)},{literal(attempt)},{args})",
+    )
     print(json.dumps(result))
 
 
@@ -136,6 +149,8 @@ def main() -> None:
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--environment", choices=("dev", "prod"), default="dev")
     parser.add_argument("--connection")
+    parser.add_argument("--staging-attempt", default="ml138-v1-02b62d7a4cb8970b")
+    parser.add_argument("--authorization-id")
     args = parser.parse_args()
     documents = verify(args.ml_root)
     print(
@@ -144,9 +159,15 @@ def main() -> None:
         )
     )
     if args.publish:
-        if not args.connection:
-            parser.error("--publish requires a named PAT --connection")
-        publish(args.connection, documents, args.environment)
+        if not args.connection or not args.authorization_id:
+            parser.error("--publish requires a named PAT --connection and Data --authorization-id")
+        publish(
+            args.connection,
+            documents,
+            args.environment,
+            args.staging_attempt,
+            args.authorization_id,
+        )
 
 
 if __name__ == "__main__":

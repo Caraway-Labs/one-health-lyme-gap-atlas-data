@@ -33,6 +33,13 @@ def run() -> dict:
             or not context[3]
         ):
             raise ValueError("Real API service context required")
+        cursor.execute(
+            "SELECT IS_ROLE_IN_SESSION('OH_LYME_PROD_ML_PUBLISHER'),"
+            "IS_ROLE_IN_SESSION('OH_LYME_PROD_OWNER'),"
+            "IS_ROLE_IN_SESSION('OH_LYME_PROD_MIGRATION_DEPLOYER')"
+        )
+        if tuple(cursor.fetchone()) != (False, False, False):
+            raise ValueError("API session inherits model publication or approval authority")
         cursor.execute("ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=60")
         for view in VIEWS:
             cursor.execute("SELECT * FROM PRESENTATION." + view + " LIMIT 0")
@@ -96,6 +103,7 @@ def run() -> dict:
             "TIER1_COUNTY_REVIEW_OUTPUTS",
             "COUNTY_SURVEILLANCE_SITUATIONS",
             "SURVEILLANCE_SITUATION_BATCHES",
+            "SURVEILLANCE_SITUATION_AUTHORIZATIONS",
         ):
             try:
                 cursor.execute("SELECT * FROM FEATURE_STORE." + table + " LIMIT 0")
@@ -112,6 +120,7 @@ def run() -> dict:
             and (
                 "SP_PUBLISH_SURVEILLANCE" in str(g.get("name"))
                 or "SP_STAGE_SURVEILLANCE" in str(g.get("name"))
+                or "SP_AUTHORIZE_SURVEILLANCE" in str(g.get("name"))
             )
             for g in grants
         ):

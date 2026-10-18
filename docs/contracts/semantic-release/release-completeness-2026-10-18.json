@@ -28,7 +28,13 @@
       "artifact_sha256": "c00584e1a940f31369ad130f6e67c8bdc2526794f86a81289e106dba67e0b68e",
       "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
       "actual_presentation_rows": 9432,
-      "actual_presentation_counties": 3144
+      "actual_presentation_counties": 3144,
+      "presentation_measures": [
+        "case_count_floor_2023",
+        "human_status",
+        "incidence_floor_2023"
+      ],
+      "presentation_counties": 3144
     },
     {
       "id": "tick",
@@ -103,7 +109,14 @@
       "artifact_sha256": "dc042342a2e5abc108af67b439ec04c86da8b61f9bdd1cf1b1e5ee0462dea7b2",
       "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
       "actual_presentation_rows": 12576,
-      "actual_presentation_counties": 3144
+      "actual_presentation_counties": 3144,
+      "presentation_measures": [
+        "population_2022",
+        "svi_percentile_2022",
+        "uninsured_percent_2022",
+        "uninsured_percentile_2022"
+      ],
+      "presentation_counties": 3144
     },
     {
       "id": "context_rucc",
@@ -128,7 +141,11 @@
       "artifact_sha256": "ec455ee2a8bc5fc8e070575ea5bee7dce46fc6037f8c3449cbf56e8b45331fa7",
       "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
       "actual_presentation_rows": 3144,
-      "actual_presentation_counties": 3144
+      "actual_presentation_counties": 3144,
+      "presentation_measures": [
+        "rucc_2023"
+      ],
+      "presentation_counties": 3144
     },
     {
       "id": "context_nlcd_2025",
@@ -153,7 +170,17 @@
       "artifact_sha256": "bdd2a4112769c894e069ae23021bb5a716313c3cfa821a7468aeaeebd2c451ee",
       "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
       "actual_presentation_rows": 14,
-      "actual_presentation_counties": 2
+      "actual_presentation_counties": 2,
+      "presentation_measures": [
+        "nlcd_agriculture_area_share_county_year",
+        "nlcd_changed_area_share_county_year",
+        "nlcd_developed_area_share_county_year",
+        "nlcd_forest_area_share_county_year",
+        "nlcd_mean_impervious_fraction_county_year",
+        "nlcd_open_water_area_share_county_year",
+        "nlcd_wetland_area_share_county_year"
+      ],
+      "presentation_counties": 2
     },
     {
       "id": "climate",
@@ -171,7 +198,17 @@
       "observed_status": "published",
       "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
       "actual_presentation_rows": 389856,
-      "actual_presentation_counties": 3144
+      "actual_presentation_counties": 3144,
+      "measures": [
+        "nclimgrid_prcp_county_day",
+        "nclimgrid_tavg_county_day",
+        "nclimgrid_tmax_county_day",
+        "nclimgrid_tmin_county_day"
+      ],
+      "rows_per_measure": 97464,
+      "counties_per_measure": 3144,
+      "period_start": "2025-01-01",
+      "period_end": "2025-01-31"
     },
     {
       "id": "tier1",

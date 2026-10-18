@@ -49,6 +49,28 @@ INDEPENDENT = {
     "CURRENT_MEASURE_METADATA_V": "measure_id",
     "CURRENT_METHODOLOGY_METADATA_V": "methodology_id",
 }
+PRESENTATION_MEASURES = {
+    "human": {"human_status", "case_count_floor_2023", "incidence_floor_2023"},
+    "context_svi": {
+        "population_2022",
+        "svi_percentile_2022",
+        "uninsured_percent_2022",
+        "uninsured_percentile_2022",
+    },
+    "context_rucc": {"rucc_2023"},
+    "context_nlcd_2025": {
+        "nlcd_forest_area_share_county_year",
+        "nlcd_developed_area_share_county_year",
+        "nlcd_agriculture_area_share_county_year",
+        "nlcd_wetland_area_share_county_year",
+        "nlcd_open_water_area_share_county_year",
+        "nlcd_mean_impervious_fraction_county_year",
+        "nlcd_changed_area_share_county_year",
+    },
+}
+CLIMATE_MEASURES = {
+    "nclimgrid_" + name + "_county_day" for name in ("prcp", "tavg", "tmin", "tmax")
+}
 
 
 class ReleaseCompletenessBlocked(ValueError):
@@ -85,6 +107,20 @@ def validate_manifest(document: Any) -> dict[str, dict[str, Any]]:
             0 if exception else 1
         ):
             raise ReleaseCompletenessBlocked("Artifact coverage missing: " + identity)
+        if identity in PRESENTATION_MEASURES and (
+            not isinstance(item.get("presentation_measures"), list)
+            or (
+                not exception
+                and not PRESENTATION_MEASURES[identity] <= set(item["presentation_measures"])
+            )
+            or type(item.get("presentation_counties")) is not int
+        ):
+            raise ReleaseCompletenessBlocked("Presentation measure footprint missing: " + identity)
+        if identity == "climate" and (
+            not isinstance(item.get("measures"), list)
+            or (not exception and not set(item["measures"]) >= CLIMATE_MEASURES)
+        ):
+            raise ReleaseCompletenessBlocked("Climate measure footprint missing")
         if identity in {
             "tier1",
             "surveillance-situation-four-state",
@@ -348,14 +384,50 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
         )
         if dict(cursor.fetchall()) != item.get("class_counts"):
             raise ReleaseCompletenessBlocked("Model class distribution changed: " + identity)
-    cursor.execute("SELECT COUNT(*) FROM PRESENTATION.CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V")
-    if int(cursor.fetchone()[0]) != artifacts["climate"]["expected_rows"]:
-        raise ReleaseCompletenessBlocked("Climate consumer coverage changed")
+    climate = artifacts["climate"]
     cursor.execute(
-        "SELECT source_key,COUNT(*) FROM PRESENTATION.CURRENT_COUNTY_OBSERVATIONS_V "
-        "GROUP BY source_key"
+        "SELECT measure_id,COUNT(*),COUNT(DISTINCT county_fips),"
+        "COUNT(DISTINCT county_fips || '|' || TO_VARCHAR(period_start)),"
+        "TO_CHAR(MIN(period_start),'YYYY-MM-DD'),TO_CHAR(MAX(period_end),'YYYY-MM-DD') "
+        "FROM PRESENTATION.CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V GROUP BY measure_id"
     )
-    delivered = dict(cursor.fetchall())
-    for identity in ("human", "context_svi", "context_rucc", "context_nlcd_2025"):
-        if int(delivered.get(identity, 0)) != artifacts[identity].get("presentation_rows"):
+    climate_rows = cursor.fetchall()
+    if sum(int(r[1]) for r in climate_rows) != climate["expected_rows"]:
+        raise ReleaseCompletenessBlocked("Climate consumer coverage changed")
+    if climate["expected_rows"]:
+        if {r[0] for r in climate_rows} != set(climate["measures"]):
+            raise ReleaseCompletenessBlocked("Climate measure disappeared")
+        expected = (
+            climate["rows_per_measure"],
+            climate["counties_per_measure"],
+            climate["rows_per_measure"],
+            climate["period_start"],
+            climate["period_end"],
+        )
+        if any(tuple(r[1:]) != expected for r in climate_rows):
+            raise ReleaseCompletenessBlocked("Climate county/day coverage changed")
+    cursor.execute("SELECT measure_id FROM PRESENTATION.CURRENT_CLIMATE_MEASURE_METADATA_V")
+    if not set(climate["measures"]) <= {r[0] for r in cursor.fetchall()}:
+        raise ReleaseCompletenessBlocked("Climate metadata disappeared")
+    cursor.execute(
+        "SELECT source_key,measure_id,COUNT(*),COUNT(DISTINCT county_fips),"
+        "COUNT_IF(source_key='context_nlcd_2025' AND county_fips NOT IN ('09110','51013')) "
+        "FROM PRESENTATION.CURRENT_COUNTY_OBSERVATIONS_V GROUP BY source_key,measure_id"
+    )
+    delivered = cursor.fetchall()
+    for identity in PRESENTATION_MEASURES:
+        item = artifacts[identity]
+        rows = [r for r in delivered if r[0] == identity]
+        if sum(int(r[2]) for r in rows) != item["presentation_rows"]:
             raise ReleaseCompletenessBlocked("Presentation source becomes unavailable: " + identity)
+        if item["presentation_rows"] and (
+            {r[1] for r in rows} != set(item["presentation_measures"])
+            or any(
+                (r[2], r[3], r[4])
+                != (item["presentation_counties"], item["presentation_counties"], 0)
+                for r in rows
+            )
+        ):
+            raise ReleaseCompletenessBlocked(
+                "Presentation measure/county footprint changed: " + identity
+            )

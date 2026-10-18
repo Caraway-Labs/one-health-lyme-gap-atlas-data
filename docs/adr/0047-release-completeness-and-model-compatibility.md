@@ -22,6 +22,10 @@ compatibility. After tentative pointer movement, query actual presentation views
 inside the same transaction. Missing dependencies, changed required distributions,
 lost API SELECT grants and unavailable models abort the transaction. The existing
 protected workflow remains the only automated publication entry point.
+The existing image-promotion workflow gains a bounded V157/V158 installation
+scope. It reviews the full pending inventory but executes only this pair, preserves
+unrelated pending/applied migrations, and reuses existing immutable ledger/legacy
+authority validation. No historical receipt is reconciled or rewritten by it.
 
 V157 retains append-only compatibility decisions independently of model rows.
 Only the existing human OWNER role may admit Tier 1 reuse. Its procedure proves
@@ -33,6 +37,10 @@ Changed scientific inputs require ML review/recomputation, not retagging.
 
 V158 independently stores the frozen ML138 handoff. Existing ML_PUBLISHER may
 stage exact chunks and publish only the approved SHA-bound v1 documents. It cannot
+stage or activate until a separate Data OWNER authorization binds the actual V158
+ledger commit, DEV-tested image, DEV evidence and production approval reference.
+The ML handoff approval is not that authorization. The publisher cannot record it.
+Failed staging attempts remain immutable in bounded separate namespaces. It cannot
 approve Tier 1 compatibility or operate the rollback control. The existing human
 OWNER may deactivate/reactivate the batch with an append-only event. READ receives
 only the compatibility and latent-class presentation views. No new role or auth

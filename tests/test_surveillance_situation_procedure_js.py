@@ -13,7 +13,8 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
-def test_all_procedure_bodies_parse_and_damaged_county_bytes_roll_back(tmp_path):
+@pytest.mark.parametrize("authorized", [True, False])
+def test_all_procedure_bodies_parse_and_damaged_county_bytes_roll_back(tmp_path, authorized):
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node needed for offline JavaScript procedure execution")
@@ -54,22 +55,28 @@ const snowflake={createStatement:({sqlText,binds=[]})=>({execute:()=>{
  if(sqlText.includes('SELECT LOWER(SHA2(?,256))'))
    return result([[crypto.createHash('sha256').update(binds[0]).digest('hex')]]);
  if(sqlText.includes('SELECT LISTAGG(part_text')) return result([['{}']]);
+ if(sqlText.includes('SELECT COUNT(*) FROM FEATURE_STORE.SURVEILLANCE_SITUATION_AUTHORIZATIONS'))
+   return result([[AUTHORIZED ? 1:0]]);
  if(sqlText.startsWith('SELECT COUNT(*)')) return result([[1]]);
  return result([]);
 }})};
 for(const body of BODIES) new Function(body);
 let error;
 try {
- new Function('snowflake','P_MANIFEST','P_DICTIONARY','P_APPROVAL',BODY)(snowflake,...DOCUMENTS);
+ new Function('snowflake','P_AUTHORIZATION','P_ATTEMPT',
+  'P_MANIFEST','P_DICTIONARY','P_APPROVAL',BODY)(
+  snowflake,'fixture-data-authorization','fixture-attempt',...DOCUMENTS);
 }
 catch(e){error=String(e);}
-assert.equal(error,'COUNTY_DIGEST_MISMATCH');
+assert.equal(error,AUTHORIZED?'COUNTY_DIGEST_MISMATCH':'DATA_PUBLICATION_AUTHORIZATION_REQUIRED');
 assert.equal(logs.at(-1),'ROLLBACK');
 assert(!logs.includes('COMMIT'));
 assert(!logs.some(s=>s.startsWith('INSERT INTO')));
 """
     source = (
-        "const BODIES="
+        "const AUTHORIZED="
+        + json.dumps(authorized)
+        + ";\nconst BODIES="
         + json.dumps(bodies)
         + ";\nconst BODY="
         + json.dumps(body)

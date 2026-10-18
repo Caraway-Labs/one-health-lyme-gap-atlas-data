@@ -69,12 +69,25 @@ the upstream bytes. County assignments remain outside Git.
 3. Reuse the reviewed DEV-tested image digest through protected PROD promotion.
    Obtain explicit approval of exact migration checksums and added view/procedure
    grants. Do not call production procedures from this preparation session.
+   Select `release_integrity_only=true` in existing `promote-prod.yml`, with exact
+   `reviewed_commit`, DEV-tested `image_digest` and the complete reviewed
+   `expected_pending_json` (including unrelated deferred entries). It installs only
+   V157/V158. V150, V154 or other pending DDL is preserved, not implicitly approved.
+   The runner verifies current release/bundle and every unrelated ledger row before
+   and after. A partial retry requires exact source checksums and the same reviewed
+   deployment commit. Contradictory operation flags fail before DDL.
 4. Owner reviews full feature/lineage comparison and approves a specific Tier 1
    compatibility decision. The procedure independently rejects changed values,
    membership or scientific source lineage. It never edits original model rows.
-5. Publish approved ML138 chunks/documents using the service publisher's named
+5. After explicit Data production authorization, OWNER records a separate
+   `SP_AUTHORIZE_SURVEILLANCE_SITUATION_PUBLICATION` decision naming the reviewed
+   V158 deployment commit, DEV-tested image digest, DEV evidence and approval
+   reference. The procedure requires the real V158 ledger receipt and frozen
+   current release identity. ML handoff approval alone cannot stage or activate
+   this batch. ML_PUBLISHER cannot record the Data owner decision.
+   Publish approved ML138 chunks/documents using the service publisher's named
    PAT connection only after the production operation is approved:
-   `uv run python scripts/publish_surveillance_situations.py <frozen-ML-root> --publish --environment prod --connection <named-PAT>`.
+   `uv run python scripts/publish_surveillance_situations.py <frozen-ML-root> --publish --environment prod --connection <named-PAT> --authorization-id <owner-decision>`.
    Default without `--publish` is entirely offline. No PAT values enter arguments.
 6. Reconcile a reviewed new candidate's `release_completeness` manifest. Do not
    modify the current release manifest in place. Pre-pointer and transaction-local
@@ -114,6 +127,11 @@ Do not close #698/#702/#703 until their production acceptance is demonstrated.
 ## Rollback and failure
 
 Identical chunk replay recovers interruption; modified bytes fail. Publication is
+staged under an immutable attempt ID. If a wrong chunk has already occupied an
+attempt, select a new `--staging-attempt` before approval; retain the failed parts
+as evidence. Never delete or overwrite them to recover publication. The approved
+batch records which attempt supplied its exact frozen bytes. Up to eight attempts
+are retained; exhaustion requires owner review, not deletion of evidence. Publication is
 one transaction and retains the previous pointer on failure. OWNER may call
 `FEATURE_STORE.SP_SET_SURVEILLANCE_SITUATION_ACTIVE(FALSE,<reviewed-reason>)` to
 withdraw the new model; TRUE restores v1 only while its exact release/bundle

@@ -42,6 +42,8 @@ def test_canary_reads_exact_current_admission_and_retained_exceptions(monkeypatc
                 raise Denied()
 
         def fetchone(self):
+            if "IS_ROLE_IN_SESSION" in self.sql:
+                return (False, False, False)
             if "CURRENT_USER()" in self.sql:
                 return (
                     "OH_LYME_API_SVC",

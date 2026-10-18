@@ -56,6 +56,26 @@ def test_pinned_documents_and_migration_digests_agree() -> None:
     )
 
 
+def test_publisher_cannot_stage_with_only_ml_handoff_approval(monkeypatch):
+    calls = []
+
+    def query(connection, sql):
+        calls.append(sql)
+        return [
+            {
+                "U": "OH_LYME_PROD_TIER1_ML_PUBLISHER_SVC",
+                "R": "OH_LYME_PROD_ML_PUBLISHER",
+                "D": "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+                "W": "OH_LYME_PROD_INGEST_XS_WH",
+            }
+        ]
+
+    monkeypatch.setattr(publisher, "query", query)
+    with pytest.raises(ValueError, match="Data owner publication authorization"):
+        publisher.publish("test", {}, "prod")
+    assert len(calls) == 1
+
+
 def test_optional_operator_replay() -> None:
     root = Path("C:/codex_programming/atlas-ml138-handoff")
     if not root.exists():
