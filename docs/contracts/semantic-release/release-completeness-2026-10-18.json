@@ -26,7 +26,9 @@
       "ingestion_run_id": "819259d8-a362-44ac-903a-16754f28b87c",
       "artifact_id": "df4e8edc-8033-4c17-b237-f72ef6c27a9d",
       "artifact_sha256": "c00584e1a940f31369ad130f6e67c8bdc2526794f86a81289e106dba67e0b68e",
-      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation"
+      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
+      "actual_presentation_rows": 9432,
+      "actual_presentation_counties": 3144
     },
     {
       "id": "tick",
@@ -49,7 +51,9 @@
       "ingestion_run_id": "ec14cc85-85d6-4064-80f1-1354238b88d6",
       "artifact_id": "e0db2aaf-7412-47d1-ac14-ba8807375549",
       "artifact_sha256": "e35a5066a7c77b2e79c50f315a18e042405ab7baa8a414a1a907792bb25d2adc",
-      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation"
+      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
+      "actual_typed_consumer_rows": null,
+      "coverage_verification_status": "current wide county projection exists; typed authority/provenance reconciliation remains pending"
     },
     {
       "id": "pathogen",
@@ -72,7 +76,9 @@
       "ingestion_run_id": "796731a3-cd7f-4510-aa0c-738ab74a6a76",
       "artifact_id": "d93ff6a3-4201-4a06-bfa3-da6026a706d9",
       "artifact_sha256": "68baef5f20b1e41821d0e6955cbb1809262e0f3624e387e88c04f6ddb0266f2f",
-      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation"
+      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
+      "actual_typed_consumer_rows": null,
+      "coverage_verification_status": "current wide county projection exists; typed authority/provenance reconciliation remains pending"
     },
     {
       "id": "context_svi",
@@ -95,7 +101,9 @@
       "ingestion_run_id": "331f367d-9282-4936-9b49-a480db995016",
       "artifact_id": "cdc_atsdr_svi_2022_county:dc042342a2e5abc108af67b439ec04c8",
       "artifact_sha256": "dc042342a2e5abc108af67b439ec04c86da8b61f9bdd1cf1b1e5ee0462dea7b2",
-      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation"
+      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
+      "actual_presentation_rows": 12576,
+      "actual_presentation_counties": 3144
     },
     {
       "id": "context_rucc",
@@ -118,7 +126,9 @@
       "ingestion_run_id": "f65bd68a-27de-4ad4-81a5-424ee24af3b6",
       "artifact_id": "usda_ers_rucc_2023:ec455ee2a8bc5fc8e070575ea5bee7dc",
       "artifact_sha256": "ec455ee2a8bc5fc8e070575ea5bee7dce46fc6037f8c3449cbf56e8b45331fa7",
-      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation"
+      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
+      "actual_presentation_rows": 3144,
+      "actual_presentation_counties": 3144
     },
     {
       "id": "context_nlcd_2025",
@@ -141,7 +151,9 @@
       "ingestion_run_id": "26ee1f3b-e503-45bc-9333-6892f85ad4fd",
       "artifact_id": "mrlc_annual_nlcd_c1v2_2025_demo_cohort:26ee1f3b-e503-45bc-9333-6892f85ad4fd:1:bdd2a4112769c894e069ae23021bb5a7",
       "artifact_sha256": "bdd2a4112769c894e069ae23021bb5a716313c3cfa821a7468aeaeebd2c451ee",
-      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation"
+      "source_pin_verification": "Live READ-role lineage projection for county 09110; not a full rowwise lineage reconciliation",
+      "actual_presentation_rows": 14,
+      "actual_presentation_counties": 2
     },
     {
       "id": "climate",
@@ -157,7 +169,9 @@
       "vintage": "January 2025",
       "disposition": "carry_forward",
       "observed_status": "published",
-      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence"
+      "read_role_access": "verified as MATTHEWCARAWAY/OH_LYME_PROD_READ; not service-user evidence",
+      "actual_presentation_rows": 389856,
+      "actual_presentation_counties": 3144
     },
     {
       "id": "tier1",
@@ -183,7 +197,21 @@
       "read_role_access": "Tier1 view SELECT verified; service canary pending",
       "batch_version": "tier1-review-priority-5536b5caad95cf47",
       "model_version": "tier1-statistical-reference-v1",
-      "input_comparison_receipt": "docs/operations/tier1-input-comparison-2026-10-18.json"
+      "input_comparison_receipt": "docs/operations/tier1-input-comparison-2026-10-18.json",
+      "actual_stored_rows": 3144,
+      "actual_stored_class_counts": {
+        "HIGH": 315,
+        "MEDIUM": 628,
+        "LOW": 2201
+      },
+      "supported_conus_dc_rows": 3109,
+      "supported_conus_dc_class_counts": {
+        "HIGH": 315,
+        "MEDIUM": 593,
+        "LOW": 2201
+      },
+      "actual_current_release_eligible_rows": null,
+      "eligibility_status": "input-equivalent; awaiting owner compatibility/source-lineage admission and downstream consumption"
     },
     {
       "id": "surveillance-situation-four-state",
@@ -209,7 +237,9 @@
       "observed_status": "approved ML handoff; not published in Snowflake",
       "read_role_access": "pending V158 DEV validation and protected PROD promotion",
       "batch_version": "v1",
-      "model_version": "v1"
+      "model_version": "v1",
+      "actual_presentation_rows": null,
+      "presentation_status": "not_installed; approved handoff is not a Snowflake publication"
     },
     {
       "id": "surveillance-situation-tick-pathogen",
@@ -235,7 +265,9 @@
       "observed_status": "approved ML handoff; not published in Snowflake",
       "read_role_access": "pending V158 DEV validation and protected PROD promotion",
       "batch_version": "v1",
-      "model_version": "v1"
+      "model_version": "v1",
+      "actual_presentation_rows": null,
+      "presentation_status": "not_installed; approved handoff is not a Snowflake publication"
     }
   ],
   "views": [
