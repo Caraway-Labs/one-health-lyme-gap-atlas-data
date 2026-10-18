@@ -1,7 +1,8 @@
-"""Offline proposal rendering only; no Snowflake/network or execution option.
+"""Fixed approved fixture rendering; no Snowflake/network or execution option.
 
-The mapping below requires engineering/security approval in the existing DEV
-workflow. Rendering is not permission to apply a migration outside its ledger.
+Product Owner Decision 1 approves this mapping. Execution still requires
+exact-head engineering/security approval in the existing DEV workflow.
+Rendering is not permission to apply a migration outside its ledger.
 """
 
 from __future__ import annotations
@@ -55,9 +56,9 @@ def prepare(output):
         "required_warehouse": "OH_LYME_DEV_INGEST_XS_WH",
         "migrations": [],
         "blockers": [
-            "Existing scoped V157/V158 mechanism rejects DEV",
-            "Fixture-schema mapping and role grants need security/engineering review",
-            "Synthetic prerequisites and test-only owner calls need explicit scope",
+            "PROD scoped guard unchanged; dedicated fixture job requires independent review",
+            "Product-approved fixture implementation needs exact-head security/engineering review",
+            "Synthetic owner calls are approved only after the required implementation review",
             "No real Data/scientific admission may be recorded",
         ],
         "preserve": [

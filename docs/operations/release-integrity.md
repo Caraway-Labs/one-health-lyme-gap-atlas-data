@@ -185,7 +185,18 @@ The current gate-by-gate package is
 [release-integrity-human-review-package.md](release-integrity-human-review-package.md).
 It includes fresh named-READ access probes, exact minimum diagnostic grants,
 fixture-only migration rendering/checksums and an installed acceptance matrix.
-The proposal renderings are not an executable/deployed scoped migration mode.
+The approved fixture mode is implemented in `deploy-dev.yml` and
+`scripts/run_release_integrity_fixture.py`; it has not been executed in Snowflake.
 Do not run the generic DEV migration entry point: its observed pending set also
 includes V155. No GitHub environment reviewer restriction was inferred; the
-blocker is the absence of a reviewed scoped DEV fixture mechanism.
+blockers are independent exact-head engineering/security APPROVED reviews,
+configured `RI706_REVIEW_POLICY`, and dedicated owner/publisher/reader service
+credential provisioning. The human package documents the exact inputs and
+recovery matrix. Product Owner design approval is already recorded.
+
+`ri706-api-consumer-audit.json` reconciles the pinned latest API source readers
+against all required presentation views and separately accounts for private
+feedback/KG operational procedures. `ri706-protected-production-package.json`
+retains deliberately unset DEV digest, lineage, owner decisions and execution
+fields until actual receipts exist. The exact-action diagnostic request pins
+SQL/grant/revocation hashes; it authorizes no PROD action.

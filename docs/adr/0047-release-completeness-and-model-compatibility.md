@@ -91,16 +91,26 @@ uses the owner procedure, leaves the batch retained and yields an empty current
 view when deactivated. Model refresh requires a new reviewed version/migration.
 
 
-## Pending isolation and diagnostic security review
+## Approved isolation design; pending implementation security review
 
-The human review package proposes three fixed RI706 fixture schemas in existing
+The Product Owner approved three fixed RI706 fixture schemas in existing
 DEV, using only a separately reviewed mode of the protected DEV workflow. This
 is not authority to rewrite the live DEV ledger/pointer or broaden the current
 PROD-only scoped migration guard. Synthetic owner-control fixture calls are not
-scientific/Data-owner approvals and require explicit test-only scope.
+scientific/Data-owner approvals and require explicit test-only scope. The
+implemented fixture job binds exact source/review/image/artifact identities,
+uses its own ledger and synthetic prerequisites, and exercises interrupted
+installation/replay, staging, transactions, concurrency, permissions and complete
+inventory rejection. Exact-head independent engineering/security review and
+dedicated service credentials remain required before privileged execution.
 
 Full retained-lineage access should reuse the existing READ audit boundary via
 four exact-release/source secure projections, rather than broad base-table
 SELECT or OWNER/MIGRATOR escalation. The proposed views/grants are review-only
 SQL under `sql/validation/`; provisioning them in PROD requires its own protected
-DDL authorization. No such grant/DDL is authorized or executed by preparation.
+DDL authorization. The Product Owner approved this design, including least
+privilege and confidentiality boundaries; actual installation remains separate.
+Four projections expire closed on the proposed fixed date and have exact-action
+hashes plus scoped revoke/drop instructions. No grant/DDL is authorized or
+executed by preparation. Raw feature fields and canonical membership join the
+complete source/observation comparison; predictor equality alone never passes.

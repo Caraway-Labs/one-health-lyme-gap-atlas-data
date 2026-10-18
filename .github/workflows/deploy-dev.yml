@@ -2,6 +2,18 @@ name: Verify DEV governed pipeline
 on:
   workflow_dispatch:
     inputs:
+      release_integrity_fixture:
+        description: Independently reviewed RI706-only synthetic fixture install and acceptance
+        type: boolean
+        default: false
+      ri706_expected_artifacts:
+        description: Exact V157/V158 original and rendered artifact JSON from the reviewed checkout
+        type: string
+        required: false
+      ri706_synthetic_authorization:
+        description: Must equal RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL
+        type: string
+        required: false
       ledger_diagnostic_only:
         description: Fixed three-statement ledger evidence diagnostic; requires metadata_preflight_only
         required: false
@@ -83,6 +95,7 @@ permissions:
   checks: read
 jobs:
   deploy:
+    if: inputs.release_integrity_fixture != true
     environment: dev
     runs-on: ubuntu-latest
     steps:
@@ -523,3 +536,129 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+
+
+  release-integrity-fixture:
+    if: inputs.release_integrity_fixture == true
+    environment: dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: ri706-dev-fixture
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_REVIEW_POLICY: ${{ vars.RI706_REVIEW_POLICY }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/.ri706-review.json
+      IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require exact-head independent engineering and security review
+        run: python scripts/review_release_integrity_fixture_gate.py
+      - uses: astral-sh/setup-uv@v6
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Build or reuse immutable reviewed fixture image
+        id: fixture_image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          doctl registry login --expiry-seconds 1200
+          tag="ri706-${REVIEWED_COMMIT}"
+          digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "$tag" '[.[] | select((.tags // []) | index($tag)) | .digest] | if length == 1 then .[0] else empty end')"
+          if [ -z "$digest" ]; then
+            docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$REVIEWED_COMMIT" -t "$IMAGE:$tag" .
+            docker push "$IMAGE:$tag"
+            digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$tag" | cut -d@ -f2)"
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull "$IMAGE@$digest"
+          test "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE@$digest")" = "$REVIEWED_COMMIT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Replay exact public ML138 handoff without refitting
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-machine-learning.git "$RUNNER_TEMP/ri706-handoff"
+          git -C "$RUNNER_TEMP/ri706-handoff" checkout --detach c186e0bdc9ee096a15284bc848de034981fe634b
+          test "$(git -C "$RUNNER_TEMP/ri706-handoff" rev-parse HEAD)" = c186e0bdc9ee096a15284bc848de034981fe634b
+          uv run --project "$RUNNER_TEMP/ri706-handoff" python "$RUNNER_TEMP/ri706-handoff/scripts/assemble_138_surveillance_situation_batch.py"
+          # Restore the exact frozen metadata bytes, including approved CRLF.
+          # No --write-committed, inference, source reconstruction or model refresh.
+          cp docs/contracts/surveillance-situations/138-surveillance-situation-*.json "$RUNNER_TEMP/ri706-handoff/config/models/"
+      - name: Recheck review and bind before privileged execution
+        run: python scripts/review_release_integrity_fixture_gate.py
+      - name: Execute fixed-schema partial recovery and acceptance in the pinned image
+        timeout-minutes: 20
+        env:
+          RI706_IMAGE_DIGEST: ${{ steps.fixture_image.outputs.digest }}
+          RI706_FIXTURE_MODE: 'true'
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_AUTH_METHOD: key_pair
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+          RI706_OWNER_USER: ${{ vars.RI706_OWNER_USER }}
+          RI706_OWNER_PRIVATE_KEY_B64: ${{ secrets.RI706_OWNER_PRIVATE_KEY_B64 }}
+          RI706_OWNER_PRIVATE_KEY_PASSPHRASE: ${{ secrets.RI706_OWNER_PRIVATE_KEY_PASSPHRASE }}
+          RI706_PUBLISHER_USER: ${{ vars.RI706_PUBLISHER_USER }}
+          RI706_PUBLISHER_PRIVATE_KEY_B64: ${{ secrets.RI706_PUBLISHER_PRIVATE_KEY_B64 }}
+          RI706_PUBLISHER_PRIVATE_KEY_PASSPHRASE: ${{ secrets.RI706_PUBLISHER_PRIVATE_KEY_PASSPHRASE }}
+          RI706_READER_USER: ${{ vars.RI706_READER_USER }}
+          RI706_READER_PRIVATE_KEY_B64: ${{ secrets.RI706_READER_PRIVATE_KEY_B64 }}
+          RI706_READER_PRIVATE_KEY_PASSPHRASE: ${{ secrets.RI706_READER_PRIVATE_KEY_PASSPHRASE }}
+          RI706_RUNTIME_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+          RI706_RUNTIME_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+          RI706_RUNTIME_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # All role credentials must be provisioned before any fixture DDL.
+          for name in RI706_EXPECTED_ARTIFACTS RI706_OWNER_USER RI706_OWNER_PRIVATE_KEY_B64 RI706_PUBLISHER_USER RI706_PUBLISHER_PRIVATE_KEY_B64 RI706_READER_USER RI706_READER_PRIVATE_KEY_B64 RI706_RUNTIME_USER RI706_RUNTIME_PRIVATE_KEY_B64; do
+            test -n "${!name}"
+          done
+          mkdir -p "$RUNNER_TEMP/ri706-receipts"
+          # Existing secret stores the encrypted PEM body. Convert process-locally.
+          pem="$RUNNER_TEMP/ri706-key.p8"
+          trap 'rm -f "$pem"' EXIT
+          { printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'; printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64; printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'; } > "$pem"
+          export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$pem")"
+          { printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'; printf '%s' "$RI706_RUNTIME_PRIVATE_KEY_B64" | fold -w 64; printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'; } > "$pem"
+          export RI706_RUNTIME_PRIVATE_KEY_B64="$(base64 --wrap=0 "$pem")"
+          export ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS=60
+          args=()
+          for name in GITHUB_ACTIONS GITHUB_REPOSITORY GITHUB_SHA REVIEWED_COMMIT RI706_IMAGE_DIGEST RI706_FIXTURE_MODE RI706_EXPECTED_ARTIFACTS SNOWFLAKE_ACCOUNT SNOWFLAKE_USER SNOWFLAKE_ROLE SNOWFLAKE_DATABASE SNOWFLAKE_WAREHOUSE SNOWFLAKE_AUTH_METHOD SNOWFLAKE_PRIVATE_KEY_B64 SNOWFLAKE_PRIVATE_KEY_PASSPHRASE ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS RI706_OWNER_USER RI706_OWNER_PRIVATE_KEY_B64 RI706_OWNER_PRIVATE_KEY_PASSPHRASE RI706_PUBLISHER_USER RI706_PUBLISHER_PRIVATE_KEY_B64 RI706_PUBLISHER_PRIVATE_KEY_PASSPHRASE RI706_READER_USER RI706_READER_PRIVATE_KEY_B64 RI706_READER_PRIVATE_KEY_PASSPHRASE RI706_RUNTIME_USER RI706_RUNTIME_PRIVATE_KEY_B64 RI706_RUNTIME_PRIVATE_KEY_PASSPHRASE; do
+            args+=(--env "$name")
+          done
+          args+=(--env RI706_REVIEW_RECEIPT=/review.json -v "$RI706_REVIEW_RECEIPT:/review.json:ro" -v "$RUNNER_TEMP/ri706-handoff:/handoff:ro" -v "$RUNNER_TEMP/ri706-receipts:/receipts")
+          set +e
+          docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/partial-install.json --install-only --stop-after-v157
+          partial_status=$?
+          set -e
+          test "$partial_status" = 0 -o "$partial_status" = 75
+          docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/acceptance.json
+      - name: Retain redacted fixture execution receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ri706-dev-fixture-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.RI706_REVIEW_RECEIPT }}
+            ${{ runner.temp }}/ri706-receipts/*.json
+          if-no-files-found: ignore
+          retention-days: 30

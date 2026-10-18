@@ -24,6 +24,10 @@ SOURCE_FIELDS = (
     "source_key,resource_key,source_id,dataset_id,source_version_id,ingestion_run_id,"
     "artifact_id,vintage,note,source_url,label"
 )
+FEATURE_FIELDS = (
+    "FIPS,STATE,POPULATION,HUMAN_STATUS,CASE_COUNT_FLOOR_2023,TICK_STATUS,"
+    "SCAPULARIS_STATUS,PACIFICUS_STATUS,BURGDORFERI_STATUS,SVI_PERCENTILE,RUCC_2023"
+)
 ROW_FIELDS = (
     "county_fips,measure_id,temporal_window,source_key,source_version_id,ingestion_run_id,"
     "artifact_id,artifact_sha256,semantic_source_record_id,semantic_source_row_hash,"
@@ -90,6 +94,7 @@ def main():
         .split()
     )
     pins = []
+    features = []
     for release, bundle in ((ORIGINAL, ORIGINAL_BUNDLE), (TARGET, BUNDLE)):
         release_rows = read(
             "SELECT bundle_sha256,source_manifest FROM "
@@ -112,6 +117,9 @@ def main():
             )
             args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ValueError("Canonical membership differs")
+        if any(set(FEATURE_FIELDS.split(",")) - row.keys() for row in members):
+            raise ValueError("Incomplete feature projection")
+        features.append({row["FIPS"]: row for row in members})
         manifest = release_rows[0]["SOURCE_MANIFEST"]
         if isinstance(manifest, str):
             manifest = json.loads(manifest)
@@ -133,6 +141,17 @@ def main():
             raise ValueError("Missing or duplicate source metadata")
         pins.append((multiset(selected), multiset(source_rows)))
     receipt["canonical_membership_equal"] = True
+    changed = {
+        field: sum(features[0][fips][field] != features[1][fips][field] for fips in canonical)
+        for field in FEATURE_FIELDS.split(",")
+        if field != "FIPS"
+    }
+    receipt["changed_feature_cells_by_field"] = changed
+    if any(changed.values()):
+        receipt["status"] = "different_not_eligible_not_approval"
+        receipt["mismatches"].append({"kind": "feature_values", "changed_cells_by_field": changed})
+        args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+        raise ValueError("Feature values differ; ML review required")
     if pins[0] != pins[1]:
         for kind, position in (("source_mapping", 0), ("source_metadata", 1)):
             before = {

@@ -10,7 +10,17 @@ import pytest
 @pytest.mark.parametrize("projected", [False, True])
 @pytest.mark.parametrize(
     "change",
-    [None, "mapping", "source", "row", "dropped", "membership", "governed_hash", "duplicate_id"],
+    [
+        None,
+        "mapping",
+        "source",
+        "row",
+        "dropped",
+        "membership",
+        "governed_hash",
+        "duplicate_id",
+        "feature",
+    ],
 )
 def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
     monkeypatch, tmp_path, change, projected
@@ -37,7 +47,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
         target = module.TARGET in sql
         if "CURRENT_USER" in sql:
             return [{"D": "ONE_HEALTH_LYME_GAP_ATLAS_PROD", "R": "OH_LYME_PROD_READ"}]
-        if "SELECT fips FROM" in sql:
+        if "FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS" in sql:
             fips = (
                 (root / "src/lyme_gap_atlas_data/data/canonical-county-fips-2022.txt")
                 .read_text()
@@ -45,7 +55,12 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             )
             if target and change == "membership":
                 fips[0] = "99999"
-            return [{"FIPS": f} for f in fips]
+            rows = [
+                {**dict.fromkeys(module.FEATURE_FIELDS.split(","), "same"), "FIPS": f} for f in fips
+            ]
+            if target and change == "feature":
+                rows[0]["HUMAN_STATUS"] = "changed"
+            return rows
         if "source_manifest" in sql:
             sources = [
                 {
@@ -99,7 +114,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
         argv.append("--reviewed-projections")
     monkeypatch.setattr("sys.argv", argv)
     if change:
-        with pytest.raises(ValueError, match="differs|dropped|governed|duplicated"):
+        with pytest.raises(ValueError, match="differ|dropped|governed|duplicated"):
             module.main()
         assert json.loads(receipt.read_text())["status"] != "complete_equal_not_approval"
     else:

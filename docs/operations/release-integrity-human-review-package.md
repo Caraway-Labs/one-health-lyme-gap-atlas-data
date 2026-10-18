@@ -1,29 +1,57 @@
 # Data 698 / 702 / 703 human review package
 
-Status: PREPARATION COMPLETE; installed DEV execution and authoritative lineage
+Status: FIXTURE IMPLEMENTATION COMPLETE; installed DEV execution and authoritative lineage
 BLOCKED. No scientific/Data approval is requested from or recorded by automation.
 PR #706 must remain draft. Source baseline is
-`3b0c28b612cc6d37a466803b178232b56aee4dea`; final preparation commit and CI
+`6f2195e8d876a6e3093d872214a2254440e6a040`; final implementation commit and CI
 are recorded in the PR review request. No PROD object, grant, row or pointer was
 changed. No migration was installed in live DEV.
 
-## Decisions requested before DEV execution
+## Approved designs and remaining execution boundary
 
-Engineering/security: review ADR0047 and the **proposed** fixture schema mapping
+The Product Owner approved Decision 1 (fixed fixture deployment design/test scope)
+and Decision 2 (restricted retained-lineage diagnostic design). Do not request
+those design decisions again. Neither approval substitutes for independent
+exact-head engineering/security review or exact-action PROD DDL authorization.
+
+The dedicated `release_integrity_fixture` job in `deploy-dev.yml` now implements
+the fixture mechanism. It binds the exact PR head, successful final-head Quality
+check, configured human engineering/security APPROVED reviews, immutable image
+revision/digest, original/rendered migration checksums and synthetic marker.
+Only V157/V158 are selected. A separate ledger and schema binding permit exact
+replay and interrupted-V157 recovery; mismatched attempts fail closed.
+
+Before dispatch, provision `RI706_REVIEW_POLICY` with authorized engineering and
+security reviewer login lists. The author and automation cannot satisfy this gate.
+Provision `RI706_OWNER_USER`, `RI706_PUBLISHER_USER`, `RI706_READER_USER` as DEV
+environment variables and corresponding `RI706_*_PRIVATE_KEY_B64` secrets
+(full PEM encoded as base64; optional matching passphrase secrets). These must be
+separate approved service identities with the fixed DEV roles, not personal keys.
+The existing protected migration/runtime identities are reused only in workflow.
+Those new policy/profile entries are currently absent. No dispatch was attempted.
+
+Use `ri706-fixture-execution-artifacts.json` as the exact workflow artifact input
+and the explicit `RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL` marker.
+The protected job builds/reuses only its reviewed image, assembles the pinned ML
+handoff, checks review again, injects a planned V157 interruption and resumes the
+same image through the acceptance matrix. It retains redacted query-ID receipts.
+No App Platform deployment or generic migration command is used.
+
+Engineering/security: review ADR0047 and the approved fixed fixture schema mapping
 `FEATURE_STORE -> RI706_FEATURE_STORE`, `PRESENTATION -> RI706_PRESENTATION`,
 `GOVERNANCE -> RI706_GOVERNANCE`, all within
 `ONE_HEALTH_LYME_GAP_ATLAS_DEV`. The two offline-rendered DDL files and source/
 rendered checksums are in `release-integrity-dev-fixture-proposal-2026-10-18/`.
 These files are not migration receipts and must not be run manually.
 
-Authorize a bounded fixture-only mode in the existing `deploy-dev.yml`, with
+The implemented bounded fixture-only mode in the existing `deploy-dev.yml` uses
 exact reviewed SHA, both original source hashes, fixed schema mapping, full
 observed pending inventory and immutable image digest. The mode must reject
 existing fixture schemas (unless a separately verified exact-attempt recovery),
 PROD context, arbitrary schemas, unrelated DDL and live DEV pointer/ledger writes.
 It must use a separate fixture ledger and preserve all live DEV migration history.
-This mode is **not yet an approved/executable scoped mechanism**. Implementation
-and independent review of that extension are required before credential use.
+Independent exact-head review of this implementation remains required before
+privileged execution. Local tests are not installed Snowflake acceptance.
 
 Current scope guard: `apply_migrations(release_integrity_only=True)` rejects
 DEV. `apply-reviewed-dev-migrations` instead reconciles legacy history and
@@ -107,7 +135,10 @@ The migration/view owner needs its existing dependency SELECT on the four base
 tables and CREATE VIEW/ownership in LINEAGE_AUDIT; verify that under the protected
 identity rather than granting an elevated role to the diagnostic caller.
 No role membership, INSERT/UPDATE/DELETE, raw payload/artifact URI or approval
-procedure privilege is required. Security owner must define lifecycle/revocation.
+procedure privilege is required. The exact-action request JSON pins both SQL
+hashes, dependencies, four SELECT grants and revocation script. Proposed views
+expire closed at 2026-10-25T00:00:00Z; delayed review requires renewed hashes and
+authorization. Revoke/drop only these four views after receipt acceptance.
 
 Installing these PROD audit views/grants is itself a **separate protected PROD
 DDL authorization**, expressly not granted by this task. Alternatively, an already

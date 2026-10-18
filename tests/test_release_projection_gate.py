@@ -25,6 +25,8 @@ class ProjectionCursor:
         return [("new", "bundle")]
 
     def fetchone(self):
+        if " IS NULL OR " in self.sql:
+            return (0,)
         if "COUNT(DISTINCT county_fips)" in self.sql:
             return (0, 0) if self.missing_model else (3144, 3144)
         return (3144,)
@@ -139,6 +141,20 @@ def test_same_counts_do_not_authorize_wrong_projection_identity(kind):
 
 def test_valid_projected_release_passes():
     gate.verify_current(ProjectionCursor(), "new", receipt())
+
+
+@pytest.mark.parametrize(
+    "view", ["CURRENT_COUNTY_OBSERVATIONS_V", "CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V"]
+)
+def test_same_count_observations_from_another_release_fail(view):
+    class WrongObservationRelease(ProjectionCursor):
+        def fetchone(self):
+            if view in self.sql and " IS NULL OR " in self.sql:
+                return (3144,)
+            return super().fetchone()
+
+    with pytest.raises(gate.ReleaseCompletenessBlocked, match="Observation release identity"):
+        gate.verify_current(WrongObservationRelease(), "new", receipt())
 
 
 def test_explicit_zero_eligibility_receipt_is_checked_without_inventing_classes():

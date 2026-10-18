@@ -19,3 +19,6 @@ dbt/logs
 docs/contracts/semantic-domain/*
 !docs/contracts/semantic-domain/cdc-2025
 !docs/contracts/semantic-domain/atlas-semantic-source-mappings-v1.json
+!docs/contracts/semantic-release
+docs/contracts/semantic-release/*
+!docs/contracts/semantic-release/release-completeness-2026-10-18.json

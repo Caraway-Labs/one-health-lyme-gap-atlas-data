@@ -389,21 +389,24 @@ def verify_candidate(cursor: Any, release_id: str) -> dict[str, Any]:
     }
 
 
-def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> None:
+def verify_current(
+    cursor: Any, release_id: str, receipt: dict[str, Any], *, read_role: str = "OH_LYME_PROD_READ"
+) -> None:
     """After tentative pointer movement, before COMMIT: prove actual projections.
 
     Any error rolls back the original caller transaction. This catches views pinned
     to an old release, missing view dependencies and disappearing model batches.
     The service-identity post-deployment canary is an additional required gate.
     """
+    if read_role not in {"OH_LYME_PROD_READ", "OH_LYME_DEV_READ"}:
+        raise ReleaseCompletenessBlocked("Unsupported release reader role")
     for view in VIEWS:
         cursor.execute("SELECT * FROM PRESENTATION." + view + " LIMIT 0")
         cursor.execute("SHOW GRANTS ON VIEW PRESENTATION." + view)
         names = [str(c[0]).lower() for c in cursor.description]
         grants = [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
         if not any(
-            g.get("privilege") == "SELECT" and g.get("grantee_name") == "OH_LYME_PROD_READ"
-            for g in grants
+            g.get("privilege") == "SELECT" and g.get("grantee_name") == read_role for g in grants
         ):
             raise ReleaseCompletenessBlocked("API read grant missing: " + view)
     cursor.execute("SELECT release_id,bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V")
@@ -411,6 +414,22 @@ def verify_current(cursor: Any, release_id: str, receipt: dict[str, Any]) -> Non
         raise ReleaseCompletenessBlocked("Current release pointer is not unique or differs")
     artifacts = receipt["artifacts"]
     verify_projection_identity(cursor, release_id, artifacts)
+    for view, release_column in (
+        ("CURRENT_COUNTY_OBSERVATIONS_V", "release_version"),
+        ("CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V", "release_id"),
+    ):
+        cursor.execute(
+            "SELECT COUNT(*) FROM PRESENTATION."
+            + view
+            + " WHERE "
+            + release_column
+            + " IS NULL OR "
+            + release_column
+            + "<>%s",
+            (release_id,),
+        )
+        if cursor.fetchone()[0] != 0:
+            raise ReleaseCompletenessBlocked("Observation release identity differs: " + view)
     for item in receipt["independent_consumers"]:
         view = item["view"]
         column = INDEPENDENT[view]
