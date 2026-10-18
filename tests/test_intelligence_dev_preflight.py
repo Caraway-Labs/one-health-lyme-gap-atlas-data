@@ -483,6 +483,10 @@ def test_partial_completed_safe_observations_survive_later_failure():
 
 def test_workflow_public_safe_input_and_exit_before_migration():
     workflow = (Path(__file__).parents[1] / ".github/workflows/deploy-dev.yml").read_text()
+    # The separate RI706 job retains only its own redacted execution receipts.
+    # This legacy diagnostic still exits before migration and uploads no artifact.
+    assert "if: inputs.release_integrity_fixture != true" in workflow
+    workflow = workflow.split("\n  release-integrity-fixture:", 1)[0]
     branch = workflow.index('if [ "$DIAGNOSE_INTELLIGENCE_DEV" = "true" ]')
     execute = workflow.index("uv run python scripts/verify_intelligence_dev_preflight.py", branch)
     assert workflow.index("exit 0", execute) < workflow.index("SELECT CURRENT_ACCOUNT()")
