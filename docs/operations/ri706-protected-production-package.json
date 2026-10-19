@@ -1,0 +1,99 @@
+{
+  "status": "NOT_AUTHORIZED_NOT_PRODUCTION_READY",
+  "product_decisions": {
+    "fixture_design": "APPROVED Decision 1",
+    "diagnostic_design": "APPROVED Decision 2"
+  },
+  "base_reviewed_commit": "6f2195e8d876a6e3093d872214a2254440e6a040",
+  "candidate_commit": "Recorded by final-head CI and exact-head review request in PR706",
+  "execution_review": null,
+  "immutable_dev_tested_image_digest": null,
+  "migration_artifacts": [
+    {
+      "version": "V157",
+      "filename": "V157__model_release_compatibility.sql",
+      "source_sha256": "96ea5c9ee51769e207efc44479d380fe6fd7752e5c6621dcbfd71559231593d1",
+      "rendered_sha256": "a726a18d9b51eddca049ed64d7e2418a1f210317cc8f3dbbcdd0cd4c01b2be50"
+    },
+    {
+      "version": "V158",
+      "filename": "V158__surveillance_situation_publication.sql",
+      "source_sha256": "104f3022133066f7b6888628ecae6e3632f70ddb0dda6a1d0a7babe969ba8cf5",
+      "rendered_sha256": "3884abb1d04e7a168ea55b1498c33283ba1552aa0bda7d6f5f86dd1024b9a4c9"
+    }
+  ],
+  "installed_dev_acceptance_receipt": null,
+  "authoritative_lineage_receipt": null,
+  "scientific_tier1_compatibility_decision": null,
+  "data_publication_authorization": null,
+  "release_completeness_admission": null,
+  "frozen_ml_commit": "c186e0bdc9ee096a15284bc848de034981fe634b",
+  "latent_class_batch": {
+    "batch_id": "surveillance-situation-batch",
+    "batch_version": "v1",
+    "county_sha256": "02b62d7a4cb8970b3cd2506f5206a386a9ceed7cb2253baea16299be2d06ec9b",
+    "dictionary_sha256": "c0fecc0766c7e485b670624793cd2b02a1c8bafd49c740bcc8db9c62e9d2494b",
+    "rows_per_fit": 3144,
+    "primary_class_counts": [
+      801,
+      35,
+      112,
+      2196
+    ],
+    "tick_pathogen_class_counts": [
+      1325,
+      1687,
+      97,
+      35
+    ]
+  },
+  "inventory_expected": "docs/contracts/semantic-release/release-completeness-2026-10-18.json",
+  "inventory_actual_prod_reconciliation": null,
+  "diagnostic_exact_action_request": "docs/operations/ri706-retained-lineage-exact-action-request.json",
+  "api_service": {
+    "user": "OH_LYME_API_SVC",
+    "role": "OH_LYME_PROD_READ",
+    "canary_key_secret": "ATLAS_API_CANARY_PRIVATE_KEY_PEM_B64",
+    "optional_passphrase_secret": "ATLAS_API_CANARY_PRIVATE_KEY_PASSPHRASE",
+    "actual_service_evidence": null
+  },
+  "sequence": [
+    "Obtain exact-head engineering/security review and configured service profiles",
+    "Run protected fixed-schema DEV partial-recovery and full acceptance on one immutable digest",
+    "Separately authorize/provision exact diagnostic views/grants or equivalent protected read-only evidence",
+    "Complete bounded full features/source/governed-lineage proof; incomplete is not PASS",
+    "Obtain explicit scientific/Data owner decisions and complete actual inventory admission",
+    "Authorize merge separately; if merge changes SHA, rebind/retest final source and image before protected PROD use; never retag an untested image as proof",
+    "Protected exact-source V157/V158 installation; preserve unrelated pending DDL and all pointer state",
+    "Record actual owner compatibility and Data publication authorization; stage/publish exact frozen batch",
+    "Precommit candidate/current projection checks; protected semantic publish or admitted rollback",
+    "Actual API service canary and bounded HTTP smoke; separately coordinate API253 and Web650"
+  ],
+  "pre_release": [
+    "Retain current pointer/bundle, ledger, model batches, grants and profile",
+    "Verify reviewed main SHA and DEV-tested digest/source equality",
+    "Verify expected source metadata, canonical membership, all consumer inventory and admitted coverage"
+  ],
+  "post_release": [
+    "Exact pointer/bundle and all expected consumer counts/identities",
+    "Original model input provenance plus approved compatibility relationship",
+    "Service role SELECT and denied private/base/owner-control operations",
+    "No class/coverage/time-cohort drift; Unknown stays distinct from UNAVAILABLE"
+  ],
+  "rollback": [
+    "Use approved retained exact-bundle completeness profile; no Alpha fallback",
+    "Owner model deactivation/reactivation retains immutable outputs and appends events",
+    "Protected semantic rollback verifies retained exceptions, all projections and service canary",
+    "Retain failed staging/history; no ad hoc source or migration edits"
+  ],
+  "downstream_not_complete": [
+    "API253",
+    "Web650",
+    "Tier1 browser compatibility delivery verification"
+  ],
+  "prohibitions": [
+    "No merge, ready transition or issue closure now",
+    "No PROD DDL/grants/model activation/pointer change now",
+    "Synthetic decisions never become real owner approvals"
+  ]
+}

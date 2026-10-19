@@ -221,6 +221,11 @@ def test_intentional_removal_needs_packaged_contract_and_independent_review():
 
 
 def test_cdc_gate_blocks_before_retirement_and_pointer_change(monkeypatch):
+    from lyme_gap_atlas_data import release_completeness
+
+    # This case isolates the existing CDC gate after the new independent
+    # completeness preflight succeeds; no production approval is fabricated.
+    monkeypatch.setattr(release_completeness, "verify_candidate", lambda *_: {})
     connection = _ReleaseConnection(
         [
             ("CANDIDATE", "a" * 64),

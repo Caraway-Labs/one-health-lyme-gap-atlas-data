@@ -670,10 +670,34 @@ def apply_migrations(
     january_point_query_only: bool = False,
     county_context_only: bool = False,
     cdc_admission_only: bool = False,
+    release_integrity_only: bool = False,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    integrity_versions = {"V157", "V158"}
+    if release_integrity_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or any(
+            (
+                cdc_admission_only,
+                county_context_only,
+                january_climate_only,
+                january_bulk_recovery_only,
+                january_point_query_only,
+                protected_intelligence_prerequisite,
+            )
+        )
+        or not commit
+        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+    ):
+        raise PermissionError("Release integrity requires an exact protected reviewed PROD scope")
+    # Old bounded operators still review the complete pending metadata, but
+    # cannot execute these newer migrations as a side effect.
+    scoped_review = [
+        item for item in expected_pending or [] if item["version"] not in integrity_versions
+    ]
     if cdc_admission_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -682,7 +706,7 @@ def apply_migrations(
         or january_point_query_only
         or county_context_only
         or protected_intelligence_prerequisite
-        or {item["version"] for item in expected_pending} not in ({"V150"}, {"V150", "V156"})
+        or {item["version"] for item in scoped_review} not in ({"V150"}, {"V150", "V156"})
     ):
         raise PermissionError("CDC admission requires the exact reviewed pending V156 scope")
     if county_context_only and (
@@ -692,7 +716,7 @@ def apply_migrations(
         or january_bulk_recovery_only
         or january_point_query_only
         or protected_intelligence_prerequisite
-        or {item["version"] for item in expected_pending} != {"V150", "V155"}
+        or {item["version"] for item in scoped_review} != {"V150", "V155"}
     ):
         raise PermissionError("County context requires only reviewed pending V150/V155")
     if january_point_query_only and (
@@ -701,7 +725,7 @@ def apply_migrations(
         or january_climate_only
         or january_bulk_recovery_only
         or protected_intelligence_prerequisite
-        or {item["version"] for item in expected_pending} != {"V150", "V154"}
+        or {item["version"] for item in scoped_review} != {"V150", "V154"}
     ):
         raise PermissionError("Point optimization requires only reviewed pending V150/V154")
     if january_bulk_recovery_only and (
@@ -709,14 +733,14 @@ def apply_migrations(
         or expected_pending is None
         or january_climate_only
         or protected_intelligence_prerequisite
-        or {item["version"] for item in expected_pending} != {"V150", "V153"}
+        or {item["version"] for item in scoped_review} != {"V150", "V153"}
     ):
         raise PermissionError("Bulk recovery requires only reviewed pending V150/V153")
     if january_climate_only and (
         database != PROD_DATABASE
         or expected_pending is None
         or protected_intelligence_prerequisite
-        or not {item["version"] for item in expected_pending} <= {"V150", "V151", "V152"}
+        or not {item["version"] for item in scoped_review} <= {"V150", "V151", "V152"}
     ):
         raise PermissionError("January PROD migrations require the exact reviewed full pending set")
     plan = [
@@ -735,8 +759,10 @@ def apply_migrations(
             if expected_pending is not None:
                 raise
             applied = {}
-        reconciled = _reconciled_legacy_migrations(cursor, database, cdc_admission_only)
-        if cdc_admission_only:
+        reconciled = _reconciled_legacy_migrations(
+            cursor, database, cdc_admission_only or release_integrity_only
+        )
+        if cdc_admission_only or release_integrity_only:
             duplicate_versions = {
                 version for version, count in Counter(v for v, _ in ledger).items() if count > 1
             }
@@ -801,34 +827,62 @@ def apply_migrations(
                     raise ValueError("CDC historical ledger changed during identity validation")
             if set(applied) - {item.version for item in plan}:
                 raise ValueError("CDC migration ledger contains unexpected versions")
-            target = next(item for item in plan if item.version == "V156")
-            if "V150" in applied:
-                raise PermissionError("CDC scope requires V150 to remain pending")
-            if "V156" in applied:
-                # A failed image promotion may follow a successful immutable DDL
-                # step. Resume only the same reviewed commit and exact checksum.
-                cursor.execute(
-                    "SELECT filename,sha256,deployment_commit FROM GOVERNANCE.SCHEMA_MIGRATIONS "
-                    "WHERE version=%s",
-                    ("V156",),
-                )
-                if (
-                    not commit
-                    or not re.fullmatch(r"[0-9a-f]{40}", commit)
-                    or applied["V156"] != target.sha256
-                    or cursor.fetchall() != [(target.filename, target.sha256, commit)]
-                ):
-                    raise ValueError("CDC retry requires the exact reviewed V156 ledger receipt")
-                reviewed_target = [
-                    item for item in expected_pending or [] if item["version"] == "V156"
-                ]
-                if reviewed_target and reviewed_target != [_migration_metadata(target)]:
-                    raise ValueError("CDC retry reviewed V156 metadata mismatch")
-                # Original dispatch inputs remain valid on a GitHub run retry;
-                # remove only the independently verified, already-applied V156.
-                expected_pending = [
-                    item for item in expected_pending or [] if item["version"] != "V156"
-                ]
+            if cdc_admission_only:
+                target = next(item for item in plan if item.version == "V156")
+                if "V150" in applied:
+                    raise PermissionError("CDC scope requires V150 to remain pending")
+                if "V156" in applied:
+                    # A failed image promotion may follow a successful immutable DDL
+                    # step. Resume only the same reviewed commit and exact checksum.
+                    cursor.execute(
+                        "SELECT filename,sha256,deployment_commit "
+                        "FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                        "WHERE version=%s",
+                        ("V156",),
+                    )
+                    if (
+                        not commit
+                        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+                        or applied["V156"] != target.sha256
+                        or cursor.fetchall() != [(target.filename, target.sha256, commit)]
+                    ):
+                        raise ValueError(
+                            "CDC retry requires the exact reviewed V156 ledger receipt"
+                        )
+                    reviewed_target = [
+                        item for item in expected_pending or [] if item["version"] == "V156"
+                    ]
+                    if reviewed_target and reviewed_target != [_migration_metadata(target)]:
+                        raise ValueError("CDC retry reviewed V156 metadata mismatch")
+                    # Original dispatch inputs remain valid on a GitHub run retry;
+                    # remove only the independently verified, already-applied V156.
+                    expected_pending = [
+                        item for item in expected_pending or [] if item["version"] != "V156"
+                    ]
+            if release_integrity_only:
+                for target in (m for m in plan if m.version in integrity_versions):
+                    if target.version not in applied:
+                        continue
+                    cursor.execute(
+                        "SELECT filename,sha256,deployment_commit "
+                        "FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                        "WHERE version=%s",
+                        (target.version,),
+                    )
+                    if applied[target.version] != target.sha256 or cursor.fetchall() != [
+                        (target.filename, target.sha256, commit)
+                    ]:
+                        raise ValueError(
+                            "Integrity retry requires exact reviewed migration receipts"
+                        )
+                    reviewed_target = [
+                        m for m in expected_pending or [] if m["version"] == target.version
+                    ]
+                    if reviewed_target and reviewed_target != [_migration_metadata(target)]:
+                        raise ValueError("Integrity retry reviewed metadata differs")
+                    expected_pending = [
+                        m for m in expected_pending or [] if m["version"] != target.version
+                    ]
     if expected_pending is not None:
         require_reviewed_pending_set(
             [_migration_metadata(item) for item in plan if item.version not in applied],
@@ -840,9 +894,29 @@ def apply_migrations(
         item.version == "V156" and item.version not in applied for item in plan
     ):
         raise PermissionError("V156 requires the protected CDC admission path")
+    if release_integrity_only and not {"V141", "V149", "V151", "V152", "V155", "V156"} <= set(
+        applied
+    ):
+        raise PermissionError("Integrity publication prerequisites must already be installed")
+    scoped_operation = any(
+        (
+            release_integrity_only,
+            cdc_admission_only,
+            county_context_only,
+            january_climate_only,
+            january_bulk_recovery_only,
+            january_point_query_only,
+        )
+    )
+    if (
+        database == PROD_DATABASE
+        and not scoped_operation
+        and any(m.version in integrity_versions and m.version not in applied for m in plan)
+    ):
+        raise PermissionError("V157/V158 require the protected release integrity path")
     if january_point_query_only and not {"V151", "V152", "V153"} <= set(applied):
         raise PermissionError("Prior January migrations must already be applied")
-    if not january_point_query_only and any(
+    if not (january_point_query_only or release_integrity_only) and any(
         item.version == "V154" and item.version not in applied for item in plan
     ):
         raise PermissionError("V154 requires the protected point optimization path")
@@ -850,11 +924,11 @@ def apply_migrations(
         raise PermissionError("Prior January migrations must already be applied")
     if january_bulk_recovery_only and "V117" in applied:
         raise PermissionError("Unexpected DEV-only V117 PROD ledger entry requires reconciliation")
-    if not january_bulk_recovery_only and any(
+    if not (january_bulk_recovery_only or release_integrity_only) and any(
         item.version == "V153" and item.version not in applied for item in plan
     ):
         raise PermissionError("V153 requires the protected bulk recovery path")
-    if not january_climate_only and any(
+    if not (january_climate_only or release_integrity_only) and any(
         item.version in {"V151", "V152"} and item.version not in applied for item in plan
     ):
         raise PermissionError("January PROD authority/views require the reviewed climate-only path")
@@ -865,6 +939,7 @@ def apply_migrations(
             or january_point_query_only
             or county_context_only
             or cdc_admission_only
+            or release_integrity_only
         ):
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
@@ -888,7 +963,7 @@ def apply_migrations(
             )
     if (
         database == PROD_DATABASE
-        and not county_context_only
+        and not (county_context_only or release_integrity_only)
         and any(item.version == "V155" and item.version not in applied for item in plan)
     ):
         raise PermissionError("V155 requires the protected county context path")
@@ -910,6 +985,8 @@ def apply_migrations(
             ):
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        if release_integrity_only and migration.version not in integrity_versions:
+            continue
         if county_context_only and migration.version != "V155":
             continue
         if cdc_admission_only and migration.version != "V156":

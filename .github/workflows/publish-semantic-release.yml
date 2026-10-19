@@ -172,6 +172,16 @@ jobs:
             echo "::error::Rollback is restricted to the protected production environment."
             exit 1
           fi
+      - name: Require real API service canary provisioning before PROD pointer mutation
+        if: ${{ inputs.environment_name == 'production' && inputs.operation != 'build' }}
+        env:
+          API_CANARY_KEY: ${{ secrets.ATLAS_API_CANARY_PRIVATE_KEY_PEM_B64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$API_CANARY_KEY" ]]; then
+            echo '::error::Provision the OH_LYME_API_SVC key in the protected production environment before publication.'
+            exit 1
+          fi
       - name: Configure and verify the protected Snowflake connection
         timeout-minutes: ${{ inputs.january_prod_delivery && 126 || inputs.bounded_delivery && 5 || 360 }}
         run: |
@@ -295,6 +305,21 @@ jobs:
           if [[ "${{ inputs.january_prod_delivery }}" == true && "$OPERATION" == publish ]]; then
             timeout --signal=INT --kill-after=15s 180s uv run python -m lyme_gap_atlas_data.climate_prod_manifest --verify-published
           fi
+
+      - name: Verify complete release through the real API service identity
+        if: ${{ inputs.environment_name == 'production' && inputs.operation != 'build' }}
+        timeout-minutes: 10
+        env:
+          ATLAS_JANUARY_PROD_SESSION: ''
+          ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: '60'
+          SNOWFLAKE_AUTH_METHOD: key_pair
+          SNOWFLAKE_USER: OH_LYME_API_SVC
+          SNOWFLAKE_ROLE: OH_LYME_PROD_READ
+          SNOWFLAKE_DATABASE: ONE_HEALTH_LYME_GAP_ATLAS_PROD
+          SNOWFLAKE_WAREHOUSE: COMPUTE_WH
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.ATLAS_API_CANARY_PRIVATE_KEY_PEM_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.ATLAS_API_CANARY_PRIVATE_KEY_PASSPHRASE }}
+        run: uv run python scripts/verify_release_service_identity.py
 
   climate-inspection:
     if: ${{ inputs.operation == 'inspect_january_climate' }}

@@ -264,6 +264,9 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "diagnose_january_runtime_init",
         "january_budget_evidence",
         "reviewed_commit",
+        "release_integrity_fixture",
+        "ri706_expected_artifacts",
+        "ri706_synthetic_authorization",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(

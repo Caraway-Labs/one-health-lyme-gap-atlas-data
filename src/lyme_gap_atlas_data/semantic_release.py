@@ -352,6 +352,11 @@ def publish_semantic_release(
                 database_row = cursor.fetchone()
                 if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
                     _verify_restricted_final_copy_attestations(cursor, release_id)
+                completeness = None
+                if settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    from .release_completeness import verify_candidate
+
+                    completeness = verify_candidate(cursor, release_id)
                 verify_persisted_extension(cursor, release_id, database=settings.snowflake_database)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
@@ -409,6 +414,10 @@ def publish_semantic_release(
                         reason,
                     ),
                 )
+                if completeness is not None:
+                    from .release_completeness import verify_current
+
+                    verify_current(cursor, release_id, completeness)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -435,6 +444,11 @@ def rollback_semantic_release(
                     raise SemanticReleaseBlocked(
                         "Rollback target must be a retained published release"
                     )
+                completeness = None
+                if settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    from .release_completeness import verify_candidate
+
+                    completeness = verify_candidate(cursor, release_id)
                 verify_persisted_extension(cursor, release_id, database=settings.snowflake_database)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
@@ -473,6 +487,10 @@ def rollback_semantic_release(
                         reason,
                     ),
                 )
+                if completeness is not None:
+                    from .release_completeness import verify_current
+
+                    verify_current(cursor, release_id, completeness)
             connection.commit()
         except Exception:
             connection.rollback()

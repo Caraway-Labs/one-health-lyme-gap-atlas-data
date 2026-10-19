@@ -1,0 +1,17 @@
+[
+  {
+    "version": "V155",
+    "filename": "V155__county_context_consumer_observations.sql",
+    "sha256": "f74341801608e0d6f30a554b59ebe71889b40c40c924a27bec86804946e9c12c"
+  },
+  {
+    "version": "V157",
+    "filename": "V157__model_release_compatibility.sql",
+    "sha256": "96ea5c9ee51769e207efc44479d380fe6fd7752e5c6621dcbfd71559231593d1"
+  },
+  {
+    "version": "V158",
+    "filename": "V158__surveillance_situation_publication.sql",
+    "sha256": "104f3022133066f7b6888628ecae6e3632f70ddb0dda6a1d0a7babe969ba8cf5"
+  }
+]

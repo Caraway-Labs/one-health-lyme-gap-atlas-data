@@ -1,5 +1,23 @@
 # Data Pipeline Instructions
 
+## Production release completeness (DATA #698 / #702)
+
+Every semantic release and rollback must reconcile all production consumers,
+including independent feeds, climate/NLCD subsets and approved model batches.
+Keep a versioned `release_completeness` manifest in the immutable source manifest:
+owner, consumer, contract, geographic/time scope, lineage, approval, expected
+coverage, model batch/input bundle and compatibility decision. Carry forward
+only with verified compatibility, regenerate with approval, or obtain a separately
+recorded release-owner decision for degradation. A string in a manifest is not
+an approval. Never edit historical batches or retag their input release.
+
+`release_completeness.py` enforces pre-pointer validation and checks the actual
+presentation projections before commit. A failing projection must roll back.
+Do not bypass it through manual SQL or deploy older code to evade the gate.
+Require the real API service identity canary after protected deployment; local,
+CI, human READ-role and DEV evidence do not prove that service's PROD access.
+See `docs/operations/release-integrity.md` for approval and rollback boundaries.
+
 Read the workspace `TECHNOLOGY_AND_GOVERNANCE.md`, ADR 0005 (amended by data
 ADR 0027), `docs/contracts/catalog-to-snowflake/operating-model.md`, and
 `docs/contracts/simplified-ingestion/interface-freeze.md` before changing

@@ -1,6 +1,28 @@
 title = "One Health Lyme Gap Atlas data pipeline secret-scanning exceptions"
 
 [[allowlists]]
+description = "Reviewed RI706 PEM-formatting shell source, not key material; exact commit and workflow"
+condition = "AND"
+commits = ["d33a6b3c3cf251594950a59cd1a85fbaba36e9b2"]
+paths = ['''^\.github/workflows/deploy-dev\.yml$''']
+regexTarget = "match"
+regexes = ['''SNOWFLAKE_PRIVATE_KEY_B64''', '''RI706_RUNTIME_PRIVATE_KEY_B64''']
+
+[[allowlists]]
+description = "Exact public API source commit in the RI706 consumer audit, not a credential"
+condition = "AND"
+paths = ['''^docs/operations/ri706-api-consumer-audit\.json$''']
+regexTarget = "secret"
+regexes = ['''^d0472707cfc2badae714a797ec54c83d4f7ad79b$''']
+
+[[allowlists]]
+description = "Literal API canary secret configuration name in RI706 package, not a secret value"
+condition = "AND"
+paths = ['''^docs/operations/ri706-protected-production-package\.json$''']
+regexTarget = "secret"
+regexes = ['''^ATLAS_API_CANARY_PRIVATE_KEY_PEM_B64$''']
+
+[[allowlists]]
 description = "Public CDC historical resource identifier, not an authentication secret"
 condition = "AND"
 paths = [

@@ -1,0 +1,52 @@
+{
+  "observed_at": "2026-10-18T21:17:36.941657+00:00",
+  "kind": "read_only_inline_engine_fixtures_not_installed_acceptance",
+  "context": {
+    "U": "MATTHEWCARAWAY",
+    "R": "OH_LYME_DEV_READ",
+    "D": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "W": "OH_LYME_DEV_INGEST_XS_WH"
+  },
+  "cases": [
+    {
+      "case": "exact",
+      "query": "activation",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fd-030c-4c6d-0064-2d07012cc82e"
+    },
+    {
+      "case": "compatible",
+      "query": "activation",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fe-030c-4c6d-0064-2d07012cc83e"
+    },
+    {
+      "case": "duplicate",
+      "query": "activation",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fe-030c-4c6d-0064-2d07012cc84a"
+    },
+    {
+      "case": "incompatible",
+      "query": "activation",
+      "result": {
+        "N": 0
+      },
+      "query_id": "01c7d1fe-030c-4eac-0064-2d07012cd61e"
+    },
+    {
+      "case": "zero",
+      "query": "activation",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fe-030c-4eac-0064-2d07012cd62a"
+    }
+  ]
+}
