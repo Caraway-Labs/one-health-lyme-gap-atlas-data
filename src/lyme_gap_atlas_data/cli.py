@@ -641,7 +641,7 @@ def apply_migrations_command(
                     commit,
                     expected_pending=expected_pending,
                     protected_intelligence_prerequisite=protected_intelligence_prerequisite,
-                    **({"january_climate_only": True} if january_climate_only else {}),
+                    january_climate_only=january_climate_only,
                 )
             }
         )
@@ -695,7 +695,7 @@ def apply_reviewed_dev_migrations_command(
             database,
             commit,
             expected_pending=reviewed,
-            **({"protected_intelligence_prerequisite": True} if feed_batch else {}),
+            protected_intelligence_prerequisite=feed_batch,
         )
         typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 

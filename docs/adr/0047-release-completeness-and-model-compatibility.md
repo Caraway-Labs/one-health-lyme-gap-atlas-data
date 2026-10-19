@@ -167,3 +167,22 @@ The four prior publication atomicity cases may be retained only from the hashed,
 native-owner-authorized failed receipt with identical V157/V158 artifacts; all
 activation, withdrawal and remaining cases run against V159. This does not reuse
 prior activation evidence or authorize any real scientific/model admission.
+
+
+### Restricted retained-lineage installation: V160
+
+The Product Owner explicitly authorized the existing exact-action diagnostic
+request on 2026-10-18. V160 preserves its SQL projections, release/bundle pairs,
+five-source filter, multiplicities, four SELECT grants and October 25 expiry.
+Its dedicated mode in the existing protected PROD migration workflow requires
+native production approval, exact green main, the full reviewed pending set and
+unchanged authorized SQL hashes. It executes only V160 and leaves V150 pending;
+installed V157/V158/V159 receipts retain their original source identity.
+Installation captures query IDs, DDL/grants and unchanged ledger/model/release
+baselines. A partial DDL failure stops without automatic replacement or deletion;
+inspect its receipt and use only the separately reviewed, object-matched revoke
+procedure before an authorized retry. The four views return no rows after expiry;
+retain aggregate evidence before scoped revocation/drop. No base-table reader
+grants, role memberships, operational image promotion or scientific decisions
+are performed. The diagnostic itself continues under OH_LYME_PROD_READ; neither
+installation nor this authorization establishes Tier 1 compatibility.

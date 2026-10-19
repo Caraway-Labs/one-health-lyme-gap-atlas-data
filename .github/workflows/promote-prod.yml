@@ -3,6 +3,11 @@ name: Promote governed pipeline to PROD
 on:
   workflow_dispatch:
     inputs:
+      retained_lineage_only:
+        description: Install only authorized V160 restricted retained-lineage secure views; no image promotion or scientific admission
+        required: false
+        type: boolean
+        default: false
       release_integrity_only:
         description: Install only reviewed V157/V158/V159 before exact DEV-tested image promotion; no approvals or publication
         required: false
@@ -70,7 +75,7 @@ concurrency:
 
 jobs:
   promote:
-    if: ${{ inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true) }}
+    if: ${{ inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -300,7 +305,7 @@ jobs:
 
 
   january-climate:
-    if: ${{ inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
+    if: ${{ inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
     name: Protected reviewed PROD migrations only
     runs-on: ubuntu-latest
     environment: production
@@ -365,3 +370,67 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
           MAX_CON_RETRY_ATTEMPTS=0 \
           timeout --signal=INT --kill-after=15s "$deadline" uv run python "$runner"
+
+  retained-lineage:
+    if: ${{ inputs.retained_lineage_only == true }}
+    name: Protected V160 retained-lineage diagnostic installation
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    permissions:
+      contents: read
+      checks: read
+    env:
+      TOPX_ENV: prod
+      ENABLE_PRODUCTION_EXECUTION: "true"
+      RETAINED_LINEAGE_ONLY: "true"
+      DIAGNOSTIC_ARTIFACT: ${{ inputs.image_digest }}
+      ATLAS_JANUARY_PROD_SESSION: "true"
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+      SNOWFLAKE_NETWORK_TIMEOUT_SECONDS: "65"
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: OH_LYME_PROD_APPROVAL_XS_WH
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+      EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact green main and exclusive diagnostic scope
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          test '${{ inputs.release_integrity_only }}:${{ inputs.cdc_admission_only }}:${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}:${{ inputs.county_context_only }}:${{ inputs.protected_intelligence_prerequisite }}' = false:false:false:false:false:false:false
+          test "$DIAGNOSTIC_ARTIFACT" = retained-lineage-only
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed" -gt 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Install only exact authorized V160 and retain readback receipts
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/retained-lineage-migration.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_retained_lineage_migration.py
+      - name: Preserve installation, DDL and grant receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retained-lineage-installation-${{ github.sha }}-${{ github.run_attempt }}
+          path: retained-lineage-installation-receipt.json
+          if-no-files-found: warn
