@@ -186,3 +186,26 @@ retain aggregate evidence before scoped revocation/drop. No base-table reader
 grants, role memberships, operational image promotion or scientific decisions
 are performed. The diagnostic itself continues under OH_LYME_PROD_READ; neither
 installation nor this authorization establishes Tier 1 compatibility.
+
+
+### Retained human diagnostic proposal: V161
+
+Actual V160 execution passed. The read-only comparison then proved equal source
+pins, fixed/custom mappings, canonical membership and feature values, but cannot
+complete authoritative human row lineage: historical human observations have no
+persisted semantic row hash, including legitimate no-county-linked-record cases.
+Do not fabricate a historical hash or treat predictor equality as a substitute.
+V161 proposes one additional exact-release/version/run/artifact-scoped secure
+view exposing retained human record identities, derived payload fingerprints and
+bounded geography/year/selection flags. It exposes no payload, frequencies,
+sex/age or URI, preserves multiplicity, rejects duplicate pins and expires with
+the original diagnostic. Derived fingerprints are explicitly labeled and never
+presented as historical hashes. Its new SELECT is only for the existing READ
+role; no base-table reader grant or role change is introduced. The protected
+workflow installs only V161 after a separate native production approval, keeping
+V150 pending, V160 immutable and models/pointers unchanged. Missing dependency
+access stops before DDL. The SQL hashes and exact-action request are retained
+under operations/validation; V160 approval does not authorize V161 execution.
+Full retained human record and absence/aggregation verification must still pass
+before a scientific compatibility recommendation or human admission. Final
+rollout acceptance explicitly requires Tier 1 and both latent-class models.
