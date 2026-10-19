@@ -550,3 +550,40 @@ def test_retained_pair_proof_accepts_only_identical_prefix_before_forward_fix(mo
             proof.validate_installation(run, receipt, artifacts)
     else:
         assert proof.validate_installation(run, receipt, artifacts) == binding
+
+
+@pytest.mark.parametrize("failure", ["lock", "serialization", "unexpected", "retry_fails"])
+def test_concurrent_retry_waits_for_both_contenders_and_replays_exact_artifact(
+    monkeypatch, failure
+):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    error = RuntimeError("redacted failure")
+    error.sqlstate = "40001" if failure == "serialization" else "57014"
+    error.errno = 999 if failure == "unexpected" else 627
+    winner_done = []
+    first = MagicMock()
+    first.result.side_effect = error
+    second = MagicMock()
+    second.result.side_effect = lambda **kwargs: winner_done.append(True)
+    executor = MagicMock()
+    executor.submit.side_effect = [first, second]
+    manager = MagicMock()
+    manager.__enter__.return_value = executor
+    monkeypatch.setattr(matrix, "ThreadPoolExecutor", lambda **kwargs: manager)
+    calls = []
+    sql, params = "CALL exact(%s)", ("immutable bytes",)
+
+    def query(session, label, statement, arguments):
+        assert winner_done, "retried while winning transaction still held lock"
+        calls.append((session, label, statement, arguments))
+        if failure == "retry_fails":
+            raise error
+
+    if failure in {"unexpected", "retry_fails"}:
+        with pytest.raises(RuntimeError):
+            matrix.run_concurrent_replays(query, ["loser", "winner"], "owner", sql, params)
+    else:
+        matrix.run_concurrent_replays(query, ["loser", "winner"], "owner", sql, params)
+        assert calls == [("loser", "concurrent_exact_retry", sql, params)]
+    for call in executor.submit.call_args_list:
+        assert call.args[3:] == (sql, params)

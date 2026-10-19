@@ -92,6 +92,24 @@ def load_recovery_proof(run_id, artifacts):
         if owner.get("reviewed_commit") != receipt.get("binding", {}).get("commit"):
             raise ValueError("FIXTURE_RETAINED_OWNER_SOURCE_MISMATCH")
         binding = validate_installation(run, receipt, artifacts)
+        retained_cases = receipt.get("retained_cases", [])
+        if retained_cases != owner.get("owner_authorization", {}).get("binding", {}).get(
+            "recovery", {}
+        ).get("atomic_publication_cases", []):
+            raise ValueError("FIXTURE_RETAINED_ATOMIC_CASE_BINDING_MISMATCH")
+        atomic_cases = {
+            row["case"]: row
+            for row in receipt.get("cases", []) + retained_cases
+            if row.get("status") == "PASS"
+            and row.get("case")
+            in {
+                "atomic_publication_failure",
+                "assignment_insert_rolled_back",
+                "batch_insert_rolled_back",
+                "pointer_and_events_rolled_back",
+            }
+        }
+
         partial = list(root.rglob("partial-install.json"))
         partial_hash = (
             hashlib.sha256(partial[0].read_bytes()).hexdigest()
@@ -108,18 +126,7 @@ def load_recovery_proof(run_id, artifacts):
         "owner_receipt_sha256": owner_hash,
         "partial_install_sha256": partial_hash,
         "installation_binding": binding,
-        "atomic_publication_cases": [
-            row
-            for row in receipt.get("cases", [])
-            if row.get("status") == "PASS"
-            and row.get("case")
-            in {
-                "atomic_publication_failure",
-                "assignment_insert_rolled_back",
-                "batch_insert_rolled_back",
-                "pointer_and_events_rolled_back",
-            }
-        ],
+        "atomic_publication_cases": list(atomic_cases.values()),
     }
 
     if "correction_binding" in receipt:

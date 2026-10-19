@@ -35,6 +35,30 @@ def require_permission_denied(action, label, *, procedure_control=None):
         raise AssertionError(label + " did not fail closed")
 
 
+def run_concurrent_replays(query, sessions, profile, sql, params):
+    retry = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(query, session, "concurrent_" + profile, sql, params)
+            for session in sessions
+        ]
+        for index, future in enumerate(futures):
+            try:
+                future.result(timeout=90)
+            except Exception as error:
+                # Settle BOTH contenders before retrying: the winning transaction
+                # may legitimately still hold the lock after the loser times out.
+                if getattr(error, "sqlstate", None) != "40001" and not (
+                    getattr(error, "sqlstate", None) == "57014"
+                    and getattr(error, "errno", None) == 627
+                ):
+                    raise
+                retry.append(index)
+    for index in retry:
+        # One bounded retry, with exactly the same SQL and immutable arguments.
+        query(sessions[index], "concurrent_exact_retry", sql, params)
+
+
 def verify_publication_denials(f, sessions, publish_sql, publish_params, *, procedure_control=None):
     for session, name in sessions:
         label = name + "_publication_denied_after_valid_staging"
@@ -687,19 +711,7 @@ def run_matrix(f, migration, documents):
 
     def concurrent(profile, sql, params):
         sessions = [f.open(profile), f.open(profile)]
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [
-                executor.submit(q, session, "concurrent_" + profile, sql, params)
-                for session in sessions
-            ]
-            for index, future in enumerate(futures):
-                try:
-                    future.result(timeout=90)
-                except Exception as error:
-                    # A bounded lock conflict is retried only with the identical artifact.
-                    if getattr(error, "sqlstate", None) not in {"40001", "57014"}:
-                        raise
-                    q(sessions[index], "concurrent_exact_retry", sql, params)
+        run_concurrent_replays(q, sessions, profile, sql, params)
 
     case(
         "concurrent_publication_replay",
