@@ -10,8 +10,10 @@ from pathlib import Path
 def validate_review_gate(head, pr, reviews, policy, checks):
     if not re.fullmatch(r"[0-9a-f]{40}", head) or pr["head"]["sha"] != head:
         raise ValueError("FIXTURE_EXACT_HEAD_REQUIRED")
-    if pr["number"] != 706 or pr["state"] != "open" or not pr["draft"]:
-        raise ValueError("FIXTURE_OPEN_DRAFT706_REQUIRED")
+    if pr.get("base", {}).get("ref") != "main" or not (
+        pr["state"] == "open" or (pr["state"] == "closed" and pr.get("merged") is True)
+    ):
+        raise ValueError("FIXTURE_OPEN_OR_MERGED_MAIN_PR_REQUIRED")
     if not any(
         c["name"] == "checks" and c["conclusion"] == "success" and c["head_sha"] == head
         for c in checks
@@ -45,9 +47,24 @@ def validate_review_gate(head, pr, reviews, policy, checks):
         accepted[discipline] = matches
     return {
         "reviewed_commit": head,
+        "pull_request": pr["number"],
         "human_reviews": accepted,
         "scope": "RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL",
     }
+
+
+def select_review_pr(head, candidates, repository):
+    matches = [
+        pr
+        for pr in candidates
+        if pr.get("head", {}).get("sha") == head
+        and pr.get("head", {}).get("repo", {}).get("full_name") == repository
+        and pr.get("base", {}).get("ref") == "main"
+        and pr.get("base", {}).get("repo", {}).get("full_name") == repository
+    ]
+    if len(matches) != 1:
+        raise ValueError("FIXTURE_UNIQUE_EXACT_SOURCE_REPOSITORY_PR_REQUIRED")
+    return matches[0]["number"]
 
 
 def gh(path):
@@ -92,10 +109,13 @@ def main():
     ):
         raise ValueError("FIXTURE_EXPLICIT_SYNTHETIC_SCOPE_REQUIRED")
     policy = json.loads(os.environ.get("RI706_REVIEW_POLICY", "{}"))
+    number = select_review_pr(
+        head, gh(f"repos/{repository}/commits/{head}/pulls?per_page=100"), repository
+    )
     result = validate_review_gate(
         head,
-        gh(f"repos/{repository}/pulls/706"),
-        gh(f"repos/{repository}/pulls/706/reviews?per_page=100"),
+        gh(f"repos/{repository}/pulls/{number}"),
+        gh(f"repos/{repository}/pulls/{number}/reviews?per_page=100"),
         policy,
         gh(f"repos/{repository}/commits/{head}/check-runs?per_page=100")["check_runs"],
     )

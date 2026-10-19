@@ -24,7 +24,9 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", image)
         or not same_tree
         or not ancestor
-        or pr.get("number") != 706
+        or not isinstance(review.get("pull_request"), int)
+        or review["pull_request"] < 1
+        or pr.get("number") != review["pull_request"]
         or not pr.get("merged")
         or pr.get("merge_commit_sha") != main
         or pr.get("head", {}).get("sha") != source
@@ -121,14 +123,18 @@ def main():
             text=True,
         )
         root = Path(directory)
+        review = document(root, "ri706-review.json")
+        number = review.get("pull_request")
+        if not isinstance(number, int) or number < 1:
+            raise ValueError("INTEGRITY_RETAINED_REVIEW_PR_REQUIRED")
         result = validate(
             source,
             main_sha,
             os.environ["IMAGE_DIGEST"],
-            gh(f"repos/{REPOSITORY}/pulls/706"),
+            gh(f"repos/{REPOSITORY}/pulls/{number}"),
             run,
             document(root, "acceptance.json"),
-            document(root, "ri706-review.json"),
+            review,
             same_tree=git("rev-parse", source + "^{tree}")
             == git("rev-parse", main_sha + "^{tree}"),
             ancestor=subprocess.run(

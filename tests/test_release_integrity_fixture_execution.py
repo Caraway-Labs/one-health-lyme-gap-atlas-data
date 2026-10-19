@@ -67,6 +67,7 @@ def review_data():
         "user": {"login": "author"},
         "state": "open",
         "draft": True,
+        "base": {"ref": "main"},
     }
     reviews = [
         {
@@ -92,7 +93,7 @@ def test_exact_head_independent_reviews_pass(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "bad", ["stale", "author", "bot", "comment", "dismissed", "no_policy", "ci", "head", "ready"]
+    "bad", ["stale", "author", "bot", "comment", "dismissed", "no_policy", "ci", "head", "closed"]
 )
 def test_reviews_cannot_be_inferred_or_self_approved(monkeypatch, bad):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
@@ -114,9 +115,46 @@ def test_reviews_cannot_be_inferred_or_self_approved(monkeypatch, bad):
     elif bad == "head":
         pr["head"]["sha"] = "b" * 40
     else:
-        pr["draft"] = False
+        pr["state"] = "closed"
     with pytest.raises(ValueError):
         gate.validate_review_gate(head, pr, reviews, policy, checks)
+
+
+@pytest.mark.parametrize("state,merged", [("open", False), ("closed", True)])
+def test_post_merge_or_ready_source_keeps_exact_native_reviews(monkeypatch, state, merged):
+    gate = module(monkeypatch, "review_release_integrity_fixture_gate")
+    head, pr, reviews, policy, checks = review_data()
+    pr.update(number=707, state=state, merged=merged, draft=False)
+    assert gate.validate_review_gate(head, pr, reviews, policy, checks)["pull_request"] == 707
+    with pytest.raises(ValueError, match="HUMAN_ENGINEERING_REVIEW_REQUIRED"):
+        gate.validate_review_gate(head, pr, [], policy, checks)
+
+
+@pytest.mark.parametrize("bad", [None, "head", "fork", "base", "duplicate", "missing"])
+def test_review_discovery_binds_unique_same_repository_source(monkeypatch, bad):
+    gate = module(monkeypatch, "review_release_integrity_fixture_gate")
+    repository = "Caraway-Labs/one-health-lyme-gap-atlas-data"
+    pr = {
+        "number": 707,
+        "head": {"sha": "a" * 40, "repo": {"full_name": repository}},
+        "base": {"ref": "main", "repo": {"full_name": repository}},
+    }
+    candidates = [pr]
+    if bad == "head":
+        pr["head"]["sha"] = "b" * 40
+    elif bad == "fork":
+        pr["head"]["repo"]["full_name"] = "other/fork"
+    elif bad == "base":
+        pr["base"]["ref"] = "other"
+    elif bad == "duplicate":
+        candidates.append(pr.copy())
+    elif bad == "missing":
+        candidates.clear()
+    if bad:
+        with pytest.raises(ValueError, match="UNIQUE_EXACT_SOURCE"):
+            gate.select_review_pr("a" * 40, candidates, repository)
+    else:
+        assert gate.select_review_pr("a" * 40, candidates, repository) == 707
 
 
 def configure_binding(monkeypatch, tmp_path, runner):
