@@ -60,15 +60,23 @@ the upstream bytes. County assignments remain outside Git.
 1. Review ADR 0047, V157/V158, frozen pins and release guard. V157 installs an
    empty compatibility ledger; it grants only OWNER the admission procedure.
    V158 installs empty latent-class batch tables and publisher procedures.
-2. Keep the source PR open while the configured Product Owner (`solarisx06`)
-   records a native APPROVED review on its exact green head. Then dispatch
+2. Keep the source PR open and dispatch
    `release_integrity_fixture=true` in `deploy-dev.yml` on that same branch/SHA,
    with the pinned V157/V158 source/rendered checksums and synthetic-only marker.
-   Keep the PR open until the protected isolated DEV acceptance succeeds; merge
-   only afterward. A merge or COMMENTED review does not supply an APPROVED record.
-   Do not push another commit after approval; any source change needs its own
-   exact-head review and acceptance. The single configured reviewer's matching
-   approval satisfies both engineering and security entries in the policy.
+   Preflight publishes the complete binding and exact authorization comment in the
+   run summary. As `CarawayLabs`, select **Review deployments**, select
+   `ri706-dev-fixture`, paste that comment, then **Approve and deploy**. This is
+   sole-owner execution authorization; no self-approval of a PR is required.
+   Keep the PR open until installed DEV acceptance succeeds, then merge. Every
+   new SHA, run or attempt requires its own authorization. Authorization expires
+   two hours after dispatch; start a fresh dispatch if expired. Do not bypass the
+   environment or approve through an agent. Owner-directed credential hardening
+   remains deferred; ordinary repository work may use the existing credential.
+   For an installed acceptance failure, set `ri706_recovery_run_id` to that failed
+   run. Preflight verifies its receipt/native approval and identical SQL hashes;
+   recovery preserves the original schema markers, ledger and installation image,
+   and records the corrected harness image separately. It executes no migration
+   DDL or seed/grant recreation. The owner approves this fresh recovery binding.
    Verify procedure owner dependency reads, exact replay, partial failure, changed
    bytes, duplicate FIPS, invalid probabilities, class counts, writer serialization,
    rollback and publisher/base-table denial. DEV acceptance must use the frozen
@@ -197,9 +205,10 @@ The approved fixture mode is implemented in `deploy-dev.yml` and
 `scripts/run_release_integrity_fixture.py`; it has not been executed in Snowflake.
 Do not run the generic DEV migration entry point: its observed pending set also
 includes V155. No GitHub environment reviewer restriction was inferred; the
-fixture gate requires native exact-head engineering/security APPROVED reviews,
-configured `RI706_REVIEW_POLICY`, and dedicated owner/publisher/reader service
-credentials. Follow the open-PR review, fixture acceptance, then merge sequence
+fixture gate requires native exact-run owner environment authorization and
+dedicated owner/publisher/reader service credentials. `RI706_REVIEW_POLICY` and
+solarisx06 approvals are not used by the prospective sole-maintainer path.
+Follow the open-PR owner authorization, fixture acceptance, then merge sequence
 above. The human package documents the exact inputs and
 recovery matrix. Product Owner design approval is already recorded.
 

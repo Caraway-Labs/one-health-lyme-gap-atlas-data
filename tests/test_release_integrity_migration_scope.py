@@ -15,7 +15,7 @@ def setup_plan(monkeypatch, *, resumed=False, missing_parent=False, wrong_receip
     plan = [
         m
         for m in migrations.load_migrations()
-        if m.version in PARENTS | {"V150", "V154", "V157", "V158"}
+        if m.version in PARENTS | {"V150", "V154", "V157", "V158", "V159"}
     ]
     applied = [
         (m.version, m.sha256)
@@ -56,10 +56,11 @@ def test_only_new_pair_executes_and_unrelated_pending_remain(monkeypatch, resume
         COMMIT,
         expected_pending=reviewed,
         release_integrity_only=True,
-    ) == (["V158"] if resumed else ["V157", "V158"])
+    ) == (["V158", "V159"] if resumed else ["V157", "V158", "V159"])
     statements = [call.args[0] for call in connection.execute_string.call_args_list]
-    assert len(statements) == (1 if resumed else 2)
-    assert all("CREATE TABLE IF NOT EXISTS FEATURE_STORE." in sql for sql in statements)
+    assert len(statements) == (2 if resumed else 3)
+    assert all("CREATE TABLE IF NOT EXISTS FEATURE_STORE." in sql for sql in statements[:-1])
+    assert "Snowflake SQL BOOLEAN" in statements[-1]
     assert not any(
         "CREATE OR REPLACE VIEW PRESENTATION.CURRENT_CLIMATE" in sql for sql in statements
     )

@@ -32,6 +32,11 @@ def evidence(verifier):
         "base": {"ref": "main"},
     }
     run = {
+        "id": 123,
+        "run_attempt": 1,
+        "created_at": "2026-10-18T00:00:00Z",
+        "updated_at": "2026-10-18T00:40:00Z",
+        "repository": {"full_name": verifier.REPOSITORY},
         "head_sha": source,
         "event": "workflow_dispatch",
         "status": "completed",
@@ -63,7 +68,14 @@ def evidence(verifier):
         "reviewed_commit": source,
         "pull_request": 706,
         "scope": verifier.MARKER,
-        "human_reviews": {"engineering": [{"review_id": 1}], "security": [{"review_id": 2}]},
+        "owner_authorization": {
+            "mechanism": verifier.MECHANISM,
+            "owner": verifier.OWNER,
+            "binding": verifier.execution_binding(source, run, artifacts),
+            "binding_sha256": verifier.binding_digest(
+                verifier.execution_binding(source, run, artifacts)
+            ),
+        },
     }
     return source, main, image, pr, run, receipt, review, artifacts
 
@@ -102,6 +114,47 @@ def test_followup_review_identity_is_retained_and_cannot_be_substituted(verifier
     )
     review["pull_request"] = 706
     with pytest.raises(ValueError, match="REVIEWED_SOURCE"):
+        verifier.validate(
+            source,
+            main,
+            image,
+            pr,
+            run,
+            receipt,
+            review,
+            same_tree=True,
+            ancestor=True,
+            artifacts=artifacts,
+        )
+
+
+def test_recovered_acceptance_preserves_original_installation_provenance(verifier):
+    source, main, image, pr, run, receipt, review, artifacts = evidence(verifier)
+    installed = {
+        "commit": "d" * 40,
+        "image_digest": "sha256:" + "e" * 64,
+        "marker": verifier.MARKER,
+        "artifacts": artifacts,
+    }
+    recovery = {"run_id": 122, "installation_binding": installed}
+    owner_binding = verifier.execution_binding(source, run, artifacts, recovery)
+    review["owner_authorization"]["binding"] = owner_binding
+    review["owner_authorization"]["binding_sha256"] = verifier.binding_digest(owner_binding)
+    receipt["installation_binding"] = installed
+    verifier.validate(
+        source,
+        main,
+        image,
+        pr,
+        run,
+        receipt,
+        review,
+        same_tree=True,
+        ancestor=True,
+        artifacts=artifacts,
+    )
+    receipt["installation_binding"] = {**installed, "commit": source}
+    with pytest.raises(ValueError):
         verifier.validate(
             source,
             main,
@@ -155,7 +208,7 @@ def test_incomplete_or_substituted_proof_never_authorizes_installation(verifier,
     elif change == "permission":
         receipt["cases"] = receipt["cases"][:-1]
     elif change == "review":
-        review["human_reviews"]["security"] = []
+        review["owner_authorization"]["owner"] = {"login": "other"}
     elif change == "county":
         receipt["frozen_county_sha256"] = "wrong"
     with pytest.raises(ValueError, match="INTEGRITY_"):
@@ -196,3 +249,43 @@ def test_pair_install_never_requires_or_mutates_either_app_deployment():
             assert "inputs.release_integrity_only != true" in step["if"]
     assert workflow["jobs"]["promote"]["environment"] == "production"
     assert any("verify_release_integrity_promotion.py" in step.get("run", "") for step in steps)
+
+
+@pytest.mark.parametrize(
+    "retained_name", ["pointer_and_events_rolled_back", "one_concurrent_decision"]
+)
+def test_only_unchanged_publication_atomicity_can_use_retained_evidence(verifier, retained_name):
+    source, main, image, pr, run, receipt, review, artifacts = evidence(verifier)
+    installed = receipt["binding"]
+    retained = [{"case": retained_name, "status": "PASS", "marker": verifier.MARKER}]
+    recovery = {
+        "run_id": 122,
+        "installation_binding": installed,
+        "atomic_publication_cases": retained,
+    }
+    binding = verifier.execution_binding(source, run, artifacts, recovery)
+    review["owner_authorization"]["binding"] = binding
+    review["owner_authorization"]["binding_sha256"] = verifier.binding_digest(binding)
+    receipt["installation_binding"] = installed
+    receipt["retained_cases"] = retained
+    receipt["cases"] = [row for row in receipt["cases"] if row["case"] != retained_name]
+
+    def validate():
+        return verifier.validate(
+            source,
+            main,
+            image,
+            pr,
+            run,
+            receipt,
+            review,
+            same_tree=True,
+            ancestor=True,
+            artifacts=artifacts,
+        )
+
+    if retained_name == "pointer_and_events_rolled_back":
+        validate()
+        receipt["retained_cases"] = []
+    with pytest.raises(ValueError, match="COMPLETE_DIGEST_BOUND"):
+        validate()

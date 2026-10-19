@@ -101,8 +101,25 @@ scientific/Data-owner approvals and require explicit test-only scope. The
 implemented fixture job binds exact source/review/image/artifact identities,
 uses its own ledger and synthetic prerequisites, and exercises interrupted
 installation/replay, staging, transactions, concurrency, permissions and complete
-inventory rejection. Exact-head independent engineering/security review and
-dedicated service credentials remain required before privileged execution.
+inventory rejection. The Product Owner's prospective sole-maintainer policy
+replaces independent DEV peer review with native deployment authorization from
+CarawayLabs (user5505084) in the separate `ri706-dev-fixture` environment.
+Self-review prevention is deliberately disabled for this environment because the
+sole owner may also initiate the run; administrator bypass is disabled. This is
+owner execution authorization, not a GitHub PR approval or independent review.
+The owner must paste the preflight's SHA256 authorization into the native review
+comment. It binds repository, exact green source, V157/V158 original/rendered
+hashes, fixed schemas, test-only scope, run and attempt, and a two-hour expiry.
+Native approval history is checked again before credentials are used and retained
+with the immutable image/migration evidence. Existing DEV credentials stay in DEV;
+a successful protected authorization job is required before the fixture job starts.
+Workflow tokens have read-only permissions and cannot approve deployments.
+GitHub cannot distinguish a human from an agent holding the same owner credential:
+credential separation remains deferred security hardening by explicit owner
+direction; the existing credential may perform repository work. No agent may
+submit or bypass deployment approval, change branch protection or self-grant
+Snowflake privileges. None of this authorizes PROD installation,
+scientific compatibility or Data publication; those separate controls remain.
 
 Pair-only PROD installation consumes the successful isolated DEV acceptance
 receipt and registry digest without deploying either operational App. The tested
@@ -114,6 +131,15 @@ fail before credentials are used. Protected production authorization remains
 required. Installing support objects does not admit Tier 1 compatibility,
 publish model batches or move a semantic release pointer.
 
+After a failed fixture acceptance, a fresh owner-authorized execution may reuse
+the installed pair only with the prior GitHub receipt and native approval,
+identical original/rendered SQL hashes, all three original schema markers and
+the complete immutable two-row ledger. Keep its original installation source,
+image and synthetic publication authorization; record the corrected harness's
+source/image separately. No ledger rewrite, DDL replay, seed recreation or schema
+reset is permitted in this resume mode. The owner digest includes the prior run
+and receipt hashes, and promotion revalidates that retained installation proof.
+
 Full retained-lineage access should reuse the existing READ audit boundary via
 four exact-release/source secure projections, rather than broad base-table
 SELECT or OWNER/MIGRATOR escalation. The proposed views/grants are review-only
@@ -124,3 +150,20 @@ Four projections expire closed on the proposed fixed date and have exact-action
 hashes plus scoped revoke/drop instructions. No grant/DDL is authorized or
 executed by preparation. Raw feature fields and canonical membership join the
 complete source/observation comparison; predictor equality alone never passes.
+
+
+### Installed DEV correction: V159
+
+The owner-provided failed-query diagnostic for run 39188869461 proves V158's
+activation guard rejected Snowflake BOOLEAN values, which JavaScript receives as
+numeric 0/1. V159 replaces only that procedure, validates exactly 0/1 and a string
+reason of at least 12 characters, and preserves its authorization, compatibility,
+transaction and event controls. V157/V158 SQL and applied ledger rows remain
+immutable. The protected fixture and scoped PROD installer include V159 in the
+exact source/rendered hash manifest; native fixture authorization must explicitly
+cover the added artifact. PROD execution still requires its separate authorization.
+Recovery preserves original pair provenance and records V159's own source/image.
+The four prior publication atomicity cases may be retained only from the hashed,
+native-owner-authorized failed receipt with identical V157/V158 artifacts; all
+activation, withdrawal and remaining cases run against V159. This does not reuse
+prior activation evidence or authorize any real scientific/model admission.

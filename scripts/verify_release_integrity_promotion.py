@@ -9,7 +9,15 @@ import tempfile
 from pathlib import Path
 
 from prepare_release_integrity_dev_plan import render_fixture
-from review_release_integrity_fixture_gate import gh
+from review_release_integrity_fixture_gate import (
+    ENVIRONMENT,
+    MECHANISM,
+    OWNER,
+    binding_digest,
+    execution_binding,
+    gh,
+    validate_retained_authorization,
+)
 
 from lyme_gap_atlas_data.migrations import load_migrations
 
@@ -18,6 +26,7 @@ MARKER = "RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL"
 
 
 def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancestor, artifacts):
+    recovery = review.get("owner_authorization", {}).get("binding", {}).get("recovery")
     if (
         not re.fullmatch(r"[0-9a-f]{40}", source)
         or not re.fullmatch(r"[0-9a-f]{40}", main)
@@ -41,8 +50,22 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
         or run.get("status") != "completed"
     ):
         raise ValueError("INTEGRITY_SUCCESSFUL_EXACT_SOURCE_DEV_FIXTURE_RUN_REQUIRED")
+    owner_binding = execution_binding(source, run, artifacts, recovery)
     expected = {"marker": MARKER, "commit": source, "image_digest": image, "artifacts": artifacts}
     names = {row["case"] for row in receipt.get("cases", []) if row.get("status") == "PASS"}
+    if recovery and receipt.get("retained_cases") == recovery.get("atomic_publication_cases"):
+        names |= {
+            row["case"]
+            for row in receipt.get("retained_cases", [])
+            if row.get("status") == "PASS"
+            and row.get("case")
+            in {
+                "atomic_publication_failure",
+                "assignment_insert_rolled_back",
+                "batch_insert_rolled_back",
+                "pointer_and_events_rolled_back",
+            }
+        }
     required = {
         "final_publication_membership",
         "complete_inventory_publish_and_rollback",
@@ -61,7 +84,14 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
         != "02b62d7a4cb8970b3cd2506f5206a386a9ceed7cb2253baea16299be2d06ec9b"
         or review.get("reviewed_commit") != source
         or review.get("scope") != MARKER
-        or not all(review.get("human_reviews", {}).get(key) for key in ("engineering", "security"))
+        or review.get("owner_authorization", {}).get("mechanism") != MECHANISM
+        or review["owner_authorization"].get("owner") != OWNER
+        or review["owner_authorization"].get("binding") != owner_binding
+        or review["owner_authorization"].get("binding_sha256") != binding_digest(owner_binding)
+        or (
+            recovery is not None
+            and receipt.get("installation_binding") != recovery["installation_binding"]
+        )
     ):
         raise ValueError("INTEGRITY_COMPLETE_DIGEST_BOUND_DEV_ACCEPTANCE_REQUIRED")
     return {"source_commit": source, "merged_main_commit": main, "image_digest": image}
@@ -101,7 +131,7 @@ def main():
             "rendered_sha256": hashlib.sha256(render_fixture(m).encode()).hexdigest(),
         }
         for m in load_migrations()
-        if m.version in {"V157", "V158"}
+        if m.version in {"V157", "V158", "V159"}
     ]
     run = gh(f"repos/{REPOSITORY}/actions/runs/{run_id}")
     with tempfile.TemporaryDirectory(prefix="ri706-dev-proof-") as directory:
@@ -127,6 +157,19 @@ def main():
         number = review.get("pull_request")
         if not isinstance(number, int) or number < 1:
             raise ValueError("INTEGRITY_RETAINED_REVIEW_PR_REQUIRED")
+        validate_retained_authorization(
+            review,
+            run,
+            artifacts,
+            gh(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}"),
+            gh(f"repos/{REPOSITORY}/actions/runs/{run_id}/approvals"),
+        )
+        recovery = review.get("owner_authorization", {}).get("binding", {}).get("recovery")
+        if recovery:
+            from retained_fixture_installation import load_recovery_proof
+
+            if load_recovery_proof(str(recovery["run_id"]), artifacts) != recovery:
+                raise ValueError("INTEGRITY_RETAINED_INSTALLATION_EVIDENCE_CHANGED")
         result = validate(
             source,
             main_sha,

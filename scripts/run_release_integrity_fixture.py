@@ -27,7 +27,7 @@ OLD = "governed-2026-09-18-unknown-coverage"
 OLD_BUNDLE = "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026"
 FROZEN = "governed-2026-10-15-january-climate-prod"
 BUNDLE = "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
-TARGETS = {"V157", "V158"}
+TARGETS = {"V157", "V158", "V159"}
 ROLES = {
     "migration": "MIGRATION_DEPLOYER",
     "owner": "OWNER",
@@ -74,11 +74,37 @@ def binding_from_environment():
     return {"marker": MARKER, "commit": commit, "image_digest": image, "artifacts": artifacts}
 
 
+def retained_installation_binding(binding):
+    review = json.loads(Path(os.environ["RI706_REVIEW_RECEIPT"]).read_text())
+    recovery = review.get("owner_authorization", {}).get("binding", {}).get("recovery")
+    if not recovery:
+        return binding
+    installed = recovery["installation_binding"]
+    if (
+        installed.get("artifacts")
+        != [
+            a
+            for a in binding["artifacts"]
+            if a["version"] in {x["version"] for x in installed.get("artifacts", [])}
+        ]
+        or {a["version"] for a in installed.get("artifacts", [])} not in ({"V157", "V158"}, TARGETS)
+        or installed.get("marker") != MARKER
+        or not re.fullmatch(r"[0-9a-f]{40}", installed.get("commit", ""))
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", installed.get("image_digest", ""))
+    ):
+        raise PermissionError("RI706_RETAINED_INSTALLATION_BINDING_MISMATCH")
+    return installed
+
+
 class Fixture:
-    def __init__(self, binding, receipt):
+    def __init__(self, binding, receipt, *, installation_binding=None, correction_binding=None):
         self.binding, self.path = binding, receipt
+        self.installation_binding = installation_binding or binding
+        self.correction_binding = correction_binding or binding
         self.started = time.monotonic()
         self.receipt = {"binding": binding, "status": "INCOMPLETE", "queries": [], "cases": []}
+        self.receipt["installation_binding"] = self.installation_binding
+        self.receipt["correction_binding"] = self.correction_binding
         self.settings = SnowflakeSettings()
         self.connections = []
         self.receipt_lock = threading.RLock()
@@ -192,6 +218,7 @@ class Fixture:
                         "query_id": cursor.sfqid,
                         "status": "ERROR",
                         "error_code": getattr(error, "errno", None),
+                        "sqlstate": getattr(error, "sqlstate", None),
                     }
                 )
                 self.save()
@@ -217,7 +244,8 @@ class Fixture:
         }
 
     def install(self, connection, *, stop_after_v157=False):
-        marker = json.dumps(self.binding, sort_keys=True, separators=(",", ":"))
+        reusing = self.installation_binding != self.binding
+        marker = json.dumps(self.installation_binding, sort_keys=True, separators=(",", ":"))
         rows = self.query(
             connection,
             "schema_preflight",
@@ -232,6 +260,8 @@ class Fixture:
         ):
             raise PermissionError("RI706_EXISTING_SCHEMA_BINDING_MISMATCH")
         present = {name for name, _, _ in rows}
+        if reusing and present != set(SCHEMAS.values()):
+            raise PermissionError("RI706_RETAINED_SCHEMAS_MUST_ALL_EXIST")
         for schema in ("RI706_GOVERNANCE", "RI706_PRESENTATION", "RI706_FEATURE_STORE"):
             if schema not in present:
                 self.query(
@@ -240,16 +270,17 @@ class Fixture:
                     "CREATE SCHEMA " + schema + " COMMENT=%s",
                     (marker,),
                 )
-        self.query(
-            connection,
-            "fixture_ledger",
-            (
-                "CREATE TABLE IF NOT EXISTS GOVERNANCE.SCHEMA_MIGRATIONS (version "
-                "VARCHAR,filename VARCHAR,sha256 VARCHAR,rendered_sha256 VARCHAR,d"
-                "eployment_commit VARCHAR,image_digest VARCHAR,marker VARCHAR,appl"
-                "ied_at TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP())"
-            ),
-        )
+        if not reusing:
+            self.query(
+                connection,
+                "fixture_ledger",
+                (
+                    "CREATE TABLE IF NOT EXISTS GOVERNANCE.SCHEMA_MIGRATIONS (version "
+                    "VARCHAR,filename VARCHAR,sha256 VARCHAR,rendered_sha256 VARCHAR,d"
+                    "eployment_commit VARCHAR,image_digest VARCHAR,marker VARCHAR,appl"
+                    "ied_at TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP())"
+                ),
+            )
         ledger = self.query(
             connection,
             "fixture_ledger_read",
@@ -262,8 +293,18 @@ class Fixture:
             a["version"]: (
                 a["source_sha256"],
                 a["rendered_sha256"],
-                self.binding["commit"],
-                self.binding["image_digest"],
+                (
+                    self.installation_binding
+                    if a["version"]
+                    in {x["version"] for x in self.installation_binding["artifacts"]}
+                    else self.correction_binding
+                )["commit"],
+                (
+                    self.installation_binding
+                    if a["version"]
+                    in {x["version"] for x in self.installation_binding["artifacts"]}
+                    else self.correction_binding
+                )["image_digest"],
                 MARKER,
             )
             for a in self.binding["artifacts"]
@@ -272,6 +313,10 @@ class Fixture:
             row[0] not in expected or tuple(row[1:]) != expected[row[0]] for row in ledger
         ):
             raise PermissionError("RI706_IMMUTABLE_LEDGER_MISMATCH")
+        if reusing and not {a["version"] for a in self.installation_binding["artifacts"]} <= {
+            row[0] for row in ledger
+        }:
+            raise PermissionError("RI706_RETAINED_PAIR_MUST_BE_COMPLETE")
         seed = self.query(
             connection,
             "seed_presence",
@@ -280,6 +325,8 @@ class Fixture:
             live=True,
         )
         if seed == [(0,)]:
+            if reusing:
+                raise PermissionError("RI706_RETAINED_SEED_MUST_EXIST")
             from release_integrity_fixture_seed import seed_prerequisites
 
             seed_prerequisites(self, connection)
@@ -321,7 +368,7 @@ class Fixture:
                 ),
             )
             connection.commit()
-        for role in ("OWNER", "ML_PUBLISHER", "READ", "RUNTIME"):
+        for role in () if reusing else ("OWNER", "ML_PUBLISHER", "READ", "RUNTIME"):
             for schema in SCHEMAS.values():
                 self.query(
                     connection,
@@ -329,6 +376,9 @@ class Fixture:
                     "GRANT USAGE ON SCHEMA " + schema + " TO ROLE OH_LYME_DEV_" + role,
                 )
         self.receipt["installation"] = "PASS"
+        self.receipt["installation_mode"] = (
+            "REUSED_IMMUTABLE_PAIR" if reusing else "EXACT_INSTALL_OR_REPLAY"
+        )
         self.save()
 
 
@@ -343,7 +393,23 @@ def main():
     if args.receipt.exists():
         raise ValueError("RI706_RECEIPT_MUST_BE_FRESH")
     documents = verify(args.handoff)
-    fixture = Fixture(binding, args.receipt)
+    fixture = Fixture(
+        binding,
+        args.receipt,
+        installation_binding=retained_installation_binding(binding),
+        correction_binding=json.loads(Path(os.environ["RI706_REVIEW_RECEIPT"]).read_text())
+        .get("owner_authorization", {})
+        .get("binding", {})
+        .get("recovery", {})
+        .get("correction_binding"),
+    )
+    recovery = (
+        json.loads(Path(os.environ["RI706_REVIEW_RECEIPT"]).read_text())
+        .get("owner_authorization", {})
+        .get("binding", {})
+        .get("recovery", {})
+    )
+    fixture.receipt["retained_cases"] = recovery.get("atomic_publication_cases", [])
     connection = fixture.open()
     before = fixture.snapshot(connection)
     fixture.receipt["live_before"] = before

@@ -267,6 +267,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "release_integrity_fixture",
         "ri706_expected_artifacts",
         "ri706_synthetic_authorization",
+        "ri706_recovery_run_id",
     }
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(

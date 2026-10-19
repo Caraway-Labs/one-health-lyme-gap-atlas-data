@@ -59,6 +59,40 @@ def test_publication_validation_error_is_not_permission_evidence(monkeypatch):
     assert not fixture.receipt["cases"]
 
 
+@pytest.mark.parametrize("control", [None, [], [("signature", "(VARCHAR,VARCHAR)")]])
+def test_hidden_procedure_error_requires_visible_exact_signature_control(monkeypatch, control):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    error = RuntimeError("redacted unknown procedure")
+    error.errno = 2141
+
+    def denied():
+        raise error
+
+    if control:
+        matrix.require_permission_denied(
+            denied, "hidden procedure", procedure_control=lambda: control
+        )
+    else:
+        with pytest.raises(AssertionError):
+            matrix.require_permission_denied(
+                denied,
+                "hidden procedure",
+                procedure_control=(lambda: control) if control is not None else None,
+            )
+
+
+def test_failed_procedure_positive_control_is_not_access_denial(monkeypatch):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    error = RuntimeError("unknown")
+    error.errno = 2141
+
+    def fail():
+        raise error
+
+    with pytest.raises(RuntimeError):
+        matrix.require_permission_denied(fail, "hidden procedure", procedure_control=fail)
+
+
 def review_data():
     head = "a" * 40
     pr = {
@@ -85,49 +119,68 @@ def review_data():
     return head, pr, reviews, policy, checks
 
 
-def test_exact_head_independent_reviews_pass(monkeypatch):
+def test_exact_head_green_source_passes_without_claiming_peer_review(monkeypatch):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
-    result = gate.validate_review_gate(*review_data())
-    assert result["reviewed_commit"] == "a" * 40
-    assert result["scope"].endswith("NOT_SCIENTIFIC_APPROVAL")
+    head, pr, _, _, checks = review_data()
+    assert gate.validate_source(head, pr, checks) is None
 
 
-@pytest.mark.parametrize(
-    "bad", ["stale", "author", "bot", "comment", "dismissed", "no_policy", "ci", "head", "closed"]
-)
-def test_reviews_cannot_be_inferred_or_self_approved(monkeypatch, bad):
+@pytest.mark.parametrize("bad", [None, "checksum", "incomplete"])
+def test_corrected_harness_reuses_complete_installation_without_ddl_or_ledger_rewrite(
+    monkeypatch, tmp_path, bad
+):
+    import copy
+
+    fixture, connection, ledger, executed, mutations = fake_install(monkeypatch, tmp_path)
+    fixture.install(connection)
+    original = copy.deepcopy(fixture.binding)
+    original_ledger = copy.deepcopy(ledger)
+    current = copy.deepcopy(original)
+    current.update(commit="c" * 40, image_digest="sha256:" + "d" * 64)
+    runner = module(monkeypatch, "run_release_integrity_fixture")
+    monkeypatch.setattr(runner, "SnowflakeSettings", lambda: None)
+    resumed = runner.Fixture(current, tmp_path / "recovery.json", installation_binding=original)
+    resumed.query = fixture.query
+    before = len(mutations)
+    if bad == "checksum":
+        current["artifacts"][0]["source_sha256"] = "f" * 64
+    elif bad == "incomplete":
+        ledger.pop()
+    if bad:
+        with pytest.raises(PermissionError):
+            resumed.install(connection)
+    else:
+        resumed.install(connection)
+        assert ledger == original_ledger
+        assert resumed.receipt["installation_mode"] == "REUSED_IMMUTABLE_PAIR"
+        assert resumed.receipt["installation_binding"] == original
+    assert len(executed) == 3
+    assert not any(
+        sql.startswith(("CREATE", "GRANT", "INSERT", "UPDATE", "DROP"))
+        for _, sql, _ in mutations[before:]
+    )
+
+
+@pytest.mark.parametrize("bad", ["ci", "head", "closed"])
+def test_source_gate_still_requires_green_exact_source(monkeypatch, bad):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
-    head, pr, reviews, policy, checks = review_data()
-    if bad == "stale":
-        reviews[0]["commit_id"] = "b" * 40
-    elif bad == "author":
-        pr["user"]["login"] = "engineer"
-    elif bad == "bot":
-        reviews[0]["user"]["type"] = "Bot"
-    elif bad == "comment":
-        reviews[0]["state"] = "COMMENTED"
-    elif bad == "dismissed":
-        reviews.append({**reviews[0], "state": "DISMISSED", "submitted_at": "2026-10-18T01:00:00Z"})
-    elif bad == "no_policy":
-        policy = {}
-    elif bad == "ci":
+    head, pr, _, _, checks = review_data()
+    if bad == "ci":
         checks[0]["conclusion"] = "failure"
     elif bad == "head":
         pr["head"]["sha"] = "b" * 40
     else:
         pr["state"] = "closed"
     with pytest.raises(ValueError):
-        gate.validate_review_gate(head, pr, reviews, policy, checks)
+        gate.validate_source(head, pr, checks)
 
 
 @pytest.mark.parametrize("state,merged", [("open", False), ("closed", True)])
-def test_post_merge_or_ready_source_keeps_exact_native_reviews(monkeypatch, state, merged):
+def test_post_merge_or_ready_source_needs_separate_owner_authorization(monkeypatch, state, merged):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
-    head, pr, reviews, policy, checks = review_data()
+    head, pr, _, _, checks = review_data()
     pr.update(number=707, state=state, merged=merged, draft=False)
-    assert gate.validate_review_gate(head, pr, reviews, policy, checks)["pull_request"] == 707
-    with pytest.raises(ValueError, match="HUMAN_ENGINEERING_REVIEW_REQUIRED"):
-        gate.validate_review_gate(head, pr, [], policy, checks)
+    assert gate.validate_source(head, pr, checks) is None
 
 
 @pytest.mark.parametrize("bad", [None, "head", "fork", "base", "duplicate", "missing"])
@@ -204,6 +257,7 @@ def test_immutable_bindings_are_checked_before_connect(monkeypatch, tmp_path, ba
         assert {a["version"] for a in runner.binding_from_environment()["artifacts"]} == {
             "V157",
             "V158",
+            "V159",
         }
 
 
@@ -248,10 +302,10 @@ def test_interrupted_pair_resumes_then_replays_without_reexecuting(monkeypatch, 
         fixture.install(connection, stop_after_v157=True)
     assert [row[0] for row in ledger] == ["V157"]
     fixture.install(connection)
-    assert [row[0] for row in ledger] == ["V157", "V158"]
-    assert len(executed) == 2
+    assert [row[0] for row in ledger] == ["V157", "V158", "V159"]
+    assert len(executed) == 3
     fixture.install(connection)
-    assert len(executed) == 2
+    assert len(executed) == 3
     assert all("V155" not in sql for _, sql, _ in mutations)
 
 
@@ -266,7 +320,7 @@ def test_recovery_rejects_changed_original_rendered_commit_image_or_marker(
     ledger[0] = tuple(changed)
     with pytest.raises(PermissionError, match="LEDGER_MISMATCH"):
         fixture.install(connection)
-    assert len(executed) == 2
+    assert len(executed) == 3
 
 
 def test_wrong_schema_owner_or_marker_is_preserved(monkeypatch, tmp_path):
@@ -360,7 +414,12 @@ def test_workflow_keeps_generic_migrations_and_app_deployment_out_of_fixture_job
     assert job["environment"] == "dev"
     assert job["concurrency"]["cancel-in-progress"] is False
     steps = job["steps"]
-    assert steps[1]["run"] == "python scripts/review_release_integrity_fixture_gate.py"
+    gate_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("run") == "uv run python scripts/review_release_integrity_fixture_gate.py"
+    )
+    assert gate_index < next(i for i, step in enumerate(steps) if step.get("id") == "fixture_image")
     text = json.dumps(job)
     assert "apply-reviewed-dev-migrations" not in text
     assert "doctl apps" not in text
@@ -424,3 +483,107 @@ def test_committed_fixture_artifacts_match_original_and_fixed_rendering(monkeypa
         if migration.version in {"V157", "V158"}
     ]
     assert retained == actual
+
+
+@pytest.mark.parametrize("bad", [None, "V157", "V159"])
+def test_forward_activation_fix_preserves_pair_and_records_own_provenance(
+    monkeypatch, tmp_path, bad
+):
+    import copy
+
+    fixture, connection, ledger, executed, mutations = fake_install(monkeypatch, tmp_path)
+    fixture.install(connection)
+    ledger.pop()  # Model the actual retained V157/V158 installation.
+    original = copy.deepcopy(fixture.binding)
+    original["artifacts"] = original["artifacts"][:2]
+    unchanged_pair = copy.deepcopy(ledger)
+    current = copy.deepcopy(fixture.binding)
+    current.update(commit="c" * 40, image_digest="sha256:" + "d" * 64)
+    runner = module(monkeypatch, "run_release_integrity_fixture")
+    resumed = runner.Fixture(current, tmp_path / "forward.json", installation_binding=original)
+    previous_query = fixture.query
+
+    def query(connection, label, sql, params=(), **kwargs):
+        if label == "schema_preflight":
+            marker = json.dumps(original, sort_keys=True, separators=(",", ":"))
+            return [
+                (schema, marker, "OH_LYME_DEV_MIGRATION_DEPLOYER")
+                for schema in runner.SCHEMAS.values()
+            ]
+        return previous_query(connection, label, sql, params, **kwargs)
+
+    resumed.query = query
+    before = len(executed)
+    resumed.install(connection)
+    assert ledger[:2] == unchanged_pair
+    assert len(executed) == before + 1
+    assert "Snowflake SQL BOOLEAN" in executed[-1]
+    assert ledger[-1][0] == "V159"
+    assert ledger[-1][3:5] == (current["commit"], current["image_digest"])
+    if bad:
+        index = 0 if bad == "V157" else 2
+        row = list(ledger[index])
+        row[4] = "sha256:" + "f" * 64
+        ledger[index] = tuple(row)
+        with pytest.raises(PermissionError, match="LEDGER_MISMATCH"):
+            resumed.install(connection)
+    else:
+        resumed.install(connection)
+        assert len(executed) == before + 1
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_retained_pair_proof_accepts_only_identical_prefix_before_forward_fix(monkeypatch, changed):
+    proof = module(monkeypatch, "retained_fixture_installation")
+    artifacts = [{"version": v, "sha": v} for v in ("V157", "V158", "V159")]
+    binding = {
+        "commit": "a" * 40,
+        "image_digest": "sha256:" + "b" * 64,
+        "marker": proof.MARKER,
+        "artifacts": artifacts[:2],
+    }
+    receipt = {"binding": binding, "status": "FAIL", "installation": "PASS", "live_unchanged": True}
+    run = {"status": "completed", "conclusion": "failure", "head_sha": "a" * 40}
+    if changed:
+        artifacts = [{"version": "V157", "sha": "changed"}, *artifacts[1:]]
+        with pytest.raises(ValueError, match="IDENTICAL_INSTALLED_PAIR"):
+            proof.validate_installation(run, receipt, artifacts)
+    else:
+        assert proof.validate_installation(run, receipt, artifacts) == binding
+
+
+@pytest.mark.parametrize("failure", ["lock", "serialization", "unexpected", "retry_fails"])
+def test_concurrent_retry_waits_for_both_contenders_and_replays_exact_artifact(
+    monkeypatch, failure
+):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    error = RuntimeError("redacted failure")
+    error.sqlstate = "40001" if failure == "serialization" else "57014"
+    error.errno = 999 if failure == "unexpected" else 627
+    winner_done = []
+    first = MagicMock()
+    first.result.side_effect = error
+    second = MagicMock()
+    second.result.side_effect = lambda **kwargs: winner_done.append(True)
+    executor = MagicMock()
+    executor.submit.side_effect = [first, second]
+    manager = MagicMock()
+    manager.__enter__.return_value = executor
+    monkeypatch.setattr(matrix, "ThreadPoolExecutor", lambda **kwargs: manager)
+    calls = []
+    sql, params = "CALL exact(%s)", ("immutable bytes",)
+
+    def query(session, label, statement, arguments):
+        assert winner_done, "retried while winning transaction still held lock"
+        calls.append((session, label, statement, arguments))
+        if failure == "retry_fails":
+            raise error
+
+    if failure in {"unexpected", "retry_fails"}:
+        with pytest.raises(RuntimeError):
+            matrix.run_concurrent_replays(query, ["loser", "winner"], "owner", sql, params)
+    else:
+        matrix.run_concurrent_replays(query, ["loser", "winner"], "owner", sql, params)
+        assert calls == [("loser", "concurrent_exact_retry", sql, params)]
+    for call in executor.submit.call_args_list:
+        assert call.args[3:] == (sql, params)

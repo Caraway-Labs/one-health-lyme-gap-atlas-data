@@ -7,13 +7,18 @@ on:
         type: boolean
         default: false
       ri706_expected_artifacts:
-        description: Exact V157/V158 original and rendered artifact JSON from the reviewed checkout
+        description: Exact V157/V158/V159 original and rendered artifact JSON from the reviewed checkout
         type: string
         required: false
       ri706_synthetic_authorization:
         description: Must equal RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL
         type: string
         required: false
+      ri706_recovery_run_id:
+        description: Prior owner-authorized failed fixture run with the identical installed V157/V158/V159 pair
+        type: string
+        required: false
+        default: ""
       ledger_diagnostic_only:
         description: Fixed three-statement ledger evidence diagnostic; requires metadata_preflight_only
         required: false
@@ -95,7 +100,7 @@ permissions:
   checks: read
 jobs:
   deploy:
-    if: inputs.release_integrity_fixture != true
+    if: inputs.release_integrity_fixture != true && inputs.ri706_recovery_run_id == ''
     environment: dev
     runs-on: ubuntu-latest
     steps:
@@ -538,8 +543,52 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
 
 
+  release-integrity-prepare:
+    if: inputs.release_integrity_fixture == true || inputs.ri706_recovery_run_id != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Prepare exact-source expiring owner authorization without deployment credentials
+        run: uv run python scripts/review_release_integrity_fixture_gate.py --prepare
+
+  release-integrity-owner-authorization:
+    if: inputs.release_integrity_fixture == true
+    needs: release-integrity-prepare
+    environment: ri706-dev-fixture
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Verify native CarawayLabs deployment authorization without Snowflake credentials
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
+
   release-integrity-fixture:
     if: inputs.release_integrity_fixture == true
+    needs: release-integrity-owner-authorization
     environment: dev
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -550,10 +599,10 @@ jobs:
       contents: read
       checks: read
       pull-requests: read
+      actions: read
     env:
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
-      RI706_REVIEW_POLICY: ${{ vars.RI706_REVIEW_POLICY }}
       RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
       RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
       IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
@@ -562,9 +611,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Require exact-head independent engineering and security review
-        run: python scripts/review_release_integrity_fixture_gate.py
       - uses: astral-sh/setup-uv@v6
+      - name: Verify exact-run owner authorization before building the fixture image
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -598,13 +647,14 @@ jobs:
           # Restore the exact frozen metadata bytes, including approved CRLF.
           # No --write-committed, inference, source reconstruction or model refresh.
           cp docs/contracts/surveillance-situations/138-surveillance-situation-*.json "$RUNNER_TEMP/ri706-handoff/config/models/"
-      - name: Recheck review and bind before privileged execution
-        run: python scripts/review_release_integrity_fixture_gate.py
+      - name: Recheck owner authorization expiry and binding before privileged execution
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
       - name: Execute fixed-schema partial recovery and acceptance in the pinned image
         timeout-minutes: 20
         env:
           RI706_IMAGE_DIGEST: ${{ steps.fixture_image.outputs.digest }}
           RI706_FIXTURE_MODE: 'true'
+          RI706_RECOVERY_RUN_ID: ${{ inputs.ri706_recovery_run_id }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
@@ -646,11 +696,13 @@ jobs:
             args+=(--env "$name")
           done
           args+=(--env RI706_REVIEW_RECEIPT=/review.json -v "$RI706_REVIEW_RECEIPT:/review.json:ro" -v "$RUNNER_TEMP/ri706-handoff:/handoff:ro" -v "$RUNNER_TEMP/ri706-receipts:/receipts")
-          set +e
-          docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/partial-install.json --install-only --stop-after-v157
-          partial_status=$?
-          set -e
-          test "$partial_status" = 0 -o "$partial_status" = 75
+          if [[ -z "$RI706_RECOVERY_RUN_ID" ]]; then
+            set +e
+            docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/partial-install.json --install-only --stop-after-v157
+            partial_status=$?
+            set -e
+            test "$partial_status" = 0 -o "$partial_status" = 75
+          fi
           docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/acceptance.json
       - name: Retain redacted fixture execution receipts
         if: always()

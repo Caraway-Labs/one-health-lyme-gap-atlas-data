@@ -1,6 +1,7 @@
 """Installed Snowflake acceptance cases; every statement is routed to fixed RI706 schemas."""
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from run_release_integrity_fixture import BUNDLE, FROZEN, MARKER, OLD
@@ -13,10 +14,18 @@ def require_equal(actual, expected, label):
         raise AssertionError(label)
 
 
-def require_permission_denied(action, label):
+def require_permission_denied(action, label, *, procedure_control=None):
     try:
         action()
     except Exception as error:
+        # Snowflake hides non-visible procedures as "unknown function" (002141).
+        # Accept that only after a privileged metadata control proves this exact
+        # procedure/signature exists. A missing object or arbitrary SQL error is
+        # never evidence of correct role separation.
+        if getattr(error, "errno", None) == 2141 and procedure_control is not None:
+            if not procedure_control():
+                raise AssertionError(label + " has no visible procedure control") from error
+            return
         if (
             getattr(error, "errno", None) not in {2003, 3001}
             and getattr(error, "sqlstate", None) != "42501"
@@ -26,7 +35,31 @@ def require_permission_denied(action, label):
         raise AssertionError(label + " did not fail closed")
 
 
-def verify_publication_denials(f, sessions, publish_sql, publish_params):
+def run_concurrent_replays(query, sessions, profile, sql, params):
+    retry = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(query, session, "concurrent_" + profile, sql, params)
+            for session in sessions
+        ]
+        for index, future in enumerate(futures):
+            try:
+                future.result(timeout=90)
+            except Exception as error:
+                # Settle BOTH contenders before retrying: the winning transaction
+                # may legitimately still hold the lock after the loser times out.
+                if getattr(error, "sqlstate", None) != "40001" and not (
+                    getattr(error, "sqlstate", None) == "57014"
+                    and getattr(error, "errno", None) == 627
+                ):
+                    raise
+                retry.append(index)
+    for index in retry:
+        # One bounded retry, with exactly the same SQL and immutable arguments.
+        query(sessions[index], "concurrent_exact_retry", sql, params)
+
+
+def verify_publication_denials(f, sessions, publish_sql, publish_params, *, procedure_control=None):
     for session, name in sessions:
         label = name + "_publication_denied_after_valid_staging"
         require_permission_denied(
@@ -34,6 +67,7 @@ def verify_publication_denials(f, sessions, publish_sql, publish_params):
                 session, label, publish_sql, publish_params
             ),
             label,
+            procedure_control=procedure_control,
         )
         f.receipt["cases"].append({"case": label, "status": "PASS", "marker": MARKER})
         f.save()
@@ -47,6 +81,28 @@ def run_matrix(f, migration, documents):
     def q(session, label, sql, params=()):
         return f.query(session, label, sql, params)
 
+    def procedure_control(sql):
+        signatures = {
+            "SP_ADMIT_MODEL_RELEASE": "VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR",
+            "SP_AUTHORIZE_SURVEILLANCE_SITUATION_PUBLICATION": (
+                "VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR"
+            ),
+            "SP_SET_SURVEILLANCE_SITUATION_ACTIVE": "BOOLEAN,VARCHAR",
+            "SP_STAGE_SURVEILLANCE_SITUATION_PART": "VARCHAR,VARCHAR,FLOAT,VARCHAR",
+            "SP_PUBLISH_SURVEILLANCE_SITUATIONS": "VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR",
+        }
+        match = re.fullmatch(r"CALL FEATURE_STORE\.([A-Z_]+)\((.*)\)", sql)
+        if not match or match[1] not in signatures:
+            return None
+        signature = signatures[match[1]]
+        if len(match[2].split(",")) != len(signature.split(",")):
+            return None
+        return lambda: q(
+            migration,
+            "permission_procedure_control",
+            "DESCRIBE PROCEDURE FEATURE_STORE." + match[1] + "(" + signature + ")",
+        )
+
     def case(label, action):
         action()
         f.receipt["cases"].append({"case": label, "status": "PASS", "marker": MARKER})
@@ -54,7 +110,11 @@ def run_matrix(f, migration, documents):
 
     def fail(label, session, sql, params=(), *, text=None, permission=False):
         if permission:
-            require_permission_denied(lambda: q(session, label, sql, params), label)
+            require_permission_denied(
+                lambda: q(session, label, sql, params),
+                label,
+                procedure_control=procedure_control(sql),
+            )
             return
         try:
             q(session, label, sql, params)
@@ -331,7 +391,13 @@ def run_matrix(f, migration, documents):
         owner,
         "synthetic_data_authorization",
         "CALL FEATURE_STORE.SP_AUTHORIZE_SURVEILLANCE_SITUATION_PUBLICATION(%s,%s,%s,%s,%s)",
-        (authority, f.binding["commit"], f.binding["image_digest"], MARKER, MARKER),
+        (
+            authority,
+            f.installation_binding["commit"],
+            f.installation_binding["image_digest"],
+            MARKER,
+            MARKER,
+        ),
     )
     payload = documents["outputs/138-surveillance-situation-batch-v1/county-assignments.json"]
     manifest = documents["config/models/138-surveillance-situation-batch-v1.json"]
@@ -372,7 +438,11 @@ def run_matrix(f, migration, documents):
         (authority, attempt, payload[:200000]),
     )
     verify_publication_denials(
-        f, ((reader, "reader"), (runtime, "runtime")), publish_sql, publish_params
+        f,
+        ((reader, "reader"), (runtime, "runtime")),
+        publish_sql,
+        publish_params,
+        procedure_control=procedure_control(publish_sql),
     )
     case(
         "immutable_staging",
@@ -489,6 +559,38 @@ def run_matrix(f, migration, documents):
                 ),
             )
     q(publisher, "publish_frozen_fits", publish_sql, publish_params)
+
+    def activation_state():
+        return q(
+            migration,
+            "activation_state",
+            "SELECT batch_id,batch_version,revision FROM "
+            "FEATURE_STORE.SURVEILLANCE_SITUATION_POINTER WHERE pointer_key='CURRENT'",
+        )
+
+    before_invalid_activation = activation_state()
+    for label, sql in (
+        (
+            "null_activation_rejected",
+            "CALL FEATURE_STORE.SP_SET_SURVEILLANCE_SITUATION_ACTIVE(NULL::BOOLEAN,%s)",
+        ),
+        (
+            "short_activation_reason_rejected",
+            "CALL FEATURE_STORE.SP_SET_SURVEILLANCE_SITUATION_ACTIVE(TRUE,'short')",
+        ),
+    ):
+        case(
+            label,
+            lambda label=label, sql=sql: fail(
+                label, owner, sql, (MARKER,) if "%s" in sql else (), text="INVALID_ROLLBACK_REQUEST"
+            ),
+        )
+    case(
+        "invalid_activation_preserves_pointer",
+        lambda: require_equal(
+            activation_state(), before_invalid_activation, "invalid activation changed pointer"
+        ),
+    )
     q(
         owner,
         "synthetic_restore_active_baseline",
@@ -609,19 +711,7 @@ def run_matrix(f, migration, documents):
 
     def concurrent(profile, sql, params):
         sessions = [f.open(profile), f.open(profile)]
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [
-                executor.submit(q, session, "concurrent_" + profile, sql, params)
-                for session in sessions
-            ]
-            for index, future in enumerate(futures):
-                try:
-                    future.result(timeout=90)
-                except Exception as error:
-                    # A bounded lock conflict is retried only with the identical artifact.
-                    if getattr(error, "sqlstate", None) not in {"40001", "57014"}:
-                        raise
-                    q(sessions[index], "concurrent_exact_retry", sql, params)
+        run_concurrent_replays(q, sessions, profile, sql, params)
 
     case(
         "concurrent_publication_replay",

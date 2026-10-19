@@ -1,5 +1,20 @@
 # Data Pipeline Instructions
 
+## RI706 sole-maintainer authorization
+
+CarawayLabs is the sole project owner. RI706 synthetic DEV execution requires
+the owner's native `ri706-dev-fixture` deployment approval, bound to the exact
+run/source/artifacts by its preflight digest. Agents must never submit or bypass
+that approval, including through API calls or an owner-authenticated browser.
+Do not turn owner chat instructions, comments, merges or PR reviews into native
+deployment approvals. By explicit Product Owner direction, the existing GitHub
+credential may perform legitimate repository operations and DEV troubleshooting.
+Restricting broad automation credentials is deferred security hardening, not a
+prerequisite to those operations; do not claim credential separation is resolved.
+Agents still must never approve deployments, bypass environments, change branch
+protection or grant themselves Snowflake privileges. DEV authorization is not
+PROD or scientific approval.
+
 ## Production release completeness (DATA #698 / #702)
 
 Every semantic release and rollback must reconcile all production consumers,
