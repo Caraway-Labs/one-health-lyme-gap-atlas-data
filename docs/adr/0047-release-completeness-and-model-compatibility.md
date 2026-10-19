@@ -101,8 +101,24 @@ scientific/Data-owner approvals and require explicit test-only scope. The
 implemented fixture job binds exact source/review/image/artifact identities,
 uses its own ledger and synthetic prerequisites, and exercises interrupted
 installation/replay, staging, transactions, concurrency, permissions and complete
-inventory rejection. Exact-head independent engineering/security review and
-dedicated service credentials remain required before privileged execution.
+inventory rejection. The Product Owner's prospective sole-maintainer policy
+replaces independent DEV peer review with native deployment authorization from
+CarawayLabs (user5505084) in the separate `ri706-dev-fixture` environment.
+Self-review prevention is deliberately disabled for this environment because the
+sole owner may also initiate the run; administrator bypass is disabled. This is
+owner execution authorization, not a GitHub PR approval or independent review.
+The owner must paste the preflight's SHA256 authorization into the native review
+comment. It binds repository, exact green source, V157/V158 original/rendered
+hashes, fixed schemas, test-only scope, run and attempt, and a two-hour expiry.
+Native approval history is checked again before credentials are used and retained
+with the immutable image/migration evidence. Existing DEV credentials stay in DEV;
+a successful protected authorization job is required before the fixture job starts.
+Workflow tokens have read-only permissions and cannot approve deployments.
+GitHub cannot distinguish a human from an agent holding the same owner credential:
+automation credentials must exclude Deployments write and Administration write;
+owner browser credentials must remain unavailable to automation. No agent may
+submit its own deployment approval. None of this authorizes PROD installation,
+scientific compatibility or Data publication; those separate controls remain.
 
 Pair-only PROD installation consumes the successful isolated DEV acceptance
 receipt and registry digest without deploying either operational App. The tested

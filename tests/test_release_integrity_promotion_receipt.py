@@ -32,6 +32,11 @@ def evidence(verifier):
         "base": {"ref": "main"},
     }
     run = {
+        "id": 123,
+        "run_attempt": 1,
+        "created_at": "2026-10-18T00:00:00Z",
+        "updated_at": "2026-10-18T00:40:00Z",
+        "repository": {"full_name": verifier.REPOSITORY},
         "head_sha": source,
         "event": "workflow_dispatch",
         "status": "completed",
@@ -63,7 +68,14 @@ def evidence(verifier):
         "reviewed_commit": source,
         "pull_request": 706,
         "scope": verifier.MARKER,
-        "human_reviews": {"engineering": [{"review_id": 1}], "security": [{"review_id": 2}]},
+        "owner_authorization": {
+            "mechanism": verifier.MECHANISM,
+            "owner": verifier.OWNER,
+            "binding": verifier.execution_binding(source, run, artifacts),
+            "binding_sha256": verifier.binding_digest(
+                verifier.execution_binding(source, run, artifacts)
+            ),
+        },
     }
     return source, main, image, pr, run, receipt, review, artifacts
 
@@ -155,7 +167,7 @@ def test_incomplete_or_substituted_proof_never_authorizes_installation(verifier,
     elif change == "permission":
         receipt["cases"] = receipt["cases"][:-1]
     elif change == "review":
-        review["human_reviews"]["security"] = []
+        review["owner_authorization"]["owner"] = {"login": "other"}
     elif change == "county":
         receipt["frozen_county_sha256"] = "wrong"
     with pytest.raises(ValueError, match="INTEGRITY_"):

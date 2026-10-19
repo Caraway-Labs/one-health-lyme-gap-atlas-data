@@ -9,7 +9,15 @@ import tempfile
 from pathlib import Path
 
 from prepare_release_integrity_dev_plan import render_fixture
-from review_release_integrity_fixture_gate import gh
+from review_release_integrity_fixture_gate import (
+    ENVIRONMENT,
+    MECHANISM,
+    OWNER,
+    binding_digest,
+    execution_binding,
+    gh,
+    validate_retained_authorization,
+)
 
 from lyme_gap_atlas_data.migrations import load_migrations
 
@@ -61,7 +69,11 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
         != "02b62d7a4cb8970b3cd2506f5206a386a9ceed7cb2253baea16299be2d06ec9b"
         or review.get("reviewed_commit") != source
         or review.get("scope") != MARKER
-        or not all(review.get("human_reviews", {}).get(key) for key in ("engineering", "security"))
+        or review.get("owner_authorization", {}).get("mechanism") != MECHANISM
+        or review["owner_authorization"].get("owner") != OWNER
+        or review["owner_authorization"].get("binding") != execution_binding(source, run, artifacts)
+        or review["owner_authorization"].get("binding_sha256")
+        != binding_digest(execution_binding(source, run, artifacts))
     ):
         raise ValueError("INTEGRITY_COMPLETE_DIGEST_BOUND_DEV_ACCEPTANCE_REQUIRED")
     return {"source_commit": source, "merged_main_commit": main, "image_digest": image}
@@ -127,6 +139,13 @@ def main():
         number = review.get("pull_request")
         if not isinstance(number, int) or number < 1:
             raise ValueError("INTEGRITY_RETAINED_REVIEW_PR_REQUIRED")
+        validate_retained_authorization(
+            review,
+            run,
+            artifacts,
+            gh(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}"),
+            gh(f"repos/{REPOSITORY}/actions/runs/{run_id}/approvals"),
+        )
         result = validate(
             source,
             main_sha,

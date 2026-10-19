@@ -1,5 +1,17 @@
 # Data Pipeline Instructions
 
+## RI706 sole-maintainer authorization
+
+CarawayLabs is the sole project owner. RI706 synthetic DEV execution requires
+the owner's native `ri706-dev-fixture` deployment approval, bound to the exact
+run/source/artifacts by its preflight digest. Agents must never submit or bypass
+that approval, including through API calls or an owner-authenticated browser.
+Do not turn owner chat instructions, comments, merges or PR reviews into native
+deployment approvals. Automation tokens must exclude Deployments write and
+Administration write; the owner's approval credential must stay outside agent
+access. If an owner credential is shared with automation, report that separation
+is not technically enforced. DEV authorization is not PROD or scientific approval.
+
 ## Production release completeness (DATA #698 / #702)
 
 Every semantic release and rollback must reconcile all production consumers,

@@ -538,8 +538,52 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
 
 
+  release-integrity-prepare:
+    if: inputs.release_integrity_fixture == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Prepare exact-source expiring owner authorization without deployment credentials
+        run: uv run python scripts/review_release_integrity_fixture_gate.py --prepare
+
+  release-integrity-owner-authorization:
+    if: inputs.release_integrity_fixture == true
+    needs: release-integrity-prepare
+    environment: ri706-dev-fixture
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Verify native CarawayLabs deployment authorization without Snowflake credentials
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
+
   release-integrity-fixture:
     if: inputs.release_integrity_fixture == true
+    needs: release-integrity-owner-authorization
     environment: dev
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -550,10 +594,10 @@ jobs:
       contents: read
       checks: read
       pull-requests: read
+      actions: read
     env:
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
-      RI706_REVIEW_POLICY: ${{ vars.RI706_REVIEW_POLICY }}
       RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
       RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
       IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
@@ -562,9 +606,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Require exact-head independent engineering and security review
-        run: python scripts/review_release_integrity_fixture_gate.py
       - uses: astral-sh/setup-uv@v6
+      - name: Verify exact-run owner authorization before building the fixture image
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -598,8 +642,8 @@ jobs:
           # Restore the exact frozen metadata bytes, including approved CRLF.
           # No --write-committed, inference, source reconstruction or model refresh.
           cp docs/contracts/surveillance-situations/138-surveillance-situation-*.json "$RUNNER_TEMP/ri706-handoff/config/models/"
-      - name: Recheck review and bind before privileged execution
-        run: python scripts/review_release_integrity_fixture_gate.py
+      - name: Recheck owner authorization expiry and binding before privileged execution
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
       - name: Execute fixed-schema partial recovery and acceptance in the pinned image
         timeout-minutes: 20
         env:

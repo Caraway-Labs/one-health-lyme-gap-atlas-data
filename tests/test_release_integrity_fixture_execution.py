@@ -85,49 +85,32 @@ def review_data():
     return head, pr, reviews, policy, checks
 
 
-def test_exact_head_independent_reviews_pass(monkeypatch):
+def test_exact_head_green_source_passes_without_claiming_peer_review(monkeypatch):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
-    result = gate.validate_review_gate(*review_data())
-    assert result["reviewed_commit"] == "a" * 40
-    assert result["scope"].endswith("NOT_SCIENTIFIC_APPROVAL")
+    head, pr, _, _, checks = review_data()
+    assert gate.validate_source(head, pr, checks) is None
 
 
-@pytest.mark.parametrize(
-    "bad", ["stale", "author", "bot", "comment", "dismissed", "no_policy", "ci", "head", "closed"]
-)
-def test_reviews_cannot_be_inferred_or_self_approved(monkeypatch, bad):
+@pytest.mark.parametrize("bad", ["ci", "head", "closed"])
+def test_source_gate_still_requires_green_exact_source(monkeypatch, bad):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
-    head, pr, reviews, policy, checks = review_data()
-    if bad == "stale":
-        reviews[0]["commit_id"] = "b" * 40
-    elif bad == "author":
-        pr["user"]["login"] = "engineer"
-    elif bad == "bot":
-        reviews[0]["user"]["type"] = "Bot"
-    elif bad == "comment":
-        reviews[0]["state"] = "COMMENTED"
-    elif bad == "dismissed":
-        reviews.append({**reviews[0], "state": "DISMISSED", "submitted_at": "2026-10-18T01:00:00Z"})
-    elif bad == "no_policy":
-        policy = {}
-    elif bad == "ci":
+    head, pr, _, _, checks = review_data()
+    if bad == "ci":
         checks[0]["conclusion"] = "failure"
     elif bad == "head":
         pr["head"]["sha"] = "b" * 40
     else:
         pr["state"] = "closed"
     with pytest.raises(ValueError):
-        gate.validate_review_gate(head, pr, reviews, policy, checks)
+        gate.validate_source(head, pr, checks)
 
 
 @pytest.mark.parametrize("state,merged", [("open", False), ("closed", True)])
-def test_post_merge_or_ready_source_keeps_exact_native_reviews(monkeypatch, state, merged):
+def test_post_merge_or_ready_source_needs_separate_owner_authorization(monkeypatch, state, merged):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")
-    head, pr, reviews, policy, checks = review_data()
+    head, pr, _, _, checks = review_data()
     pr.update(number=707, state=state, merged=merged, draft=False)
-    assert gate.validate_review_gate(head, pr, reviews, policy, checks)["pull_request"] == 707
-    with pytest.raises(ValueError, match="HUMAN_ENGINEERING_REVIEW_REQUIRED"):
-        gate.validate_review_gate(head, pr, [], policy, checks)
+    assert gate.validate_source(head, pr, checks) is None
 
 
 @pytest.mark.parametrize("bad", [None, "head", "fork", "base", "duplicate", "missing"])
@@ -360,7 +343,12 @@ def test_workflow_keeps_generic_migrations_and_app_deployment_out_of_fixture_job
     assert job["environment"] == "dev"
     assert job["concurrency"]["cancel-in-progress"] is False
     steps = job["steps"]
-    assert steps[1]["run"] == "python scripts/review_release_integrity_fixture_gate.py"
+    gate_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("run") == "uv run python scripts/review_release_integrity_fixture_gate.py"
+    )
+    assert gate_index < next(i for i, step in enumerate(steps) if step.get("id") == "fixture_image")
     text = json.dumps(job)
     assert "apply-reviewed-dev-migrations" not in text
     assert "doctl apps" not in text
