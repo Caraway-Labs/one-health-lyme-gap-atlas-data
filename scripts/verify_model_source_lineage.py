@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from compare_tier1_release_inputs import BUNDLE, TARGET, query
+from retained_fixed_source_mapping import fixed_mapping_evidence
 
 ORIGINAL = "governed-2026-09-18-unknown-coverage"
 ORIGINAL_BUNDLE = "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026"
@@ -79,6 +80,14 @@ def main():
     # READ lacks this retained-manifest projection today; fail before long scans.
     receipt = {
         "kind": "full_lineage_comparison_not_approval",
+        "diagnostic_code_sha256": {
+            name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
+            for name in (
+                "verify_model_source_lineage.py",
+                "retained_fixed_source_mapping.py",
+                "compare_tier1_release_inputs.py",
+            )
+        },
         "status": "incomplete",
         "observed_at": datetime.now(UTC).isoformat(),
         "original_release": ORIGINAL,
@@ -145,13 +154,28 @@ def main():
             not re.fullmatch(r"[0-9a-fA-F]{64}", str(row["artifact_sha256"]))
             or row["definition_version"] is None
             or not str(row["definition_version"]).strip()
-            or not isinstance(row["field_map"], dict)
-            or not row["field_map"]
             for row in selected
         ):
             receipt["mismatches"].append({"release": release, "field": "source_manifest_integrity"})
             args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
             raise ValueError("Incomplete source mapping or checksum")
+        for row in selected:
+            if not isinstance(row["field_map"], dict) or not row["field_map"]:
+                try:
+                    evidence = fixed_mapping_evidence(row)
+                except ValueError:
+                    receipt["mismatches"].append(
+                        {
+                            "release": release,
+                            "field": "source_mapping",
+                            "source_key": row["source_key"],
+                        }
+                    )
+                    args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+                    raise
+                receipt.setdefault("retained_fixed_mapping_evidence", {})[row["source_key"]] = (
+                    evidence
+                )
         source_rows = read(
             "SELECT " + SOURCE_FIELDS + " FROM "
             f"PRESENTATION.SEMANTIC_DATA_SOURCES WHERE release_id='{release}' "
