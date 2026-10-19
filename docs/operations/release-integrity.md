@@ -60,7 +60,15 @@ the upstream bytes. County assignments remain outside Git.
 1. Review ADR 0047, V157/V158, frozen pins and release guard. V157 installs an
    empty compatibility ledger; it grants only OWNER the admission procedure.
    V158 installs empty latent-class batch tables and publisher procedures.
-2. After review/merge, use existing checksum-validated DEV migration workflow.
+2. Keep the source PR open while the configured Product Owner (`solarisx06`)
+   records a native APPROVED review on its exact green head. Then dispatch
+   `release_integrity_fixture=true` in `deploy-dev.yml` on that same branch/SHA,
+   with the pinned V157/V158 source/rendered checksums and synthetic-only marker.
+   Keep the PR open until the protected isolated DEV acceptance succeeds; merge
+   only afterward. A merge or COMMENTED review does not supply an APPROVED record.
+   Do not push another commit after approval; any source change needs its own
+   exact-head review and acceptance. The single configured reviewer's matching
+   approval satisfies both engineering and security entries in the policy.
    Verify procedure owner dependency reads, exact replay, partial failure, changed
    bytes, duplicate FIPS, invalid probabilities, class counts, writer serialization,
    rollback and publisher/base-table denial. DEV acceptance must use the frozen
@@ -189,9 +197,10 @@ The approved fixture mode is implemented in `deploy-dev.yml` and
 `scripts/run_release_integrity_fixture.py`; it has not been executed in Snowflake.
 Do not run the generic DEV migration entry point: its observed pending set also
 includes V155. No GitHub environment reviewer restriction was inferred; the
-blockers are independent exact-head engineering/security APPROVED reviews,
+fixture gate requires native exact-head engineering/security APPROVED reviews,
 configured `RI706_REVIEW_POLICY`, and dedicated owner/publisher/reader service
-credential provisioning. The human package documents the exact inputs and
+credentials. Follow the open-PR review, fixture acceptance, then merge sequence
+above. The human package documents the exact inputs and
 recovery matrix. Product Owner design approval is already recorded.
 
 `ri706-api-consumer-audit.json` reconciles the pinned latest API source readers
