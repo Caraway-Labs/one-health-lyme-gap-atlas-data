@@ -70,8 +70,13 @@ the upstream bytes. County assignments remain outside Git.
    Keep the PR open until installed DEV acceptance succeeds, then merge. Every
    new SHA, run or attempt requires its own authorization. Authorization expires
    two hours after dispatch; start a fresh dispatch if expired. Do not bypass the
-   environment or approve through an agent. Automation tokens must have neither
-   Deployments write nor Administration write; the owner retains browser approval.
+   environment or approve through an agent. Owner-directed credential hardening
+   remains deferred; ordinary repository work may use the existing credential.
+   For an installed acceptance failure, set `ri706_recovery_run_id` to that failed
+   run. Preflight verifies its receipt/native approval and identical SQL hashes;
+   recovery preserves the original schema markers, ledger and installation image,
+   and records the corrected harness image separately. It executes no migration
+   DDL or seed/grant recreation. The owner approves this fresh recovery binding.
    Verify procedure owner dependency reads, exact replay, partial failure, changed
    bytes, duplicate FIPS, invalid probabilities, class counts, writer serialization,
    rollback and publisher/base-table denial. DEV acceptance must use the frozen

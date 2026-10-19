@@ -125,6 +125,42 @@ def test_exact_head_green_source_passes_without_claiming_peer_review(monkeypatch
     assert gate.validate_source(head, pr, checks) is None
 
 
+@pytest.mark.parametrize("bad", [None, "checksum", "incomplete"])
+def test_corrected_harness_reuses_complete_installation_without_ddl_or_ledger_rewrite(
+    monkeypatch, tmp_path, bad
+):
+    import copy
+
+    fixture, connection, ledger, executed, mutations = fake_install(monkeypatch, tmp_path)
+    fixture.install(connection)
+    original = copy.deepcopy(fixture.binding)
+    original_ledger = copy.deepcopy(ledger)
+    current = copy.deepcopy(original)
+    current.update(commit="c" * 40, image_digest="sha256:" + "d" * 64)
+    runner = module(monkeypatch, "run_release_integrity_fixture")
+    monkeypatch.setattr(runner, "SnowflakeSettings", lambda: None)
+    resumed = runner.Fixture(current, tmp_path / "recovery.json", installation_binding=original)
+    resumed.query = fixture.query
+    before = len(mutations)
+    if bad == "checksum":
+        current["artifacts"][0]["source_sha256"] = "f" * 64
+    elif bad == "incomplete":
+        ledger.pop()
+    if bad:
+        with pytest.raises(PermissionError):
+            resumed.install(connection)
+    else:
+        resumed.install(connection)
+        assert ledger == original_ledger
+        assert resumed.receipt["installation_mode"] == "REUSED_IMMUTABLE_PAIR"
+        assert resumed.receipt["installation_binding"] == original
+    assert len(executed) == 2
+    assert not any(
+        sql.startswith(("CREATE", "GRANT", "INSERT", "UPDATE", "DROP"))
+        for _, sql, _ in mutations[before:]
+    )
+
+
 @pytest.mark.parametrize("bad", ["ci", "head", "closed"])
 def test_source_gate_still_requires_green_exact_source(monkeypatch, bad):
     gate = module(monkeypatch, "review_release_integrity_fixture_gate")

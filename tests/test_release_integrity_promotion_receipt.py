@@ -128,6 +128,47 @@ def test_followup_review_identity_is_retained_and_cannot_be_substituted(verifier
         )
 
 
+def test_recovered_acceptance_preserves_original_installation_provenance(verifier):
+    source, main, image, pr, run, receipt, review, artifacts = evidence(verifier)
+    installed = {
+        "commit": "d" * 40,
+        "image_digest": "sha256:" + "e" * 64,
+        "marker": verifier.MARKER,
+        "artifacts": artifacts,
+    }
+    recovery = {"run_id": 122, "installation_binding": installed}
+    owner_binding = verifier.execution_binding(source, run, artifacts, recovery)
+    review["owner_authorization"]["binding"] = owner_binding
+    review["owner_authorization"]["binding_sha256"] = verifier.binding_digest(owner_binding)
+    receipt["installation_binding"] = installed
+    verifier.validate(
+        source,
+        main,
+        image,
+        pr,
+        run,
+        receipt,
+        review,
+        same_tree=True,
+        ancestor=True,
+        artifacts=artifacts,
+    )
+    receipt["installation_binding"] = {**installed, "commit": source}
+    with pytest.raises(ValueError):
+        verifier.validate(
+            source,
+            main,
+            image,
+            pr,
+            run,
+            receipt,
+            review,
+            same_tree=True,
+            ancestor=True,
+            artifacts=artifacts,
+        )
+
+
 @pytest.mark.parametrize(
     "change",
     [

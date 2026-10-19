@@ -26,6 +26,7 @@ MARKER = "RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL"
 
 
 def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancestor, artifacts):
+    recovery = review.get("owner_authorization", {}).get("binding", {}).get("recovery")
     if (
         not re.fullmatch(r"[0-9a-f]{40}", source)
         or not re.fullmatch(r"[0-9a-f]{40}", main)
@@ -49,6 +50,7 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
         or run.get("status") != "completed"
     ):
         raise ValueError("INTEGRITY_SUCCESSFUL_EXACT_SOURCE_DEV_FIXTURE_RUN_REQUIRED")
+    owner_binding = execution_binding(source, run, artifacts, recovery)
     expected = {"marker": MARKER, "commit": source, "image_digest": image, "artifacts": artifacts}
     names = {row["case"] for row in receipt.get("cases", []) if row.get("status") == "PASS"}
     required = {
@@ -71,9 +73,12 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
         or review.get("scope") != MARKER
         or review.get("owner_authorization", {}).get("mechanism") != MECHANISM
         or review["owner_authorization"].get("owner") != OWNER
-        or review["owner_authorization"].get("binding") != execution_binding(source, run, artifacts)
-        or review["owner_authorization"].get("binding_sha256")
-        != binding_digest(execution_binding(source, run, artifacts))
+        or review["owner_authorization"].get("binding") != owner_binding
+        or review["owner_authorization"].get("binding_sha256") != binding_digest(owner_binding)
+        or (
+            recovery is not None
+            and receipt.get("installation_binding") != recovery["installation_binding"]
+        )
     ):
         raise ValueError("INTEGRITY_COMPLETE_DIGEST_BOUND_DEV_ACCEPTANCE_REQUIRED")
     return {"source_commit": source, "merged_main_commit": main, "image_digest": image}
@@ -146,6 +151,12 @@ def main():
             gh(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}"),
             gh(f"repos/{REPOSITORY}/actions/runs/{run_id}/approvals"),
         )
+        recovery = review.get("owner_authorization", {}).get("binding", {}).get("recovery")
+        if recovery:
+            from retained_fixture_installation import load_recovery_proof
+
+            if load_recovery_proof(str(recovery["run_id"]), artifacts) != recovery:
+                raise ValueError("INTEGRITY_RETAINED_INSTALLATION_EVIDENCE_CHANGED")
         result = validate(
             source,
             main_sha,

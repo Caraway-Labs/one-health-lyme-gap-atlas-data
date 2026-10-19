@@ -142,3 +142,12 @@ def test_workflow_cannot_submit_approval_or_obtain_credentials_before_owner_gate
     source = (ROOT / "scripts/review_release_integrity_fixture_gate.py").read_text()
     assert '"POST"' not in source
     assert "pending_deployments" not in source
+
+
+def test_recovery_reference_requires_a_new_owner_authorization_digest(gate):
+    _, _, binding, environment, approvals, now = evidence(gate)
+    binding["recovery"] = {"run_id": 122, "installation_binding": {"commit": "b" * 40}}
+    with pytest.raises(ValueError, match="EXACT_RUN_OWNER_AUTHORIZATION"):
+        gate.validate_owner_authorization(binding, environment, approvals, now)
+    approvals[0]["comment"] = gate.authorization_comment(binding)
+    assert gate.validate_owner_authorization(binding, environment, approvals, now)

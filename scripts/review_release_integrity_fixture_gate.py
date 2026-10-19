@@ -45,7 +45,7 @@ def validate_source(head, pr, checks):
         raise ValueError("FIXTURE_GREEN_EXACT_HEAD_REQUIRED")
 
 
-def execution_binding(head, run, artifacts):
+def execution_binding(head, run, artifacts, recovery=None):
     if (
         run.get("head_sha") != head
         or run.get("event") != "workflow_dispatch"
@@ -54,7 +54,7 @@ def execution_binding(head, run, artifacts):
     ):
         raise ValueError("FIXTURE_AUTHENTICATED_EXACT_SOURCE_RUN_REQUIRED")
     created = timestamp(run["created_at"])
-    return {
+    result = {
         "mechanism": MECHANISM,
         "repository": REPOSITORY,
         "commit": head,
@@ -68,6 +68,9 @@ def execution_binding(head, run, artifacts):
         "issued_at": created.isoformat(),
         "expires_at": (created + timedelta(hours=2)).isoformat(),
     }
+    if recovery is not None:
+        result["recovery"] = recovery
+    return result
 
 
 def validate_environment(environment):
@@ -123,8 +126,10 @@ def validate_owner_authorization(binding, environment, approvals, now):
 
 def validate_retained_authorization(review, run, artifacts, environment, approvals):
     """A completed DEV receipt is evidence, not authorization for a new execution."""
-    binding = execution_binding(review["reviewed_commit"], run, artifacts)
     auth = review.get("owner_authorization", {})
+    binding = execution_binding(
+        review["reviewed_commit"], run, artifacts, auth.get("binding", {}).get("recovery")
+    )
     verified = timestamp(auth.get("verified_at", "1970-01-01T00:00:00+00:00"))
     if auth != validate_owner_authorization(
         binding, environment, approvals, verified
@@ -176,6 +181,7 @@ def main():
         "ri706_expected_artifacts",
         "ri706_synthetic_authorization",
         "reviewed_commit",
+        "ri706_recovery_run_id",
     }
     if any(
         value not in (False, "", "[]", None)
@@ -222,7 +228,15 @@ def main():
     run = gh(f"repos/{REPOSITORY}/actions/runs/{run_id}")
     if str(run["id"]) != run_id or str(run["run_attempt"]) != attempt:
         raise ValueError("FIXTURE_CURRENT_RUN_ATTEMPT_REQUIRED")
-    binding = execution_binding(head, run, artifacts)
+    recovery_id = inputs.get("ri706_recovery_run_id", "")
+    recovery = None
+    if recovery_id:
+        from retained_fixture_installation import load_recovery_proof
+
+        if str(recovery_id) == run_id:
+            raise ValueError("FIXTURE_RECOVERY_CANNOT_REFERENCE_CURRENT_RUN")
+        recovery = load_recovery_proof(recovery_id, artifacts)
+    binding = execution_binding(head, run, artifacts, recovery)
     environment = gh(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}")
     validate_environment(environment)
     now = datetime.now(UTC)

@@ -115,9 +115,10 @@ with the immutable image/migration evidence. Existing DEV credentials stay in DE
 a successful protected authorization job is required before the fixture job starts.
 Workflow tokens have read-only permissions and cannot approve deployments.
 GitHub cannot distinguish a human from an agent holding the same owner credential:
-automation credentials must exclude Deployments write and Administration write;
-owner browser credentials must remain unavailable to automation. No agent may
-submit its own deployment approval. None of this authorizes PROD installation,
+credential separation remains deferred security hardening by explicit owner
+direction; the existing credential may perform repository work. No agent may
+submit or bypass deployment approval, change branch protection or self-grant
+Snowflake privileges. None of this authorizes PROD installation,
 scientific compatibility or Data publication; those separate controls remain.
 
 Pair-only PROD installation consumes the successful isolated DEV acceptance
@@ -129,6 +130,15 @@ identities are retained; changed trees, incomplete receipts and digest mismatche
 fail before credentials are used. Protected production authorization remains
 required. Installing support objects does not admit Tier 1 compatibility,
 publish model batches or move a semantic release pointer.
+
+After a failed fixture acceptance, a fresh owner-authorized execution may reuse
+the installed pair only with the prior GitHub receipt and native approval,
+identical original/rendered SQL hashes, all three original schema markers and
+the complete immutable two-row ledger. Keep its original installation source,
+image and synthetic publication authorization; record the corrected harness's
+source/image separately. No ledger rewrite, DDL replay, seed recreation or schema
+reset is permitted in this resume mode. The owner digest includes the prior run
+and receipt hashes, and promotion revalidates that retained installation proof.
 
 Full retained-lineage access should reuse the existing READ audit boundary via
 four exact-release/source secure projections, rather than broad base-table

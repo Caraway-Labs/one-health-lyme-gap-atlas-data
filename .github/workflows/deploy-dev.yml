@@ -14,6 +14,11 @@ on:
         description: Must equal RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL
         type: string
         required: false
+      ri706_recovery_run_id:
+        description: Prior owner-authorized failed fixture run with the identical installed V157/V158 pair
+        type: string
+        required: false
+        default: ""
       ledger_diagnostic_only:
         description: Fixed three-statement ledger evidence diagnostic; requires metadata_preflight_only
         required: false
@@ -95,7 +100,7 @@ permissions:
   checks: read
 jobs:
   deploy:
-    if: inputs.release_integrity_fixture != true
+    if: inputs.release_integrity_fixture != true && inputs.ri706_recovery_run_id == ''
     environment: dev
     runs-on: ubuntu-latest
     steps:
@@ -539,7 +544,7 @@ jobs:
 
 
   release-integrity-prepare:
-    if: inputs.release_integrity_fixture == true
+    if: inputs.release_integrity_fixture == true || inputs.ri706_recovery_run_id != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -649,6 +654,7 @@ jobs:
         env:
           RI706_IMAGE_DIGEST: ${{ steps.fixture_image.outputs.digest }}
           RI706_FIXTURE_MODE: 'true'
+          RI706_RECOVERY_RUN_ID: ${{ inputs.ri706_recovery_run_id }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
@@ -690,11 +696,13 @@ jobs:
             args+=(--env "$name")
           done
           args+=(--env RI706_REVIEW_RECEIPT=/review.json -v "$RI706_REVIEW_RECEIPT:/review.json:ro" -v "$RUNNER_TEMP/ri706-handoff:/handoff:ro" -v "$RUNNER_TEMP/ri706-receipts:/receipts")
-          set +e
-          docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/partial-install.json --install-only --stop-after-v157
-          partial_status=$?
-          set -e
-          test "$partial_status" = 0 -o "$partial_status" = 75
+          if [[ -z "$RI706_RECOVERY_RUN_ID" ]]; then
+            set +e
+            docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/partial-install.json --install-only --stop-after-v157
+            partial_status=$?
+            set -e
+            test "$partial_status" = 0 -o "$partial_status" = 75
+          fi
           docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/acceptance.json
       - name: Retain redacted fixture execution receipts
         if: always()

@@ -367,7 +367,13 @@ def run_matrix(f, migration, documents):
         owner,
         "synthetic_data_authorization",
         "CALL FEATURE_STORE.SP_AUTHORIZE_SURVEILLANCE_SITUATION_PUBLICATION(%s,%s,%s,%s,%s)",
-        (authority, f.binding["commit"], f.binding["image_digest"], MARKER, MARKER),
+        (
+            authority,
+            f.installation_binding["commit"],
+            f.installation_binding["image_digest"],
+            MARKER,
+            MARKER,
+        ),
     )
     payload = documents["outputs/138-surveillance-situation-batch-v1/county-assignments.json"]
     manifest = documents["config/models/138-surveillance-situation-batch-v1.json"]

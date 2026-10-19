@@ -7,10 +7,13 @@ the owner's native `ri706-dev-fixture` deployment approval, bound to the exact
 run/source/artifacts by its preflight digest. Agents must never submit or bypass
 that approval, including through API calls or an owner-authenticated browser.
 Do not turn owner chat instructions, comments, merges or PR reviews into native
-deployment approvals. Automation tokens must exclude Deployments write and
-Administration write; the owner's approval credential must stay outside agent
-access. If an owner credential is shared with automation, report that separation
-is not technically enforced. DEV authorization is not PROD or scientific approval.
+deployment approvals. By explicit Product Owner direction, the existing GitHub
+credential may perform legitimate repository operations and DEV troubleshooting.
+Restricting broad automation credentials is deferred security hardening, not a
+prerequisite to those operations; do not claim credential separation is resolved.
+Agents still must never approve deployments, bypass environments, change branch
+protection or grant themselves Snowflake privileges. DEV authorization is not
+PROD or scientific approval.
 
 ## Production release completeness (DATA #698 / #702)
 
