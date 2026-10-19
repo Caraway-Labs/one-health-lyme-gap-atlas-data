@@ -136,7 +136,11 @@ def test_exact_approved_set_reconciles_then_applies_with_second_guard(
     assert result.exit_code == 0, result.exception
     assert [call[0] for call in calls.mock_calls] == ["reconcile", "apply"]
     calls.apply.assert_called_once_with(
-        settings, migrations.DEV_DATABASE, None, expected_pending=reviewed
+        settings,
+        migrations.DEV_DATABASE,
+        None,
+        expected_pending=reviewed,
+        protected_intelligence_prerequisite=False,
     )
 
 
