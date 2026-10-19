@@ -1,6 +1,7 @@
 """Installed Snowflake acceptance cases; every statement is routed to fixed RI706 schemas."""
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from run_release_integrity_fixture import BUNDLE, FROZEN, MARKER, OLD
@@ -13,10 +14,18 @@ def require_equal(actual, expected, label):
         raise AssertionError(label)
 
 
-def require_permission_denied(action, label):
+def require_permission_denied(action, label, *, procedure_control=None):
     try:
         action()
     except Exception as error:
+        # Snowflake hides non-visible procedures as "unknown function" (002141).
+        # Accept that only after a privileged metadata control proves this exact
+        # procedure/signature exists. A missing object or arbitrary SQL error is
+        # never evidence of correct role separation.
+        if getattr(error, "errno", None) == 2141 and procedure_control is not None:
+            if not procedure_control():
+                raise AssertionError(label + " has no visible procedure control") from error
+            return
         if (
             getattr(error, "errno", None) not in {2003, 3001}
             and getattr(error, "sqlstate", None) != "42501"
@@ -26,7 +35,7 @@ def require_permission_denied(action, label):
         raise AssertionError(label + " did not fail closed")
 
 
-def verify_publication_denials(f, sessions, publish_sql, publish_params):
+def verify_publication_denials(f, sessions, publish_sql, publish_params, *, procedure_control=None):
     for session, name in sessions:
         label = name + "_publication_denied_after_valid_staging"
         require_permission_denied(
@@ -34,6 +43,7 @@ def verify_publication_denials(f, sessions, publish_sql, publish_params):
                 session, label, publish_sql, publish_params
             ),
             label,
+            procedure_control=procedure_control,
         )
         f.receipt["cases"].append({"case": label, "status": "PASS", "marker": MARKER})
         f.save()
@@ -47,6 +57,28 @@ def run_matrix(f, migration, documents):
     def q(session, label, sql, params=()):
         return f.query(session, label, sql, params)
 
+    def procedure_control(sql):
+        signatures = {
+            "SP_ADMIT_MODEL_RELEASE": "VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR",
+            "SP_AUTHORIZE_SURVEILLANCE_SITUATION_PUBLICATION": (
+                "VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR"
+            ),
+            "SP_SET_SURVEILLANCE_SITUATION_ACTIVE": "BOOLEAN,VARCHAR",
+            "SP_STAGE_SURVEILLANCE_SITUATION_PART": "VARCHAR,VARCHAR,FLOAT,VARCHAR",
+            "SP_PUBLISH_SURVEILLANCE_SITUATIONS": "VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR",
+        }
+        match = re.fullmatch(r"CALL FEATURE_STORE\.([A-Z_]+)\((.*)\)", sql)
+        if not match or match[1] not in signatures:
+            return None
+        signature = signatures[match[1]]
+        if len(match[2].split(",")) != len(signature.split(",")):
+            return None
+        return lambda: q(
+            migration,
+            "permission_procedure_control",
+            "DESCRIBE PROCEDURE FEATURE_STORE." + match[1] + "(" + signature + ")",
+        )
+
     def case(label, action):
         action()
         f.receipt["cases"].append({"case": label, "status": "PASS", "marker": MARKER})
@@ -54,7 +86,11 @@ def run_matrix(f, migration, documents):
 
     def fail(label, session, sql, params=(), *, text=None, permission=False):
         if permission:
-            require_permission_denied(lambda: q(session, label, sql, params), label)
+            require_permission_denied(
+                lambda: q(session, label, sql, params),
+                label,
+                procedure_control=procedure_control(sql),
+            )
             return
         try:
             q(session, label, sql, params)
@@ -372,7 +408,11 @@ def run_matrix(f, migration, documents):
         (authority, attempt, payload[:200000]),
     )
     verify_publication_denials(
-        f, ((reader, "reader"), (runtime, "runtime")), publish_sql, publish_params
+        f,
+        ((reader, "reader"), (runtime, "runtime")),
+        publish_sql,
+        publish_params,
+        procedure_control=procedure_control(publish_sql),
     )
     case(
         "immutable_staging",

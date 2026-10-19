@@ -59,6 +59,40 @@ def test_publication_validation_error_is_not_permission_evidence(monkeypatch):
     assert not fixture.receipt["cases"]
 
 
+@pytest.mark.parametrize("control", [None, [], [("signature", "(VARCHAR,VARCHAR)")]])
+def test_hidden_procedure_error_requires_visible_exact_signature_control(monkeypatch, control):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    error = RuntimeError("redacted unknown procedure")
+    error.errno = 2141
+
+    def denied():
+        raise error
+
+    if control:
+        matrix.require_permission_denied(
+            denied, "hidden procedure", procedure_control=lambda: control
+        )
+    else:
+        with pytest.raises(AssertionError):
+            matrix.require_permission_denied(
+                denied,
+                "hidden procedure",
+                procedure_control=(lambda: control) if control is not None else None,
+            )
+
+
+def test_failed_procedure_positive_control_is_not_access_denial(monkeypatch):
+    matrix = module(monkeypatch, "release_integrity_fixture_matrix")
+    error = RuntimeError("unknown")
+    error.errno = 2141
+
+    def fail():
+        raise error
+
+    with pytest.raises(RuntimeError):
+        matrix.require_permission_denied(fail, "hidden procedure", procedure_control=fail)
+
+
 def review_data():
     head = "a" * 40
     pr = {

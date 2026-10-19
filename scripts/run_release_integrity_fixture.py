@@ -192,6 +192,7 @@ class Fixture:
                         "query_id": cursor.sfqid,
                         "status": "ERROR",
                         "error_code": getattr(error, "errno", None),
+                        "sqlstate": getattr(error, "sqlstate", None),
                     }
                 )
                 self.save()
