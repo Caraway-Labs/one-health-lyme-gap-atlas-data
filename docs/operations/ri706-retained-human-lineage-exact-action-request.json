@@ -1,0 +1,62 @@
+{
+  "status": "ADDITIONAL_EXACT_ACTION_AUTHORIZATION_REQUIRED",
+  "reason": "Retained human semantic row hashes are absent; existing audit lacks complete human record/absence proof. Do not weaken completeness or infer compatibility.",
+  "object": "ONE_HEALTH_LYME_GAP_ATLAS_PROD.LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V",
+  "installation_role": "OH_LYME_PROD_MIGRATION_DEPLOYER",
+  "installation_route": "Protected V161-only mode of promote-prod.yml (retained_human_lineage_only=true); exact green main/pending checksums and native production approval; no V160 replay",
+  "caller_connection": "ATLAS_PROD_READ",
+  "caller_role": "OH_LYME_PROD_READ",
+  "required_installer_dependency": "SELECT on CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP and the two existing retained source/release views; verify existing grants, stop if unavailable",
+  "new_reader_grants": [
+    "SELECT ON VIEW LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V"
+  ],
+  "base_table_reader_grants": [],
+  "role_membership_changes": [],
+  "bounds": "Exact September/October release-bundle pairs and original human version/run/artifact/hash; duplicate source pins fail closed",
+  "expiry_utc": "2026-10-25T00:00:00Z",
+  "exposed_fields": [
+    "release_id",
+    "bundle_sha256",
+    "source_version_id",
+    "ingestion_run_id",
+    "artifact_id",
+    "artifact_sha256",
+    "source_record_id",
+    "county_fips",
+    "report_year",
+    "state_token",
+    "county_linked_2023",
+    "state_unallocated_2023",
+    "derived_retained_payload_sha256",
+    "hash_derivation"
+  ],
+  "prohibited": [
+    "payload",
+    "frequency/case counts",
+    "sex",
+    "age",
+    "URI",
+    "DML",
+    "scientific approval",
+    "model/pointer changes"
+  ],
+  "hash_semantics": "New explicitly labeled SHA256 of Snowflake TO_JSON retained conformed payload; never represented as a historical persisted semantic row hash",
+  "verification": "Compare complete retained human record identity/fingerprint multisets and exact absence/aggregation membership before any compatibility recommendation; preserve multiplicities and incomplete status on timeout/missing evidence",
+  "revocation": "Retain query-ID/DDL/grant receipts; separately protected revoke only the new SELECT and drop only the receipt-matched new view; preserve existing lineage objects and all model/source data",
+  "sql_artifacts": [
+    {
+      "path": "sql/validation/release-integrity-retained-human-diagnostic-proposal.sql",
+      "normalized_utf8_sha256": "5ebae26983926bbc4fda4e4f93aa3febefbf8af578303482bed31f60ba8a7761"
+    },
+    {
+      "path": "sql/validation/release-integrity-retained-human-diagnostic-revoke.sql",
+      "normalized_utf8_sha256": "935a9f7fbde80b3bbf3853ca3102ddca29f2929dd6e50cba5411d492af8d80e0"
+    }
+  ],
+  "scientific_compatibility_approved": false,
+  "required_final_models": [
+    "tier1",
+    "surveillance-situation-four-state",
+    "surveillance-situation-tick-pathogen"
+  ]
+}

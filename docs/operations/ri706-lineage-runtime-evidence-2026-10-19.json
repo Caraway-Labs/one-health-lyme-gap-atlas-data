@@ -1,0 +1,123 @@
+{
+  "observed_at": "2026-10-19T04:45:52.804576+00:00",
+  "kind": "runtime_evidence_not_scientific_approval",
+  "v160_installation": {
+    "status": "PASS",
+    "applied": [
+      "V160"
+    ],
+    "source_commit": "13ecae6847f6354351f6e17910c1a962af0abe96",
+    "migration_sha256": "8bcc04f07e7b7d1a40bdde8a8de5b57eabd1bbded47059d958579d350cf7c559",
+    "query_receipts": [
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-4eac-0064-2d07012de622"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-4eac-0064-2d07012de626"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-5165-0064-2d07012df12e"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-5165-0064-2d07012df132"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-4eac-0064-2d07012de62a"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-5165-0064-2d07012df136"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-4eac-0064-2d07012de62e"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-4eac-0064-2d07012de632"
+      },
+      {
+        "version": "V160",
+        "query_id": "01c7d3b5-030c-4eac-0064-2d07012de636"
+      }
+    ],
+    "unrelated_ledger_unchanged": true,
+    "models_unchanged": true,
+    "release_pointer_unchanged": true
+  },
+  "native_approval": {
+    "github_user": "CarawayLabs",
+    "environment": "production",
+    "state": "approved",
+    "comment": "deployment approved",
+    "workflow_url": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/39199591614"
+  },
+  "full_lineage_status": "BLOCKED_INCOMPLETE_HUMAN_RECORD_EVIDENCE",
+  "original_release": "governed-2026-09-18-unknown-coverage",
+  "target_release": "governed-2026-10-15-january-climate-prod",
+  "canonical_membership_equal": true,
+  "source_pins_equal": true,
+  "changed_feature_cells_by_field": {
+    "STATE": 0,
+    "POPULATION": 0,
+    "HUMAN_STATUS": 0,
+    "CASE_COUNT_FLOOR_2023": 0,
+    "TICK_STATUS": 0,
+    "SCAPULARIS_STATUS": 0,
+    "PACIFICUS_STATUS": 0,
+    "BURGDORFERI_STATUS": 0,
+    "SVI_PERCENTILE": 0,
+    "RUCC_2023": 0
+  },
+  "diagnostic_code_sha256_at_execution": {
+    "verify_model_source_lineage.py": "14c4cc55a71f917080680e47ff1e41ab92d9df7fe4a87f0f736c275bc3de2ff6",
+    "retained_fixed_source_mapping.py": "8998ce8a5d9e0e7fe7bc31b484cc1a72085e694c30823eb8ce5555c3de7d1482",
+    "compare_tier1_release_inputs.py": "f8aa03efef4326d1360f2f183010c101a5cb60f5624b4ef7748c864877ff1541"
+  },
+  "fixed_mapping_sha256": {
+    "human": "06cf251b7feb0598546927c684f0f5852351d24c221f7970365ce529d853823a",
+    "context_svi": "3d94703a3d151bd8139135e08a0775ef6cce25b8084b9b3f23908b28b1e86ffa",
+    "context_rucc": "20ae8af60e186c36fdb80e391f0272e99a1582b61ddd399e4ade9bdec2e6612c"
+  },
+  "initial_observation_failure": [
+    {
+      "kind": "governed_lineage_validation",
+      "state": "01",
+      "release": "governed-2026-09-18-unknown-coverage",
+      "invalid_rows_by_field": {
+        "required_observation_metadata": 737,
+        "record_match_kind": 268,
+        "source_row_hash": 268
+      },
+      "empty_partition": false
+    }
+  ],
+  "legacy_id_resolution": {
+    "scope": "Alabama partition 01 only; not complete national proof",
+    "context_svi_rows": 402,
+    "context_rucc_rows": 67,
+    "exact_record_and_hash_matches": 469,
+    "query_id": "01c7d3c5-030c-5165-0064-2d07012df3aa"
+  },
+  "remaining_human_gap": {
+    "scope": "Alabama partition 01 only",
+    "observations": 268,
+    "semantic_record_ids_missing": 268,
+    "semantic_row_hashes_missing": 268,
+    "audit_record_match_kind": "UNMATCHED",
+    "historical_rows_not_modified": true
+  },
+  "required_final_models": {
+    "tier1": "BLOCKED: retained predictions not yet admitted to current release",
+    "surveillance-situation-four-state": "ACTIVE: 3144 counties",
+    "surveillance-situation-tick-pathogen": "ACTIVE: 3144 counties"
+  },
+  "completion_policy": "Do not declare this rollout complete without all three required models eligible and consumer verified; no Tier 1 exclusion substitutes for this acceptance.",
+  "scientific_compatibility_approved": false,
+  "next_action": "Exact-action native protected V161 approval for restricted human record identity/derived-hash diagnostic; no raw payload/case-count or base-table reader grant"
+}

@@ -1,4 +1,4 @@
-"""Protected V160-only installation; diagnostic reads use the separate READ caller."""
+"""Protected exact diagnostic-only installation; diagnostic reads use the separate READ caller."""
 
 import hashlib
 import json
@@ -21,22 +21,26 @@ from lyme_gap_atlas_data.sql_sessions import connect
 ROOT = Path(__file__).parents[1]
 PROPOSAL_SHA = "3173d5da48e807092bd31c134dd1ae1a352a71cb24f77b7861869ca36a79ad7a"
 REVOKE_SHA = "51dbef07150869e228a31fe50b037e25c5873f77a6dd4321e7cbf3cc5c711c01"
+HUMAN_PROPOSAL_SHA = "5ebae26983926bbc4fda4e4f93aa3febefbf8af578303482bed31f60ba8a7761"
+HUMAN_REVOKE_SHA = "935a9f7fbde80b3bbf3853ca3102ddca29f2929dd6e50cba5411d492af8d80e0"
 NAMES = tuple(
     f"LINEAGE_AUDIT.RETAINED_MODEL_{name}_V"
     for name in ("RELEASES", "SOURCES", "MEMBERSHIP", "OBSERVATIONS")
 )
 
 
-def verify_artifacts():
+def verify_artifacts(human=False):
     texts = []
-    for suffix, expected in (("proposal", PROPOSAL_SHA), ("revoke", REVOKE_SHA)):
+    prefix = "retained-human" if human else "retained"
+    hashes = (HUMAN_PROPOSAL_SHA, HUMAN_REVOKE_SHA) if human else (PROPOSAL_SHA, REVOKE_SHA)
+    for suffix, expected in zip(("proposal", "revoke"), hashes, strict=True):
         text = (
-            ROOT / f"sql/validation/release-integrity-retained-diagnostic-{suffix}.sql"
+            ROOT / f"sql/validation/release-integrity-{prefix}-diagnostic-{suffix}.sql"
         ).read_text(encoding="utf-8")
         if hashlib.sha256(text.encode()).hexdigest() != expected:
             raise ValueError("LINEAGE_AUTHORIZED_SQL_CHANGED")
         texts.append(text)
-    migration = next(m for m in load_migrations() if m.version == "V160")
+    migration = next(m for m in load_migrations() if m.version == ("V161" if human else "V160"))
     rendered = render_migration(migration, PROD_DATABASE)
     if rendered[rendered.index("USE DATABASE ") :] != texts[0][texts[0].index("USE DATABASE ") :]:
         raise ValueError("LINEAGE_MIGRATION_DIFFERS_FROM_AUTHORIZED_SQL")
@@ -45,7 +49,7 @@ def verify_artifacts():
     return migration
 
 
-def snapshot(settings):
+def snapshot(settings, target="V160"):
     with connect(settings) as connection, connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
@@ -60,7 +64,8 @@ def snapshot(settings):
             raise ValueError("LINEAGE_INSTALLATION_IDENTITY")
         cursor.execute(
             "SELECT version,filename,sha256,deployment_commit,applied_by,applied_at "
-            "FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version<>'V160' ORDER BY version,applied_at"
+            "FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version<>%s ORDER BY version,applied_at",
+            (target,),
         )
         ledger = cursor.fetchall()
         cursor.execute("SELECT release_id,bundle_sha256 FROM PRESENTATION.CURRENT_RELEASE_V")
@@ -88,31 +93,50 @@ def main():
         or not re.fullmatch(r"[0-9a-f]{40}", commit)
     ):
         raise SystemExit("LINEAGE_PROTECTED_REVIEWED_MAIN_REQUIRED")
-    migration = verify_artifacts()
+    human = os.environ.get("RETAINED_LINEAGE_HUMAN_ONLY") == "true"
+    migration = verify_artifacts(human)
     settings = SnowflakeSettings()
-    before = snapshot(settings)
+    before = snapshot(settings, migration.version)
     receipts = []
     result = {
         "source_commit": commit,
         "migration_sha256": migration.sha256,
-        "proposal_sha256": PROPOSAL_SHA,
+        "proposal_sha256": HUMAN_PROPOSAL_SHA if human else PROPOSAL_SHA,
         "query_receipts": receipts,
         "status": "incomplete",
     }
     try:
+        if human:
+            with connect(settings) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT source_record_id,county_fips,report_year,case_status,artifact_id,"
+                    "data_source_version_id,ingestion_run_id,payload:state::VARCHAR "
+                    "FROM CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP LIMIT 0"
+                )
+                receipts.append(
+                    {
+                        "version": migration.version,
+                        "query_id": cursor.sfqid,
+                        "kind": "dependency_compilation_before_ddl",
+                    }
+                )
         applied = apply_migrations(
             settings,
             PROD_DATABASE,
             commit,
             expected_pending=parse_reviewed_pending_set(os.environ["EXPECTED_PENDING_JSON"]),
-            retained_lineage_only=True,
+            retained_lineage_only=not human,
+            retained_lineage_human_only=human,
             execution_receipts=receipts,
         )
-        if not set(applied) <= {"V160"} or snapshot(settings) != before:
+        if (
+            not set(applied) <= {migration.version}
+            or snapshot(settings, migration.version) != before
+        ):
             raise ValueError("LINEAGE_UNRELATED_LEDGER_RELEASE_OR_MODELS_CHANGED")
         views = []
         with connect(settings) as connection, connection.cursor() as cursor:
-            for name in NAMES:
+            for name in ("LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V",) if human else NAMES:
                 cursor.execute("SELECT GET_DDL('VIEW',%s)", (name,))
                 ddl = cursor.fetchone()[0]
                 cursor.execute(f"SHOW GRANTS ON VIEW {name}")

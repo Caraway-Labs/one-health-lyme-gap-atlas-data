@@ -3,6 +3,11 @@ name: Promote governed pipeline to PROD
 on:
   workflow_dispatch:
     inputs:
+      retained_human_lineage_only:
+        description: Install only V161 scoped human-record identities and derived hashes; no model/scientific approval
+        required: false
+        type: boolean
+        default: false
       retained_lineage_only:
         description: Install only authorized V160 restricted retained-lineage secure views; no image promotion or scientific admission
         required: false
@@ -75,7 +80,7 @@ concurrency:
 
 jobs:
   promote:
-    if: ${{ inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
+    if: ${{ inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -305,7 +310,7 @@ jobs:
 
 
   january-climate:
-    if: ${{ inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
+    if: ${{ inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
     name: Protected reviewed PROD migrations only
     runs-on: ubuntu-latest
     environment: production
@@ -372,8 +377,8 @@ jobs:
           timeout --signal=INT --kill-after=15s "$deadline" uv run python "$runner"
 
   retained-lineage:
-    if: ${{ inputs.retained_lineage_only == true }}
-    name: Protected V160 retained-lineage diagnostic installation
+    if: ${{ inputs.retained_lineage_only == true || inputs.retained_human_lineage_only == true }}
+    name: Protected retained-lineage diagnostic installation
     runs-on: ubuntu-latest
     timeout-minutes: 8
     environment: production
@@ -384,6 +389,7 @@ jobs:
       TOPX_ENV: prod
       ENABLE_PRODUCTION_EXECUTION: "true"
       RETAINED_LINEAGE_ONLY: "true"
+      RETAINED_LINEAGE_HUMAN_ONLY: ${{ inputs.retained_human_lineage_only }}
       DIAGNOSTIC_ARTIFACT: ${{ inputs.image_digest }}
       ATLAS_JANUARY_PROD_SESSION: "true"
       ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
@@ -407,12 +413,17 @@ jobs:
           test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
           test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
           test '${{ inputs.release_integrity_only }}:${{ inputs.cdc_admission_only }}:${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}:${{ inputs.county_context_only }}:${{ inputs.protected_intelligence_prerequisite }}' = false:false:false:false:false:false:false
-          test "$DIAGNOSTIC_ARTIFACT" = retained-lineage-only
+          test '${{ inputs.retained_lineage_only }}:${{ inputs.retained_human_lineage_only }}' != true:true
+          if [[ "$RETAINED_LINEAGE_HUMAN_ONLY" == true ]]; then
+            test "$DIAGNOSTIC_ARTIFACT" = retained-human-lineage-only
+          else
+            test "$DIAGNOSTIC_ARTIFACT" = retained-lineage-only
+          fi
           passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed" -gt 0
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
-      - name: Install only exact authorized V160 and retain readback receipts
+      - name: Install only exact authorized diagnostic migration and retain receipts
         run: |
           set -euo pipefail
           key_file="$RUNNER_TEMP/retained-lineage-migration.p8"

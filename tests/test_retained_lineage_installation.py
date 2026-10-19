@@ -1,5 +1,6 @@
 """Only the exact approved, expiring diagnostic DDL may reach protected PROD."""
 
+import json
 import runpy
 from contextlib import nullcontext
 from dataclasses import replace
@@ -40,7 +41,8 @@ def test_exact_authorized_sql_and_protected_workflow(monkeypatch):
 
 
 @pytest.mark.parametrize("replay", [False, True])
-def test_scope_preserves_prior_model_installation_and_pending_v150(monkeypatch, replay):
+@pytest.mark.parametrize("human", [False, True])
+def test_scope_preserves_prior_model_installation_and_pending_v150(monkeypatch, replay, human):
     parents = {
         "V137",
         "V148",
@@ -54,8 +56,11 @@ def test_scope_preserves_prior_model_installation_and_pending_v150(monkeypatch, 
         "V158",
         "V159",
     }
-    plan = [m for m in migrations.load_migrations() if m.version in parents | {"V150", "V160"}]
-    target = next(m for m in plan if m.version == "V160")
+    version = "V161" if human else "V160"
+    if human:
+        parents.add("V160")
+    plan = [m for m in migrations.load_migrations() if m.version in parents | {"V150", version}]
+    target = next(m for m in plan if m.version == version)
     applied = [(m.version, m.sha256) for m in plan if m.version in parents]
     reviewed = [migrations._migration_metadata(m) for m in plan if m.version not in parents]
     if replay:
@@ -76,14 +81,16 @@ def test_scope_preserves_prior_model_installation_and_pending_v150(monkeypatch, 
         migrations.PROD_DATABASE,
         COMMIT,
         expected_pending=reviewed,
-        retained_lineage_only=True,
-    ) == ([] if replay else ["V160"])
+        retained_lineage_only=not human,
+        retained_lineage_human_only=human,
+    ) == ([] if replay else [version])
     assert connection.execute_string.call_count == (0 if replay else 1)
     if not replay:
         assert (
-            "CREATE SECURE VIEW LINEAGE_AUDIT.RETAINED_MODEL_RELEASES_V"
-            in connection.execute_string.call_args.args[0]
-        )
+            "CREATE SECURE VIEW LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V"
+            if human
+            else "CREATE SECURE VIEW LINEAGE_AUDIT.RETAINED_MODEL_RELEASES_V"
+        ) in connection.execute_string.call_args.args[0]
 
 
 @pytest.mark.parametrize(
@@ -92,6 +99,7 @@ def test_scope_preserves_prior_model_installation_and_pending_v150(monkeypatch, 
         {"database": migrations.DEV_DATABASE},
         {"commit": None},
         {"release_integrity_only": True},
+        {"retained_lineage_human_only": True},
         {"expected_pending": []},
     ],
 )
@@ -141,3 +149,34 @@ def test_chat_or_local_execution_cannot_replace_protected_environment(monkeypatc
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     with pytest.raises(SystemExit, match="PROTECTED_REVIEWED_MAIN"):
         helper["main"]()
+
+
+def test_human_projection_requires_exact_sql_and_preserves_privacy(monkeypatch):
+    import hashlib
+
+    import sqlglot
+
+    helper = runpy.run_path(str(ROOT / "scripts/apply_retained_lineage_migration.py"))
+    clock = Mock()
+    clock.now.return_value = datetime(2026, 10, 18, tzinfo=UTC)
+    clock.side_effect = datetime
+    monkeypatch.setitem(helper["verify_artifacts"].__globals__, "datetime", clock)
+    migration = helper["verify_artifacts"](True)
+    sql = migrations.render_migration(migration, migrations.PROD_DATABASE)
+    assert migration.version == "V161"
+    assert sql.count("CREATE SECURE VIEW ") == 1
+    assert sql.count("GRANT SELECT ON VIEW ") == 1
+    assert "CREATE OR REPLACE" not in sql
+    assert "QUALIFY COUNT(*) OVER (PARTITION BY s.release_id)=1" in sql
+    assert "SHA2(TO_JSON(c.payload),256) AS derived_retained_payload_sha256" in sql
+    sqlglot.parse(sql, read="snowflake")
+    request = json.loads(
+        (
+            ROOT / "docs/operations/ri706-retained-human-lineage-exact-action-request.json"
+        ).read_text()
+    )
+    for artifact in request["sql_artifacts"]:
+        assert (
+            hashlib.sha256((ROOT / artifact["path"]).read_text().encode()).hexdigest()
+            == artifact["normalized_utf8_sha256"]
+        )

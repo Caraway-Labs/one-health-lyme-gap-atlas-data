@@ -26,6 +26,9 @@ import pytest
         "malformed_checksum",
         "manifest_artifact_disagreement",
         "metadata_run_disagreement",
+        "legacy_internal_id",
+        "wrong_internal_id",
+        "missing_internal_id",
     ],
 )
 def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
@@ -126,6 +129,16 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
             "SEMANTIC_SOURCE_ROW_HASH": "b" * 64 if target and change == "row" else "a" * 64,
             "SEMANTIC_SOURCE_RECORD_ID": None if change == "missing_row_field" else "record",
         }
+        if change in {"legacy_internal_id", "wrong_internal_id", "missing_internal_id"}:
+            row["RECORD_MATCH_KIND"] = "LEGACY_CONFORMED"
+            row["GOVERNED_SOURCE_RECORD_ID"] = None
+            row["CONFORMED_RECORD_ID"] = (
+                "record"
+                if change == "legacy_internal_id"
+                else "wrong"
+                if change == "wrong_internal_id"
+                else None
+            )
         return [row, dict(row)] if target and change == "duplicate_id" else [row]
 
     monkeypatch.setattr(module, "query", query)
@@ -134,7 +147,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
     if projected:
         argv.append("--reviewed-projections")
     monkeypatch.setattr("sys.argv", argv)
-    if change:
+    if change and change != "legacy_internal_id":
         with pytest.raises(ValueError, match="differ|dropped|governed|duplicated|Incomplete"):
             module.main()
         assert json.loads(receipt.read_text())["status"] != "complete_equal_not_approval"
@@ -144,7 +157,7 @@ def test_full_lineage_proof_is_multiplicity_sensitive_and_not_an_approval(
 
     if projected:
         assert not any("PRESENTATION.SEMANTIC_" in sql for sql in emitted)
-    if change:
+    if change and change != "legacy_internal_id":
         assert json.loads(receipt.read_text())["mismatches"]
 
 

@@ -249,7 +249,10 @@ def main():
         rows = []
         for release in (ORIGINAL, TARGET):
             result = read(
-                "SELECT " + ROW_FIELDS + ",observation_id,release_bundle_sha256 FROM "
+                "SELECT "
+                + ROW_FIELDS
+                + ",observation_id,release_bundle_sha256,revision_record_id,conformed_record_id "
+                "FROM "
                 "LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V "
                 f"WHERE release_id='{release}' AND SUBSTR(county_fips,1,2)='{state}' "
                 "AND source_key IN ('human','pathogen','context_svi','context_rucc','tick')",
@@ -287,6 +290,17 @@ def main():
             expected_bundle = ORIGINAL_BUNDLE if release == ORIGINAL else BUNDLE
             invalid = Counter()
             for row in result:
+                # The semantic writer permits the internal record ID when the
+                # publisher has no separate source_record_id. Require the exact
+                # matched internal identity; never fill a missing ID by inference.
+                if row.get("GOVERNED_SOURCE_RECORD_ID") is None and row.get(
+                    "RECORD_MATCH_KIND"
+                ) in {"IMMUTABLE_REVISION", "LEGACY_CONFORMED"}:
+                    candidates = {row.get("REVISION_RECORD_ID"), row.get("CONFORMED_RECORD_ID")} - {
+                        None
+                    }
+                    if row.get("SEMANTIC_SOURCE_RECORD_ID") in candidates:
+                        row["GOVERNED_SOURCE_RECORD_ID"] = row["SEMANTIC_SOURCE_RECORD_ID"]
                 source = source_identities[release].get(row.get("SOURCE_KEY"), {})
                 checksum = source_checksums[release].get(row.get("SOURCE_KEY"))
                 complete = all(
@@ -339,7 +353,13 @@ def main():
                         {
                             k: v
                             for k, v in row.items()
-                            if k not in {"OBSERVATION_ID", "RELEASE_BUNDLE_SHA256"}
+                            if k
+                            not in {
+                                "OBSERVATION_ID",
+                                "RELEASE_BUNDLE_SHA256",
+                                "REVISION_RECORD_ID",
+                                "CONFORMED_RECORD_ID",
+                            }
                         }
                         for row in result
                     ]
