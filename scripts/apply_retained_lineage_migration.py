@@ -21,7 +21,7 @@ from lyme_gap_atlas_data.sql_sessions import connect
 ROOT = Path(__file__).parents[1]
 PROPOSAL_SHA = "3173d5da48e807092bd31c134dd1ae1a352a71cb24f77b7861869ca36a79ad7a"
 REVOKE_SHA = "51dbef07150869e228a31fe50b037e25c5873f77a6dd4321e7cbf3cc5c711c01"
-HUMAN_PROPOSAL_SHA = "5ebae26983926bbc4fda4e4f93aa3febefbf8af578303482bed31f60ba8a7761"
+HUMAN_PROPOSAL_SHA = "03ab3309862d4e2e809df595d651460c2e74ecccf6d61739fbabf454cb9c6ac4"
 HUMAN_REVOKE_SHA = "935a9f7fbde80b3bbf3853ca3102ddca29f2929dd6e50cba5411d492af8d80e0"
 NAMES = tuple(
     f"LINEAGE_AUDIT.RETAINED_MODEL_{name}_V"
@@ -109,9 +109,9 @@ def main():
         if human:
             with connect(settings) as connection, connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT source_record_id,county_fips,report_year,case_status,artifact_id,"
+                    "SELECT source_record_id,payload:fips::VARCHAR,payload:year::NUMBER,artifact_id,"
                     "data_source_version_id,ingestion_run_id,payload:state::VARCHAR "
-                    "FROM CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP LIMIT 0"
+                    "FROM RAW.CDC_LYME_X5J9_WYBP LIMIT 0"
                 )
                 receipts.append(
                     {

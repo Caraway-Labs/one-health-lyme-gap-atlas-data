@@ -6,7 +6,7 @@
   "installation_route": "Protected V161-only mode of promote-prod.yml (retained_human_lineage_only=true); exact green main/pending checksums and native production approval; no V160 replay",
   "caller_connection": "ATLAS_PROD_READ",
   "caller_role": "OH_LYME_PROD_READ",
-  "required_installer_dependency": "SELECT on CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP and the two existing retained source/release views; verify existing grants, stop if unavailable",
+  "required_installer_dependency": "SELECT on RAW.CDC_LYME_X5J9_WYBP and the two existing retained source/release views; verify existing grants, stop if unavailable",
   "new_reader_grants": [
     "SELECT ON VIEW LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V"
   ],
@@ -40,13 +40,13 @@
     "scientific approval",
     "model/pointer changes"
   ],
-  "hash_semantics": "New explicitly labeled SHA256 of Snowflake TO_JSON retained conformed payload; never represented as a historical persisted semantic row hash",
+  "hash_semantics": "New explicitly labeled SHA256 of Snowflake TO_JSON retained RAW payload; never represented as a historical persisted semantic row hash",
   "verification": "Compare complete retained human record identity/fingerprint multisets and exact absence/aggregation membership before any compatibility recommendation; preserve multiplicities and incomplete status on timeout/missing evidence",
   "revocation": "Retain query-ID/DDL/grant receipts; separately protected revoke only the new SELECT and drop only the receipt-matched new view; preserve existing lineage objects and all model/source data",
   "sql_artifacts": [
     {
       "path": "sql/validation/release-integrity-retained-human-diagnostic-proposal.sql",
-      "normalized_utf8_sha256": "5ebae26983926bbc4fda4e4f93aa3febefbf8af578303482bed31f60ba8a7761"
+      "normalized_utf8_sha256": "03ab3309862d4e2e809df595d651460c2e74ecccf6d61739fbabf454cb9c6ac4"
     },
     {
       "path": "sql/validation/release-integrity-retained-human-diagnostic-revoke.sql",
@@ -58,5 +58,6 @@
     "tier1",
     "surveillance-situation-four-state",
     "surveillance-situation-tick-pathogen"
-  ]
+  ],
+  "retention_reason": "Read exact retained RAW version/run/artifact, not a current conformed view which can filter retired versions"
 }

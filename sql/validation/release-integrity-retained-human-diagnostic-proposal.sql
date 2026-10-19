@@ -23,17 +23,17 @@ WITH pins AS (
  QUALIFY COUNT(*) OVER (PARTITION BY s.release_id)=1
 )
 SELECT p.release_id,p.bundle_sha256,p.source_version_id,p.ingestion_run_id,
-       p.artifact_id,p.artifact_sha256,c.source_record_id,c.county_fips,c.report_year,
+       p.artifact_id,p.artifact_sha256,c.source_record_id,c.payload:fips::VARCHAR AS county_fips,c.payload:year::NUMBER AS report_year,
        UPPER(TRIM(CASE WHEN TYPEOF(c.payload:record)='OBJECT'
          THEN c.payload:record:state::VARCHAR ELSE c.payload:state::VARCHAR END)) AS state_token,
-       (c.report_year=2023 AND LOWER(c.case_status) IN ('confirmed','probable')
-        AND REGEXP_LIKE(c.county_fips,'^[0-9]{5}$')) AS county_linked_2023,
-       (c.report_year=2023 AND LOWER(c.county_fips) IN ('unknown','suppressed','not reported'))
+       (c.payload:year::NUMBER=2023 AND LOWER(c.payload:case_status::VARCHAR) IN ('confirmed','probable')
+        AND REGEXP_LIKE(c.payload:fips::VARCHAR,'^[0-9]{5}$')) AS county_linked_2023,
+       (c.payload:year::NUMBER=2023 AND LOWER(c.payload:fips::VARCHAR) IN ('unknown','suppressed','not reported'))
         AS state_unallocated_2023,
        SHA2(TO_JSON(c.payload),256) AS derived_retained_payload_sha256,
-       'SHA256_SNOWFLAKE_TO_JSON_RETAINED_CONFORMED_PAYLOAD_V1' AS hash_derivation
+       'SHA256_SNOWFLAKE_TO_JSON_RETAINED_RAW_PAYLOAD_V1' AS hash_derivation
 FROM pins p
-JOIN CONFORMED.CONFORMED_CDC_LYME_X5J9_WYBP c
+JOIN RAW.CDC_LYME_X5J9_WYBP c
  ON c.data_source_version_id=p.source_version_id
  AND c.ingestion_run_id=p.ingestion_run_id AND c.artifact_id=p.artifact_id;
 
