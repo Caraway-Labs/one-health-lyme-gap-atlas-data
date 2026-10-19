@@ -61,6 +61,7 @@ def evidence(verifier):
     }
     review = {
         "reviewed_commit": source,
+        "pull_request": 706,
         "scope": verifier.MARKER,
         "human_reviews": {"engineering": [{"review_id": 1}], "security": [{"review_id": 2}]},
     }
@@ -82,6 +83,37 @@ def test_identical_merge_tree_preserves_the_exact_tested_source_and_digest(verif
         artifacts=artifacts,
     )
     assert result == {"source_commit": source, "merged_main_commit": main, "image_digest": image}
+
+
+def test_followup_review_identity_is_retained_and_cannot_be_substituted(verifier):
+    source, main, image, pr, run, receipt, review, artifacts = evidence(verifier)
+    pr["number"] = review["pull_request"] = 707
+    verifier.validate(
+        source,
+        main,
+        image,
+        pr,
+        run,
+        receipt,
+        review,
+        same_tree=True,
+        ancestor=True,
+        artifacts=artifacts,
+    )
+    review["pull_request"] = 706
+    with pytest.raises(ValueError, match="REVIEWED_SOURCE"):
+        verifier.validate(
+            source,
+            main,
+            image,
+            pr,
+            run,
+            receipt,
+            review,
+            same_tree=True,
+            ancestor=True,
+            artifacts=artifacts,
+        )
 
 
 @pytest.mark.parametrize(
