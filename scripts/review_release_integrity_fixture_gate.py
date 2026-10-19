@@ -208,9 +208,9 @@ def main():
             "rendered_sha256": hashlib.sha256(render_fixture(m).encode()).hexdigest(),
         }
         for m in load_migrations()
-        if m.version in {"V157", "V158"}
+        if m.version in {"V157", "V158", "V159"}
     ]
-    if {a["version"] for a in artifacts} != {"V157", "V158"} or artifacts != json.loads(
+    if {a["version"] for a in artifacts} != {"V157", "V158", "V159"} or artifacts != json.loads(
         os.environ["RI706_EXPECTED_ARTIFACTS"]
     ):
         raise ValueError("FIXTURE_EXACT_SOURCE_AND_RENDERED_CHECKSUMS_REQUIRED")

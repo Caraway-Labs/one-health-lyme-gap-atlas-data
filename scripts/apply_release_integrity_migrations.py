@@ -1,4 +1,4 @@
-"""Install only reviewed V157/V158 using the existing protected image promotion.
+"""Install only reviewed V157/V158/V159 using the existing protected image promotion.
 
 No approval, batch publication, source retagging or release-pointer movement.
 The complete pending inventory is reviewed even though unrelated DDL is deferred.
@@ -13,7 +13,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_data.migrations import apply_migrations, parse_reviewed_pending_set
 from lyme_gap_atlas_data.sql_sessions import connect
 
-TARGETS = {"V157", "V158"}
+TARGETS = {"V157", "V158", "V159"}
 RELEASE = "governed-2026-10-15-january-climate-prod"
 BUNDLE = "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
 

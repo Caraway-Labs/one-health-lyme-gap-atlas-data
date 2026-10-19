@@ -150,3 +150,20 @@ Four projections expire closed on the proposed fixed date and have exact-action
 hashes plus scoped revoke/drop instructions. No grant/DDL is authorized or
 executed by preparation. Raw feature fields and canonical membership join the
 complete source/observation comparison; predictor equality alone never passes.
+
+
+### Installed DEV correction: V159
+
+The owner-provided failed-query diagnostic for run 39188869461 proves V158's
+activation guard rejected Snowflake BOOLEAN values, which JavaScript receives as
+numeric 0/1. V159 replaces only that procedure, validates exactly 0/1 and a string
+reason of at least 12 characters, and preserves its authorization, compatibility,
+transaction and event controls. V157/V158 SQL and applied ledger rows remain
+immutable. The protected fixture and scoped PROD installer include V159 in the
+exact source/rendered hash manifest; native fixture authorization must explicitly
+cover the added artifact. PROD execution still requires its separate authorization.
+Recovery preserves original pair provenance and records V159's own source/image.
+The four prior publication atomicity cases may be retained only from the hashed,
+native-owner-authorized failed receipt with identical V157/V158 artifacts; all
+activation, withdrawal and remaining cases run against V159. This does not reuse
+prior activation evidence or authorize any real scientific/model admission.

@@ -154,7 +154,7 @@ def test_corrected_harness_reuses_complete_installation_without_ddl_or_ledger_re
         assert ledger == original_ledger
         assert resumed.receipt["installation_mode"] == "REUSED_IMMUTABLE_PAIR"
         assert resumed.receipt["installation_binding"] == original
-    assert len(executed) == 2
+    assert len(executed) == 3
     assert not any(
         sql.startswith(("CREATE", "GRANT", "INSERT", "UPDATE", "DROP"))
         for _, sql, _ in mutations[before:]
@@ -257,6 +257,7 @@ def test_immutable_bindings_are_checked_before_connect(monkeypatch, tmp_path, ba
         assert {a["version"] for a in runner.binding_from_environment()["artifacts"]} == {
             "V157",
             "V158",
+            "V159",
         }
 
 
@@ -301,10 +302,10 @@ def test_interrupted_pair_resumes_then_replays_without_reexecuting(monkeypatch, 
         fixture.install(connection, stop_after_v157=True)
     assert [row[0] for row in ledger] == ["V157"]
     fixture.install(connection)
-    assert [row[0] for row in ledger] == ["V157", "V158"]
-    assert len(executed) == 2
+    assert [row[0] for row in ledger] == ["V157", "V158", "V159"]
+    assert len(executed) == 3
     fixture.install(connection)
-    assert len(executed) == 2
+    assert len(executed) == 3
     assert all("V155" not in sql for _, sql, _ in mutations)
 
 
@@ -319,7 +320,7 @@ def test_recovery_rejects_changed_original_rendered_commit_image_or_marker(
     ledger[0] = tuple(changed)
     with pytest.raises(PermissionError, match="LEDGER_MISMATCH"):
         fixture.install(connection)
-    assert len(executed) == 2
+    assert len(executed) == 3
 
 
 def test_wrong_schema_owner_or_marker_is_preserved(monkeypatch, tmp_path):
@@ -482,3 +483,70 @@ def test_committed_fixture_artifacts_match_original_and_fixed_rendering(monkeypa
         if migration.version in {"V157", "V158"}
     ]
     assert retained == actual
+
+
+@pytest.mark.parametrize("bad", [None, "V157", "V159"])
+def test_forward_activation_fix_preserves_pair_and_records_own_provenance(
+    monkeypatch, tmp_path, bad
+):
+    import copy
+
+    fixture, connection, ledger, executed, mutations = fake_install(monkeypatch, tmp_path)
+    fixture.install(connection)
+    ledger.pop()  # Model the actual retained V157/V158 installation.
+    original = copy.deepcopy(fixture.binding)
+    original["artifacts"] = original["artifacts"][:2]
+    unchanged_pair = copy.deepcopy(ledger)
+    current = copy.deepcopy(fixture.binding)
+    current.update(commit="c" * 40, image_digest="sha256:" + "d" * 64)
+    runner = module(monkeypatch, "run_release_integrity_fixture")
+    resumed = runner.Fixture(current, tmp_path / "forward.json", installation_binding=original)
+    previous_query = fixture.query
+
+    def query(connection, label, sql, params=(), **kwargs):
+        if label == "schema_preflight":
+            marker = json.dumps(original, sort_keys=True, separators=(",", ":"))
+            return [
+                (schema, marker, "OH_LYME_DEV_MIGRATION_DEPLOYER")
+                for schema in runner.SCHEMAS.values()
+            ]
+        return previous_query(connection, label, sql, params, **kwargs)
+
+    resumed.query = query
+    before = len(executed)
+    resumed.install(connection)
+    assert ledger[:2] == unchanged_pair
+    assert len(executed) == before + 1
+    assert "Snowflake SQL BOOLEAN" in executed[-1]
+    assert ledger[-1][0] == "V159"
+    assert ledger[-1][3:5] == (current["commit"], current["image_digest"])
+    if bad:
+        index = 0 if bad == "V157" else 2
+        row = list(ledger[index])
+        row[4] = "sha256:" + "f" * 64
+        ledger[index] = tuple(row)
+        with pytest.raises(PermissionError, match="LEDGER_MISMATCH"):
+            resumed.install(connection)
+    else:
+        resumed.install(connection)
+        assert len(executed) == before + 1
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_retained_pair_proof_accepts_only_identical_prefix_before_forward_fix(monkeypatch, changed):
+    proof = module(monkeypatch, "retained_fixture_installation")
+    artifacts = [{"version": v, "sha": v} for v in ("V157", "V158", "V159")]
+    binding = {
+        "commit": "a" * 40,
+        "image_digest": "sha256:" + "b" * 64,
+        "marker": proof.MARKER,
+        "artifacts": artifacts[:2],
+    }
+    receipt = {"binding": binding, "status": "FAIL", "installation": "PASS", "live_unchanged": True}
+    run = {"status": "completed", "conclusion": "failure", "head_sha": "a" * 40}
+    if changed:
+        artifacts = [{"version": "V157", "sha": "changed"}, *artifacts[1:]]
+        with pytest.raises(ValueError, match="IDENTICAL_INSTALLED_PAIR"):
+            proof.validate_installation(run, receipt, artifacts)
+    else:
+        assert proof.validate_installation(run, receipt, artifacts) == binding

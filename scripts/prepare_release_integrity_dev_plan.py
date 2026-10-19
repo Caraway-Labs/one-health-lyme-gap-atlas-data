@@ -20,8 +20,8 @@ SCHEMAS = {name: "RI706_" + name for name in ("FEATURE_STORE", "PRESENTATION", "
 
 
 def render_fixture(migration):
-    if migration.version not in {"V157", "V158"}:
-        raise ValueError("Only the exact V157/V158 pair can be prepared")
+    if migration.version not in {"V157", "V158", "V159"}:
+        raise ValueError("Only the exact V157/V158/V159 pair can be prepared")
     sql = render_migration(migration, DEV_DATABASE)
     for source, target in SCHEMAS.items():
         sql = re.sub(r"\b" + source + r"\.", target + ".", sql)
@@ -37,8 +37,8 @@ def render_fixture(migration):
 def prepare(output):
     if output.exists():
         raise ValueError("Use a fresh plan directory; existing evidence is immutable")
-    selected = [m for m in load_migrations() if m.version in {"V157", "V158"}]
-    if {m.version for m in selected} != {"V157", "V158"}:
+    selected = [m for m in load_migrations() if m.version in {"V157", "V158", "V159"}]
+    if {m.version for m in selected} != {"V157", "V158", "V159"}:
         raise ValueError("Incomplete migration pair")
     output.mkdir(parents=True)
     plan = {

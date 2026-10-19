@@ -535,6 +535,38 @@ def run_matrix(f, migration, documents):
                 ),
             )
     q(publisher, "publish_frozen_fits", publish_sql, publish_params)
+
+    def activation_state():
+        return q(
+            migration,
+            "activation_state",
+            "SELECT batch_id,batch_version,revision FROM "
+            "FEATURE_STORE.SURVEILLANCE_SITUATION_POINTER WHERE pointer_key='CURRENT'",
+        )
+
+    before_invalid_activation = activation_state()
+    for label, sql in (
+        (
+            "null_activation_rejected",
+            "CALL FEATURE_STORE.SP_SET_SURVEILLANCE_SITUATION_ACTIVE(NULL::BOOLEAN,%s)",
+        ),
+        (
+            "short_activation_reason_rejected",
+            "CALL FEATURE_STORE.SP_SET_SURVEILLANCE_SITUATION_ACTIVE(TRUE,'short')",
+        ),
+    ):
+        case(
+            label,
+            lambda label=label, sql=sql: fail(
+                label, owner, sql, (MARKER,) if "%s" in sql else (), text="INVALID_ROLLBACK_REQUEST"
+            ),
+        )
+    case(
+        "invalid_activation_preserves_pointer",
+        lambda: require_equal(
+            activation_state(), before_invalid_activation, "invalid activation changed pointer"
+        ),
+    )
     q(
         owner,
         "synthetic_restore_active_baseline",

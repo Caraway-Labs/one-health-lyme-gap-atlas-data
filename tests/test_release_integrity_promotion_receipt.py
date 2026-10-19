@@ -249,3 +249,43 @@ def test_pair_install_never_requires_or_mutates_either_app_deployment():
             assert "inputs.release_integrity_only != true" in step["if"]
     assert workflow["jobs"]["promote"]["environment"] == "production"
     assert any("verify_release_integrity_promotion.py" in step.get("run", "") for step in steps)
+
+
+@pytest.mark.parametrize(
+    "retained_name", ["pointer_and_events_rolled_back", "one_concurrent_decision"]
+)
+def test_only_unchanged_publication_atomicity_can_use_retained_evidence(verifier, retained_name):
+    source, main, image, pr, run, receipt, review, artifacts = evidence(verifier)
+    installed = receipt["binding"]
+    retained = [{"case": retained_name, "status": "PASS", "marker": verifier.MARKER}]
+    recovery = {
+        "run_id": 122,
+        "installation_binding": installed,
+        "atomic_publication_cases": retained,
+    }
+    binding = verifier.execution_binding(source, run, artifacts, recovery)
+    review["owner_authorization"]["binding"] = binding
+    review["owner_authorization"]["binding_sha256"] = verifier.binding_digest(binding)
+    receipt["installation_binding"] = installed
+    receipt["retained_cases"] = retained
+    receipt["cases"] = [row for row in receipt["cases"] if row["case"] != retained_name]
+
+    def validate():
+        return verifier.validate(
+            source,
+            main,
+            image,
+            pr,
+            run,
+            receipt,
+            review,
+            same_tree=True,
+            ancestor=True,
+            artifacts=artifacts,
+        )
+
+    if retained_name == "pointer_and_events_rolled_back":
+        validate()
+        receipt["retained_cases"] = []
+    with pytest.raises(ValueError, match="COMPLETE_DIGEST_BOUND"):
+        validate()

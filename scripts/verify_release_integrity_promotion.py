@@ -53,6 +53,19 @@ def validate(source, main, image, pr, run, receipt, review, *, same_tree, ancest
     owner_binding = execution_binding(source, run, artifacts, recovery)
     expected = {"marker": MARKER, "commit": source, "image_digest": image, "artifacts": artifacts}
     names = {row["case"] for row in receipt.get("cases", []) if row.get("status") == "PASS"}
+    if recovery and receipt.get("retained_cases") == recovery.get("atomic_publication_cases"):
+        names |= {
+            row["case"]
+            for row in receipt.get("retained_cases", [])
+            if row.get("status") == "PASS"
+            and row.get("case")
+            in {
+                "atomic_publication_failure",
+                "assignment_insert_rolled_back",
+                "batch_insert_rolled_back",
+                "pointer_and_events_rolled_back",
+            }
+        }
     required = {
         "final_publication_membership",
         "complete_inventory_publish_and_rollback",
@@ -118,7 +131,7 @@ def main():
             "rendered_sha256": hashlib.sha256(render_fixture(m).encode()).hexdigest(),
         }
         for m in load_migrations()
-        if m.version in {"V157", "V158"}
+        if m.version in {"V157", "V158", "V159"}
     ]
     run = gh(f"repos/{REPOSITORY}/actions/runs/{run_id}")
     with tempfile.TemporaryDirectory(prefix="ri706-dev-proof-") as directory:

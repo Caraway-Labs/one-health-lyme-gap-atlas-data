@@ -7,7 +7,7 @@ on:
         type: boolean
         default: false
       ri706_expected_artifacts:
-        description: Exact V157/V158 original and rendered artifact JSON from the reviewed checkout
+        description: Exact V157/V158/V159 original and rendered artifact JSON from the reviewed checkout
         type: string
         required: false
       ri706_synthetic_authorization:
@@ -15,7 +15,7 @@ on:
         type: string
         required: false
       ri706_recovery_run_id:
-        description: Prior owner-authorized failed fixture run with the identical installed V157/V158 pair
+        description: Prior owner-authorized failed fixture run with the identical installed V157/V158/V159 pair
         type: string
         required: false
         default: ""

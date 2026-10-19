@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_integrity_only:
-        description: Install only reviewed V157/V158 before exact DEV-tested image promotion; no approvals or publication
+        description: Install only reviewed V157/V158/V159 before exact DEV-tested image promotion; no approvals or publication
         required: false
         type: boolean
         default: false

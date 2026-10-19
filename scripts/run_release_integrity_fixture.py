@@ -27,7 +27,7 @@ OLD = "governed-2026-09-18-unknown-coverage"
 OLD_BUNDLE = "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026"
 FROZEN = "governed-2026-10-15-january-climate-prod"
 BUNDLE = "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
-TARGETS = {"V157", "V158"}
+TARGETS = {"V157", "V158", "V159"}
 ROLES = {
     "migration": "MIGRATION_DEPLOYER",
     "owner": "OWNER",
@@ -81,7 +81,13 @@ def retained_installation_binding(binding):
         return binding
     installed = recovery["installation_binding"]
     if (
-        installed.get("artifacts") != binding["artifacts"]
+        installed.get("artifacts")
+        != [
+            a
+            for a in binding["artifacts"]
+            if a["version"] in {x["version"] for x in installed.get("artifacts", [])}
+        ]
+        or {a["version"] for a in installed.get("artifacts", [])} not in ({"V157", "V158"}, TARGETS)
         or installed.get("marker") != MARKER
         or not re.fullmatch(r"[0-9a-f]{40}", installed.get("commit", ""))
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", installed.get("image_digest", ""))
@@ -91,12 +97,14 @@ def retained_installation_binding(binding):
 
 
 class Fixture:
-    def __init__(self, binding, receipt, *, installation_binding=None):
+    def __init__(self, binding, receipt, *, installation_binding=None, correction_binding=None):
         self.binding, self.path = binding, receipt
         self.installation_binding = installation_binding or binding
+        self.correction_binding = correction_binding or binding
         self.started = time.monotonic()
         self.receipt = {"binding": binding, "status": "INCOMPLETE", "queries": [], "cases": []}
         self.receipt["installation_binding"] = self.installation_binding
+        self.receipt["correction_binding"] = self.correction_binding
         self.settings = SnowflakeSettings()
         self.connections = []
         self.receipt_lock = threading.RLock()
@@ -285,8 +293,18 @@ class Fixture:
             a["version"]: (
                 a["source_sha256"],
                 a["rendered_sha256"],
-                self.installation_binding["commit"],
-                self.installation_binding["image_digest"],
+                (
+                    self.installation_binding
+                    if a["version"]
+                    in {x["version"] for x in self.installation_binding["artifacts"]}
+                    else self.correction_binding
+                )["commit"],
+                (
+                    self.installation_binding
+                    if a["version"]
+                    in {x["version"] for x in self.installation_binding["artifacts"]}
+                    else self.correction_binding
+                )["image_digest"],
                 MARKER,
             )
             for a in self.binding["artifacts"]
@@ -295,7 +313,9 @@ class Fixture:
             row[0] not in expected or tuple(row[1:]) != expected[row[0]] for row in ledger
         ):
             raise PermissionError("RI706_IMMUTABLE_LEDGER_MISMATCH")
-        if reusing and {row[0] for row in ledger} != TARGETS:
+        if reusing and not {a["version"] for a in self.installation_binding["artifacts"]} <= {
+            row[0] for row in ledger
+        }:
             raise PermissionError("RI706_RETAINED_PAIR_MUST_BE_COMPLETE")
         seed = self.query(
             connection,
@@ -374,8 +394,22 @@ def main():
         raise ValueError("RI706_RECEIPT_MUST_BE_FRESH")
     documents = verify(args.handoff)
     fixture = Fixture(
-        binding, args.receipt, installation_binding=retained_installation_binding(binding)
+        binding,
+        args.receipt,
+        installation_binding=retained_installation_binding(binding),
+        correction_binding=json.loads(Path(os.environ["RI706_REVIEW_RECEIPT"]).read_text())
+        .get("owner_authorization", {})
+        .get("binding", {})
+        .get("recovery", {})
+        .get("correction_binding"),
     )
+    recovery = (
+        json.loads(Path(os.environ["RI706_REVIEW_RECEIPT"]).read_text())
+        .get("owner_authorization", {})
+        .get("binding", {})
+        .get("recovery", {})
+    )
+    fixture.receipt["retained_cases"] = recovery.get("atomic_publication_cases", [])
     connection = fixture.open()
     before = fixture.snapshot(connection)
     fixture.receipt["live_before"] = before

@@ -675,7 +675,7 @@ def apply_migrations(
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
-    integrity_versions = {"V157", "V158"}
+    integrity_versions = {"V157", "V158", "V159"}
     if release_integrity_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -913,7 +913,7 @@ def apply_migrations(
         and not scoped_operation
         and any(m.version in integrity_versions and m.version not in applied for m in plan)
     ):
-        raise PermissionError("V157/V158 require the protected release integrity path")
+        raise PermissionError("V157/V158/V159 require the protected release integrity path")
     if january_point_query_only and not {"V151", "V152", "V153"} <= set(applied):
         raise PermissionError("Prior January migrations must already be applied")
     if not (january_point_query_only or release_integrity_only) and any(
