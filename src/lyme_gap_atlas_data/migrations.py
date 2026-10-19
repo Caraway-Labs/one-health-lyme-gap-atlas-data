@@ -131,6 +131,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V153",
     "V154",
     "V156",
+    "V160",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -671,11 +672,32 @@ def apply_migrations(
     county_context_only: bool = False,
     cdc_admission_only: bool = False,
     release_integrity_only: bool = False,
+    retained_lineage_only: bool = False,
+    execution_receipts: list[dict[str, str]] | None = None,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
     integrity_versions = {"V157", "V158", "V159"}
+    if retained_lineage_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or not commit
+        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+        or any(
+            (
+                release_integrity_only,
+                cdc_admission_only,
+                county_context_only,
+                january_climate_only,
+                january_bulk_recovery_only,
+                january_point_query_only,
+                protected_intelligence_prerequisite,
+            )
+        )
+        or {m["version"] for m in expected_pending} not in ({"V150", "V160"}, {"V150"})
+    ):
+        raise PermissionError("Retained lineage requires exact protected V160 PROD scope")
     if release_integrity_only and (
         database != PROD_DATABASE
         or expected_pending is None
@@ -696,7 +718,9 @@ def apply_migrations(
     # Old bounded operators still review the complete pending metadata, but
     # cannot execute these newer migrations as a side effect.
     scoped_review = [
-        item for item in expected_pending or [] if item["version"] not in integrity_versions
+        item
+        for item in expected_pending or []
+        if item["version"] not in integrity_versions | {"V160"}
     ]
     if cdc_admission_only and (
         database != PROD_DATABASE
@@ -760,9 +784,9 @@ def apply_migrations(
                 raise
             applied = {}
         reconciled = _reconciled_legacy_migrations(
-            cursor, database, cdc_admission_only or release_integrity_only
+            cursor, database, cdc_admission_only or release_integrity_only or retained_lineage_only
         )
-        if cdc_admission_only or release_integrity_only:
+        if cdc_admission_only or release_integrity_only or retained_lineage_only:
             duplicate_versions = {
                 version for version, count in Counter(v for v, _ in ledger).items() if count > 1
             }
@@ -859,8 +883,9 @@ def apply_migrations(
                     expected_pending = [
                         item for item in expected_pending or [] if item["version"] != "V156"
                     ]
-            if release_integrity_only:
-                for target in (m for m in plan if m.version in integrity_versions):
+            if release_integrity_only or retained_lineage_only:
+                retry_versions = {"V160"} if retained_lineage_only else integrity_versions
+                for target in (m for m in plan if m.version in retry_versions):
                     if target.version not in applied:
                         continue
                     cursor.execute(
@@ -900,6 +925,7 @@ def apply_migrations(
         raise PermissionError("Integrity publication prerequisites must already be installed")
     scoped_operation = any(
         (
+            retained_lineage_only,
             release_integrity_only,
             cdc_admission_only,
             county_context_only,
@@ -914,6 +940,10 @@ def apply_migrations(
         and any(m.version in integrity_versions and m.version not in applied for m in plan)
     ):
         raise PermissionError("V157/V158/V159 require the protected release integrity path")
+    if retained_lineage_only and not {"V137", "V148", "V157", "V158", "V159"} <= set(applied):
+        raise PermissionError("Retained lineage dependencies must already be installed")
+    if not scoped_operation and any(m.version == "V160" and m.version not in applied for m in plan):
+        raise PermissionError("V160 requires the protected retained lineage path")
     if january_point_query_only and not {"V151", "V152", "V153"} <= set(applied):
         raise PermissionError("Prior January migrations must already be applied")
     if not (january_point_query_only or release_integrity_only) and any(
@@ -940,6 +970,7 @@ def apply_migrations(
             or county_context_only
             or cdc_admission_only
             or release_integrity_only
+            or retained_lineage_only
         ):
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
@@ -985,6 +1016,8 @@ def apply_migrations(
             ):
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        if retained_lineage_only and migration.version != "V160":
+            continue
         if release_integrity_only and migration.version not in integrity_versions:
             continue
         if county_context_only and migration.version != "V155":
@@ -1000,7 +1033,13 @@ def apply_migrations(
         with connect(
             _migration_settings(settings, migration, database), include_database=False
         ) as connection:
-            connection.execute_string(_executable_migration_sql(migration, database))
+            results = connection.execute_string(_executable_migration_sql(migration, database))
+            if execution_receipts is not None:
+                for result in results:
+                    if result.sfqid:
+                        execution_receipts.append(
+                            {"version": migration.version, "query_id": result.sfqid}
+                        )
             with connection.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.SCHEMA_MIGRATIONS
