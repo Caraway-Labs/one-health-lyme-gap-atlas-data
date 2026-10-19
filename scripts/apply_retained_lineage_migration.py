@@ -109,7 +109,8 @@ def main():
         if human:
             with connect(settings) as connection, connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT source_record_id,payload:fips::VARCHAR,payload:year::NUMBER,artifact_id,"
+                    "SELECT source_record_id,payload:fips::VARCHAR,payload:year::NUMBER,"
+                    "artifact_id,"
                     "data_source_version_id,ingestion_run_id,payload:state::VARCHAR "
                     "FROM RAW.CDC_LYME_X5J9_WYBP LIMIT 0"
                 )
