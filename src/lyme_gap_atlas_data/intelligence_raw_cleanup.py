@@ -114,7 +114,8 @@ class ObjectRawDelete:
             raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
         return key
 
-    def __call__(self, copy: RawCopy) -> bool:
+    def exists(self, copy: RawCopy) -> bool:
+        """Read-only exact-key probe; access failures never mean absence."""
         key = self.key(copy)
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
@@ -123,8 +124,38 @@ class ObjectRawDelete:
             if response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
                 return False
             raise
-        self.client.delete_object(Bucket=self.bucket, Key=key)
         return True
+
+    def __call__(self, copy: RawCopy) -> bool:
+        key = self.key(copy)
+        if self.gate.environment == "PROD":
+            self.require_unversioned(copy)
+        if not self.exists(copy):
+            return False
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+        if self.exists(copy):
+            raise PermissionError("INTELLIGENCE_RAW_DELETE_NOT_CONFIRMED")
+        if self.gate.environment == "PROD":
+            self.require_unversioned(copy)
+        return True
+
+    def require_unversioned(self, copy: RawCopy) -> None:
+        """Do not equate a delete marker with physical raw-copy removal.
+
+        Fail closed rather than expand an approved key plan to version deletion.
+        The storage owner must keep bucket versioning disabled during execution.
+        """
+        key = self.key(copy)
+        result = self.client.list_object_versions(Bucket=self.bucket, Prefix=key, MaxKeys=2)
+        if (
+            result.get("IsTruncated")
+            or result.get("DeleteMarkers")
+            or any(
+                row.get("Key") != key or row.get("VersionId") != "null"
+                for row in result.get("Versions", [])
+            )
+        ):
+            raise PermissionError("INTELLIGENCE_RAW_VERSIONED_OBJECT_UNSUPPORTED")
 
 
 class WarehouseRawDelete:
@@ -417,6 +448,13 @@ def execute_reviewed_prod_plan(
     verify_prod_cleanup_handoff(factory)
     object_delete = ObjectRawDelete(gate, spaces_client, bucket=bucket, prefix=prefix)
     warehouse_delete = WarehouseRawDelete(gate, factory, plan)
+    # Check every object before any checkpoint mutation. The per-object driver
+    # repeats this immediately before DELETE; no version purge is authorized.
+    for copy in plan.copies:
+        if not prod_cleanup_scope(copy, object_delete):
+            raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+        if copy.kind == "raw_object":
+            object_delete.require_unversioned(copy)
     return cleanup(
         gate,
         plan,

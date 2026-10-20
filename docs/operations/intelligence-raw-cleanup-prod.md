@@ -6,6 +6,69 @@ this runbook pass. This is the physical-retention gate for the single approved
 CDC EID Expedited source. It does not approve a source, acquire content, or
 activate API #172.
 
+The current acceptance audit and runnable, approval-separated sequence are in
+[DATA #680 / #132 / #135, 2026-10-20](../delivery/data680-rss-acceptance-2026-10-20.md).
+Its live observations supersede historical provisioning assertions in this file;
+they do not attest to migration checksums or procedure ownership.
+
+## Read-only synthetic dry run
+
+Run locally in a restricted operator workspace with the installed `snow` CLI
+and named PAT connection `ATLAS_PROD_RUNTIME_AUDIT`. This uses the existing
+human runtime-audit role for inspection, **not** as a substitute cleanup actor.
+The owner must supply the separate bucket-limited cleanup Spaces key in
+process-local `INTELLIGENCE_CLEANUP_SPACES_ACCESS_KEY_ID` and
+`INTELLIGENCE_CLEANUP_SPACES_SECRET_ACCESS_KEY`; shared runtime Spaces keys are
+not substitutes. No credential values belong in commands, files or output.
+
+```powershell
+uv run python scripts/intelligence_raw_cleanup_prod.py dry-run --plan-file '<private-new-plan-file>'
+```
+
+This action uses bounded Snowflake `SELECT`, Spaces exact-key version listing
+and `HEAD`, with no guard `UPDATE`, approval insert, audit insert, payload read,
+object creation, or deletion. It requires exactly the named synthetic capture's
+two expired physical copies: one checkpoint and one Spaces object, bound to the
+same immutable 30-day lease. Any additional eligible EID copy, missing copy,
+live claim, mismatched payload lease, denied access, or inventory drift fails.
+An empty inventory is a blocker, not a passing zero-target proof. The plan file
+is created exclusively and must never be committed or attached publicly. On
+Windows, the operator must restrict the parent directory's ACL; POSIX mode
+`0600` alone does not establish that ACL.
+
+The double snapshot detects observed inventory changes but does not hold a
+warehouse lock. This is inspection evidence only. Existing approval/execution
+still revalidate the exact plan under the durable write guard. Output explicitly
+reports `executor_identity_proven=false`; the dedicated actor and handoff must
+be proven separately. `plan`, `approve`, and `execute` use the existing guard
+and can mutate metadata, so do not use them as read-only inspection commands.
+
+## Physical storage boundary
+
+The PROD object driver rejects version history, delete markers or truncated
+version listings before checkpoint deletion and again immediately before object
+deletion. It verifies `HEAD` absence after DELETE; denied access is never absence.
+The storage owner must verify and keep bucket versioning disabled throughout the
+operation. This implementation does not delete historical versions or change
+bucket settings. A versioning/configuration read denied to the limited key is an
+owner readback requirement, not grounds to grant the executor bucket administration.
+
+Spaces limited keys are bucket-scoped; code supplies the narrower EID boundary.
+If provider-enforced prefix isolation is mandatory, obtain an explicit storage
+decision; do not silently replace the credential with full access or combine an
+incompatible bucket policy. See [DigitalOcean access limits](https://docs.digitalocean.com/products/spaces/details/limits/)
+and [versioning behavior](https://docs.digitalocean.com/products/spaces/how-to/enable-versioning/).
+
+Snowflake V150 physically deletes the active checkpoint row, rather than hiding
+it behind a view. That is not proof that provider-retained historical bytes are
+gone: the existing permanent checkpoint table has Time Travel / Fail-safe.
+Before activation the retention owner must record whether this recovery retention
+is permitted under the approved policy. If the policy requires all recoverable
+raw bytes gone by day 30, the current storage design remains blocked pending an
+approved, forward-only adjustment using the existing raw-artifact/reference
+boundary. Do not alter the shared checkpoint table or claim a zero-row readback
+proves provider-level erasure. See [Snowflake Time Travel](https://docs.snowflake.com/en/user-guide/data-time-travel).
+
 ## Exact deletion boundary
 
 The cleanup runner accepts only `environment=PROD` and source
