@@ -49,6 +49,10 @@ remains OPEN at `c353eccc77f933f11f9b594e56a712664eefd6e3`, with historical exac
 Quality success and no approval decision. It contains the existing bounded PROD
 EID registration/runtime route missing from main. Reconcile it against current
 main, review and rerun checks; do not reproduce that implementation here.
+A non-checkout `git merge-tree --write-tree --name-only` inspection confirms
+a content conflict with audited main in `.github/workflows/run-prod-ingestion.yml`.
+This inspection changed no worktree or PR. Its owner must reconcile that workflow
+while preserving current production/release controls before fresh review/CI.
 [PR #668](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/pull/668)
 remains OPEN at `33beac0a9ec2bb45c9456bae94e2ca12af336322`; health attribution is
 independent and does not authorize or unblock raw deletion. Its broader health
@@ -89,7 +93,8 @@ above is historical/selected configuration, not a new network revalidation.
    the existing raw-artifact/reference seam before acquisition. Do not shorten
    unrelated checkpoint retention or rewrite V070/V146/V150.
 2. **Independent/security reviewer:** review merged #681 and this forward delta;
-   reconcile/review #667 on current main. Historical green checks and a requested
+   reconcile/review #667 on current main, including its confirmed content conflict
+   in `.github/workflows/run-prod-ingestion.yml`. Historical green checks and a requested
    review do not satisfy approval. No merge is authorized by this audit.
 3. **Migration owner:** read back exact V146 and V150 ledger/checksums, procedure
    body/creation time and complete pending set. Current audit role cannot see
@@ -174,6 +179,8 @@ $pendingV150 = '[{"version":"V150","filename":"V150__prod_intelligence_raw_clean
 # Only if owner ledger confirms V146 applied and V150 alone pending; native approval required.
 gh workflow run promote-prod.yml -R $repo --ref main -f "reviewed_commit=$reviewedMain" -f "image_digest=$devTestedDigest" -f "expected_pending_json=$pendingV150" -f protected_intelligence_prerequisite=true
 # SECURITYADMIN separately performs the reviewed handoff, then intended-actor proof.
+# Under the owner-provisioned dedicated cleanup identity, existing SELECT/SHOW preflight:
+uv run python -c "from scripts.intelligence_raw_cleanup_prod import factory,identity,EXECUTOR_USER,EXECUTOR_ROLE; from lyme_gap_atlas_data.intelligence_raw_cleanup import verify_prod_cleanup_handoff; identity(factory,EXECUTOR_USER,EXECUTOR_ROLE); verify_prod_cleanup_handoff(factory)"
 
 $planSha = '<exact-private-plan-sha256>'
 $approvalRef = '<independently-approved-review-reference>'
@@ -222,7 +229,12 @@ Focused raw-retention/cleanup checks passed: **50 passed**, including exact
 30-day expiry, missing pair, additional target, access-denial, version-history,
 preflight-before-checkpoint-mutation, post-delete absence, CLI redaction and
 missing-key cases. Ruff lint/format, mypy (149 source files), dbt parse and the
-initial container build passed. Final full-suite/container smoke results are
-recorded in the PR and task completion report. The live dry run failed closed as documented above;
+final container build and packaged CLI/dbt smoke passed. Exact code commit
+`562c35f65db9bc9643e4414751e9a22c66a6764c` passed hosted
+[Quality 39380966095](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/39380966095):
+**4,792 passed, 3 skipped**, all lint/type/dbt/container/offline dry-run and secret
+checks passed; deployment was skipped. The initial broad Windows run has failures
+and its final diagnostics are recorded separately in the PR/task report; it is
+not used to override hosted exact-code evidence. The live dry run failed closed as documented above;
 there is no successful live Spaces, deletion, intended-cleanup-actor or ingestion
 evidence in this change. No issue is eligible for closure based on this audit.
