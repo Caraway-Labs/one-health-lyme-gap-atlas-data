@@ -10,9 +10,10 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..intelligence_retention import CopyKind
@@ -174,6 +175,60 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         self.feed_retention = retention
         self._unvalidated_factory = self._connection_factory
         self._connection_factory = self._checked_factory
+
+    def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+        """Commit one daily admission before I/O using the existing write guard.
+
+        A crash or failed acquisition consumes the claim. Scheduled invocations
+        never reopen it or retry a provider request on the same day.
+        """
+        from .intelligence_runtime import PROD_DAILY_SOURCE_SHA256
+
+        expected_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"atlas:intelligence:daily:{source_id}:{datetime.now(UTC).date().isoformat()}",
+            )
+        )
+        if (
+            self.feed_retention.environment != "PROD"
+            or run_id != expected_id
+            or PROD_DAILY_SOURCE_SHA256.get(source_id) != source_sha256
+        ):
+            raise PermissionError("INTELLIGENCE_DAILY_CLAIM_SCOPE_REQUIRED")
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            connection.autocommit(False)
+            try:
+                cursor.execute("BEGIN TRANSACTION")
+                cursor.execute(
+                    "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD "
+                    "SET write_sequence=write_sequence+1 WHERE guard_id=1"
+                )
+                if cursor.rowcount != 1:
+                    raise PermissionError("INTELLIGENCE_RAW_WRITE_GUARD_REQUIRED")
+                cursor.execute(
+                    "SELECT ingestion_run_id FROM GOVERNANCE.INGESTION_RUNS "
+                    "WHERE ingestion_run_id=%s",
+                    (run_id,),
+                )
+                if cursor.fetchall():
+                    connection.rollback()
+                    return False
+                cursor.execute(
+                    "INSERT INTO GOVERNANCE.INGESTION_RUNS "
+                    "(ingestion_run_id,resource_key,run_mode,trigger_type,status,code_version,"
+                    "config_sha256,started_at) "
+                    "VALUES (%s,%s,'SOURCE_INGESTION','C','RUNNING',"
+                    "'intelligence-daily-v1',%s,CURRENT_TIMESTAMP())",
+                    (run_id, source_id, source_sha256),
+                )
+                if cursor.rowcount != 1:
+                    raise PermissionError("INTELLIGENCE_DAILY_CLAIM_REQUIRED")
+                connection.commit()
+                return True
+            except BaseException:
+                connection.rollback()
+                raise
 
     @contextmanager
     def _checked_factory(self) -> Iterator[Any]:

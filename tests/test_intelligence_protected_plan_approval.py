@@ -294,5 +294,7 @@ def test_all_existing_job_conditions_remain_isolated_for_every_mode_combination(
             values["approve_intelligence_cleanup_only"] = approval_only
             for name, previously_enabled in old.items():
                 assert evaluate(jobs[name]["if"], values) is (
-                    previously_enabled and not approval_only
+                    previously_enabled
+                    and not approval_only
+                    and not values["intelligence_daily_only"]
                 )

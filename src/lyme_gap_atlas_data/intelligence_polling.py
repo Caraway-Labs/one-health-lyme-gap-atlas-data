@@ -8,12 +8,85 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, cast
+from uuid import NAMESPACE_URL, uuid5
 
 from .ingestion.types import AdapterKind, SourceDefinition
 from .intelligence_items import canonical_url, identity_hash, validate_record
 
 DAILY_POLL_SECONDS = 86_400
+
+
+def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
+    """Run each exact accepted active source once per UTC day, without retries.
+
+    This is a bounded entry point for the existing DigitalOcean job platform,
+    not a scheduler. Disabled execution performs no warehouse/provider I/O.
+    """
+    from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
+    from .ingestion.intelligence_runtime import (
+        PROD_DAILY_SOURCE_SHA256,
+        PROD_SOURCE_DEFINITIONS,
+        canonical_pilot,
+        pilot_watchdog,
+    )
+    from .ingestion.source_definition import load_source_definition
+    from .ingestion.types import RunStatus, Tier
+    from .settings import PipelineSettings
+
+    settings = PipelineSettings()
+    if not settings.intelligence_daily_enabled:
+        return {"status": "DISABLED", "sources": [], "provider_requests": 0}
+    if settings.topx_env != "prod":
+        raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
+    day = datetime.now(UTC).date().isoformat()
+    results = []
+    for source_id, path in PROD_SOURCE_DEFINITIONS.items():
+        try:
+            with pilot_watchdog():
+                orchestrator, definition = canonical_pilot(load_source_definition(Path(path)))
+                source = definition.extra["intelligence_registry"]
+                if source["state"] != "active":
+                    results.append({"source_id": source_id, "outcome": "SCHEDULE_SUPPRESSED"})
+                    continue
+                if (
+                    source["registry_version"] != 2
+                    or source["cadence"]["poll_seconds"] != DAILY_POLL_SECONDS
+                    or identity_hash(source) != PROD_DAILY_SOURCE_SHA256[source_id]
+                ):
+                    raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
+                if preflight_only:
+                    results.append({"source_id": source_id, "outcome": "READY"})
+                    continue
+                run_id = str(uuid5(NAMESPACE_URL, f"atlas:intelligence:daily:{source_id}:{day}"))
+                if not cast(IntelligenceSnowflakeCheckpoints, orchestrator.store).claim_daily_run(
+                    run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id]
+                ):
+                    results.append({"source_id": source_id, "outcome": "ALREADY_CLAIMED"})
+                    continue
+                state = orchestrator.run(definition, tier=Tier.C, run_id=run_id)
+                results.append(
+                    {
+                        "source_id": source_id,
+                        "run_id": run_id,
+                        "outcome": "SUCCEEDED" if state.status is RunStatus.SUCCEEDED else "FAILED",
+                    }
+                )
+        except Exception:
+            # Actual stage codes remain in the existing canonical checkpoint.
+            # Never emit raw SDK/credential/provider exceptions in job output.
+            results.append({"source_id": source_id, "outcome": "PREFLIGHT_OR_RUNTIME_FAILED"})
+    failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
+    if preflight_only and any(row["outcome"] != "READY" for row in results):
+        failed = True
+    return {
+        "status": "FAILED" if failed else "SUCCEEDED",
+        "day": day,
+        "preflight_only": preflight_only,
+        "sources": results,
+    }
 
 
 @dataclass(frozen=True)

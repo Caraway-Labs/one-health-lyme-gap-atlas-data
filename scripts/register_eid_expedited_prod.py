@@ -10,9 +10,14 @@ from typing import Any
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from lyme_gap_atlas_data.ingestion.intelligence_runtime import PROD_SOURCE_SHA256, pilot_watchdog
+from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
+    PROD_DAILY_SOURCE_SHA256,
+    PROD_SOURCE_SHA256,
+    pilot_watchdog,
+)
 from lyme_gap_atlas_data.migrations import (
     PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
+    PROD_INTELLIGENCE_DAILY_VIEW_MIGRATION,
     pending_migration_plan,
 )
 from lyme_gap_atlas_data.settings import PipelineSettings
@@ -41,7 +46,9 @@ V146 = (
 )
 
 
-def verify_schema(connection: Any, source_id: str = "cdc-eid-expedited") -> None:
+def verify_schema(
+    connection: Any, source_id: str = "cdc-eid-expedited", registry_version: int = 1
+) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
@@ -53,7 +60,7 @@ def verify_schema(connection: Any, source_id: str = "cdc-eid-expedited") -> None
         )
         if cursor.fetchall() != [V146]:
             raise PermissionError("EID_PROD_V146_REQUIRED")
-        if source_id != "cdc-eid-expedited":
+        if source_id != "cdc-eid-expedited" or registry_version == 2:
             migration = PROD_FEED_EXPANSION_CLEANUP_MIGRATION
             cursor.execute(
                 "SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version='V163'"
@@ -82,11 +89,23 @@ def main() -> None:
             if settings.topx_env != "prod" or settings.snowflake_database != DATABASE:
                 raise PermissionError("EID_PROD_ENVIRONMENT_REQUIRED")
             source_id = os.environ.get("INTELLIGENCE_SOURCE_ID", "cdc-eid-expedited")
-            source, checksum = reviewed_package(source_id)
-            if checksum != PROD_SOURCE_SHA256.get(source_id):
+            version = int(os.environ.get("INTELLIGENCE_SOURCE_REGISTRY_VERSION", "1"))
+            source, checksum = reviewed_package(source_id, version)
+            if checksum != (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(
+                source_id
+            ):
                 raise PermissionError("EID_PROD_SOURCE_HASH_CHANGED")
             with connect(SnowflakeSettings()) as connection:
-                verify_schema(connection, source_id)
+                verify_schema(connection, source_id, version)
+                if version == 2:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                            "WHERE version='V164'"
+                        )
+                        m = PROD_INTELLIGENCE_DAILY_VIEW_MIGRATION
+                        if cursor.fetchall() != [(m["filename"], m["sha256"])]:
+                            raise PermissionError("INTELLIGENCE_DAILY_VIEW_REQUIRED")
                 if pending_migration_plan(SnowflakeSettings(), DATABASE):
                     raise PermissionError("EID_PROD_PENDING_MIGRATIONS")
                 result = register(connection, source, checksum, expected_identity=IDENTITY)
@@ -97,7 +116,7 @@ def main() -> None:
                 {
                     "result": result,
                     "source_id": source_id,
-                    "registry_version": 1,
+                    "registry_version": version,
                     "sha256": checksum,
                 }
             )

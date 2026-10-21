@@ -23,6 +23,7 @@ from scripts.intelligence_raw_cleanup_prod import (
 )
 
 OTHER_MODES = (
+    "intelligence_daily_only",
     "retained_human_lineage_only",
     "retained_lineage_only",
     "release_integrity_only",

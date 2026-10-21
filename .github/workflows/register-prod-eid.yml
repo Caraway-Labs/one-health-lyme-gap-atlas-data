@@ -16,6 +16,14 @@ on:
         description: Exact green main commit approved for PROD source registration
         required: true
         type: string
+      registry_version:
+        description: Exact reviewed immutable source version; v2 enables approved daily execution
+        required: true
+        type: choice
+        default: "1"
+        options:
+          - "1"
+          - "2"
       expected_pending_json:
         description: Must be the empty migration set
         required: true
@@ -42,6 +50,7 @@ jobs:
       TOPX_ENV: prod
       ENABLE_PRODUCTION_EXECUTION: "true"
       INTELLIGENCE_SOURCE_ID: ${{ inputs.source_id }}
+      INTELLIGENCE_SOURCE_REGISTRY_VERSION: ${{ inputs.registry_version }}
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}

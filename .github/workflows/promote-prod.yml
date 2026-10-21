@@ -3,6 +3,16 @@ name: Promote governed pipeline to PROD
 on:
   workflow_dispatch:
     inputs:
+      daily_credential_placement_approved:
+        description: Separately approved reuse of existing component credential references in the new daily/preflight components; no new credentials or grants
+        required: false
+        default: false
+        type: boolean
+      intelligence_daily_only:
+        description: Deploy only the reviewed daily CDC RSS job using existing component credentials; preserve all six current jobs
+        required: false
+        default: false
+        type: boolean
       retained_human_lineage_only:
         description: Install only V161 scoped human-record identities and derived hashes; no model/scientific approval
         required: false
@@ -106,7 +116,7 @@ concurrency:
 
 jobs:
   promote:
-    if: ${{ inputs.approve_intelligence_cleanup_only != true && inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
+    if: ${{ inputs.intelligence_daily_only != true && (inputs.approve_intelligence_cleanup_only != true && inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) ) }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -124,7 +134,7 @@ jobs:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           version: "1.160.1"
       - name: Verify digest is currently deployed and approved in DEV
-        if: ${{ inputs.release_integrity_only != true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.release_integrity_only != true ) }}
         run: |
           test -n "$IMAGE_DIGEST"
           dev_digest="$(doctl apps spec get "$DEV_APP_ID" --format json | jq -r '.jobs[0].image.digest')"
@@ -133,7 +143,7 @@ jobs:
             | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
           test "$source_digest" = "$IMAGE_DIGEST"
       - name: Verify PROD target has been explicitly provisioned
-        if: ${{ inputs.release_integrity_only != true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.release_integrity_only != true ) }}
         run: |
           test -n "$PROD_APP_ID"
           doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
@@ -142,7 +152,7 @@ jobs:
         run: python -m pip install snowflake-cli-labs==3.25.0
       - run: uv sync --frozen --extra dev --extra pipeline
       - name: Verify isolated DEV acceptance and identical reviewed source before pair-only installation
-        if: ${{ inputs.release_integrity_only == true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.release_integrity_only == true ) }}
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
@@ -154,7 +164,7 @@ jobs:
           source_digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "ri706-$FIXTURE_SOURCE_COMMIT" '[.[] | select((.tags // []) | index($tag)) | .digest] | if length == 1 then .[0] else empty end')"
           test "$source_digest" = "$IMAGE_DIGEST"
       - name: Apply checksum-validated PROD migrations before image promotion
-        if: ${{ inputs.cdc_admission_only != true && inputs.release_integrity_only != true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.cdc_admission_only != true && inputs.release_integrity_only != true ) }}
         env:
           TOPX_ENV: prod
           ENABLE_PRODUCTION_EXECUTION: "true"
@@ -201,6 +211,7 @@ jobs:
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"}]" || \
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V162\",\"filename\":\"V162__prod_intelligence_proactive_cleanup.sql\",\"sha256\":\"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557\"}]" || \
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V163\",\"filename\":\"V163__prod_approved_metadata_feed_cleanup.sql\",\"sha256\":\"1d4470c4eac4939bf4fbda4f56f0c8a1b004d6e9190d5512ae9e220e5b99b741\"}]" || \
+            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V164\",\"filename\":\"V164__prod_intelligence_daily_activation_view.sql\",\"sha256\":\"670dd90048d479b69bc2d032537333da785f85698ba71b64c75aed39b20043c9\"}]" || \
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"},{\"version\":\"V162\",\"filename\":\"V162__prod_intelligence_proactive_cleanup.sql\",\"sha256\":\"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557\"}]"
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
@@ -218,7 +229,7 @@ jobs:
               --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
           fi
       - name: Apply reviewed CDC authority without registering stewardship
-        if: ${{ inputs.cdc_admission_only == true && inputs.release_integrity_only != true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.cdc_admission_only == true && inputs.release_integrity_only != true ) }}
         env:
           TOPX_ENV: prod
           ENABLE_PRODUCTION_EXECUTION: "true"
@@ -249,7 +260,7 @@ jobs:
           MAX_CON_RETRY_ATTEMPTS=0 \
           timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_cdc_admission_migration.py
       - name: Apply only reviewed release integrity migrations
-        if: ${{ inputs.release_integrity_only == true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.release_integrity_only == true ) }}
         env:
           TOPX_ENV: prod
           ENABLE_PRODUCTION_EXECUTION: "true"
@@ -285,7 +296,7 @@ jobs:
           MAX_CON_RETRY_ATTEMPTS=0 \
           timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_release_integrity_migrations.py
       - name: Promote the immutable image across the existing operational topology without exposing secrets
-        if: ${{ inputs.release_integrity_only != true && inputs.protected_intelligence_prerequisite != true }}
+        if: ${{ inputs.intelligence_daily_only != true && (inputs.release_integrity_only != true && inputs.protected_intelligence_prerequisite != true ) }}
         run: |
           prod_spec="$(mktemp)"
           next_spec="$(mktemp)"
@@ -339,7 +350,7 @@ jobs:
 
 
   january-climate:
-    if: ${{ inputs.approve_intelligence_cleanup_only != true && inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
+    if: ${{ inputs.intelligence_daily_only != true && (inputs.approve_intelligence_cleanup_only != true && inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) ) }}
     name: Protected reviewed PROD migrations only
     runs-on: ubuntu-latest
     environment: production
@@ -406,7 +417,7 @@ jobs:
           timeout --signal=INT --kill-after=15s "$deadline" uv run python "$runner"
 
   retained-lineage:
-    if: ${{ inputs.approve_intelligence_cleanup_only != true && (inputs.retained_lineage_only == true || inputs.retained_human_lineage_only == true) }}
+    if: ${{ inputs.intelligence_daily_only != true && (inputs.approve_intelligence_cleanup_only != true && (inputs.retained_lineage_only == true || inputs.retained_human_lineage_only == true) ) }}
     name: Protected retained-lineage diagnostic installation
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -476,7 +487,7 @@ jobs:
           if-no-files-found: warn
 
   approve-intelligence-cleanup:
-    if: ${{ inputs.approve_intelligence_cleanup_only == true }}
+    if: ${{ inputs.intelligence_daily_only != true && (inputs.approve_intelligence_cleanup_only == true ) }}
     name: Record approved EID raw cleanup plan only
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -528,3 +539,45 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
           MAX_CON_RETRY_ATTEMPTS=0 \
           uv run python -m scripts.approve_intelligence_raw_cleanup_prod
+
+  intelligence-daily:
+    if: ${{ inputs.approve_intelligence_cleanup_only != true && inputs.intelligence_daily_only == true }}
+    name: Deploy only the approved daily intelligence job
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Require isolated daily-only request and exact green reviewed main
+        env:
+          REQUEST: ${{ toJSON(inputs) }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test '${{ inputs.daily_credential_placement_approved }}' = true
+          python - <<'PY'
+          import json,os
+          request=json.loads(os.environ['REQUEST'])
+          assert not any(v is True or v=='true' for k,v in request.items()
+                         if k!='intelligence_daily_only' and (k.endswith('_only') or k=='protected_intelligence_prerequisite'))
+          PY
+          test "$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')" -gt 0
+      - name: Verify exact immutable digest is active in DEV
+        run: |
+          set -euo pipefail
+          test "$(doctl apps spec get b33dbae7-e243-4e27-b3ca-1018f5897f87 --format json | jq -r '.jobs[0].image.digest')" = "$IMAGE_DIGEST"
+          test "$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')" = "$IMAGE_DIGEST"
+      - name: Deploy explicitly approved credential-scoped preflight (no source acquisition)
+        run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase preflight --credential-placement-approved
+      - name: Enable only the daily job after successful service preflight
+        run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase activate --credential-placement-approved

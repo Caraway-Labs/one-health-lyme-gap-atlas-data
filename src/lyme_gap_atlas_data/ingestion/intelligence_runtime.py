@@ -42,6 +42,13 @@ ENDPOINTS = {
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
+DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
+DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
+PROD_DAILY_SOURCE_SHA256 = {
+    "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
+    "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",
+    "cdc-outbreaks": "d8bdcc90b16c98fe2b3661a9316ac78071bd355cbb46ee5d0299c15ca4f53b8f",
+}
 PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
 PROD_SOURCE_SHA256 = {
     "cdc-eid-expedited": PROD_EID_SHA256,
@@ -265,11 +272,14 @@ def compose_pilot(
     connection_factory: Callable[[], Any],
     settings: PipelineSettings,
     budget: PilotBudget | None = None,
+    registry_version: int = 1,
 ) -> tuple[IngestionOrchestrator, SourceDefinition]:
     """Assemble existing runtime components; perform no approval or schema DDL."""
     if settings.topx_env not in {"dev", "prod"}:
         raise PermissionError("INTELLIGENCE_PILOT_ENVIRONMENT_REQUIRED")
     environment: Literal["DEV", "PROD"] = "PROD" if settings.topx_env == "prod" else "DEV"
+    if registry_version not in ({1, 2} if environment == "PROD" else {1}):
+        raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
     if environment == "PROD":
         endpoint = urlsplit(settings.spaces_endpoint)
         if (
@@ -292,16 +302,27 @@ def compose_pilot(
         or definition.quality_rules
     ):
         raise PermissionError("INTELLIGENCE_PILOT_DEFINITION_REQUIRED")
-    selected = [receipt for receipt in receipts if receipt.get("source_id") == definition.source_id]
+    selected = [
+        receipt
+        for receipt in receipts
+        if receipt.get("source_id") == definition.source_id
+        and (environment != "PROD" or receipt.get("registry_version") == registry_version)
+    ]
     if len(selected) != 1:
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_POLICY_REQUIRED")
     receipt = selected[0]
     if not receipt.get("decision_ref") or not receipt.get("raw_policy_ref"):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_POLICY_REQUIRED")
     if environment == "PROD" and (
-        receipt["registry_version"] != 1
-        or receipt["source_sha256"] != PROD_SOURCE_SHA256[definition.source_id]
-        or receipt["decision_ref"] != PROD_SOURCE_DECISIONS[definition.source_id]
+        receipt["registry_version"] != registry_version
+        or receipt["source_sha256"]
+        != (PROD_SOURCE_SHA256 if registry_version == 1 else PROD_DAILY_SOURCE_SHA256)[
+            definition.source_id
+        ]
+        or receipt["decision_ref"]
+        != (
+            PROD_SOURCE_DECISIONS[definition.source_id] if registry_version == 1 else DAILY_DECISION
+        )
         or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
         or receipt["artifact_policy"] != "CDC_EID_RESTRICTED_RAW_30D_V1"
     ):
@@ -381,6 +402,12 @@ def compose_pilot(
         or source["fetch_location"] != definition.endpoint_template
     ):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
+    if (
+        environment == "PROD"
+        and registry_version == 2
+        and (source["state"] != "active" or source["cadence"]["poll_seconds"] != 86400)
+    ):
+        raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
     native.validate(source)
     definition = replace(
         definition,
@@ -411,9 +438,38 @@ def canonical_pilot(definition: SourceDefinition) -> tuple[IngestionOrchestrator
     """Called by existing source run, using existing environment credentials."""
     receipts = json.loads(RECEIPTS.read_text(encoding="utf-8"))["receipts"]
     settings = PipelineSettings()
+    budget = PilotBudget()
+    version = 1
+    if settings.topx_env == "prod":
+        receipts += json.loads(DAILY_RECEIPTS.read_text(encoding="utf-8"))["receipts"]
+        with connect(SnowflakeSettings()) as raw, _Connection(raw, budget).cursor() as cursor:
+            cursor.execute("ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=30")
+            cursor.execute(
+                "SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()"
+            )
+            if cursor.fetchall() != [
+                (
+                    "OH_LYME_PROD_PIPELINE_SVC",
+                    "OH_LYME_PROD_RUNTIME",
+                    "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+                    "OH_LYME_PROD_INGEST_XS_WH",
+                )
+            ]:
+                raise PermissionError("INTELLIGENCE_PILOT_RUNTIME_CONTEXT_REQUIRED")
+            cursor.execute(
+                "SELECT registry_version FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS "
+                "WHERE source_id=%s ORDER BY registry_version DESC LIMIT 1",
+                (definition.source_id,),
+            )
+            rows = cursor.fetchall()
+            if len(rows) != 1 or rows[0][0] not in {1, 2}:
+                raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
+            version = rows[0][0]
     return compose_pilot(
         definition,
         receipts=receipts,
         settings=settings,
         connection_factory=lambda: connect(SnowflakeSettings()),
+        budget=budget,
+        registry_version=version,
     )
