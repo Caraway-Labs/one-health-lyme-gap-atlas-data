@@ -1,9 +1,13 @@
 """Approval-only workflow uses existing protected credentials and exact inventory."""
 
 import ast
+import importlib
 import itertools
 import json
+import os
 import re
+import subprocess
+import sys
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -14,15 +18,22 @@ import pytest
 import yaml
 
 from lyme_gap_atlas_data.intelligence_retention import RawCopy, capture_lease
-from scripts import approve_intelligence_raw_cleanup_prod as module
-from scripts.intelligence_raw_cleanup_prod import (
-    DATABASE,
-    SYNTHETIC_RUN,
-    SYNTHETIC_SHA,
-    synthetic_plan,
-)
 
 ROOT = Path(__file__).parents[1]
+# Mirror the workflow's `python -m scripts...` root without relying on the
+# pytest console entry point adding the repository to its import path.
+sys.path.insert(0, str(ROOT))
+try:
+    module = importlib.import_module("scripts.approve_intelligence_raw_cleanup_prod")
+    canonical = importlib.import_module("scripts.intelligence_raw_cleanup_prod")
+finally:
+    sys.path.remove(str(ROOT))
+DATABASE, SYNTHETIC_RUN, SYNTHETIC_SHA = (
+    canonical.DATABASE,
+    canonical.SYNTHETIC_RUN,
+    canonical.SYNTHETIC_SHA,
+)
+synthetic_plan = canonical.synthetic_plan
 
 
 def request():
@@ -194,6 +205,22 @@ def test_invalid_request_never_opens_service_connection(monkeypatch):
     monkeypatch.setattr(module, "identity", lambda *args: pytest.fail("service connection opened"))
     with pytest.raises(PermissionError):
         module.main()
+
+
+def test_actual_workflow_module_entry_point_imports_and_rejects_invalid_context():
+    environment = os.environ.copy()
+    environment["CLEANUP_APPROVAL_INPUTS"] = "{}"
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.approve_intelligence_raw_cleanup_prod"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr.strip() == "INTELLIGENCE_RAW_PLAN_APPROVAL_FAILED"
 
 
 def test_workflow_lane_cannot_reach_migration_deployment_or_secret_export():
