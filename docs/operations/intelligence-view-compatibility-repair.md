@@ -1,0 +1,9 @@
+# Intelligence view compatibility repair
+
+Production V164 began failing with Snowflake 002031 (42601), unsupported correlated subquery, after the first approved immutable v2 registration. The API service's actual least-privilege identity independently reproduced the error. Existing captures and registry history remain intact; additional registrations and daily activation are paused.
+
+V165 is an append-only replacement of that view. It computes blocked source versions with a non-correlated source-version join and left anti-joins them from the unchanged publication projection. The exact V164 pinned transition predicate and cross-version deduplication are retained. No registry rows, captures, grants, credentials, procedures, application images or retention controls are changed by this migration.
+
+Validation must include the actual complete query in Snowflake DEV using `snow` with named `ATLAS_DEV_READ`. `scripts/verify_intelligence_daily_view_dev.py` uses inline SELECT fixtures only: all three pinned transitions, v1/v2 deduplication, paused/revoked/untrusted/null/future/unknown hash suppression. This creates no tables, users or source requests. SQLite translation alone is insufficient evidence for Snowflake query compatibility.
+
+Draft status: DEV integration, full hosted CI and independent review are pending. After exact reviewed green-main and immutable DEV verification, use the existing protected migration-only workflow for the exact V165 pending set. Native human production approval remains required. Verify ledger, installed definition, actual API service readback and public 40-entry/39-article visibility before resuming the remaining registrations or daily activation. Never rewrite V164 or delete the approved v2 row.
