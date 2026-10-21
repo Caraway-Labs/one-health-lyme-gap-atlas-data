@@ -15,6 +15,7 @@ from urllib.request import url2pathname
 from .intelligence_items import TOKEN, canonical_json, identity_hash
 from .intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from .intelligence_retention import (
+    PROD_METADATA_FEED_IDS,
     CleanupPlan,
     CleanupReceipt,
     CopyKind,
@@ -24,7 +25,7 @@ from .intelligence_retention import (
 )
 from .migrations import (
     INTELLIGENCE_CLEANUP_MIGRATION,
-    PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION,
+    PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
     load_migrations,
 )
 
@@ -256,11 +257,11 @@ def verify_cleanup_handoff(factory: Callable[[], Any], environment: str) -> None
     """Fail closed on absent/partial ownership handoff before any raw mutation."""
     if environment not in {"DEV", "PROD"}:
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
-    version = "V143" if environment == "DEV" else "V162"
+    version = "V143" if environment == "DEV" else "V163"
     expected_migration = (
         INTELLIGENCE_CLEANUP_MIGRATION
         if environment == "DEV"
-        else PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION
+        else PROD_FEED_EXPANSION_CLEANUP_MIGRATION
     )
     migration = next(item for item in load_migrations() if item.version == version)
     if migration.sha256 != expected_migration["sha256"]:
@@ -381,8 +382,16 @@ def load_exact_plan(path: Path, checksum: str, *, environment: str = "DEV") -> C
     if (
         plan.environment != environment
         or environment not in {"DEV", "PROD"}
-        or plan.source_ids != ("cdc-eid-expedited",)
+        or (
+            plan.source_ids != ("cdc-eid-expedited",)
+            if environment == "DEV"
+            else len(plan.source_ids) != 1 or plan.source_ids[0] not in PROD_METADATA_FEED_IDS
+        )
         or checksum != plan.sha256
+        or any(
+            copy.environment != environment or copy.source_id not in plan.source_ids
+            for copy in plan.copies
+        )
         or canonical_json(asdict(plan)) != path.read_text(encoding="utf-8")
     ):
         raise PermissionError("INTELLIGENCE_RAW_PLAN_CHANGED")
@@ -442,8 +451,13 @@ def execute_reviewed_prod_plan(
         or gate.environment != "PROD"
         or not isinstance(gate.ledger, SnowflakeRawLedger)
         or gate.ledger.expected_role != "OH_LYME_PROD_INTELLIGENCE_RAW_CLEANUP"
-        or plan.source_ids != ("cdc-eid-expedited",)
+        or len(plan.source_ids) != 1
+        or plan.source_ids[0] not in PROD_METADATA_FEED_IDS
         or len(plan.copies) > 1000
+        or any(
+            copy.environment != "PROD" or copy.source_id != plan.source_ids[0]
+            for copy in plan.copies
+        )
     ):
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
     verify_prod_cleanup_handoff(factory)
@@ -491,7 +505,7 @@ def dev_cleanup_scope(copy: RawCopy, object_delete: ObjectRawDelete) -> bool:
 
 def prod_cleanup_scope(copy: RawCopy, object_delete: ObjectRawDelete) -> bool:
     """Allow only PROD EID copies represented by the composed production runtime."""
-    if copy.environment != "PROD" or copy.source_id != "cdc-eid-expedited":
+    if copy.environment != "PROD" or copy.source_id not in PROD_METADATA_FEED_IDS:
         return False
     if copy.kind == "raw_object":
         try:

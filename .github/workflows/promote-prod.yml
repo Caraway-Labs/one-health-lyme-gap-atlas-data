@@ -72,6 +72,15 @@ on:
         description: Exact externally approved PROD EID raw-copy plan SHA256
         required: false
         type: string
+      cleanup_source_id:
+        description: One exact approved CDC source for the separately reviewed cleanup plan
+        required: false
+        default: cdc-eid-expedited
+        type: choice
+        options:
+          - cdc-eid-expedited
+          - cdc-eid-ahead-of-print
+          - cdc-outbreaks
       cleanup_planned_at:
         description: Original canonical planned_at from the unchanged private dry-run plan
         required: false
@@ -191,6 +200,7 @@ jobs:
             test "$PROTECTED_INTELLIGENCE_PREREQUISITE" = "true"
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"}]" || \
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V162\",\"filename\":\"V162__prod_intelligence_proactive_cleanup.sql\",\"sha256\":\"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557\"}]" || \
+            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V163\",\"filename\":\"V163__prod_approved_metadata_feed_cleanup.sql\",\"sha256\":\"1d4470c4eac4939bf4fbda4f56f0c8a1b004d6e9190d5512ae9e220e5b99b741\"}]" || \
             test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"},{\"version\":\"V162\",\"filename\":\"V162__prod_intelligence_proactive_cleanup.sql\",\"sha256\":\"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557\"}]"
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \

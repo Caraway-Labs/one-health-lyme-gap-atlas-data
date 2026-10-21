@@ -80,7 +80,7 @@ def test_cli_rejects_generic_tier_c_rss_and_alternate_eid_path(
     eid = load_source_definition(ROOT / EID_PATH)
     monkeypatch.setattr(cli, "load_source_definition", lambda _: eid)
     monkeypatch.setattr(cli, "_orchestrator", lambda *args, **kwargs: pytest.fail("Generic route"))
-    with pytest.raises(typer.BadParameter, match="exact EID protected route"):
+    with pytest.raises(typer.BadParameter, match="exact approved CDC protected route"):
         cli.source_run(
             definition="other-eid.yml",
             tier="C",
@@ -89,7 +89,7 @@ def test_cli_rejects_generic_tier_c_rss_and_alternate_eid_path(
             fail_after_stage=None,
             run_id=None,
         )
-    with pytest.raises(typer.BadParameter, match="exact EID protected route"):
+    with pytest.raises(typer.BadParameter, match="exact approved CDC protected route"):
         cli.source_run(
             definition=EID_PATH,
             tier="C",

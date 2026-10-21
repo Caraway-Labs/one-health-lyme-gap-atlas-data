@@ -24,6 +24,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
+from ..intelligence_retention import PROD_METADATA_FEED_IDS
 from ..settings import PipelineSettings
 from ..sql_sessions import connect
 from .adapters import AcquireResult, NormalizeResult
@@ -35,11 +36,28 @@ from .types import AdapterKind, SourceDefinition
 
 ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+    "cdc-eid-ahead-of-print": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
+    "cdc-outbreaks": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
     "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
+PROD_SOURCE_SHA256 = {
+    "cdc-eid-expedited": PROD_EID_SHA256,
+    "cdc-eid-ahead-of-print": "b92e97c9e958c270645c9710118b3a3076228c6bcb2390b5c58cff9bacb2a7be",
+    "cdc-outbreaks": "54793f2c4856602bf8901d09972a44d2a7479056e71eac75ddc88db060646172",
+}
+PROD_SOURCE_DECISIONS = {
+    "cdc-eid-expedited": "DATA-132-135-EID-ADMISSION-2026-10-09",
+    "cdc-eid-ahead-of-print": "matthew-feed-selection-2026-10-03",
+    "cdc-outbreaks": "matthew-feed-selection-2026-10-03",
+}
+PROD_SOURCE_DEFINITIONS = {
+    "cdc-eid-expedited": "config/sources/intelligence_cdc_eid_expedited.yml",
+    "cdc-eid-ahead-of-print": "config/sources/intelligence_cdc_eid_ahead_of_print.yml",
+    "cdc-outbreaks": "config/sources/intelligence_cdc_outbreaks.yml",
+}
 
 
 @contextmanager
@@ -255,7 +273,7 @@ def compose_pilot(
     if environment == "PROD":
         endpoint = urlsplit(settings.spaces_endpoint)
         if (
-            definition.source_id != "cdc-eid-expedited"
+            definition.source_id not in PROD_METADATA_FEED_IDS
             or settings.spaces_bucket != "one-health-lyme-gap-atlas-data-prod"
             or settings.spaces_prefix != "prod"
             or settings.spaces_region != "sfo3"
@@ -282,8 +300,8 @@ def compose_pilot(
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_POLICY_REQUIRED")
     if environment == "PROD" and (
         receipt["registry_version"] != 1
-        or receipt["source_sha256"] != PROD_EID_SHA256
-        or receipt["decision_ref"] != "DATA-132-135-EID-ADMISSION-2026-10-09"
+        or receipt["source_sha256"] != PROD_SOURCE_SHA256[definition.source_id]
+        or receipt["decision_ref"] != PROD_SOURCE_DECISIONS[definition.source_id]
         or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
         or receipt["artifact_policy"] != "CDC_EID_RESTRICTED_RAW_30D_V1"
     ):
@@ -298,7 +316,7 @@ def compose_pilot(
         }
     )
     if environment == "PROD" and (
-        native.policy_ref != "cdc-eid-expedited-native-metadata-v1"
+        native.policy_ref != definition.source_id + "-native-metadata-v1"
         or native.permitted_paths
         != frozenset(
             {
