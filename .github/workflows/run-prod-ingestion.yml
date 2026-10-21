@@ -132,7 +132,7 @@ jobs:
         timeout-minutes: 4
         run: timeout --signal=INT --kill-after=15s 180s uv run python scripts/verify_january_bulk_repair_receipt.py
       - name: Verify protected PROD runtime identity and approved source decision
-        if: inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml'
+        if: inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_outbreaks.yml'
         timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 3 || 360 }}
         run: |
           set -euo pipefail

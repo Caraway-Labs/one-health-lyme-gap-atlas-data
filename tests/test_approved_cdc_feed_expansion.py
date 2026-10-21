@@ -3,11 +3,13 @@
 import hashlib
 import importlib.util
 import json
+import re
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
     ENDPOINTS,
@@ -152,3 +154,81 @@ def test_forward_migration_keeps_exact_single_source_and_security_boundaries() -
     assert "GRANT USAGE ON PROCEDURE" not in sql
     assert "GRANT OWNERSHIP" not in sql
     assert "DELETE FROM CONFORMED" not in sql
+
+
+@pytest.mark.parametrize(
+    "path,fixed",
+    [(p, True) for p in PROD_SOURCE_DEFINITIONS.values()]
+    + [
+        ("config/sources/cdc_x5j9_wybp.yml", False),
+        ("config/sources/intelligence_nih_news.yml", False),
+    ],
+)
+def test_actual_workflow_fixed_source_guard_and_generic_identity_guard_are_complements(
+    path: str, fixed: bool
+) -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/run-prod-ingestion.yml").read_text())
+    steps = workflow["jobs"]["ingest"]["steps"]
+    fixed_step = next(s for s in steps if s.get("name", "").startswith("Require exact reviewed"))
+    generic_step = next(s for s in steps if s.get("name", "").startswith("Verify protected PROD runtime"))
+
+    def applies(expression: str) -> bool:
+        pattern = r"inputs\.source_definition\s*(==|!=)\s*'([^']+)'"
+
+        def evaluate_comparison(match: re.Match[str]) -> str:
+            equal = path == match[2]
+            return str(equal if match[1] == "==" else not equal)
+
+        translated = re.sub(pattern, evaluate_comparison, expression)
+        assert re.fullmatch(r"[TrueFals() &|]+", translated)
+        return bool(eval(translated.replace("&&", "and").replace("||", "or"), {"__builtins__": {}}))
+
+    assert applies(fixed_step["if"]) is fixed
+    assert applies(generic_step["if"]) is not fixed
+
+
+@pytest.mark.parametrize("handoff_count", [0, 1, 2])
+def test_added_source_registration_requires_exact_installed_retention_and_one_handoff(
+    handoff_count: int,
+) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "expanded_prod_registration", ROOT / "scripts/register_eid_expedited_prod.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class Cursor:
+        rows: list[tuple]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def execute(self, sql, params=()):
+            assert sql.startswith("SELECT ")  # Read-only preflight before registry writes.
+            if "CURRENT_USER" in sql:
+                self.rows = [module.IDENTITY]
+            elif "version='V146'" in sql:
+                self.rows = [module.V146]
+            elif "version='V163'" in sql:
+                m = PROD_FEED_EXPANSION_CLEANUP_MIGRATION
+                self.rows = [(m["filename"], m["sha256"])]
+            else:
+                assert params == (PROD_FEED_EXPANSION_CLEANUP_MIGRATION["sha256"],)
+                self.rows = [(handoff_count,)]
+
+        def fetchall(self):
+            return self.rows
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+    if handoff_count == 1:
+        module.verify_schema(Connection(), "cdc-eid-ahead-of-print")
+    else:
+        with pytest.raises(PermissionError, match="RETENTION_HANDOFF_REQUIRED"):
+            module.verify_schema(Connection(), "cdc-eid-ahead-of-print")
