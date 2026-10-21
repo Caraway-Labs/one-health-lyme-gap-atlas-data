@@ -63,6 +63,23 @@ on:
         description: Exact reviewed PROD pending migration set; required for protected intelligence cleanup authority
         required: false
         type: string
+      approve_intelligence_cleanup_only:
+        description: Record only an independently approved exact PROD EID cleanup plan; no migration, deletion or deployment
+        required: false
+        default: false
+        type: boolean
+      cleanup_plan_sha256:
+        description: Exact externally approved PROD EID raw-copy plan SHA256
+        required: false
+        type: string
+      cleanup_planned_at:
+        description: Original canonical planned_at from the unchanged private dry-run plan
+        required: false
+        type: string
+      cleanup_approval_ref:
+        description: Independently approved review reference for this exact plan
+        required: false
+        type: string
       protected_intelligence_prerequisite:
         description: Apply only the exact reviewed intelligence migration set after V146; no image promotion
         required: false
@@ -80,7 +97,7 @@ concurrency:
 
 jobs:
   promote:
-    if: ${{ inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
+    if: ${{ inputs.approve_intelligence_cleanup_only != true && inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -312,7 +329,7 @@ jobs:
 
 
   january-climate:
-    if: ${{ inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
+    if: ${{ inputs.approve_intelligence_cleanup_only != true && inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
     name: Protected reviewed PROD migrations only
     runs-on: ubuntu-latest
     environment: production
@@ -379,7 +396,7 @@ jobs:
           timeout --signal=INT --kill-after=15s "$deadline" uv run python "$runner"
 
   retained-lineage:
-    if: ${{ inputs.retained_lineage_only == true || inputs.retained_human_lineage_only == true }}
+    if: ${{ inputs.approve_intelligence_cleanup_only != true && (inputs.retained_lineage_only == true || inputs.retained_human_lineage_only == true) }}
     name: Protected retained-lineage diagnostic installation
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -447,3 +464,57 @@ jobs:
           name: retained-lineage-installation-${{ github.sha }}-${{ github.run_attempt }}
           path: retained-lineage-installation-receipt.json
           if-no-files-found: warn
+
+  approve-intelligence-cleanup:
+    if: ${{ inputs.approve_intelligence_cleanup_only == true }}
+    name: Record approved EID raw cleanup plan only
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require exact green main and approval-only request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEANUP_APPROVAL_INPUTS: ${{ toJSON(inputs) }}
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed_checks" -gt 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Record only the exact reviewed EID plan using existing migration-service credentials
+        env:
+          CLEANUP_APPROVAL_INPUTS: ${{ toJSON(inputs) }}
+          TOPX_ENV: prod
+          ENABLE_PRODUCTION_EXECUTION: "true"
+          ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "10"
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/intelligence-plan-approval-key.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          uv run python -m scripts.approve_intelligence_raw_cleanup_prod
