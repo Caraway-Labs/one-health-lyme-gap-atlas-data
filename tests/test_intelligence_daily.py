@@ -364,3 +364,18 @@ def test_daily_claim_rejects_unknown_source_before_connection():
     store._connection_factory = lambda: pytest.fail("unexpected SQL")
     with pytest.raises(PermissionError):
         store.claim_daily_run("unapproved", "other-source", "0" * 64)
+
+
+def test_production_workflow_boolean_expressions_are_syntactically_balanced():
+    import ast
+
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/promote-prod.yml").read_text())
+    for job in workflow["jobs"].values():
+        for node in [job, *job.get("steps", [])]:
+            expression = node.get("if", "")
+            if expression.startswith("${{"):
+                source = expression.removeprefix("${{").removesuffix("}}")
+                source = source.replace("&&", "and").replace("||", "or").strip()
+                ast.parse(source, mode="eval")
