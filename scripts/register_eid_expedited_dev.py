@@ -6,10 +6,16 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from lyme_gap_atlas_data.ingestion.intelligence_runtime import pilot_watchdog
+from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
+    ENDPOINTS,
+    PROD_SOURCE_DECISIONS,
+    PROD_SOURCE_SHA256,
+    pilot_watchdog,
+)
 from lyme_gap_atlas_data.intelligence_items import canonical_json, identity_hash, validate_record
 from lyme_gap_atlas_data.intelligence_metadata import NativeMetadataPolicy
 from lyme_gap_atlas_data.sql_sessions import connect
@@ -28,12 +34,19 @@ DECISION_REF = "DATA-132-135-EID-ADMISSION-2026-10-09"
 ARTIFACT_POLICY = "CDC_EID_RESTRICTED_RAW_30D_V1"
 
 
-def reviewed_package() -> tuple[dict[str, Any], str]:
-    source = json.loads(SOURCE.read_text(encoding="utf-8"))
+def reviewed_package(source_id: str = SOURCE_ID) -> tuple[dict[str, Any], str]:
+    if source_id not in PROD_SOURCE_SHA256:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    path = (
+        SOURCE
+        if source_id == SOURCE_ID
+        else ROOT / f"config/intelligence/{source_id}-source-v1.json"
+    )
+    source = json.loads(path.read_text(encoding="utf-8"))
     receipts = json.loads(RECEIPTS.read_text(encoding="utf-8"))["receipts"]
     validate_record("source", source)
     checksum = identity_hash(source)
-    selected = [row for row in receipts if row.get("source_id") == SOURCE_ID]
+    selected = [row for row in receipts if row.get("source_id") == source_id]
     if len(selected) != 1:
         raise PermissionError("EID_EXACT_RECEIPT_REQUIRED")
     receipt = selected[0]
@@ -48,10 +61,11 @@ def reviewed_package() -> tuple[dict[str, Any], str]:
     )
     native.validate(source)
     if (
-        source["source_id"] != SOURCE_ID
+        source["source_id"] != source_id
+        or checksum != PROD_SOURCE_SHA256[source_id]
         or source["registry_version"] != 1
-        or source["fetch_location"] != "https://wwwnc.cdc.gov/eid/rss/expedited.xml"
-        or source["approved_hosts"] != ["wwwnc.cdc.gov"]
+        or source["fetch_location"] != ENDPOINTS[source_id]
+        or source["approved_hosts"] != [urlsplit(ENDPOINTS[source_id]).hostname]
         or source["state"] != "manual"
         or source["cadence"]["poll_seconds"] != 86400
         or source["limits"]
@@ -63,18 +77,21 @@ def reviewed_package() -> tuple[dict[str, Any], str]:
             "maximum_attempts": 1,
         }
         or any(source[key]["status"] != "approved" for key in ("approval", "trust_review"))
-        or any(source[key]["decision_ref"] != DECISION_REF for key in ("approval", "trust_review"))
+        or any(
+            source[key]["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
+            for key in ("approval", "trust_review")
+        )
         or source["access_use"]["public_excerpt_permitted"]
         or source["access_use"]["excerpt_max_chars"] != 0
         or source["access_use"]["content_retention_policy_ref"]
-        != "cdc-eid-expedited-metadata-raw-30d-v1"
-        or receipt["decision_ref"] != DECISION_REF
+        != source_id + "-metadata-raw-30d-v1"
+        or receipt["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
         or receipt["registry_version"] != 1
         or receipt["source_sha256"] != checksum
         or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
         or receipt["retention_policy_ref"] != source["access_use"]["content_retention_policy_ref"]
         or receipt["artifact_policy"] != ARTIFACT_POLICY
-        or native.policy_ref != "cdc-eid-expedited-native-metadata-v1"
+        or native.policy_ref != source_id + "-native-metadata-v1"
         or native.permitted_paths
         != frozenset(
             {
@@ -102,6 +119,11 @@ def register(
     expected_identity: tuple[str, str, str, str] = IDENTITY,
 ) -> str:
     """Guarded single-source insert; exact existing row is an idempotent retry."""
+    source_id = source["source_id"]
+    if source_id not in PROD_SOURCE_SHA256 or checksum != PROD_SOURCE_SHA256[source_id]:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    if identity_hash(source) != checksum:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
@@ -125,7 +147,7 @@ def register(
                 "SELECT registry_version,registry_sha256,TO_JSON(registry_document) "
                 "FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS "
                 "WHERE source_id=%s ORDER BY registry_version DESC LIMIT 2",
-                (SOURCE_ID,),
+                (source_id,),
             )
             existing = cursor.fetchall()
             expected = (1, checksum, canonical_json(source))
@@ -142,7 +164,7 @@ def register(
                 "INSERT INTO GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS "
                 "(source_id,registry_version,registry_sha256,registry_document) "
                 "SELECT %s,%s,%s,PARSE_JSON(%s)",
-                (SOURCE_ID, 1, checksum, canonical_json(source)),
+                (source_id, 1, checksum, canonical_json(source)),
             )
             if cursor.rowcount != 1:
                 raise PermissionError("EID_INSERT_CARDINALITY_MISMATCH")

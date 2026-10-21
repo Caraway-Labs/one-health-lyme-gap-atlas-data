@@ -3,6 +3,15 @@ name: Register reviewed CDC EID source in PROD
 on:
   workflow_dispatch:
     inputs:
+      source_id:
+        description: One exact reviewed CDC metadata source; no other source admission
+        required: true
+        type: choice
+        default: cdc-eid-expedited
+        options:
+          - cdc-eid-expedited
+          - cdc-eid-ahead-of-print
+          - cdc-outbreaks
       reviewed_commit:
         description: Exact green main commit approved for PROD source registration
         required: true
@@ -32,6 +41,7 @@ jobs:
     env:
       TOPX_ENV: prod
       ENABLE_PRODUCTION_EXECUTION: "true"
+      INTELLIGENCE_SOURCE_ID: ${{ inputs.source_id }}
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}

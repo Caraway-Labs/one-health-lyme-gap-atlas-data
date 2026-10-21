@@ -10,8 +10,11 @@ from typing import Any
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from lyme_gap_atlas_data.ingestion.intelligence_runtime import pilot_watchdog
-from lyme_gap_atlas_data.migrations import pending_migration_plan
+from lyme_gap_atlas_data.ingestion.intelligence_runtime import PROD_SOURCE_SHA256, pilot_watchdog
+from lyme_gap_atlas_data.migrations import (
+    PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
+    pending_migration_plan,
+)
 from lyme_gap_atlas_data.settings import PipelineSettings
 from lyme_gap_atlas_data.sql_sessions import connect
 
@@ -38,7 +41,7 @@ V146 = (
 )
 
 
-def verify_schema(connection: Any) -> None:
+def verify_schema(connection: Any, source_id: str = "cdc-eid-expedited") -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
@@ -50,6 +53,25 @@ def verify_schema(connection: Any) -> None:
         )
         if cursor.fetchall() != [V146]:
             raise PermissionError("EID_PROD_V146_REQUIRED")
+        if source_id != "cdc-eid-expedited":
+            migration = PROD_FEED_EXPANSION_CLEANUP_MIGRATION
+            cursor.execute(
+                "SELECT filename,sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS WHERE version='V163'"
+            )
+            if cursor.fetchall() != [(migration["filename"], migration["sha256"])]:
+                raise PermissionError("CDC_PROD_EXPANDED_RETENTION_REQUIRED")
+            cursor.execute(
+                "SELECT COUNT(*) FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS a "
+                "JOIN GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_EXPECTED_HANDOFF_V e "
+                "ON a.MIGRATION_SHA256=e.MIGRATION_SHA256 "
+                "AND a.PROCEDURE_BODY_SHA256=e.PROCEDURE_BODY_SHA256 "
+                "WHERE a.MIGRATION_SHA256=%s "
+                "AND a.OWNER_ROLE='OH_LYME_PROD_INTELLIGENCE_RAW_PURGE_OWNER' "
+                "AND LENGTH(a.HANDOFF_REF)>0 AND LENGTH(a.ATTESTED_BY)>0",
+                (migration["sha256"],),
+            )
+            if cursor.fetchall() != [(1,)]:
+                raise PermissionError("CDC_PROD_EXPANDED_RETENTION_HANDOFF_REQUIRED")
 
 
 def main() -> None:
@@ -59,11 +81,12 @@ def main() -> None:
             settings = PipelineSettings()
             if settings.topx_env != "prod" or settings.snowflake_database != DATABASE:
                 raise PermissionError("EID_PROD_ENVIRONMENT_REQUIRED")
-            source, checksum = reviewed_package()
-            if checksum != SOURCE_SHA256:
+            source_id = os.environ.get("INTELLIGENCE_SOURCE_ID", "cdc-eid-expedited")
+            source, checksum = reviewed_package(source_id)
+            if checksum != PROD_SOURCE_SHA256.get(source_id):
                 raise PermissionError("EID_PROD_SOURCE_HASH_CHANGED")
             with connect(SnowflakeSettings()) as connection:
-                verify_schema(connection)
+                verify_schema(connection, source_id)
                 if pending_migration_plan(SnowflakeSettings(), DATABASE):
                     raise PermissionError("EID_PROD_PENDING_MIGRATIONS")
                 result = register(connection, source, checksum, expected_identity=IDENTITY)
@@ -73,7 +96,7 @@ def main() -> None:
             json.dumps(
                 {
                     "result": result,
-                    "source_id": "cdc-eid-expedited",
+                    "source_id": source_id,
                     "registry_version": 1,
                     "sha256": checksum,
                 }

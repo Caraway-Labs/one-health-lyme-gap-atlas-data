@@ -12,7 +12,7 @@ from typing import Any
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import pilot_watchdog
 from lyme_gap_atlas_data.intelligence_items import TOKEN, canonical_timestamp
 from lyme_gap_atlas_data.intelligence_raw_cleanup import ObjectRawDelete, prod_cleanup_scope
-from lyme_gap_atlas_data.intelligence_retention import plan_cleanup
+from lyme_gap_atlas_data.intelligence_retention import PROD_METADATA_FEED_IDS, plan_cleanup
 from scripts.intelligence_raw_cleanup_prod import (
     APPROVER_ROLE,
     APPROVER_USER,
@@ -55,6 +55,7 @@ def validate_request(inputs: dict[str, Any], environment: dict[str, str]) -> tup
         or any(inputs.get(mode, False) is not False for mode in OTHER_MODES)
         or inputs.get("image_digest") != MODE
         or inputs.get("expected_pending_json") != "[]"
+        or inputs.get("cleanup_source_id", "cdc-eid-expedited") not in PROD_METADATA_FEED_IDS
         or not isinstance(checksum, str)
         or re.fullmatch(r"[a-f0-9]{64}", checksum) is None
         or not isinstance(planned_at, str)
@@ -68,7 +69,11 @@ def validate_request(inputs: dict[str, Any], environment: dict[str, str]) -> tup
     return checksum, planned_at, ref
 
 
-def approve_exact_plan(checksum: str, planned_at: str, ref: str) -> None:
+def approve_exact_plan(
+    checksum: str, planned_at: str, ref: str, source_id: str = "cdc-eid-expedited"
+) -> None:
+    if source_id not in PROD_METADATA_FEED_IDS:
+        raise PermissionError("INTELLIGENCE_RAW_APPROVAL_REQUEST_INVALID")
     identity(factory, APPROVER_USER, APPROVER_ROLE)
     gate = gate_for(factory, APPROVER_ROLE)
     with gate.ledger.guard():
@@ -76,7 +81,7 @@ def approve_exact_plan(checksum: str, planned_at: str, ref: str) -> None:
         plan = plan_cleanup(
             gate,
             environment="PROD",
-            source_ids=("cdc-eid-expedited",),
+            source_ids=(source_id,),
             now=planned_at,
             scope=lambda copy: prod_cleanup_scope(copy, driver),
         )
@@ -94,7 +99,11 @@ def main() -> None:
         raise PermissionError("INTELLIGENCE_RAW_APPROVAL_REQUEST_INVALID")
     checksum, planned_at, ref = validate_request(inputs, dict(os.environ))
     with pilot_watchdog(seconds=120):
-        approve_exact_plan(checksum, planned_at, ref)
+        source_id = inputs.get("cleanup_source_id", "cdc-eid-expedited")
+        if source_id == "cdc-eid-expedited":
+            approve_exact_plan(checksum, planned_at, ref)
+        else:
+            approve_exact_plan(checksum, planned_at, ref, source_id)
 
 
 if __name__ == "__main__":

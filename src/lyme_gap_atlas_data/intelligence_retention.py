@@ -17,13 +17,16 @@ from .intelligence_items import TOKEN, canonical_timestamp, identity_hash
 
 POLICY_VERSION = "intelligence-raw-30d-v1"
 PROD_CLEANUP_LEAD = timedelta(hours=48)
+PROD_METADATA_FEED_IDS = frozenset(
+    {"cdc-eid-expedited", "cdc-eid-ahead-of-print", "cdc-outbreaks"}
+)
 
 
 def cleanup_due_at(lease: RawLease, environment: str) -> datetime:
     """Maximum retention is unchanged; PROD EID is removed proactively."""
     lease.validate()
     deadline = _time(lease.expires_at)
-    if environment == "PROD" and lease.source_id == "cdc-eid-expedited":
+    if environment == "PROD" and lease.source_id in PROD_METADATA_FEED_IDS:
         return deadline - PROD_CLEANUP_LEAD
     return deadline
 

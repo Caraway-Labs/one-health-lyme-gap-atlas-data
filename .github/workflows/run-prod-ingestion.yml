@@ -105,7 +105,7 @@ jobs:
       - name: Validate definition
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
       - name: Require exact reviewed EID-only production request
-        if: inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml'
+        if: (inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_outbreaks.yml')
         env:
           GH_TOKEN: ${{ github.token }}
           REQUEST_OPERATION: ${{ inputs.operation }}
@@ -214,7 +214,7 @@ jobs:
               )
           PY
       - name: Execute canonical Tier C run or resume
-        timeout-minutes: ${{ inputs.january_normalize_recovery && 31 || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' && 6 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
+        timeout-minutes: ${{ inputs.january_normalize_recovery && 31 || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || (inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_outbreaks.yml') && 6 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.source_definition }}" = "config/sources/noaa_nclimgrid_daily_202501_prod.yml" ]; then

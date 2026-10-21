@@ -41,11 +41,17 @@ PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION = {
     "filename": "V162__prod_intelligence_proactive_cleanup.sql",
     "sha256": "451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557",
 }
+PROD_FEED_EXPANSION_CLEANUP_MIGRATION = {
+    "version": "V163",
+    "filename": "V163__prod_approved_metadata_feed_cleanup.sql",
+    "sha256": "1d4470c4eac4939bf4fbda4f56f0c8a1b004d6e9190d5512ae9e220e5b99b741",
+}
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
     PROD_INTELLIGENCE_CLEANUP_MIGRATION,
     PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION,
+    PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -140,6 +146,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V160",
     "V161",
     "V162",
+    "V163",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -1033,6 +1040,12 @@ def apply_migrations(
         and not any(item.version == "V150" for item in plan)
     ):
         raise PermissionError("V162 requires recorded V150 or the exact reviewed V150/V162 chain")
+    if (
+        database == PROD_DATABASE
+        and any(item.version == "V163" and item.version not in applied for item in plan)
+        and "V162" not in applied
+    ):
+        raise PermissionError("V163 requires recorded V162 before feed-scope expansion")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

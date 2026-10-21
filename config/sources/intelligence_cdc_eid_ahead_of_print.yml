@@ -1,0 +1,18 @@
+resource_key: cdc-eid-ahead-of-print
+source_id: cdc-eid-ahead-of-print
+definition_version: 1
+platform_type: rss_atom
+endpoint_template: https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml
+deterministic_order_clause: publisher_document_order
+incremental_strategy: CONTENT_REVISION
+geography_semantics: Publication; no inferred geography
+temporal_semantics: Publisher chronology; missing remains unknown
+destination: PRESENTATION.INTELLIGENCE_FEED_V2
+expected_refresh_cadence: daily
+artifact_policy: REVIEW_REQUIRED
+restrictions:
+  - Retain publisher title, dates, source links, and limited reviewed feed metadata only.
+  - Do not retain descriptions, article text, excerpts, image values or bytes, or logos.
+  - Attribute CDC and link to the free original without implying CDC endorsement.
+  - Require an exact approved source version and native-metadata policy before acquisition.
+maximum_rows: 250

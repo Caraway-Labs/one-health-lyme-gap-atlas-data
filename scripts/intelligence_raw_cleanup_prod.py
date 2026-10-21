@@ -28,7 +28,13 @@ from lyme_gap_atlas_data.intelligence_raw_cleanup import (
     prod_cleanup_scope,
 )
 from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
-from lyme_gap_atlas_data.intelligence_retention import CleanupPlan, RawCopy, RawLease, plan_cleanup
+from lyme_gap_atlas_data.intelligence_retention import (
+    PROD_METADATA_FEED_IDS,
+    CleanupPlan,
+    RawCopy,
+    RawLease,
+    plan_cleanup,
+)
 from lyme_gap_atlas_data.settings import PipelineSettings
 from lyme_gap_atlas_data.sql_sessions import connect
 
@@ -234,7 +240,7 @@ def deadline_check() -> None:
     plan_cleanup(
         snapshot,
         environment="PROD",
-        source_ids=("cdc-eid-expedited",),
+        source_ids=tuple(sorted(PROD_METADATA_FEED_IDS)),
         now=now.isoformat().replace("+00:00", "Z"),
         scope=lambda copy: prod_cleanup_scope(copy, driver),
     )
@@ -244,7 +250,7 @@ def deadline_check() -> None:
     if len(copies) > 1000:
         raise PermissionError("INTELLIGENCE_RAW_DEADLINE_LIMIT")
     for copy in copies:
-        if copy.environment != "PROD" or copy.source_id != "cdc-eid-expedited":
+        if copy.environment != "PROD" or copy.source_id not in PROD_METADATA_FEED_IDS:
             continue
         if copy.kind not in {"raw_object", "checkpoint_payload"}:
             continue  # Managed process/cache buffers have no persistent backend here.
@@ -324,7 +330,7 @@ def verify_current_inventory(
         current = plan_cleanup(
             gate,
             environment="PROD",
-            source_ids=("cdc-eid-expedited",),
+            source_ids=plan.source_ids,
             now=plan.planned_at,
             scope=lambda copy: prod_cleanup_scope(copy, object_delete),
         )
@@ -382,6 +388,9 @@ def run() -> None:
     parser.add_argument("--plan-sha256")
     parser.add_argument("--approval-ref")
     parser.add_argument("--confirm", action="store_true")
+    parser.add_argument(
+        "--source-id", choices=sorted(PROD_METADATA_FEED_IDS), default="cdc-eid-expedited"
+    )
     args = parser.parse_args()
     if args.action == "deadline-check":
         with pilot_watchdog(seconds=300):
@@ -429,7 +438,7 @@ def run() -> None:
                 plan = plan_cleanup(
                     gate,
                     environment="PROD",
-                    source_ids=("cdc-eid-expedited",),
+                    source_ids=(args.source_id,),
                     now=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                     scope=lambda copy: prod_cleanup_scope(copy, object_delete),
                 )
