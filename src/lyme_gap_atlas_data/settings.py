@@ -13,6 +13,7 @@ class PipelineSettings(BaseSettings):
 
     topx_env: str = "dev"
     enable_production_execution: bool = False
+    intelligence_daily_enabled: bool = False
     snowflake_database: str = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     snowflake_account: str = ""
     snowflake_user: str = ""

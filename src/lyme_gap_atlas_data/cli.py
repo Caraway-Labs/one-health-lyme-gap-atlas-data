@@ -998,6 +998,19 @@ def run_production_schedule_command() -> None:
     typer.echo(json.dumps(run_production_schedule(), default=str))
 
 
+@pipeline_app.command("run-intelligence-daily")
+def run_intelligence_daily_command(
+    preflight_only: bool = typer.Option(False, "--preflight-only"),
+) -> None:
+    """Run the fixed daily RSS set on the existing production job platform."""
+    from .intelligence_polling import run_production_daily
+
+    result = run_production_daily(preflight_only=preflight_only)
+    typer.echo(json.dumps(result))
+    if result["status"] == "FAILED":
+        raise typer.Exit(code=1)
+
+
 @pipeline_app.command("run-production-cdc-dbt-recovery")
 def run_production_cdc_dbt_recovery_command(
     source_version_id: str = typer.Option(..., "--source-version-id"),

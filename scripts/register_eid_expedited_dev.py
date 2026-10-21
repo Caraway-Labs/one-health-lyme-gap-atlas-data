@@ -11,7 +11,9 @@ from urllib.parse import urlsplit
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
+    DAILY_DECISION,
     ENDPOINTS,
+    PROD_DAILY_SOURCE_SHA256,
     PROD_SOURCE_DECISIONS,
     PROD_SOURCE_SHA256,
     pilot_watchdog,
@@ -34,16 +36,25 @@ DECISION_REF = "DATA-132-135-EID-ADMISSION-2026-10-09"
 ARTIFACT_POLICY = "CDC_EID_RESTRICTED_RAW_30D_V1"
 
 
-def reviewed_package(source_id: str = SOURCE_ID) -> tuple[dict[str, Any], str]:
+def reviewed_package(
+    source_id: str = SOURCE_ID, registry_version: int = 1
+) -> tuple[dict[str, Any], str]:
     if source_id not in PROD_SOURCE_SHA256:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    if registry_version not in {1, 2}:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     path = (
         SOURCE
-        if source_id == SOURCE_ID
-        else ROOT / f"config/intelligence/{source_id}-source-v1.json"
+        if source_id == SOURCE_ID and registry_version == 1
+        else ROOT / f"config/intelligence/{source_id}-source-v{registry_version}.json"
     )
     source = json.loads(path.read_text(encoding="utf-8"))
-    receipts = json.loads(RECEIPTS.read_text(encoding="utf-8"))["receipts"]
+    receipt_path = (
+        RECEIPTS
+        if registry_version == 1
+        else ROOT / "config/intelligence/daily-policy-receipts.json"
+    )
+    receipts = json.loads(receipt_path.read_text(encoding="utf-8"))["receipts"]
     validate_record("source", source)
     checksum = identity_hash(source)
     selected = [row for row in receipts if row.get("source_id") == source_id]
@@ -62,11 +73,12 @@ def reviewed_package(source_id: str = SOURCE_ID) -> tuple[dict[str, Any], str]:
     native.validate(source)
     if (
         source["source_id"] != source_id
-        or checksum != PROD_SOURCE_SHA256[source_id]
-        or source["registry_version"] != 1
+        or checksum
+        != (PROD_SOURCE_SHA256 if registry_version == 1 else PROD_DAILY_SOURCE_SHA256)[source_id]
+        or source["registry_version"] != registry_version
         or source["fetch_location"] != ENDPOINTS[source_id]
         or source["approved_hosts"] != [urlsplit(ENDPOINTS[source_id]).hostname]
-        or source["state"] != "manual"
+        or source["state"] != ("manual" if registry_version == 1 else "active")
         or source["cadence"]["poll_seconds"] != 86400
         or source["limits"]
         != {
@@ -77,16 +89,16 @@ def reviewed_package(source_id: str = SOURCE_ID) -> tuple[dict[str, Any], str]:
             "maximum_attempts": 1,
         }
         or any(source[key]["status"] != "approved" for key in ("approval", "trust_review"))
-        or any(
-            source[key]["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
-            for key in ("approval", "trust_review")
-        )
+        or source["approval"]["decision_ref"]
+        != (PROD_SOURCE_DECISIONS[source_id] if registry_version == 1 else DAILY_DECISION)
+        or source["trust_review"]["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
         or source["access_use"]["public_excerpt_permitted"]
         or source["access_use"]["excerpt_max_chars"] != 0
         or source["access_use"]["content_retention_policy_ref"]
         != source_id + "-metadata-raw-30d-v1"
-        or receipt["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
-        or receipt["registry_version"] != 1
+        or receipt["decision_ref"]
+        != (PROD_SOURCE_DECISIONS[source_id] if registry_version == 1 else DAILY_DECISION)
+        or receipt["registry_version"] != registry_version
         or receipt["source_sha256"] != checksum
         or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
         or receipt["retention_policy_ref"] != source["access_use"]["content_retention_policy_ref"]
@@ -120,7 +132,13 @@ def register(
 ) -> str:
     """Guarded single-source insert; exact existing row is an idempotent retry."""
     source_id = source["source_id"]
-    if source_id not in PROD_SOURCE_SHA256 or checksum != PROD_SOURCE_SHA256[source_id]:
+    version = source["registry_version"]
+    expected_hashes = PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256
+    if (
+        version not in {1, 2}
+        or source_id not in expected_hashes
+        or checksum != expected_hashes[source_id]
+    ):
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     if identity_hash(source) != checksum:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
@@ -150,21 +168,34 @@ def register(
                 (source_id,),
             )
             existing = cursor.fetchall()
-            expected = (1, checksum, canonical_json(source))
+            expected = (version, checksum, canonical_json(source))
             if existing:
+                if existing[0][:2] == expected[:2] and json.loads(existing[0][2]) == source:
+                    if len(existing) != version or (
+                        version == 2 and existing[1][:2] != (1, PROD_SOURCE_SHA256[source_id])
+                    ):
+                        raise PermissionError("EID_REGISTRY_STATE_CHANGED")
+                    connection.rollback()
+                    return "ALREADY_RECORDED"
                 if (
-                    len(existing) != 1
-                    or existing[0][:2] != expected[:2]
-                    or json.loads(existing[0][2]) != source
+                    version != 2
+                    or len(existing) != 1
+                    or existing[0][:2] != (1, PROD_SOURCE_SHA256[source_id])
                 ):
                     raise PermissionError("EID_REGISTRY_STATE_CHANGED")
-                connection.rollback()
-                return "ALREADY_RECORDED"
+                previous, previous_hash = reviewed_package(source_id, 1)
+                if (
+                    json.loads(existing[0][2]) != previous
+                    or identity_hash(previous) != previous_hash
+                ):
+                    raise PermissionError("EID_REGISTRY_STATE_CHANGED")
+            elif version != 1:
+                raise PermissionError("EID_RECORDED_V1_REQUIRED")
             cursor.execute(
                 "INSERT INTO GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS "
                 "(source_id,registry_version,registry_sha256,registry_document) "
                 "SELECT %s,%s,%s,PARSE_JSON(%s)",
-                (source_id, 1, checksum, canonical_json(source)),
+                (source_id, version, checksum, canonical_json(source)),
             )
             if cursor.rowcount != 1:
                 raise PermissionError("EID_INSERT_CARDINALITY_MISMATCH")
