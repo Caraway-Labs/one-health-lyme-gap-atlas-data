@@ -6,7 +6,7 @@ No grants, credentials, migration, workflow dispatch, synthetic pair, acquisitio
 
 * Installed Snowflake CLI named PAT `ATLAS_PROD_RUNTIME_AUDIT` authenticated as `MATTHEWCARAWAY` / `OH_LYME_PROD_RUNTIME` / `ONE_HEALTH_LYME_GAP_ATLAS_PROD` / `OH_LYME_PROD_INGEST_XS_WH` before inspection. This is a human audit identity, not executor proof.
 * Runtime-visible SHOW USERS for the cleanup service, SHOW ROLES for the cleanup/purge-owner pattern, and SHOW PROCEDURES for the purge procedure returned empty visible results. They do **not** prove absence. SHOW GRANTS TO the cleanup user failed because this role lacks MANAGE GRANTS. No elevated connection was used.
-* SELECT on `GOVERNANCE.SCHEMA_MIGRATIONS` failed with missing/not-authorized. Exact V146/V150 ledger and migration identity/authority remain owner readback requirements. A migration/owner/account-admin connection was deliberately not used.
+* Initial runtime-role SELECT on `GOVERNANCE.SCHEMA_MIGRATIONS` was denied. The subsequently authorized named migration-role readback below resolves ledger visibility; protected service credentials and cleanup grants still need intended-actor proof.
 * `GOVERNANCE.INTELLIGENCE_RAW_RETENTION_DOCUMENTS` currently has zero rows. The shared checkpoint is a permanent TABLE, owner `OH_LYME_PROD_MIGRATION_DEPLOYER`, retention_time=1, SHOW TABLES rows=4. Those four rows are not identified as EID and are outside deletion authorization. This is active storage/platform metadata, not proof of recovery-byte erasure.
 * GitHub production environment exists, requires reviewer CarawayLabs, protected branches only, prevent_self_review=false. Agents must still never approve deployments. Production secret **names** include existing `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_PRIVATE_KEY_B64`, `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, runtime key/user/role slots, shared SPACES_* and DIGITALOCEAN_ACCESS_TOKEN. No dedicated INTELLIGENCE_CLEANUP_* slots were present. Repository secret names contain only DIGITALOCEAN_MONITOR_READ_TOKEN. Slot presence does not attest secret values, identities or validity.
 * No SNOWFLAKE_*, SPACES_*, DIGITALOCEAN_* or INTELLIGENCE_CLEANUP_* values are present in this process environment. No shared key was substituted.
@@ -47,3 +47,24 @@ immediate failure escalation with <=6-hour retry, and independently monitored
 missed runs must be demonstrated before acquisition. See
 [the proactive runbook](../operations/intelligence-proactive-cleanup-prod.md).
 No new cleanup GitHub environment or workflow has been created.
+
+## Supplemental authorized migration-role readback
+
+# DATA #680 migration-authority read-only supplement
+
+The task explicitly scopes non-mutating migration-authority inspection. Accordingly the named PAT `ATLAS_PROD_MIGRATOR` was used solely for identity, bounded ledger SELECT and SHOW metadata. No migration/security/provisioning statement was executed.
+
+Identity: default connection authenticates `MATTHEWCARAWAY` / `OH_LYME_PROD_MIGRATION_DEPLOYER`, database null, warehouse COMPUTE_WH. The follow-up read explicitly selected `ONE_HEALTH_LYME_GAP_ATLAS_PROD` and `OH_LYME_PROD_INGEST_XS_WH`, revalidated all four identity fields, then inspected the ledger. This proves the human restricted PAT can read with the migration role; it does **not** validate the separately stored GitHub migration-service private key or service identity.
+
+V146 is recorded with exact filename `V146__prod_intelligence_retention_and_v2_view.sql` and SHA256 `85a2fd022e4024bfb0217bad6cec78bdfcd1da255a662ebd5c48c7a073eb22dc`. V150 and V162 are not recorded. A full bounded ledger SELECT returned 111 rows (LIMIT 1000, below bound), compared locally with current checkout `migration_plan(PROD)` and source checksums.
+
+Exactly two eligible pending migrations in this audited checkout:
+
+* V150 `V150__prod_intelligence_raw_cleanup_authority.sql`, SHA256 `883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb`.
+* V162 `V162__prod_intelligence_proactive_cleanup.sql`, SHA256 `451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557` (working correction at audit time; recheck against final reviewed head before any deployment).
+
+No unexpected source-checksum mismatch after accepting source line-ending equivalence and the existing explicit legacy hash allowlist. V022 has its known legacy hash. Ledger duplicates exist at V020, V028 and V071, two rows each. Do not repair or rewrite them; preserve existing migration-runner reconciliation rules. No ledger versions fall outside eligible PROD source plan. This is a metadata comparison, not a migration-runner execution or claim that every protected release preflight passes.
+
+SHOW GRANTS TO migration role confirms database/schema/container/migration object access and ownership including checkpoint table, migration ledger and V2 presentation view, plus warehouse USAGE. The broad existing grants were not altered. Visible SHOW cleanup service/user roles/purge procedure remained empty even under this role, so dedicated actor and unassigned purge owner still require security-owner readback; absence is not established by restricted visibility.
+
+This supplements the earlier runtime-denied ledger audit: the V146 status and pending set are now confirmed rather than unknown. Dedicated GitHub service-credential validity, cleanup security grants/handoff and Spaces versioning remain unresolved.

@@ -88,6 +88,21 @@ template; a normal migrator cannot replace a procedure owned by the unassigned
 purge owner. Then protected migration and the V162-specific final handoff each
 require separate authorization. Never rerun or edit an applied migration.
 
+The authorized human migration-role audit found V146 recorded at its reviewed
+hash and, against this correction tree, only V150/V162 pending. Revalidate with
+the actual protected migration service before dispatch; human PAT access is
+not service-credential proof. This prepares, but does not authorize, the chain:
+
+```powershell
+$repo = 'Caraway-Labs/one-health-lyme-gap-atlas-data'
+$reviewedMain = '<exact-approved-green-merged-main>'
+$devTestedDigest = 'sha256:<already-DEV-tested-immutable-digest>'
+$pending = uv run python -c "import json; from lyme_gap_atlas_data.migrations import PROD_INTELLIGENCE_CLEANUP_MIGRATION as a, PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION as b; print(json.dumps([a,b],separators=(',',':')))"
+# STOP unless approved service preflight independently confirms this exact chain.
+# Requires separate migration authorization and native production approval:
+gh workflow run promote-prod.yml -R $repo --ref main -f "reviewed_commit=$reviewedMain" -f "image_digest=$devTestedDigest" -f "expected_pending_json=$pending" -f protected_intelligence_prerequisite=true
+```
+
 See [current non-mutating audit and exact credential instructions](../delivery/data680-operational-readiness-2026-10-20.md).
 After cleanup acceptance, source registration, one bounded EID acquisition,
 real `PRESENTATION.INTELLIGENCE_FEED_V2` rows, and API #172 activation each
