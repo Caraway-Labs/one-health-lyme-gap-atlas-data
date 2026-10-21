@@ -19,9 +19,55 @@ from lyme_gap_atlas_data.ingestion.intelligence_feed import (
     FeedResponse,
     _PinnedHTTPS,
     _request,
+    _resolve,
     acquisition_context,
 )
 from lyme_gap_atlas_data.intelligence_items import identity_hash
+
+
+@pytest.mark.parametrize(
+    "addresses",
+    [
+        ["93.184.216.34", "2606:4700:4700::1111", "8.8.8.8", "93.184.216.34"],
+        ["2606:4700:4700::1111", "93.184.216.34", "2606:4700:4700::1111"],
+        ["8.8.8.8", "93.184.216.34", "8.8.8.8"],
+    ],
+)
+def test_dns_preserves_platform_address_order_and_deduplicates_once(
+    monkeypatch: Any, addresses: list[str]
+) -> None:
+    calls = []
+
+    def resolve(host: str, port: int) -> list[Any]:
+        calls.append((host, port))
+        return [(0, 0, 0, "", (address, port)) for address in addresses]
+
+    monkeypatch.setattr("socket.getaddrinfo", resolve)
+    assert _resolve("example.org", 2) == tuple(dict.fromkeys(addresses))
+    assert calls == [("example.org", 443)]
+
+
+def test_live_selection_uses_first_platform_candidate_without_alternative_retry(
+    monkeypatch: Any,
+) -> None:
+    addresses = ["93.184.216.34", "2606:4700:4700::1111", "8.8.8.8"]
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda host, port: [(0, 0, 0, "", (address, port)) for address in addresses],
+    )
+    record = approved()
+    adapter, calls = fetch_adapter(record, [])
+    adapter.resolve = _resolve
+
+    def unreachable(*args: Any) -> FeedResponse:
+        calls.append(args)
+        raise AcquisitionError("FEED_NETWORK_UNREACHABLE", code="FEED_NETWORK_UNREACHABLE")
+
+    adapter.request = unreachable
+    with pytest.raises(AcquisitionError, match="FEED_NETWORK_UNREACHABLE"):
+        adapter.acquire(definition(record))
+    assert len(calls) == 1
+    assert calls[0][1] == addresses[0]
 
 
 @pytest.mark.parametrize("phase", ["connect", "request", "getresponse", "read"])

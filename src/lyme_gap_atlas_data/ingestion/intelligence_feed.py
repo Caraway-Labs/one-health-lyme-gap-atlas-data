@@ -286,7 +286,11 @@ def _resolve(host: str, timeout: float) -> tuple[str, ...]:
 
     def lookup() -> None:
         try:
-            replies.put(tuple({str(row[4][0]) for row in socket.getaddrinfo(host, 443)}))
+            # getaddrinfo orders candidates using the platform's address policy.
+            # A set loses that preference before our single pinned connection.
+            replies.put(
+                tuple(dict.fromkeys(str(row[4][0]) for row in socket.getaddrinfo(host, 443)))
+            )
         except Exception as error:
             replies.put(error)
 
