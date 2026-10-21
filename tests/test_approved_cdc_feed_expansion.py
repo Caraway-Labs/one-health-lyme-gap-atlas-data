@@ -170,7 +170,9 @@ def test_actual_workflow_fixed_source_guard_and_generic_identity_guard_are_compl
     workflow = yaml.safe_load((ROOT / ".github/workflows/run-prod-ingestion.yml").read_text())
     steps = workflow["jobs"]["ingest"]["steps"]
     fixed_step = next(s for s in steps if s.get("name", "").startswith("Require exact reviewed"))
-    generic_step = next(s for s in steps if s.get("name", "").startswith("Verify protected PROD runtime"))
+    generic_step = next(
+        s for s in steps if s.get("name", "").startswith("Verify protected PROD runtime")
+    )
 
     def applies(expression: str) -> bool:
         pattern = r"inputs\.source_definition\s*(==|!=)\s*'([^']+)'"
