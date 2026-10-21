@@ -63,6 +63,42 @@ bounds and physical proof are demonstrated, DATA #680 acceptance remains open.
 
 ## Prepared commands (not execution authorization)
 
+### Protected exact-plan approval without operator credential copying
+
+The existing `promote-prod.yml` workflow also provides an approval-only mode.
+It uses the existing protected `production` migration-service secrets and the
+existing canonical plan approver. Operators do not export GitHub secrets or
+copy service keys to a workstation. Cleanup execution continues to use the
+separate dedicated cleanup identity and Spaces key.
+
+After an independent owner approves a read-only dry-run plan, supply only its
+SHA256, original canonical `planned_at`, and approved review reference. The
+protected runner reconstructs the plan from the current durable ledger under
+the existing guard. It requires the exact hash, fixed PROD EID scope, a nonempty
+bounded plan, the actual migration-service identity, and an exact green main.
+The canonical approver revalidates inventory before recording its immutable
+approval. No canonical plan, private locator, or credential is uploaded or
+printed. Changed inventory or a changed timestamp fails closed.
+
+```powershell
+# Only after approved merge and independent authorization of this exact plan.
+# This invokes native production review; an agent never approves that gate.
+gh workflow run promote-prod.yml -R $repo --ref main `
+  -f "reviewed_commit=$reviewedMain" `
+  -f image_digest=intelligence-cleanup-approval-only `
+  -f 'expected_pending_json=[]' `
+  -f approve_intelligence_cleanup_only=true `
+  -f "cleanup_plan_sha256=$planSha" `
+  -f "cleanup_planned_at=$originalPlannedAt" `
+  -f "cleanup_approval_ref=$independentApprovalRef"
+```
+
+This mode excludes all existing migration and image-deployment jobs, rejects
+mixed operation flags, and records only the reviewed plan approval. It neither
+deletes copies nor registers/acquires a source. Physical deletion and retry
+retain their separate authorization and dedicated executor. This invocation
+does not establish an unattended schedule or remove daily operational gates.
+
 Use the same dedicated cleanup identity/key mapping and private plan directory
 as [the existing runbook](intelligence-raw-cleanup-prod.md). The audit monitor
 uses named PAT `ATLAS_PROD_RUNTIME_AUDIT` and separate dedicated inspection-key
