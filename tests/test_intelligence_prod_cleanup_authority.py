@@ -87,6 +87,9 @@ def test_one_synthetic_prod_spaces_target_is_exactly_scoped_and_idempotent() -> 
     class Client:
         exists = True
 
+        def list_object_versions(self, **kwargs):
+            return {}
+
         def head_object(self, **kwargs: str) -> None:
             events.append(("head", kwargs["Key"]))
             if not self.exists:
@@ -108,7 +111,7 @@ def test_one_synthetic_prod_spaces_target_is_exactly_scoped_and_idempotent() -> 
     assert prod_cleanup_scope(copy, driver)
     assert driver(copy)
     assert not driver(copy)
-    assert events == [("head", key), ("delete", key), ("head", key)]
+    assert events == [("head", key), ("delete", key), ("head", key), ("head", key)]
     assert not prod_cleanup_scope(
         RawCopy("DEV", copy.source_id, copy.kind, copy.locator, copy.lease_sha256), driver
     )

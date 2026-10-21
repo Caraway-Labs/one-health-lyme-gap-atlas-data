@@ -181,11 +181,18 @@ def test_object_driver_requires_exact_approved_source_and_artifact_key(tmp_path)
     events = []
 
     class Client:
+        exists = True
+
         def head_object(self, **kwargs):
             events.append(("head", kwargs))
+            if not self.exists:
+                error = RuntimeError()
+                error.response = {"Error": {"Code": "404"}}
+                raise error
 
         def delete_object(self, **kwargs):
             events.append(("delete", kwargs))
+            self.exists = False
 
     driver = ObjectRawDelete(gate, Client(), bucket="fixture-bucket", prefix="fixture-prefix")
     url = f"s3://fixture-bucket/fixture-prefix/dev/{source['source_id']}/fixture-run/{lease.artifact_sha256}.bin"
@@ -204,7 +211,7 @@ def test_object_driver_requires_exact_approved_source_and_artifact_key(tmp_path)
             driver(replace(copy, locator=unsafe))
     assert events == []
     assert driver(copy)
-    assert [event[0] for event in events] == ["head", "delete"]
+    assert [event[0] for event in events] == ["head", "delete", "head"]
 
 
 @pytest.mark.parametrize("suffix", [None, "?", "#", "?#"])
