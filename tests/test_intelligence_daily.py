@@ -281,3 +281,86 @@ def test_actual_view_window_deduplicates_same_source_item_across_activation_vers
         + window
         + ") AS n FROM captures c) WHERE n=1"
     ).fetchall() == [(2,)]
+
+
+@pytest.mark.parametrize(
+    "existing,guard,insert,expected",
+    [(False, 1, 1, True), (True, 1, 1, False), (False, 0, 1, None), (False, 1, 0, None)],
+)
+def test_daily_claim_transaction_is_durable_or_fails_closed(existing, guard, insert, expected):
+    from datetime import UTC, datetime
+    from uuid import NAMESPACE_URL, uuid5
+
+    from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import (
+        IntelligenceSnowflakeCheckpoints,
+    )
+
+    events = []
+
+    class Cursor:
+        rowcount = 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def execute(self, sql, params=None):
+            events.append(sql)
+            if sql.startswith("UPDATE"):
+                self.rowcount = guard
+            elif sql.startswith("INSERT"):
+                self.rowcount = insert
+
+        def fetchall(self):
+            return [("existing",)] if existing else []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def cursor(self):
+            return Cursor()
+
+        def autocommit(self, value):
+            events.append(("autocommit", value))
+
+        def commit(self):
+            events.append("COMMIT")
+
+        def rollback(self):
+            events.append("ROLLBACK")
+
+    store = object.__new__(IntelligenceSnowflakeCheckpoints)
+    store.feed_retention = SimpleNamespace(environment="PROD")
+    store._connection_factory = Connection
+    sid = "cdc-eid-expedited"
+    run_id = str(
+        uuid5(
+            NAMESPACE_URL, f"atlas:intelligence:daily:{sid}:{datetime.now(UTC).date().isoformat()}"
+        )
+    )
+    if expected is None:
+        with pytest.raises(PermissionError):
+            store.claim_daily_run(run_id, sid, runtime.PROD_DAILY_SOURCE_SHA256[sid])
+        assert events[-1] == "ROLLBACK" and "COMMIT" not in events
+    else:
+        assert store.claim_daily_run(run_id, sid, runtime.PROD_DAILY_SOURCE_SHA256[sid]) is expected
+        assert events[-1] == ("COMMIT" if expected else "ROLLBACK")
+        assert any(str(e).startswith("INSERT") for e in events) is expected
+
+
+def test_daily_claim_rejects_unknown_source_before_connection():
+    from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import (
+        IntelligenceSnowflakeCheckpoints,
+    )
+
+    store = object.__new__(IntelligenceSnowflakeCheckpoints)
+    store.feed_retention = SimpleNamespace(environment="PROD")
+    store._connection_factory = lambda: pytest.fail("unexpected SQL")
+    with pytest.raises(PermissionError):
+        store.claim_daily_run("unapproved", "other-source", "0" * 64)

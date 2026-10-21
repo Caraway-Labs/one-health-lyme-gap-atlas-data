@@ -172,7 +172,11 @@ def register(
             if existing:
                 if existing[0][:2] == expected[:2] and json.loads(existing[0][2]) == source:
                     if len(existing) != version or (
-                        version == 2 and existing[1][:2] != (1, PROD_SOURCE_SHA256[source_id])
+                        version == 2
+                        and (
+                            existing[1][:2] != (1, PROD_SOURCE_SHA256[source_id])
+                            or json.loads(existing[1][2]) != reviewed_package(source_id, 1)[0]
+                        )
                     ):
                         raise PermissionError("EID_REGISTRY_STATE_CHANGED")
                     connection.rollback()

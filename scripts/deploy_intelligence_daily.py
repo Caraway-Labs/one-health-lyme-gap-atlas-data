@@ -74,7 +74,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
         run_command=COMMAND + (" --preflight-only" if phase == "preflight" else ""),
         instance_count=1,
     )
-    new["envs"] = [copy.deepcopy(env[k]) for k in sorted(KEYS)] + [
+    new["envs"] = [dict(copy.deepcopy(env[k]), scope="RUN_TIME") for k in sorted(KEYS)] + [
         {"key": "INTELLIGENCE_DAILY_ENABLED", "scope": "RUN_TIME", "value": "true"}
     ]
     new["image"] = {
@@ -159,6 +159,15 @@ def main() -> None:
     if r.returncode:
         raise RuntimeError("INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME")
     current = get(["apps", "get", APP_ID])
+    before = {j["name"]: j for j in app["spec"]["jobs"] if j["name"] in BASE}
+    after = {j["name"]: j for j in current["spec"]["jobs"] if j["name"] in BASE}
+    if before != after or current.get("in_progress_deployment"):
+        raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_BASELINE_CHANGED")
+    installed = next(
+        (j for j in current["spec"]["jobs"] if j["name"] == spec["jobs"][-1]["name"]), None
+    )
+    if installed != spec["jobs"][-1]:
+        raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_COMPONENT_MISMATCH")
     print(
         json.dumps(
             {
