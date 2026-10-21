@@ -30,7 +30,7 @@ GRANT USAGE ON DATABASE ONE_HEALTH_LYME_GAP_ATLAS_PROD TO ROLE SECURITYADMIN;
 GRANT USAGE ON SCHEMA ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE TO ROLE SECURITYADMIN;
 GRANT USAGE ON WAREHOUSE OH_LYME_PROD_INGEST_XS_WH TO ROLE SECURITYADMIN;
 
--- Separately provision a dedicated cleanup service user, scoped PAT, and
+-- Separately provision a dedicated cleanup service user, keypair, and
 -- PROD Spaces delete credential. Grant the cleanup role only to that service
 -- user; never grant the purge-owner role to a user or the ingestion runtime.
 -- The migration/approval service remains separate and is the sole approver.

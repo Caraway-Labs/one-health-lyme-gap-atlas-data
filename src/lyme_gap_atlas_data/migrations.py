@@ -36,10 +36,16 @@ PROD_INTELLIGENCE_CLEANUP_MIGRATION = {
     "filename": "V150__prod_intelligence_raw_cleanup_authority.sql",
     "sha256": "883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb",
 }
+PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION = {
+    "version": "V162",
+    "filename": "V162__prod_intelligence_proactive_cleanup.sql",
+    "sha256": "451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557",
+}
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
     PROD_INTELLIGENCE_CLEANUP_MIGRATION,
+    PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -133,6 +139,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V156",
     "V160",
     "V161",
+    "V162",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -223,6 +230,16 @@ def load_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
 
 def is_intelligence_prerequisite_batch(reviewed: list[dict[str, str]]) -> bool:
     """Route each pinned DEV intelligence migration through the bound envelope."""
+    # Initial PROD bootstrap applies the historical authority then its replacement.
+    prod_chain = [
+        PROD_INTELLIGENCE_CLEANUP_MIGRATION,
+        PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION,
+    ]
+    if reviewed == prod_chain:
+        chain_metadata = {item.version: _migration_metadata(item) for item in load_migrations()}
+        if any(chain_metadata.get(item["version"]) != item for item in prod_chain):
+            raise ValueError("The reviewed intelligence prerequisite batch must be exact and alone")
+        return True
     for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
         selected = any(
             item["version"] == pinned["version"]
@@ -1009,6 +1026,13 @@ def apply_migrations(
         and any(item.version == "V155" and item.version not in applied for item in plan)
     ):
         raise PermissionError("V155 requires the protected county context path")
+    if (
+        database == PROD_DATABASE
+        and any(item.version == "V162" and item.version not in applied for item in plan)
+        and "V150" not in applied
+        and not any(item.version == "V150" for item in plan)
+    ):
+        raise PermissionError("V162 requires recorded V150 or the exact reviewed V150/V162 chain")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

@@ -9,7 +9,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -139,8 +139,7 @@ def synthetic_plan(snapshot: Any, now: str) -> CleanupPlan:
     return plan
 
 
-def dry_run(path: Path) -> None:
-    """SELECT + HEAD only. A human runtime audit is not executor/handoff proof."""
+def inspection_identity() -> None:
     rows = inspection_query(
         "SELECT CURRENT_USER() AS U,CURRENT_ROLE() AS R,CURRENT_DATABASE() AS D,"
         "CURRENT_WAREHOUSE() AS W"
@@ -149,6 +148,11 @@ def dry_run(path: Path) -> None:
         {"U": "MATTHEWCARAWAY", "R": "OH_LYME_PROD_RUNTIME", "D": DATABASE, "W": WAREHOUSE}
     ]:
         raise PermissionError("INTELLIGENCE_RAW_INSPECTION_IDENTITY_REQUIRED")
+
+
+def dry_run(path: Path) -> None:
+    """SELECT + HEAD only. A human runtime audit is not executor/handoff proof."""
+    inspection_identity()
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     snapshot = inspection_snapshot()
     plan = synthetic_plan(snapshot, now)
@@ -204,6 +208,94 @@ def dry_run(path: Path) -> None:
             }
         )
     )
+
+
+def deadline_check() -> None:
+    """Read-only physical-copy alarm; never equate expiry or a receipt with absence."""
+    inspection_identity()
+    now = datetime.now(UTC)
+    snapshot = inspection_snapshot()
+    key_id = os.environ.get("INTELLIGENCE_CLEANUP_SPACES_ACCESS_KEY_ID")
+    secret = os.environ.get("INTELLIGENCE_CLEANUP_SPACES_SECRET_ACCESS_KEY")
+    if not key_id or not secret:
+        raise PermissionError("INTELLIGENCE_RAW_OBJECT_INSPECTION_CREDENTIAL_REQUIRED")
+    client = boto3.client(
+        "s3",
+        endpoint_url="https://sfo3.digitaloceanspaces.com",
+        region_name="sfo3",
+        aws_access_key_id=key_id,
+        aws_secret_access_key=secret,
+        config=Config(connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 1}),
+    )
+    driver = ObjectRawDelete(
+        snapshot, client, bucket="one-health-lyme-gap-atlas-data-prod", prefix="prod"
+    )
+    # Validate all lease/claim relationships, not just targets with alarm deadlines.
+    plan_cleanup(
+        snapshot,
+        environment="PROD",
+        source_ids=("cdc-eid-expedited",),
+        now=now.isoformat().replace("+00:00", "Z"),
+        scope=lambda copy: prod_cleanup_scope(copy, driver),
+    )
+    seen = set()
+    remaining = urgent = overdue = 0
+    copies = snapshot.copies()
+    if len(copies) > 1000:
+        raise PermissionError("INTELLIGENCE_RAW_DEADLINE_LIMIT")
+    for copy in copies:
+        if copy.environment != "PROD" or copy.source_id != "cdc-eid-expedited":
+            continue
+        if copy.kind not in {"raw_object", "checkpoint_payload"}:
+            continue  # Managed process/cache buffers have no persistent backend here.
+        if not prod_cleanup_scope(copy, driver):
+            raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+        claims = snapshot.claims(copy)
+        deadline = min(
+            datetime.fromisoformat(snapshot.lease(c.lease_sha256).expires_at.replace("Z", "+00:00"))
+            for c in claims
+        )
+        if deadline > now + timedelta(hours=48) or copy.physical_key in seen:
+            continue
+        seen.add(copy.physical_key)
+        if copy.kind == "raw_object":
+            try:
+                driver.require_unversioned(copy)
+                present = driver.exists(copy)
+            except PermissionError:
+                raise
+            except Exception:
+                raise PermissionError("INTELLIGENCE_RAW_OBJECT_INSPECTION_UNAVAILABLE") from None
+        else:
+            run_id = copy.locator.rsplit("/", 1)[-1]
+            if not TOKEN.fullmatch(run_id):
+                raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
+            rows = inspection_query(
+                "SELECT COUNT(*) AS N FROM GOVERNANCE.INGESTION_RUN_PAYLOADS "
+                f"WHERE ingestion_run_id='{run_id}'"
+            )
+            if len(rows) != 1 or type(rows[0].get("N")) is not int:
+                raise PermissionError("INTELLIGENCE_RAW_INSPECTION_UNAVAILABLE")
+            present = rows[0]["N"] > 0
+        if present:
+            remaining += 1
+            urgent += int(deadline <= now + timedelta(hours=24))
+            overdue += int(deadline <= now)
+    if inspection_snapshot().copies() != copies:
+        raise PermissionError("INTELLIGENCE_RAW_PLAN_CHANGED")
+    print(
+        json.dumps(
+            {
+                "remaining_due_copies": remaining,
+                "urgent_copies": urgent,
+                "overdue_copies": overdue,
+                "writes": False,
+                "deletes": False,
+            }
+        )
+    )
+    if remaining:
+        raise SystemExit(2)  # Includes the full 48-hour recovery window, not just lateness.
 
 
 def identity(factory: Any, user: str, role: str) -> None:
@@ -283,12 +375,20 @@ def factory() -> Iterator[Any]:
 
 def run() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("dry-run", "plan", "approve", "execute"))
-    parser.add_argument("--plan-file", type=Path, required=True)
+    parser.add_argument(
+        "action", choices=("deadline-check", "dry-run", "plan", "approve", "execute")
+    )
+    parser.add_argument("--plan-file", type=Path)
     parser.add_argument("--plan-sha256")
     parser.add_argument("--approval-ref")
     parser.add_argument("--confirm", action="store_true")
     args = parser.parse_args()
+    if args.action == "deadline-check":
+        with pilot_watchdog(seconds=300):
+            deadline_check()
+        return
+    if args.plan_file is None:
+        parser.error("--plan-file is required for this action")
     if args.action == "dry-run":
         with pilot_watchdog(seconds=300):
             dry_run(args.plan_file)
