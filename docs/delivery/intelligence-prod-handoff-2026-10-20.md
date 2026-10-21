@@ -1,12 +1,13 @@
 # Intelligence production delivery: reconciliation and owner handoff
 
 As of October 20, 2026 (America/Denver). Main reviewed:
-`ce77e47d3ba5d95d465c482d4ac87166202d3dae`.
+`54104ef27691fc0811a665470d647e03459dbf29` (approved PR #714 merge).
 
 Work was isolated in new `intelligence-714-review-20261020` and
 `intelligence-667-reconcile-20261020` worktrees. Existing branches/checkouts were
 not reset or edited. PR updates are engineering work, not production approval.
-No PR was merged and no production workflow or data operation was executed.
+PR #714 alone was merged after explicit owner approval of its exact head. No
+production workflow or data operation was executed. PR #667 remains unmerged.
 
 ## Completed technical work
 
@@ -15,7 +16,9 @@ No PR was merged and no production workflow or data operation was executed.
   requires valid nonempty base64 raw content and the expected artifact hash,
   rather than accepting a lease-marker-only row. It returns counts only; actual
   content SHA verification belongs to the authorized creation receipt.
-- PR #714 is ready for review, not merged. Exact-head
+- PR #714 was merged at the explicitly approved
+  `f60d04391201dc8c6e8b028f4bee928962a178c6`, producing main merge commit
+  `54104ef27691fc0811a665470d647e03459dbf29`. Exact-head
   [Quality 39519628895](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/39519628895)
   passed **4,793 tests / 3 skipped**, lint/format, mypy, dbt, container/package,
   offline dry-run and secret checks. Deployment was skipped. Focused local
@@ -73,8 +76,8 @@ approve deployments, grant themselves access or infer approval from green CI.
 
 | Gate | Technical preparation / verification | Owner approval or operator evidence still required |
 | --- | --- | --- |
-| 1. Retention decision | Existing V150 deletes the active checkpoint row; existing raw lease expires from successful capture + 30 days, with no renewal by 304/replay | Record whether configured Time Travel, non-configurable Fail-safe, clones/backups and asynchronous provider recovery retention are allowed. The prior SHOW reported a permanent table with `retention_time=1`; verify current effective minimums and retained copies. Record cleanup cadence/tolerance and responsible operator. If all recoverable bytes must be gone at day 30, stop for a reviewed forward adjustment at the existing artifact/reference seam; never alter shared checkpoint retention or rewrite migrations silently. |
-| 2. Code integration | Review #714's correction and reconciled #667 on their exact green heads; confirm both include current main | Explicit merge approval, then authorized merges and exact merged-main checks. No merge was performed here. Promote only the existing DEV-tested immutable digest through the accepted protected path; no rebuild-for-PROD substitute or new scheduler. |
+| 1. Retention policy and deadline enforcement | Owner decision is [recorded on DATA #680](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/issues/680#issuecomment-6305035560): standard Snowflake Time Travel and Fail-safe within documented limits are permitted; active Snowflake and Spaces raw copies must be gone by capture + 30 days, using daily cleanup with deadline safeguards | Policy decision is complete. Technical enforcement remains blocked: current planner selects only at/after expiry, so a daily pass can be almost 24 hours late even without failure. Before acquisition, implement and review proactive cleanup at the existing lease/claim/procedure seam, with a safety window covering cadence, approval/execution latency and retries, monitored failure escalation, and boundary/failure tests proving deletion by the deadline. Any required SQL adjustment must be a reviewed forward migration; never rewrite V150. Do not treat reader expiry, a daily schedule or an alert alone as deletion proof. Owner must designate the responsible operator and approve production scheduling/execution separately. |
+| 2. Code integration | #714 is merged at the approved head; #667 has been refreshed against resulting main without changing production safety controls | #667 still requires explicit owner merge approval of its new exact green head; do not merge it under the #714 approval. After its approved merge, verify exact merged-main checks. Promote only the existing DEV-tested immutable digest through the accepted protected path; no rebuild-for-PROD substitute or new scheduler. |
 | 3. Dedicated cleanup identity/secrets | Reuse existing security/bootstrap and owner-handoff SQL templates; inventory secret names only | Authorized security owner provisions/verifies `OH_LYME_PROD_INTELLIGENCE_RAW_CLEANUP_SVC` / `OH_LYME_PROD_INTELLIGENCE_RAW_CLEANUP`, a dedicated service keypair and approved execution context. Purge-owner `OH_LYME_PROD_INTELLIGENCE_RAW_PURGE_OWNER` stays unassigned. No direct executor DELETE or API/runtime grant expansion. Record security review and effective grants. |
 | 4. Spaces credential/storage boundary | Fixed bucket `one-health-lyme-gap-atlas-data-prod`, `sfo3`, HTTPS endpoint, exact `prod/prod/cdc-eid-expedited/<run>/<sha>.bin` scope; version-list/HEAD checks already implemented | Separate PROD bucket-limited cleanup key, capable of exact-key listing/HEAD/delete. Owner verifies bucket versioning is disabled and target has no retained versions/delete markers. Code prefix enforcement is narrower than bucket-level key scope; provider-enforced prefix isolation needs a recorded owner decision. Do not substitute a shared or full-access key, or broaden access for bucket configuration. |
 | 5. Migration authority | Reuse V146 and V150; no new DDL or migration rewrite | Authorized migration owner reads exact full ledger and pending set. Verify V146 filename/SHA `85a2fd022e4024bfb0217bad6cec78bdfcd1da255a662ebd5c48c7a073eb22dc`. If absent, use its separately approved protected deployment first. V150 SHA `883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb` must be the sole pending version in its protected lane. Do not absorb unrelated pending migrations into this approval. |
@@ -138,8 +141,11 @@ enablement and WEB #429 remain separately approved follow-on work. Preserve the
 existing release-completeness controls if any semantic release is changed; this
 feed reconciliation neither changes its pointer nor bypasses its gates.
 
-**Single immediate owner action:** record the explicit 30-day raw-retention
-decision for Snowflake recovery storage and the accepted physical cleanup
-deadline/cadence. Until that decision and the remaining numbered gates are met,
-there is no authorized one-command shortcut to a real V2 row. A green PR or an
-approved merge does not approve synthetic creation, deletion or acquisition.
+**Single immediate owner action:** review the refreshed exact green head of PR
+#667 and explicitly approve its merge. It remains unmerged. For subsequent
+production activation, the next separately authorized operator action is the
+dedicated cleanup identity/key bootstrap in gates 3-4, with migration/security
+readbacks determining gates 5-6. Deadline enforcement in gate 1 is an unresolved
+technical prerequisite before any feed acquisition. Synthetic creation, physical
+deletion proof, source registration, acquisition and API enablement each retain
+their separate approval gates; merge approval cannot substitute for them.
