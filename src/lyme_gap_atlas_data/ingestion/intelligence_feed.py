@@ -8,6 +8,7 @@ approve itself. No schedule, approved source, subscription or crawler is created
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import http.client
 import ipaddress
@@ -338,8 +339,27 @@ def _request(
         if time.monotonic() >= deadline:
             raise _failure("FEED_TIMEOUT")
         return FeedResponse(response.status, metadata, body)
-    except (OSError, http.client.HTTPException) as error:
-        raise _failure("FEED_NETWORK_FAILED") from error
+    except TimeoutError:
+        raise _failure("FEED_TIMEOUT") from None
+    except ssl.SSLCertVerificationError:
+        raise _failure("FEED_TLS_VERIFICATION_FAILED") from None
+    except ssl.SSLError:
+        raise _failure("FEED_TLS_FAILED") from None
+    except http.client.HTTPException:
+        raise _failure("FEED_HTTP_PROTOCOL_FAILED") from None
+    except ConnectionRefusedError:
+        raise _failure("FEED_CONNECTION_REFUSED") from None
+    except (ConnectionResetError, BrokenPipeError):
+        raise _failure("FEED_CONNECTION_RESET") from None
+    except OSError as error:
+        # Only closed constant codes leave the transport. Provider exception
+        # messages may contain private request values and must not be logged.
+        code = (
+            "FEED_NETWORK_UNREACHABLE"
+            if error.errno in {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EAFNOSUPPORT}
+            else "FEED_NETWORK_FAILED"
+        )
+        raise _failure(code) from None
     finally:
         if timer is not None:
             timer.cancel()
