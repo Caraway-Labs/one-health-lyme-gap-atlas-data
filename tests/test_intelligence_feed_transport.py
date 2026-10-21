@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
+import http.client
+import ssl
+import traceback
 from dataclasses import replace
 from typing import Any
 
@@ -18,6 +22,72 @@ from lyme_gap_atlas_data.ingestion.intelligence_feed import (
     acquisition_context,
 )
 from lyme_gap_atlas_data.intelligence_items import identity_hash
+
+
+@pytest.mark.parametrize("phase", ["connect", "request", "getresponse", "read"])
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (TimeoutError("private transport value"), "FEED_TIMEOUT"),
+        (ssl.SSLCertVerificationError("private transport value"), "FEED_TLS_VERIFICATION_FAILED"),
+        (ssl.SSLError("private transport value"), "FEED_TLS_FAILED"),
+        (ConnectionRefusedError("private transport value"), "FEED_CONNECTION_REFUSED"),
+        (ConnectionResetError("private transport value"), "FEED_CONNECTION_RESET"),
+        (BrokenPipeError("private transport value"), "FEED_CONNECTION_RESET"),
+        (http.client.RemoteDisconnected("private transport value"), "FEED_HTTP_PROTOCOL_FAILED"),
+        (http.client.IncompleteRead(b"private transport value", 100), "FEED_HTTP_PROTOCOL_FAILED"),
+        (OSError(errno.ENETUNREACH, "private transport value"), "FEED_NETWORK_UNREACHABLE"),
+        (OSError(errno.EHOSTUNREACH, "private transport value"), "FEED_NETWORK_UNREACHABLE"),
+        (OSError(errno.EAFNOSUPPORT, "private transport value"), "FEED_NETWORK_UNREACHABLE"),
+        (OSError("private transport value"), "FEED_NETWORK_FAILED"),
+    ],
+)
+def test_transport_failure_codes_are_safe_and_never_retry(
+    monkeypatch: Any, phase: str, error: Exception, code: str
+) -> None:
+    calls: list[str] = []
+
+    class Connection:
+        sock = None
+        status = 200
+
+        def __init__(self, host: str, ip: str, timeout: float) -> None:
+            assert (host, ip, timeout) == ("example.org", "93.184.216.34", 2)
+            calls.append("init")
+
+        def fail_at(self, step: str) -> None:
+            calls.append(step)
+            if step == phase:
+                raise error
+
+        def connect(self) -> None:
+            self.fail_at("connect")
+
+        def request(self, method: str, path: str, headers: Any) -> None:
+            self.fail_at("request")
+
+        def getresponse(self) -> Connection:
+            self.fail_at("getresponse")
+            return self
+
+        def getheaders(self) -> list[Any]:
+            return []
+
+        def read(self, budget: int) -> bytes:
+            self.fail_at("read")
+            return b""
+
+        def close(self) -> None:
+            calls.append("close")
+
+    monkeypatch.setattr("lyme_gap_atlas_data.ingestion.intelligence_feed._PinnedHTTPS", Connection)
+    with pytest.raises(AcquisitionError) as caught:
+        _request("https://example.org/feed.xml", "93.184.216.34", {}, 100, 2)
+    assert caught.value.code == code
+    assert str(caught.value) == code
+    assert "private transport value" not in "".join(traceback.format_exception(caught.value))
+    assert calls.count("init") == calls.count("connect") == calls.count("close") == 1
+    assert calls.count("request") <= 1
 
 
 def test_https_socket_connects_to_verified_ip_with_original_tls_hostname(monkeypatch: Any) -> None:
