@@ -81,9 +81,13 @@ def test_shared_production_boundaries_remain_present():
     assert job["environment"] == "production"
     steps = {step["name"]: step for step in job["steps"] if "name" in step}
     generic = steps["Verify protected PROD runtime identity and approved source decision"]
-    assert (
-        generic["if"]
-        == "inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml'"
+    assert generic["if"] == " && ".join(
+        "inputs.source_definition != " + repr(path)
+        for path in (
+            "config/sources/intelligence_cdc_eid_expedited.yml",
+            "config/sources/intelligence_cdc_eid_ahead_of_print.yml",
+            "config/sources/intelligence_cdc_outbreaks.yml",
+        )
     )
     assert 'uuid.UUID(os.environ["SOURCE_VERSION_ID"])' in generic["run"]
     assert 'uuid.UUID(os.environ["SOURCE_DECISION_ID"])' in generic["run"]
