@@ -306,7 +306,7 @@ def compose_pilot(
         receipt
         for receipt in receipts
         if receipt.get("source_id") == definition.source_id
-        and receipt.get("registry_version") == registry_version
+        and (environment != "PROD" or receipt.get("registry_version") == registry_version)
     ]
     if len(selected) != 1:
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_POLICY_REQUIRED")

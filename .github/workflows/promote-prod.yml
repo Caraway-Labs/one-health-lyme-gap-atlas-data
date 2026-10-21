@@ -541,7 +541,7 @@ jobs:
           uv run python -m scripts.approve_intelligence_raw_cleanup_prod
 
   intelligence-daily:
-    if: ${{ inputs.intelligence_daily_only == true }}
+    if: ${{ inputs.approve_intelligence_cleanup_only != true && inputs.intelligence_daily_only == true }}
     name: Deploy only the approved daily intelligence job
     runs-on: ubuntu-latest
     timeout-minutes: 30
