@@ -11,6 +11,7 @@ import copy
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -98,7 +99,7 @@ def acceptance_sql() -> tuple[str, dict[str, tuple[int, int | None]]]:
                 (1, 2 if change == "dedup" else 1) if change in {"active", "dedup"} else (0, None)
             )
             selects.append(
-                f"SELECT {literal(name)} AS SCENARIO,COUNT(*) AS ROWS,"
+                f"SELECT {literal(name)} AS SCENARIO,COUNT(*) AS ENTRY_COUNT,"
                 f"MAX(REGISTRY_VERSION) AS VERSION FROM ({fixture_query(source, change)})"
             )
     return " UNION ALL ".join(selects), expected
@@ -119,15 +120,25 @@ def sql(query: str, *, view_object: bool = False) -> list[dict]:
             "JSON",
             "--stdin",
         ],
-        input=query,
+        input="USE WAREHOUSE OH_LYME_DEV_INGEST_XS_WH;\n" + query,
         capture_output=True,
         text=True,
         timeout=180,
     )
     if result.returncode:
-        code = re.search(r"\b(\d{6})\s*\(([A-Z0-9]+)\)", result.stderr)
+        cleaned = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
+        detail = re.findall(
+            r"(?:SQL compilation error|syntax error|No active warehouse|"
+            r"Unsupported subquery|unexpected|Insufficient privileges)[^\r\n]*",
+            cleaned,
+            re.IGNORECASE,
+        )
+        code = re.search(r"\b(\d{6})\s*\(([A-Z0-9]+)\)", cleaned)
         raise RuntimeError(
-            "DEV_VIEW_QUERY_FAILED" + (":" + ":".join(code.groups()) if code else "")
+            "DEV_VIEW_QUERY_FAILED"
+            + (":" + ":".join(code.groups()) if code else "")
+            + ":"
+            + " | ".join(detail)
         )
     decoder = json.JSONDecoder()
     remaining = result.stdout.strip()
@@ -136,7 +147,15 @@ def sql(query: str, *, view_object: bool = False) -> list[dict]:
         value, end = decoder.raw_decode(remaining)
         outputs.append(value)
         remaining = remaining[end:].lstrip()
-    return outputs[-1]
+
+    def rows(value):
+        if isinstance(value, list):
+            return [row for child in value for row in rows(child)]
+        if not isinstance(value, dict):
+            raise ValueError("UNEXPECTED_SNOW_CLI_JSON_SHAPE")
+        return [value]
+
+    return rows(outputs[-1])
 
 
 def main() -> None:
@@ -147,6 +166,8 @@ def main() -> None:
         "SELECT CURRENT_USER() U,CURRENT_ROLE() R,CURRENT_DATABASE() D,CURRENT_WAREHOUSE() W",
         view_object=args.view_object,
     )
+    print(json.dumps({"dev_context_results": identity}), file=sys.stderr, flush=True)
+    identity = [row for row in identity if {"U", "R", "D", "W"} <= row.keys()]
     assert identity == [
         {
             "U": "MATTHEWCARAWAY",
@@ -167,16 +188,17 @@ def main() -> None:
                 "CREATE TEMPORARY VIEW " + view + " AS " + fixture_query(source, change)
             )
             checks.append(
-                f"SELECT {literal(name)} SCENARIO,COUNT(*) ROWS,MAX(REGISTRY_VERSION) VERSION,"
+                f"SELECT {literal(name)} SCENARIO,COUNT(*) ENTRY_COUNT,"
+                "MAX(REGISTRY_VERSION) VERSION,"
                 "COUNT_IF(PROVENANCE:run_id::VARCHAR='dev-fixture-run') PROVENANCE_COUNT FROM "
                 + view
             )
         query = ";\n".join(statements + [" UNION ALL ".join(checks)])
-    rows = sql(query, view_object=args.view_object)
-    actual = {r["SCENARIO"]: (r["ROWS"], r["VERSION"]) for r in rows}
+    rows = [row for row in sql(query, view_object=args.view_object) if "SCENARIO" in row]
+    actual = {r["SCENARIO"]: (r["ENTRY_COUNT"], r["VERSION"]) for r in rows}
     assert actual == expected, "DEV_VIEW_ACCEPTANCE_MISMATCH"
     if args.view_object:
-        assert all(r["ROWS"] == 0 or r["PROVENANCE_COUNT"] == r["ROWS"] for r in rows)
+        assert all(r["ENTRY_COUNT"] == 0 or r["PROVENANCE_COUNT"] == r["ENTRY_COUNT"] for r in rows)
     print(
         json.dumps(
             {

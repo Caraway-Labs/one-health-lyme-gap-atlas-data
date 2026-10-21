@@ -2,8 +2,12 @@
 
 import hashlib
 import importlib.util
+import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
@@ -57,3 +61,37 @@ def test_real_dev_acceptance_uses_actual_full_query_and_inline_selects_only():
     assert "CREATE" not in query and "INSERT" not in query
     assert query.count("LEFT JOIN blocked_source_versions blocked") == 24
     assert "ATLAS_DEV_READ" in path.read_text()
+    assert " AS ROWS" not in query
+
+
+def test_snow_cli_nested_statement_results_and_safe_error_details(monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "view_cli_acceptance", ROOT / "scripts/verify_intelligence_daily_view_dev.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    context = {
+        "U": "MATTHEWCARAWAY",
+        "R": "OH_LYME_DEV_OWNER",
+        "D": module.DATABASE,
+        "W": "OH_LYME_DEV_INGEST_XS_WH",
+    }
+    nested = [[{"status": "Statement executed successfully."}], [context]]
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps(nested), stderr=""),
+    )
+    assert module.sql("SELECT CURRENT_USER()", view_object=True) == [nested[0][0], context]
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="001003 (42000): SQL compilation error:\n"
+            "syntax error line 1 at position 52 unexpected 'ROWS'.",
+        ),
+    )
+    with pytest.raises(RuntimeError, match="001003:42000.*unexpected 'ROWS'"):
+        module.sql("SELECT 1", view_object=True)
