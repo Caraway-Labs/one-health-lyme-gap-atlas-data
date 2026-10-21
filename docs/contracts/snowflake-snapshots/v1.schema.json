@@ -1,22 +1,157 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
   "additionalProperties": false,
   "properties": {
+    "snapshot_version": {
+      "const": 1
+    },
+    "exporter_version": {
+      "const": 1
+    },
+    "environment": {
+      "enum": [
+        "dev",
+        "prod"
+      ]
+    },
+    "inspected_role": {
+      "const": "read"
+    },
+    "source": {
+      "enum": [
+        "live",
+        "synthetic"
+      ]
+    },
+    "ledger_complete": {
+      "type": "boolean"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "code_commit": {
-      "pattern": "^[0-9a-f]{40}$",
-      "type": "string"
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "contract_version": {
+      "const": 1
+    },
+    "contract_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope": {
+      "const": {
+        "version": 1,
+        "objects": {
+          "GOVERNANCE.SCHEMA_MIGRATIONS": {
+            "kind": "BASE TABLE",
+            "columns": [
+              "VERSION",
+              "SHA256"
+            ]
+          },
+          "GOVERNANCE.INGESTION_RUNS": {
+            "kind": "BASE TABLE",
+            "columns": [
+              "INGESTION_RUN_ID",
+              "RESOURCE_KEY",
+              "STATUS"
+            ]
+          },
+          "PRESENTATION.SEMANTIC_RELEASES": {
+            "kind": "BASE TABLE",
+            "columns": [
+              "RELEASE_ID"
+            ]
+          },
+          "PRESENTATION.V_COUNTY_ATLAS_CURRENT": {
+            "kind": "VIEW",
+            "columns": []
+          }
+        },
+        "procedures": {},
+        "maximum_age_hours": 24
+      }
+    },
+    "visibility": {
+      "const": "partial"
+    },
+    "unavailable": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "objects",
+          "columns",
+          "grants",
+          "future_grants",
+          "migrations",
+          "procedures"
+        ]
+      },
+      "uniqueItems": true
     },
     "content": {
+      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "columns": {
+        "objects": {
+          "type": "array",
           "items": {
+            "type": "object",
             "additionalProperties": false,
             "properties": {
-              "character_maximum_length": {
-                "maximum": 16777216,
-                "minimum": 0,
-                "type": "integer"
+              "name": {
+                "enum": [
+                  "GOVERNANCE.SCHEMA_MIGRATIONS",
+                  "GOVERNANCE.INGESTION_RUNS",
+                  "PRESENTATION.SEMANTIC_RELEASES",
+                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "BASE TABLE",
+                  "VIEW"
+                ]
+              },
+              "owner": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "owner"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object": {
+                "enum": [
+                  "GOVERNANCE.SCHEMA_MIGRATIONS",
+                  "GOVERNANCE.INGESTION_RUNS",
+                  "PRESENTATION.SEMANTIC_RELEASES",
+                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
+                ]
               },
               "name": {
                 "enum": [
@@ -27,32 +162,6 @@
                   "STATUS",
                   "VERSION"
                 ]
-              },
-              "nullable": {
-                "type": "boolean"
-              },
-              "numeric_precision": {
-                "maximum": 16777216,
-                "minimum": 0,
-                "type": "integer"
-              },
-              "numeric_scale": {
-                "maximum": 16777216,
-                "minimum": 0,
-                "type": "integer"
-              },
-              "object": {
-                "enum": [
-                  "GOVERNANCE.SCHEMA_MIGRATIONS",
-                  "GOVERNANCE.INGESTION_RUNS",
-                  "PRESENTATION.SEMANTIC_RELEASES",
-                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
-                ]
-              },
-              "ordinal_position": {
-                "maximum": 16777216,
-                "minimum": 0,
-                "type": "integer"
               },
               "type": {
                 "enum": [
@@ -70,6 +179,29 @@
                   "TIMESTAMP_TZ",
                   "VARIANT"
                 ]
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "ordinal_position": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16777216
+              },
+              "character_maximum_length": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16777216
+              },
+              "numeric_precision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16777216
+              },
+              "numeric_scale": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16777216
               }
             },
             "required": [
@@ -77,21 +209,33 @@
               "name",
               "type",
               "nullable"
-            ],
-            "type": "object"
+            ]
           },
-          "type": "array",
           "uniqueItems": true
         },
-        "future_grants": {
+        "grants": {
+          "type": "array",
           "items": {
+            "type": "object",
             "additionalProperties": false,
             "properties": {
-              "grant_option": {
+              "role": {
                 "enum": [
-                  true,
-                  false,
-                  "unknown"
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              },
+              "object": {
+                "enum": [
+                  "GOVERNANCE.SCHEMA_MIGRATIONS",
+                  "GOVERNANCE.INGESTION_RUNS",
+                  "PRESENTATION.SEMANTIC_RELEASES",
+                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT",
+                  "GOVERNANCE",
+                  "PRESENTATION",
+                  "database"
                 ]
               },
               "kind": {
@@ -103,6 +247,53 @@
                   "SCHEMA",
                   "TABLE",
                   "VIEW"
+                ]
+              },
+              "privilege": {
+                "enum": [
+                  "CREATE PROCEDURE",
+                  "CREATE TABLE",
+                  "CREATE VIEW",
+                  "DELETE",
+                  "INSERT",
+                  "OWNERSHIP",
+                  "REFERENCES",
+                  "SELECT",
+                  "TRUNCATE",
+                  "UPDATE",
+                  "USAGE"
+                ]
+              },
+              "grant_option": {
+                "enum": [
+                  true,
+                  false,
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "role",
+              "object",
+              "kind",
+              "privilege",
+              "grant_option"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "future_grants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "role": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
                 ]
               },
               "object": {
@@ -123,53 +314,6 @@
                   "PRESENTATION.<VIEW>"
                 ]
               },
-              "privilege": {
-                "enum": [
-                  "CREATE PROCEDURE",
-                  "CREATE TABLE",
-                  "CREATE VIEW",
-                  "DELETE",
-                  "INSERT",
-                  "OWNERSHIP",
-                  "REFERENCES",
-                  "SELECT",
-                  "TRUNCATE",
-                  "UPDATE",
-                  "USAGE"
-                ]
-              },
-              "role": {
-                "enum": [
-                  "migration_deployer",
-                  "runtime",
-                  "read",
-                  "owner"
-                ]
-              }
-            },
-            "required": [
-              "role",
-              "object",
-              "kind",
-              "privilege",
-              "grant_option"
-            ],
-            "type": "object"
-          },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "grants": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "grant_option": {
-                "enum": [
-                  true,
-                  false,
-                  "unknown"
-                ]
-              },
               "kind": {
                 "enum": [
                   "BASE TABLE",
@@ -181,17 +325,6 @@
                   "VIEW"
                 ]
               },
-              "object": {
-                "enum": [
-                  "GOVERNANCE.SCHEMA_MIGRATIONS",
-                  "GOVERNANCE.INGESTION_RUNS",
-                  "PRESENTATION.SEMANTIC_RELEASES",
-                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT",
-                  "GOVERNANCE",
-                  "PRESENTATION",
-                  "database"
-                ]
-              },
               "privilege": {
                 "enum": [
                   "CREATE PROCEDURE",
@@ -207,12 +340,11 @@
                   "USAGE"
                 ]
               },
-              "role": {
+              "grant_option": {
                 "enum": [
-                  "migration_deployer",
-                  "runtime",
-                  "read",
-                  "owner"
+                  true,
+                  false,
+                  "unknown"
                 ]
               }
             },
@@ -222,22 +354,96 @@
               "kind",
               "privilege",
               "grant_option"
-            ],
-            "type": "object"
+            ]
           },
+          "uniqueItems": true
+        },
+        "role_edges": {
           "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "parent": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              },
+              "child": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner"
+                ]
+              }
+            },
+            "required": [
+              "parent",
+              "child"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "procedures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "signature": false,
+              "returns": {
+                "enum": [
+                  "ARRAY",
+                  "BINARY",
+                  "BOOLEAN",
+                  "DATE",
+                  "FLOAT",
+                  "NUMBER",
+                  "OBJECT",
+                  "TEXT",
+                  "TIME",
+                  "TIMESTAMP_LTZ",
+                  "TIMESTAMP_NTZ",
+                  "TIMESTAMP_TZ",
+                  "VARIANT"
+                ]
+              },
+              "execute_as": {
+                "enum": [
+                  "OWNER",
+                  "CALLER",
+                  "RESTRICTED CALLER"
+                ]
+              },
+              "owner": {
+                "enum": [
+                  "migration_deployer",
+                  "runtime",
+                  "read",
+                  "owner",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "signature",
+              "returns",
+              "execute_as",
+              "owner"
+            ]
+          },
           "uniqueItems": true
         },
         "migrations": {
+          "type": "array",
           "items": {
+            "type": "object",
             "additionalProperties": false,
             "properties": {
-              "checksum": {
-                "enum": [
-                  "match",
-                  "unverified_mismatch"
-                ]
-              },
               "version": {
                 "enum": [
                   "V001",
@@ -400,58 +606,26 @@
                   "V159",
                   "V160",
                   "V161",
-                  "V162"
+                  "V162",
+                  "V163"
+                ]
+              },
+              "checksum": {
+                "enum": [
+                  "match",
+                  "unverified_mismatch"
                 ]
               }
             },
             "required": [
               "version",
               "checksum"
-            ],
-            "type": "object"
+            ]
           },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "objects": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "kind": {
-                "enum": [
-                  "BASE TABLE",
-                  "VIEW"
-                ]
-              },
-              "name": {
-                "enum": [
-                  "GOVERNANCE.SCHEMA_MIGRATIONS",
-                  "GOVERNANCE.INGESTION_RUNS",
-                  "PRESENTATION.SEMANTIC_RELEASES",
-                  "PRESENTATION.V_COUNTY_ATLAS_CURRENT"
-                ]
-              },
-              "owner": {
-                "enum": [
-                  "migration_deployer",
-                  "runtime",
-                  "read",
-                  "owner",
-                  "unknown"
-                ]
-              }
-            },
-            "required": [
-              "name",
-              "kind",
-              "owner"
-            ],
-            "type": "object"
-          },
-          "type": "array",
           "uniqueItems": true
         },
         "omissions": {
+          "type": "array",
           "items": {
             "enum": [
               "unreviewed_identifiers",
@@ -465,87 +639,6 @@
               "data_rows"
             ]
           },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "procedures": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "execute_as": {
-                "enum": [
-                  "OWNER",
-                  "CALLER",
-                  "RESTRICTED CALLER"
-                ]
-              },
-              "owner": {
-                "enum": [
-                  "migration_deployer",
-                  "runtime",
-                  "read",
-                  "owner",
-                  "unknown"
-                ]
-              },
-              "returns": {
-                "enum": [
-                  "ARRAY",
-                  "BINARY",
-                  "BOOLEAN",
-                  "DATE",
-                  "FLOAT",
-                  "NUMBER",
-                  "OBJECT",
-                  "TEXT",
-                  "TIME",
-                  "TIMESTAMP_LTZ",
-                  "TIMESTAMP_NTZ",
-                  "TIMESTAMP_TZ",
-                  "VARIANT"
-                ]
-              },
-              "signature": false
-            },
-            "required": [
-              "signature",
-              "returns",
-              "execute_as",
-              "owner"
-            ],
-            "type": "object"
-          },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "role_edges": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "child": {
-                "enum": [
-                  "migration_deployer",
-                  "runtime",
-                  "read",
-                  "owner"
-                ]
-              },
-              "parent": {
-                "enum": [
-                  "migration_deployer",
-                  "runtime",
-                  "read",
-                  "owner"
-                ]
-              }
-            },
-            "required": [
-              "parent",
-              "child"
-            ],
-            "type": "object"
-          },
-          "type": "array",
           "uniqueItems": true
         }
       },
@@ -558,102 +651,11 @@
         "procedures",
         "migrations",
         "omissions"
-      ],
-      "type": "object"
-    },
-    "contract_hash": {
-      "pattern": "^[0-9a-f]{64}$",
-      "type": "string"
-    },
-    "contract_version": {
-      "const": 1
-    },
-    "environment": {
-      "enum": [
-        "dev",
-        "prod"
       ]
-    },
-    "exporter_version": {
-      "const": 1
-    },
-    "generated_at": {
-      "format": "date-time",
-      "type": "string"
-    },
-    "inspected_role": {
-      "const": "read"
-    },
-    "ledger_complete": {
-      "type": "boolean"
-    },
-    "scope": {
-      "const": {
-        "maximum_age_hours": 24,
-        "objects": {
-          "GOVERNANCE.INGESTION_RUNS": {
-            "columns": [
-              "INGESTION_RUN_ID",
-              "RESOURCE_KEY",
-              "STATUS"
-            ],
-            "kind": "BASE TABLE"
-          },
-          "GOVERNANCE.SCHEMA_MIGRATIONS": {
-            "columns": [
-              "VERSION",
-              "SHA256"
-            ],
-            "kind": "BASE TABLE"
-          },
-          "PRESENTATION.SEMANTIC_RELEASES": {
-            "columns": [
-              "RELEASE_ID"
-            ],
-            "kind": "BASE TABLE"
-          },
-          "PRESENTATION.V_COUNTY_ATLAS_CURRENT": {
-            "columns": [],
-            "kind": "VIEW"
-          }
-        },
-        "procedures": {},
-        "version": 1
-      }
-    },
-    "scope_hash": {
-      "pattern": "^[0-9a-f]{64}$",
-      "type": "string"
     },
     "semantic_hash": {
-      "pattern": "^[0-9a-f]{64}$",
-      "type": "string"
-    },
-    "snapshot_version": {
-      "const": 1
-    },
-    "source": {
-      "enum": [
-        "live",
-        "synthetic"
-      ]
-    },
-    "unavailable": {
-      "items": {
-        "enum": [
-          "objects",
-          "columns",
-          "grants",
-          "future_grants",
-          "migrations",
-          "procedures"
-        ]
-      },
-      "type": "array",
-      "uniqueItems": true
-    },
-    "visibility": {
-      "const": "partial"
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "required": [
@@ -673,6 +675,5 @@
     "unavailable",
     "content",
     "semantic_hash"
-  ],
-  "type": "object"
+  ]
 }
