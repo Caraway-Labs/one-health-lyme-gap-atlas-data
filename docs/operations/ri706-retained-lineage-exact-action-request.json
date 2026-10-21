@@ -1,0 +1,93 @@
+{
+  "status": "DESIGN_APPROVED_EXECUTION_NOT_AUTHORIZED",
+  "product_design_approval": "Product Owner Decision 2, 2026-10-18 instruction",
+  "security_review": null,
+  "exact_action_authorization": null,
+  "database": "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+  "schema": "LINEAGE_AUDIT",
+  "caller_role": "OH_LYME_PROD_READ",
+  "caller_connection": "ATLAS_PROD_READ",
+  "installation_role": "OH_LYME_PROD_MIGRATION_DEPLOYER",
+  "installation_route": "Separately authorized protected forward migration; not generic DEV",
+  "objects": [
+    "LINEAGE_AUDIT.RETAINED_MODEL_RELEASES_V",
+    "LINEAGE_AUDIT.RETAINED_MODEL_SOURCES_V",
+    "LINEAGE_AUDIT.RETAINED_MODEL_MEMBERSHIP_V",
+    "LINEAGE_AUDIT.RETAINED_MODEL_OBSERVATIONS_V"
+  ],
+  "new_reader_grants": [
+    {
+      "privilege": "SELECT",
+      "object": "LINEAGE_AUDIT.RETAINED_MODEL_RELEASES_V",
+      "role": "OH_LYME_PROD_READ"
+    },
+    {
+      "privilege": "SELECT",
+      "object": "LINEAGE_AUDIT.RETAINED_MODEL_SOURCES_V",
+      "role": "OH_LYME_PROD_READ"
+    },
+    {
+      "privilege": "SELECT",
+      "object": "LINEAGE_AUDIT.RETAINED_MODEL_MEMBERSHIP_V",
+      "role": "OH_LYME_PROD_READ"
+    },
+    {
+      "privilege": "SELECT",
+      "object": "LINEAGE_AUDIT.RETAINED_MODEL_OBSERVATIONS_V",
+      "role": "OH_LYME_PROD_READ"
+    }
+  ],
+  "existing_required_grants": [
+    "DATABASE USAGE",
+    "LINEAGE_AUDIT USAGE",
+    "SELECT LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V"
+  ],
+  "base_table_reader_grants": [],
+  "role_membership_changes": [],
+  "installer_dependency_reads": [
+    "PRESENTATION.SEMANTIC_RELEASES",
+    "PRESENTATION.SEMANTIC_DATA_SOURCES",
+    "PRESENTATION.SEMANTIC_COUNTY_ATLAS",
+    "PRESENTATION.SEMANTIC_OBSERVATIONS"
+  ],
+  "sources": [
+    "human",
+    "pathogen",
+    "tick",
+    "context_svi",
+    "context_rucc"
+  ],
+  "retained_pairs": [
+    {
+      "release_id": "governed-2026-09-18-unknown-coverage",
+      "bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026"
+    },
+    {
+      "release_id": "governed-2026-10-15-january-climate-prod",
+      "bundle_sha256": "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d"
+    }
+  ],
+  "sql_artifacts": [
+    {
+      "path": "sql/validation/release-integrity-retained-diagnostic-proposal.sql",
+      "normalized_utf8_sha256": "3173d5da48e807092bd31c134dd1ae1a352a71cb24f77b7861869ca36a79ad7a"
+    },
+    {
+      "path": "sql/validation/release-integrity-retained-diagnostic-revoke.sql",
+      "normalized_utf8_sha256": "51dbef07150869e228a31fe50b037e25c5873f77a6dd4321e7cbf3cc5c711c01"
+    }
+  ],
+  "proposed_fail_closed_expiry_utc": "2026-10-25T00:00:00Z",
+  "expiry_policy": "After expiry views return no rows; refresh date/hash/review if execution is later",
+  "retention_policy": "Retain aggregate proof/query-ID and GET_DDL/grant receipts before revocation",
+  "revocation_policy": "Revoke only four new SELECT grants; drop only receipt-matched new views after dependency review",
+  "preserve": [
+    "V137/V148 and existing audit SELECT",
+    "LINEAGE_AUDIT schema and USAGE",
+    "All base data",
+    "Approvals",
+    "Models",
+    "Semantic pointers"
+  ],
+  "credential_policy": "No OWNER/MIGRATOR/ACCOUNTADMIN diagnostic caller or exported service keys"
+}

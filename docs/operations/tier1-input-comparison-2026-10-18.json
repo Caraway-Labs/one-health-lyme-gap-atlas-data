@@ -1,0 +1,36 @@
+{
+  "approval_state": "not_an_approval",
+  "changed_cells_by_field": {
+    "feature_evidence_state": 0,
+    "feature_set_version": 0,
+    "human_case_count_floor_log1p": 0,
+    "human_evidence_state": 0,
+    "human_published_floor": 0,
+    "pathogen_evidence_state": 0,
+    "pathogen_no_records": 0,
+    "pathogen_present": 0,
+    "pathogen_unknown": 0,
+    "rucc_2023_context": 0,
+    "svi_percentile_2022": 0,
+    "vector_evidence_state": 0
+  },
+  "county_count": 3144,
+  "identity": {
+    "D": "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+    "R": "OH_LYME_PROD_READ",
+    "U": "MATTHEWCARAWAY",
+    "W": "COMPUTE_WH"
+  },
+  "input_bundle_sha256": "038aa3f8c383a70699aff92c752f2bbcc6687a726d0c2f142c9f368841b42026",
+  "input_release_id": "governed-2026-09-18-unknown-coverage",
+  "model_input_equality": true,
+  "observed_at": "2026-10-18T18:53:12.355687+00:00",
+  "original_feature_sha256": "84caef339dd87ad85e2b72be4bddfee6ec40412e803cdf926fc3c3e104b98bf2",
+  "predictions_regenerated": false,
+  "predictor_cells_compared": 18864,
+  "projection_source_commit": "024bbbf74a7da8e54566bd60e8e762d85a51e24f",
+  "schema": "atlas-tier1-release-input-comparison/v1",
+  "source_lineage_admission": "owner procedure must independently verify source lineage",
+  "target_bundle_sha256": "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d",
+  "target_release_id": "governed-2026-10-15-january-climate-prod"
+}

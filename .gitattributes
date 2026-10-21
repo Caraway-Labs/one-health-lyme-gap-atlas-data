@@ -2,3 +2,5 @@ scripts/run_nlcd_storage_once.sh text eol=lf
 src/lyme_gap_atlas_data/data/annual-nlcd-2025-demo-cohort.json text eol=lf
 
 docs/contracts/intelligence/v2/dev-minimum-access-reviewed.sql text eol=lf
+# Frozen upstream bytes include an approved CRLF document; do not normalize hashes.
+docs/contracts/surveillance-situations/*.json -text whitespace=cr-at-eol

@@ -566,6 +566,11 @@ class SnowflakeStageEffects:
             "ingestion_run_id": state.ingestion_run_id,
             "transformation_version": "adapter-normalization-v2",
         }
+        if state.tier.value == "C" and definition.resource_key == "noaa_nclimgrid_daily_202501":
+            approvals = definition.extra.get("source_approvals")
+            if not isinstance(approvals, dict) or set(approvals) != {"noaa", "tiger"}:
+                raise ValueError("CLIMATE_PROD_CAPTURE_APPROVAL")
+            lineage["source_approvals"] = approvals
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:

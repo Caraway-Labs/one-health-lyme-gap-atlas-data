@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +92,7 @@ DEV_ONLY_MIGRATION_VERSIONS = {
     "V143",
     "V144",
     "V145",
+    "V147",
 }
 PROD_ONLY_MIGRATION_VERSIONS = {
     "V049",
@@ -121,7 +123,16 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V141",
     "V146",
     "V148",
+    # Extends V148's PROD authority and replaces a PROD-only final-copy procedure.
+    "V149",
     "V150",
+    "V151",
+    "V152",
+    "V153",
+    "V154",
+    "V156",
+    "V160",
+    "V161",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -156,6 +167,10 @@ LEGACY_PROD_MIGRATION_FILENAMES = {
 }
 LEGACY_PROD_MIGRATION_ROW_COUNTS = {"V022": 1, "V028": 2}
 PROD_RECONCILIATION_REASON = "Protected qtbi-xd4i rollout owner authorization, 2026-09-08"
+CDC_LEGACY_LEDGER_AUTHORITY_PATH = Path(__file__).with_name("cdc_legacy_ledger_authority.json")
+CDC_LEGACY_LEDGER_AUTHORITY_SHA256 = (
+    "4e18aa0fb8be26841eeefbf1fc44060aae65be341adaa1abcc9d81a212c00f86"
+)
 REQUIRED_REGISTRATION_COLUMNS = {
     "ARTIFACT_ID",
     "CONFIG_SHA256",
@@ -393,11 +408,11 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Historical CDC PROD onboarding migration is PROD-only")
         return "OH_LYME_PROD_STREAMLIT_OWNER"
-    if migration.version in {"V086", "V139"}:
+    if migration.version in {"V086", "V139", "V151", "V153"}:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138"}:
+    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138", "V155"}:
         if migration.version == "V117" and database != DEV_DATABASE:
             raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"
@@ -603,7 +618,7 @@ def reconcile_legacy_prod_migrations(
 
 
 def _reconciled_legacy_migrations(
-    cursor: SnowflakeCursor, database: str
+    cursor: SnowflakeCursor, database: str, require_unique: bool = False
 ) -> dict[str, tuple[str, str]]:
     """Read immutable reconciliation evidence; absent evidence never relaxes checks."""
     scope = "DEV" if database == DEV_DATABASE else "PROD" if database == PROD_DATABASE else None
@@ -616,7 +631,10 @@ def _reconciled_legacy_migrations(
             WHERE reconciliation_scope = %s""",
             (scope,),
         )
-        return {version: (legacy, source) for version, legacy, source in cursor.fetchall()}
+        rows = cursor.fetchall()
+        if require_unique and len(rows) != len({version for version, _, _ in rows}):
+            raise ValueError("CDC migration reconciliation evidence contains duplicate versions")
+        return {version: (legacy, source) for version, legacy, source in rows}
     except ProgrammingError:
         return {}
 
@@ -649,10 +667,113 @@ def apply_migrations(
     *,
     expected_pending: list[dict[str, str]] | None = None,
     protected_intelligence_prerequisite: bool = False,
+    january_climate_only: bool = False,
+    january_bulk_recovery_only: bool = False,
+    january_point_query_only: bool = False,
+    county_context_only: bool = False,
+    cdc_admission_only: bool = False,
+    release_integrity_only: bool = False,
+    retained_lineage_only: bool = False,
+    retained_lineage_human_only: bool = False,
+    execution_receipts: list[dict[str, str]] | None = None,
 ) -> list[str]:
     """Apply each missing migration once and reject any checksum mismatch."""
     if not DATABASE_PATTERN.fullmatch(database):
         raise ValueError("Migrations may target only ONE_HEALTH_LYME_GAP_ATLAS_DEV or _PROD")
+    integrity_versions = {"V157", "V158", "V159"}
+    lineage_scope = retained_lineage_only or retained_lineage_human_only
+    lineage_version = "V161" if retained_lineage_human_only else "V160"
+    if lineage_scope and (
+        (retained_lineage_only and retained_lineage_human_only)
+        or database != PROD_DATABASE
+        or expected_pending is None
+        or not commit
+        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+        or any(
+            (
+                release_integrity_only,
+                cdc_admission_only,
+                county_context_only,
+                january_climate_only,
+                january_bulk_recovery_only,
+                january_point_query_only,
+                protected_intelligence_prerequisite,
+            )
+        )
+        or {m["version"] for m in expected_pending} not in ({"V150", lineage_version}, {"V150"})
+    ):
+        raise PermissionError(
+            "Retained lineage requires exact protected retained-lineage PROD scope"
+        )
+    if release_integrity_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or any(
+            (
+                cdc_admission_only,
+                county_context_only,
+                january_climate_only,
+                january_bulk_recovery_only,
+                january_point_query_only,
+                protected_intelligence_prerequisite,
+            )
+        )
+        or not commit
+        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+    ):
+        raise PermissionError("Release integrity requires an exact protected reviewed PROD scope")
+    # Old bounded operators still review the complete pending metadata, but
+    # cannot execute these newer migrations as a side effect.
+    scoped_review = [
+        item
+        for item in expected_pending or []
+        if item["version"] not in integrity_versions | {"V160", "V161"}
+    ]
+    if cdc_admission_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or january_bulk_recovery_only
+        or january_point_query_only
+        or county_context_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in scoped_review} not in ({"V150"}, {"V150", "V156"})
+    ):
+        raise PermissionError("CDC admission requires the exact reviewed pending V156 scope")
+    if county_context_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or january_bulk_recovery_only
+        or january_point_query_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in scoped_review} != {"V150", "V155"}
+    ):
+        raise PermissionError("County context requires only reviewed pending V150/V155")
+    if january_point_query_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or january_bulk_recovery_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in scoped_review} != {"V150", "V154"}
+    ):
+        raise PermissionError("Point optimization requires only reviewed pending V150/V154")
+    if january_bulk_recovery_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or january_climate_only
+        or protected_intelligence_prerequisite
+        or {item["version"] for item in scoped_review} != {"V150", "V153"}
+    ):
+        raise PermissionError("Bulk recovery requires only reviewed pending V150/V153")
+    if january_climate_only and (
+        database != PROD_DATABASE
+        or expected_pending is None
+        or protected_intelligence_prerequisite
+        or not {item["version"] for item in scoped_review} <= {"V150", "V151", "V152"}
+    ):
+        raise PermissionError("January PROD migrations require the exact reviewed full pending set")
     plan = [
         migration
         for migration in load_migrations()
@@ -663,18 +784,207 @@ def apply_migrations(
         try:
             cursor.execute(f"USE DATABASE {database}")
             cursor.execute("SELECT version, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS")
-            applied = dict(cursor.fetchall())
+            ledger = cursor.fetchall()
+            applied = dict(ledger)
         except ProgrammingError:
             if expected_pending is not None:
                 raise
             applied = {}
-        reconciled = _reconciled_legacy_migrations(cursor, database)
+        reconciled = _reconciled_legacy_migrations(
+            cursor, database, cdc_admission_only or release_integrity_only or lineage_scope
+        )
+        if cdc_admission_only or release_integrity_only or lineage_scope:
+            duplicate_versions = {
+                version for version, count in Counter(v for v, _ in ledger).items() if count > 1
+            }
+            legacy_versions = set(LEGACY_PROD_MIGRATION_CHECKSUMS)
+            if duplicate_versions - {"V020", "V028", "V071"}:
+                raise ValueError("CDC migration ledger contains duplicate versions")
+            if duplicate_versions or any(
+                checksum == LEGACY_PROD_MIGRATION_CHECKSUMS.get(version)
+                for version, checksum in ledger
+            ):
+                # Retain the immutable historical rows. Only the exact existing
+                # PROD exception, with retained reconciliation evidence, is valid.
+                cursor.execute(
+                    "SELECT version, filename, sha256 FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                    "WHERE version IN ('V022', 'V028')"
+                )
+                legacy_rows = cursor.fetchall()
+                for migration in legacy_prod_reconciliation_plan(legacy_rows, plan):
+                    if not is_authorized_legacy_reconciliation(
+                        database,
+                        migration.version,
+                        LEGACY_PROD_MIGRATION_CHECKSUMS[migration.version],
+                        migration.sha256,
+                        reconciled,
+                    ):
+                        raise ValueError(
+                            "CDC historical ledger lacks valid reconciliation evidence"
+                        )
+                if sorted((v, h) for v, _, h in legacy_rows) != sorted(
+                    (v, h) for v, h in ledger if v in legacy_versions
+                ):
+                    raise ValueError("CDC historical ledger changed during validation")
+                # Exact retained rows, not an allowance inferred from equal hashes.
+                # V020 authority is the reconciled historical V022; V071 has a
+                # new dated owner recognition, not retrospective execution approval.
+                try:
+                    authority_text = CDC_LEGACY_LEDGER_AUTHORITY_PATH.read_text(encoding="utf-8")
+                except OSError as exc:
+                    raise ValueError("CDC historical ledger authority is missing") from exc
+                if (
+                    hashlib.sha256(authority_text.encode()).hexdigest()
+                    != CDC_LEGACY_LEDGER_AUTHORITY_SHA256
+                ):
+                    raise ValueError(
+                        "CDC historical ledger authority does not match reviewed evidence"
+                    )
+                authority = json.loads(authority_text)
+                cursor.execute(
+                    """SELECT version, filename, sha256, deployment_commit, applied_by,
+                    TO_CHAR(CONVERT_TIMEZONE('UTC', applied_at), 'YYYY-MM-DD"T"HH24:MI:SS.FF9')
+                    FROM GOVERNANCE.SCHEMA_MIGRATIONS
+                    WHERE version IN ('V020', 'V028', 'V071')"""
+                )
+                identity_rows = cursor.fetchall()
+                if sorted(tuple(row) for row in authority["records"]) != sorted(identity_rows):
+                    raise ValueError(
+                        "CDC historical ledger identities do not match reviewed authority"
+                    )
+                if sorted((r[0], r[2]) for r in identity_rows) != sorted(
+                    (v, h) for v, h in ledger if v in {"V020", "V028", "V071"}
+                ):
+                    raise ValueError("CDC historical ledger changed during identity validation")
+            if set(applied) - {item.version for item in plan}:
+                raise ValueError("CDC migration ledger contains unexpected versions")
+            if cdc_admission_only:
+                target = next(item for item in plan if item.version == "V156")
+                if "V150" in applied:
+                    raise PermissionError("CDC scope requires V150 to remain pending")
+                if "V156" in applied:
+                    # A failed image promotion may follow a successful immutable DDL
+                    # step. Resume only the same reviewed commit and exact checksum.
+                    cursor.execute(
+                        "SELECT filename,sha256,deployment_commit "
+                        "FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                        "WHERE version=%s",
+                        ("V156",),
+                    )
+                    if (
+                        not commit
+                        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+                        or applied["V156"] != target.sha256
+                        or cursor.fetchall() != [(target.filename, target.sha256, commit)]
+                    ):
+                        raise ValueError(
+                            "CDC retry requires the exact reviewed V156 ledger receipt"
+                        )
+                    reviewed_target = [
+                        item for item in expected_pending or [] if item["version"] == "V156"
+                    ]
+                    if reviewed_target and reviewed_target != [_migration_metadata(target)]:
+                        raise ValueError("CDC retry reviewed V156 metadata mismatch")
+                    # Original dispatch inputs remain valid on a GitHub run retry;
+                    # remove only the independently verified, already-applied V156.
+                    expected_pending = [
+                        item for item in expected_pending or [] if item["version"] != "V156"
+                    ]
+            if release_integrity_only or lineage_scope:
+                retry_versions = {lineage_version} if lineage_scope else integrity_versions
+                for target in (m for m in plan if m.version in retry_versions):
+                    if target.version not in applied:
+                        continue
+                    cursor.execute(
+                        "SELECT filename,sha256,deployment_commit "
+                        "FROM GOVERNANCE.SCHEMA_MIGRATIONS "
+                        "WHERE version=%s",
+                        (target.version,),
+                    )
+                    if applied[target.version] != target.sha256 or cursor.fetchall() != [
+                        (target.filename, target.sha256, commit)
+                    ]:
+                        raise ValueError(
+                            "Integrity retry requires exact reviewed migration receipts"
+                        )
+                    reviewed_target = [
+                        m for m in expected_pending or [] if m["version"] == target.version
+                    ]
+                    if reviewed_target and reviewed_target != [_migration_metadata(target)]:
+                        raise ValueError("Integrity retry reviewed metadata differs")
+                    expected_pending = [
+                        m for m in expected_pending or [] if m["version"] != target.version
+                    ]
     if expected_pending is not None:
         require_reviewed_pending_set(
             [_migration_metadata(item) for item in plan if item.version not in applied],
             expected_pending,
         )
+    if cdc_admission_only and not {"V149", "V155"} <= set(applied):
+        raise PermissionError("CDC predecessor authority and current context must already exist")
+    if not cdc_admission_only and any(
+        item.version == "V156" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V156 requires the protected CDC admission path")
+    if release_integrity_only and not {"V141", "V149", "V151", "V152", "V155", "V156"} <= set(
+        applied
+    ):
+        raise PermissionError("Integrity publication prerequisites must already be installed")
+    scoped_operation = any(
+        (
+            lineage_scope,
+            release_integrity_only,
+            cdc_admission_only,
+            county_context_only,
+            january_climate_only,
+            january_bulk_recovery_only,
+            january_point_query_only,
+        )
+    )
+    if (
+        database == PROD_DATABASE
+        and not scoped_operation
+        and any(m.version in integrity_versions and m.version not in applied for m in plan)
+    ):
+        raise PermissionError("V157/V158/V159 require the protected release integrity path")
+    if lineage_scope and not {"V137", "V148", "V157", "V158", "V159"} <= set(applied):
+        raise PermissionError("Retained lineage dependencies must already be installed")
+    if retained_lineage_human_only and "V160" not in applied:
+        raise PermissionError("Human lineage requires the installed restricted V160 surface")
+    if not scoped_operation and any(
+        m.version in {"V160", "V161"} and m.version not in applied for m in plan
+    ):
+        raise PermissionError("Retained lineage requires its protected path")
+    if january_point_query_only and not {"V151", "V152", "V153"} <= set(applied):
+        raise PermissionError("Prior January migrations must already be applied")
+    if not (january_point_query_only or release_integrity_only) and any(
+        item.version == "V154" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V154 requires the protected point optimization path")
+    if january_bulk_recovery_only and not {"V151", "V152"} <= set(applied):
+        raise PermissionError("Prior January migrations must already be applied")
+    if january_bulk_recovery_only and "V117" in applied:
+        raise PermissionError("Unexpected DEV-only V117 PROD ledger entry requires reconciliation")
+    if not (january_bulk_recovery_only or release_integrity_only) and any(
+        item.version == "V153" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V153 requires the protected bulk recovery path")
+    if not (january_climate_only or release_integrity_only) and any(
+        item.version in {"V151", "V152"} and item.version not in applied for item in plan
+    ):
+        raise PermissionError("January PROD authority/views require the reviewed climate-only path")
     for pinned in PROTECTED_INTELLIGENCE_MIGRATIONS:
+        if (
+            january_climate_only
+            or january_bulk_recovery_only
+            or january_point_query_only
+            or county_context_only
+            or cdc_admission_only
+            or release_integrity_only
+            or lineage_scope
+        ):
+            # V150 is deliberately retained as pending, never executed in this scope.
+            continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
         protected_database = (
             DEV_DATABASE if pinned["version"] in {"V142", "V143"} else PROD_DATABASE
@@ -693,6 +1003,12 @@ def apply_migrations(
             raise PermissionError(
                 f"{pinned['version']} requires the protected intelligence prerequisite path"
             )
+    if (
+        database == PROD_DATABASE
+        and not (county_context_only or release_integrity_only)
+        and any(item.version == "V155" and item.version not in applied for item in plan)
+    ):
+        raise PermissionError("V155 requires the protected county context path")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
@@ -711,10 +1027,30 @@ def apply_migrations(
             ):
                 continue
             raise ValueError(f"Checksum mismatch for already-applied {migration.version}")
+        if lineage_scope and migration.version != lineage_version:
+            continue
+        if release_integrity_only and migration.version not in integrity_versions:
+            continue
+        if county_context_only and migration.version != "V155":
+            continue
+        if cdc_admission_only and migration.version != "V156":
+            continue
+        if january_point_query_only and migration.version != "V154":
+            continue
+        if january_bulk_recovery_only and migration.version != "V153":
+            continue
+        if january_climate_only and migration.version not in {"V151", "V152"}:
+            continue
         with connect(
             _migration_settings(settings, migration, database), include_database=False
         ) as connection:
-            connection.execute_string(_executable_migration_sql(migration, database))
+            results = connection.execute_string(_executable_migration_sql(migration, database))
+            if execution_receipts is not None:
+                for result in results:
+                    if result.sfqid:
+                        execution_receipts.append(
+                            {"version": migration.version, "query_id": result.sfqid}
+                        )
             with connection.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO GOVERNANCE.SCHEMA_MIGRATIONS

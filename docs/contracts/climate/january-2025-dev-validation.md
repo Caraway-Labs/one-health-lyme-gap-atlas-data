@@ -135,6 +135,63 @@ intended-reader proof. If the publication identity lacks canonical-partition
 SELECT, the owner must choose an already authorized identity or separately
 review a bounded solution. This draft grants nothing.
 
+## DEV observation join correction under DATA #443
+
+V147 preserves the V136 observation projection and January-only authority. It
+flattens capture membership and the four metadata definitions independently,
+projects scalar run/artifact membership keys, and joins them to immutable V103
+revisions. The large release extension is no longer selected into the records
+relation. COPY GRANTS preserves existing view access; no grant, source decision,
+release membership, pointer, or PROD object changes.
+
+The read-only verifier checks the immutable V136 ledger and, when V147 exists,
+its exact checksum and the revised compiled body. Before V147 it continues to
+validate the original body. The metadata view remains unchanged.
+
+Offline old/new join parity covers published/unsupported contract states,
+unselected captures, wrong run/resource/version/artifact/hash, four measure
+bindings and zero/null/negative values. Projection equality retains numeric
+transport, coverage, retrieval and unknown original publication time. This is
+not Snowflake compilation or measured performance evidence. The prior protected
+LIMIT 4 read timed out; a fresh protected readback must complete within existing
+timeouts before claiming the blocker resolved. Do not widen timeouts or grant
+new access to obtain that proof. PROD capture/source/view parity and actual API
+service-role acceptance remain separate prerequisites to API #84 activation.
+
+The protected view readback now sends a 60-second server statement limit,
+10-second queue limit and ABORT_DETACHED_QUERY at connection creation, including
+the identity query. Socket/network limits are 65 seconds. Its existing workflow
+invocation stops after 300 seconds with SIGINT, then kills after 15 seconds;
+the last server statement still has its independent 60-second limit. No
+application/workflow retry or role fallback is added; authentication retries
+are disabled. Connector transport may retry within the existing deadline.
+LIMIT 4 restricts output, not query cost. The bounded verifier now runs before
+the workflow's otherwise unbounded CLI identity query, with exclusive mode,
+exact reviewed-main SHA and successful Quality guards.
+
+The [V147 execution plan](v147-dev-execution-plan.md) prepares the exact metadata
+preflight, a separate bounded sole-V147 apply through the existing guarded CLI,
+independent resource reservations and failure recovery. Its pending set and
+warehouse assumptions still require specifically authorized live verification;
+the readback's $10 reservation never authorizes migration apply.
+
+A metadata-only ATLAS_DEV_READ inspection on 2026-10-11 observed the expected
+DEV database/role, AWS_US_WEST_2, and the suspended STANDARD Gen2 X-Small
+OH_LYME_DEV_INGEST_XS_WH with auto_suspend=60. The SHOW response omitted cluster
+and acceleration settings; single-cluster/no-acceleration bounds use the existing
+owner-verified Standard edition evidence, not invented SHOW values. At the
+existing public $6/credit forecast, reserve $10 for one readback: 435 seconds
+covering process, final statement and idle tail at 5.75 credits/hour ($4.17),
+plus fifteen one-minute resume minimums at 1.35 credits/hour ($2.03) and a $1
+noncompute reserve, rounded upward. This is a conservative forecast, not an
+invoice or attribution of unrelated shared warehouse activity. Recheck changed
+warehouse/edition/price assumptions before execution; do not automatically retry
+a failed paid readback. Observation performance has not yet been measured.
+
+Rollback uses a reviewed subsequent migration restoring V136's observation
+body with COPY GRANTS. Never edit an applied migration or move a release pointer
+as a view-performance rollback.
+
 ## Supported adapter boundary
 
 Use the reviewed explicit-authority path only:

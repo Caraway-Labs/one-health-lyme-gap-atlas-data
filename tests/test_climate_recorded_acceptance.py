@@ -30,6 +30,7 @@ def candidate():
         }
         item["revision_id"] = metadata_revision_id(item)
     return {
+        "contract_version": "atlas-january-climate-release-extension-v1",
         "metadata": metadata,
         "sources": {
             key: source | {"source_version_id": "fixture-" + key}

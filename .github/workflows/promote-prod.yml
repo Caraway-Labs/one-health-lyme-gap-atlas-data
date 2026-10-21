@@ -3,6 +3,58 @@ name: Promote governed pipeline to PROD
 on:
   workflow_dispatch:
     inputs:
+      retained_human_lineage_only:
+        description: Install only V161 scoped human-record identities and derived hashes; no model/scientific approval
+        required: false
+        type: boolean
+        default: false
+      retained_lineage_only:
+        description: Install only authorized V160 restricted retained-lineage secure views; no image promotion or scientific admission
+        required: false
+        type: boolean
+        default: false
+      release_integrity_only:
+        description: Install only reviewed V157/V158/V159 before exact DEV-tested image promotion; no approvals or publication
+        required: false
+        type: boolean
+        default: false
+      cdc_admission_only:
+        description: Apply only reviewed V156 before promoting the exact DEV-tested image; no decision registration
+        required: false
+        type: boolean
+        default: false
+      january_climate_only:
+        description: Apply only the reviewed PROD January V151/V152 pair; no image promotion
+        required: false
+        type: boolean
+        default: false
+      january_bulk_recovery_only:
+        description: Apply only reviewed PROD V153 bulk-stage recovery; no image promotion
+        required: false
+        type: boolean
+        default: false
+      january_point_query_only:
+        description: Apply only reviewed PROD V154 point-query view; no image promotion
+        required: false
+        type: boolean
+        default: false
+      county_context_only:
+        description: Apply only reviewed V155 county context view; no image promotion
+        required: false
+        type: boolean
+        default: false
+      reviewed_commit:
+        description: Exact reviewed green main for scoped migrations
+        required: false
+        type: string
+      fixture_source_commit:
+        description: Exact independently reviewed RI706 source SHA tested in isolated DEV
+        required: false
+        type: string
+      fixture_validation_run_id:
+        description: Successful protected RI706 fixture workflow run containing acceptance receipts
+        required: false
+        type: string
       image_digest:
         description: DEV-tested DOCR image digest to promote
         required: true
@@ -19,6 +71,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: prod-app-topology
@@ -26,6 +80,7 @@ concurrency:
 
 jobs:
   promote:
+    if: ${{ inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && (inputs.release_integrity_only == true || (inputs.january_climate_only != true && inputs.january_bulk_recovery_only != true && inputs.january_point_query_only != true && inputs.county_context_only != true)) }}
     name: Approve and promote immutable image
     runs-on: ubuntu-latest
     environment: production
@@ -36,11 +91,14 @@ jobs:
       IMAGE_DIGEST: ${{ inputs.image_digest }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           version: "1.160.1"
       - name: Verify digest is currently deployed and approved in DEV
+        if: ${{ inputs.release_integrity_only != true }}
         run: |
           test -n "$IMAGE_DIGEST"
           dev_digest="$(doctl apps spec get "$DEV_APP_ID" --format json | jq -r '.jobs[0].image.digest')"
@@ -49,6 +107,7 @@ jobs:
             | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
           test "$source_digest" = "$IMAGE_DIGEST"
       - name: Verify PROD target has been explicitly provisioned
+        if: ${{ inputs.release_integrity_only != true }}
         run: |
           test -n "$PROD_APP_ID"
           doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
@@ -56,7 +115,20 @@ jobs:
       - name: Install Snowflake CLI for the protected PROD migration step
         run: python -m pip install snowflake-cli-labs==3.25.0
       - run: uv sync --frozen --extra dev --extra pipeline
+      - name: Verify isolated DEV acceptance and identical reviewed source before pair-only installation
+        if: ${{ inputs.release_integrity_only == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          FIXTURE_SOURCE_COMMIT: ${{ inputs.fixture_source_commit }}
+          FIXTURE_VALIDATION_RUN_ID: ${{ inputs.fixture_validation_run_id }}
+        run: |
+          set -euo pipefail
+          uv run python scripts/verify_release_integrity_promotion.py
+          source_digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "ri706-$FIXTURE_SOURCE_COMMIT" '[.[] | select((.tags // []) | index($tag)) | .digest] | if length == 1 then .[0] else empty end')"
+          test "$source_digest" = "$IMAGE_DIGEST"
       - name: Apply checksum-validated PROD migrations before image promotion
+        if: ${{ inputs.cdc_admission_only != true && inputs.release_integrity_only != true }}
         env:
           TOPX_ENV: prod
           ENABLE_PRODUCTION_EXECUTION: "true"
@@ -65,7 +137,7 @@ jobs:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only || inputs.january_point_query_only || inputs.county_context_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
@@ -116,7 +188,75 @@ jobs:
             uv run atlas-data pipeline apply-migrations \
               --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
           fi
+      - name: Apply reviewed CDC authority without registering stewardship
+        if: ${{ inputs.cdc_admission_only == true && inputs.release_integrity_only != true }}
+        env:
+          TOPX_ENV: prod
+          ENABLE_PRODUCTION_EXECUTION: "true"
+          CDC_ADMISSION_ONLY: "true"
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          test '${{ inputs.protected_intelligence_prerequisite }}' = false
+          key_file="$RUNNER_TEMP/cdc-prod-key.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_cdc_admission_migration.py
+      - name: Apply only reviewed release integrity migrations
+        if: ${{ inputs.release_integrity_only == true }}
+        env:
+          TOPX_ENV: prod
+          ENABLE_PRODUCTION_EXECUTION: "true"
+          RELEASE_INTEGRITY_ONLY: "true"
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          test '${{ inputs.protected_intelligence_prerequisite }}' = false
+          test '${{ inputs.cdc_admission_only }}' = false
+          test '${{ inputs.county_context_only }}' = false
+          test '${{ inputs.january_climate_only }}' = false
+          test '${{ inputs.january_bulk_recovery_only }}' = false
+          test '${{ inputs.january_point_query_only }}' = false
+          key_file="$RUNNER_TEMP/integrity-prod-key.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_release_integrity_migrations.py
       - name: Promote the immutable image across the existing operational topology without exposing secrets
+        if: ${{ inputs.release_integrity_only != true }}
         run: |
           prod_spec="$(mktemp)"
           next_spec="$(mktemp)"
@@ -166,3 +306,142 @@ jobs:
               )
           ' "$prod_spec" > "$next_spec"
           doctl apps update "$PROD_APP_ID" --spec "$next_spec" --wait
+
+
+
+  january-climate:
+    if: ${{ inputs.retained_human_lineage_only != true && inputs.retained_lineage_only != true && inputs.release_integrity_only != true && inputs.cdc_admission_only != true && (inputs.january_climate_only == true || inputs.january_bulk_recovery_only == true || inputs.january_point_query_only == true || inputs.county_context_only == true) }}
+    name: Protected reviewed PROD migrations only
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      checks: read
+    env:
+      TOPX_ENV: prod
+      ENABLE_PRODUCTION_EXECUTION: "true"
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+      COUNTY_CONTEXT_ONLY: ${{ inputs.county_context_only }}
+      JANUARY_POINT_QUERY_ONLY: ${{ inputs.january_point_query_only }}
+      JANUARY_BULK_RECOVERY_ONLY: ${{ inputs.january_bulk_recovery_only }}
+      ATLAS_JANUARY_PROD_SESSION: "true"
+      SNOWFLAKE_NETWORK_TIMEOUT_SECONDS: "65"
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: ${{ (inputs.january_climate_only || inputs.january_bulk_recovery_only || inputs.january_point_query_only || inputs.county_context_only) && 'OH_LYME_PROD_APPROVAL_XS_WH' || secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+      EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Apply only reviewed scoped migrations
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          if [[ "$COUNTY_CONTEXT_ONLY" == true ]]; then
+            test '${{ inputs.image_digest }}' = county-context-only
+            test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}' = false:false:false
+          else
+            test '${{ inputs.image_digest }}' = january-climate-only
+          fi
+          test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' != true:true
+          if [[ '${{ inputs.january_point_query_only }}' == true ]]; then
+            test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' = false:false
+          fi
+          test '${{ inputs.protected_intelligence_prerequisite }}' = false
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed" -gt 0
+          key_file="$RUNNER_TEMP/january-prod-migrations.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          runner=scripts/apply_january_prod_migrations.py
+          if [[ "$COUNTY_CONTEXT_ONLY" == true ]]; then runner=scripts/apply_county_context_migration.py; fi
+          deadline=1200s
+          if [[ "$JANUARY_BULK_RECOVERY_ONLY" == true || "$JANUARY_POINT_QUERY_ONLY" == true || "$COUNTY_CONTEXT_ONLY" == true ]]; then deadline=180s; fi
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          timeout --signal=INT --kill-after=15s "$deadline" uv run python "$runner"
+
+  retained-lineage:
+    if: ${{ inputs.retained_lineage_only == true || inputs.retained_human_lineage_only == true }}
+    name: Protected retained-lineage diagnostic installation
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    permissions:
+      contents: read
+      checks: read
+    env:
+      TOPX_ENV: prod
+      ENABLE_PRODUCTION_EXECUTION: "true"
+      RETAINED_LINEAGE_ONLY: "true"
+      RETAINED_LINEAGE_HUMAN_ONLY: ${{ inputs.retained_human_lineage_only }}
+      DIAGNOSTIC_ARTIFACT: ${{ inputs.image_digest }}
+      ATLAS_JANUARY_PROD_SESSION: "true"
+      ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS: "60"
+      SNOWFLAKE_NETWORK_TIMEOUT_SECONDS: "65"
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWFLAKE_WAREHOUSE: OH_LYME_PROD_APPROVAL_XS_WH
+      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+      SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+      EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact green main and exclusive diagnostic scope
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          test '${{ inputs.release_integrity_only }}:${{ inputs.cdc_admission_only }}:${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}:${{ inputs.county_context_only }}:${{ inputs.protected_intelligence_prerequisite }}' = false:false:false:false:false:false:false
+          test '${{ inputs.retained_lineage_only }}:${{ inputs.retained_human_lineage_only }}' != true:true
+          if [[ "$RETAINED_LINEAGE_HUMAN_ONLY" == true ]]; then
+            test "$DIAGNOSTIC_ARTIFACT" = retained-human-lineage-only
+          else
+            test "$DIAGNOSTIC_ARTIFACT" = retained-lineage-only
+          fi
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed" -gt 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Install only exact authorized diagnostic migration and retain receipts
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/retained-lineage-migration.p8"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          {
+            printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+            printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+            printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+          } > "$key_file"
+          SNOWFLAKE_AUTH_METHOD=key_pair \
+          SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+          MAX_CON_RETRY_ATTEMPTS=0 \
+          timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_retained_lineage_migration.py
+      - name: Preserve installation, DDL and grant receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retained-lineage-installation-${{ github.sha }}-${{ github.run_attempt }}
+          path: retained-lineage-installation-receipt.json
+          if-no-files-found: warn

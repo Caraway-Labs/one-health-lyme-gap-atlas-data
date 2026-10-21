@@ -1,0 +1,43 @@
+{
+  "status": "PROPOSAL_NOT_AUTHORIZATION_NOT_EXECUTED",
+  "database": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+  "schema_mapping": {
+    "FEATURE_STORE": "RI706_FEATURE_STORE",
+    "PRESENTATION": "RI706_PRESENTATION",
+    "GOVERNANCE": "RI706_GOVERNANCE"
+  },
+  "preparation_git_head": "3b0c28b612cc6d37a466803b178232b56aee4dea",
+  "image_digest": null,
+  "dev_execution_receipt": null,
+  "protected_workflow": ".github/workflows/deploy-dev.yml",
+  "required_execution_role": "OH_LYME_DEV_MIGRATION_DEPLOYER",
+  "required_execution_user": "OH_LYME_DEV_MIGRATION_DEPLOY_SVC",
+  "required_warehouse": "OH_LYME_DEV_INGEST_XS_WH",
+  "migrations": [
+    {
+      "version": "V157",
+      "filename": "V157__model_release_compatibility.sql",
+      "source_sha256": "96ea5c9ee51769e207efc44479d380fe6fd7752e5c6621dcbfd71559231593d1",
+      "fixture_sql_sha256": "a726a18d9b51eddca049ed64d7e2418a1f210317cc8f3dbbcdd0cd4c01b2be50"
+    },
+    {
+      "version": "V158",
+      "filename": "V158__surveillance_situation_publication.sql",
+      "source_sha256": "104f3022133066f7b6888628ecae6e3632f70ddb0dda6a1d0a7babe969ba8cf5",
+      "fixture_sql_sha256": "3884abb1d04e7a168ea55b1498c33283ba1552aa0bda7d6f5f86dd1024b9a4c9"
+    }
+  ],
+  "blockers": [
+    "Existing scoped V157/V158 mechanism rejects DEV",
+    "Fixture-schema mapping and role grants need security/engineering review",
+    "Synthetic prerequisites and test-only owner calls need explicit scope",
+    "No real Data/scientific admission may be recorded"
+  ],
+  "preserve": [
+    "All live DEV schemas and release pointer",
+    "PROD",
+    "Existing migration ledger",
+    "Unrelated pending migrations",
+    "Frozen ML artifact bytes"
+  ]
+}

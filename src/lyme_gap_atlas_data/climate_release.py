@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import climate_prod_binding as prod
 from .climate_publication import (
     NOAA_ARTIFACT_ID,
     NOAA_SHA,
@@ -61,11 +62,18 @@ def _require(condition: bool, code: str) -> None:
 
 def validate_extension(extension: Any) -> None:
     """Validate persisted structure; pending metadata never grants exposure."""
-    _require(isinstance(extension, Mapping) and set(extension) == _FIELDS, "CLIMATE_EXTENSION")
-    _require(extension["contract_version"] == CONTRACT, "CLIMATE_CONTRACT")
+    is_prod = isinstance(extension, Mapping) and extension.get("contract_version") == prod.CONTRACT
+    fields = _FIELDS | {"target_environment", "source_evidence"} if is_prod else _FIELDS
+    _require(isinstance(extension, Mapping) and set(extension) == fields, "CLIMATE_EXTENSION")
+    if is_prod:
+        prod.validate_binding(extension)
+    _require(
+        extension["contract_version"] == (prod.CONTRACT if is_prod else CONTRACT),
+        "CLIMATE_CONTRACT",
+    )
     _require(extension["period"] == PERIOD, "CLIMATE_PERIOD")
-    _require(extension["ingestion_run_id"] == RUN_ID, "CLIMATE_RUN")
-    _require(extension["candidate_sha256"] == CANDIDATE_SHA, "CLIMATE_CANDIDATE_DIGEST")
+    _require(is_prod or extension["ingestion_run_id"] == RUN_ID, "CLIMATE_RUN")
+    _require(is_prod or extension["candidate_sha256"] == CANDIDATE_SHA, "CLIMATE_CANDIDATE_DIGEST")
     _require(
         type(extension["row_count"]) is int and extension["row_count"] == ROW_COUNT, "CLIMATE_COUNT"
     )
@@ -118,9 +126,11 @@ def validate_extension(extension: Any) -> None:
             and source["sha256"] == expected_hash,
             "CLIMATE_SOURCE_PIN",
         )
-    _require(sources["noaa"]["artifact_id"] == NOAA_ARTIFACT_ID, "CLIMATE_NOAA_ARTIFACT")
+    _require(is_prod or sources["noaa"]["artifact_id"] == NOAA_ARTIFACT_ID, "CLIMATE_NOAA_ARTIFACT")
     _require(sources["noaa"]["resource_key"] == RESOURCE_KEY, "CLIMATE_NOAA_RESOURCE")
-    _require(sources["tiger"]["artifact_id"] == TIGER_ARTIFACT_ID, "CLIMATE_TIGER_ARTIFACT")
+    _require(
+        is_prod or sources["tiger"]["artifact_id"] == TIGER_ARTIFACT_ID, "CLIMATE_TIGER_ARTIFACT"
+    )
     _require(
         sources["tiger"]["resource_key"] == INPUTS[1]["resource_key"], "CLIMATE_TIGER_RESOURCE"
     )
@@ -167,6 +177,8 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
     """
     metadata = extension["metadata"]
     recorded = ["acceptance_recorded_at" in item["steward_review"] for item in metadata]
+    if extension["contract_version"] == prod.CONTRACT:
+        _require(all(recorded), "CLIMATE_PROD_ACCEPTANCE_RECORDING_REQUIRED")
     if not any(recorded):
         return
     _require(all(recorded), "CLIMATE_MIXED_ACCEPTANCE")
@@ -189,7 +201,8 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
         stamps.add(item["steward_review"]["acceptance_recorded_at"]["value"])
     _require(accepted == DRAFT_METADATA_REVISIONS and len(stamps) == 1, "CLIMATE_ACCEPTED_CONTENT")
     stamp = datetime.fromisoformat(next(iter(stamps)))
-    for source in extension["sources"].values():
+    for key, source in extension["sources"].items():
+        evidence_run, evidence_artifact = prod.source_anchor(extension, key)
         cursor.execute(
             "SELECT d.reviewer_username,d.decided_at,d.conditions,d.data_source_version_id,"
             "d.decision,d.resource_key FROM GOVERNANCE.MANUAL_REVIEW_DECISIONS d "
@@ -198,12 +211,24 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
             "AND d.resource_key=v.resource_key "
             "WHERE v.data_source_version_id=%s AND v.resource_key=%s "
             "AND v.ingestion_run_id=%s AND v.artifact_id=%s",
-            (source["source_version_id"], source["resource_key"], RUN_ID, source["artifact_id"]),
+            (source["source_version_id"], source["resource_key"], evidence_run, evidence_artifact),
         )
         rows = cursor.fetchall()
         _require(len(rows) == 1, "CLIMATE_ACCEPTANCE_DECISION")
         reviewer, decided_at, conditions, version, decision, decision_resource = rows[0]
         conditions = json.loads(conditions) if isinstance(conditions, str) else conditions
+        if extension["contract_version"] == prod.CONTRACT:
+            _require(
+                reviewer == "MATTHEWCARAWAY"
+                and decision == "APPROVED_WITH_CONDITIONS"
+                and decision_resource == source["resource_key"]
+                and version == source["source_version_id"]
+                and isinstance(conditions, list)
+                and "JANUARY_2025_ONLY" in conditions
+                and "REUSE_OWNER_ACCEPTANCE_DATA443" in conditions,
+                "CLIMATE_PROD_ACCEPTANCE",
+            )
+            continue
         _require(isinstance(conditions, Mapping), "CLIMATE_ACCEPTANCE_CONDITIONS")
         provenance = conditions.get("acceptance_provenance", {})
         _require(
@@ -221,18 +246,16 @@ def verify_recorded_acceptance(cursor: Any, extension: Any) -> None:
         )
 
 
-def reconstruct_capture_ids(cursor: Any, expected_digest: str) -> list[str]:
-    """Recover the full January list from retained V103 rows, bound to a frozen digest."""
-    _require(
-        isinstance(expected_digest, str) and _SHA.fullmatch(expected_digest) is not None,
-        "CLIMATE_MEMBERSHIP_DIGEST",
-    )
+def read_capture_membership(
+    cursor: Any, *, run_id: str = RUN_ID, noaa_artifact_id: str = NOAA_ARTIFACT_ID
+) -> tuple[list[str], str]:
+    """Read every bounded immutable member; freezing is not approval or publication."""
     cursor.execute(
         """SELECT capture_record_id, record_revision, record_id, source_row_hash, normalized_sha256
         FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS WHERE ingestion_run_id=%s
           AND resource_key=%s AND source_definition_version=2 AND artifact_id=%s
           AND artifact_sha256=%s ORDER BY capture_record_id""",
-        (RUN_ID, RESOURCE_KEY, NOAA_ARTIFACT_ID, NOAA_SHA),
+        (run_id, RESOURCE_KEY, noaa_artifact_id, NOAA_SHA),
     )
     digest = hashlib.sha256()
     capture_ids: list[str] = []
@@ -254,23 +277,55 @@ def reconstruct_capture_ids(cursor: Any, expected_digest: str) -> list[str]:
             digest.update((json.dumps(list(row), separators=(",", ":")) + "\n").encode())
             previous = row[0]
     _require(
-        len(capture_ids) == ROW_COUNT and digest.hexdigest() == expected_digest,
+        len(capture_ids) == ROW_COUNT,
         "CLIMATE_MEMBERSHIP_DIGEST",
     )
     cursor.execute(
         "SELECT COUNT(*) FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS "
         "WHERE ingestion_run_id=%s",
-        (RUN_ID,),
+        (run_id,),
     )
     _require(cursor.fetchone() == (ROW_COUNT,), "CLIMATE_UNSELECTED_REVISIONS")
+    return capture_ids, digest.hexdigest()
+
+
+def reconstruct_capture_ids(
+    cursor: Any,
+    expected_digest: str,
+    *,
+    run_id: str = RUN_ID,
+    noaa_artifact_id: str = NOAA_ARTIFACT_ID,
+) -> list[str]:
+    """Reconstruct and verify a previously frozen complete target membership."""
+    _require(
+        isinstance(expected_digest, str) and _SHA.fullmatch(expected_digest) is not None,
+        "CLIMATE_MEMBERSHIP_DIGEST",
+    )
+    capture_ids, digest = read_capture_membership(
+        cursor, run_id=run_id, noaa_artifact_id=noaa_artifact_id
+    )
+    _require(digest == expected_digest, "CLIMATE_MEMBERSHIP_DIGEST")
     return capture_ids
 
 
-def verify_extension(cursor: Any, extension: Any) -> None:
+def verify_extension(cursor: Any, extension: Any, *, database: str | None = None) -> None:
     """Revalidate source approval and exact immutable revision membership at activation."""
     validate_extension(extension)
+    is_prod = extension["contract_version"] == prod.CONTRACT
+    if database is not None:
+        _require(
+            database == (prod.PROD if is_prod else "ONE_HEALTH_LYME_GAP_ATLAS_DEV"),
+            "CLIMATE_TARGET_ENVIRONMENT",
+        )
+    if is_prod:
+        cursor.execute("SELECT CURRENT_DATABASE()")
+        _require(cursor.fetchone() == (prod.PROD,), "CLIMATE_TARGET_ENVIRONMENT")
+        prod.verify_capture_binding(cursor, extension)
+    run_id = extension["ingestion_run_id"]
+    noaa_artifact_id = extension["sources"]["noaa"]["artifact_id"]
     verify_recorded_acceptance(cursor, extension)
-    for source in extension["sources"].values():
+    for key, source in extension["sources"].items():
+        evidence_run, evidence_artifact = prod.source_anchor(extension, key)
         cursor.execute(
             """SELECT v.status, v.approved_decision_id, v.retired_at
             FROM GOVERNANCE.DATA_SOURCE_VERSIONS v
@@ -280,8 +335,8 @@ def verify_extension(cursor: Any, extension: Any) -> None:
               AND v.artifact_id=%s AND a.sha256=%s AND v.resource_key=%s""",
             (
                 source["source_version_id"],
-                RUN_ID,
-                source["artifact_id"],
+                evidence_run,
+                evidence_artifact,
                 source["sha256"],
                 source["resource_key"],
             ),
@@ -296,18 +351,23 @@ def verify_extension(cursor: Any, extension: Any) -> None:
         )
     cursor.execute(
         "SELECT resource_key, status FROM GOVERNANCE.INGESTION_RUNS WHERE ingestion_run_id=%s",
-        (RUN_ID,),
+        (run_id,),
     )
     _require(cursor.fetchall() == [(RESOURCE_KEY, "COMPLETED")], "CLIMATE_RUN_STATUS")
     cursor.execute(
         """SELECT COUNT(*), COUNT_IF(severity='BLOCKING' AND status='FAILED')
         FROM GOVERNANCE.DATA_QUALITY_RESULTS WHERE ingestion_run_id=%s""",
-        (RUN_ID,),
+        (run_id,),
     )
     quality = cursor.fetchone()
     _require(quality is not None and quality[0] > 0 and quality[1] == 0, "CLIMATE_QUALITY")
     _require(
-        reconstruct_capture_ids(cursor, extension["capture_membership_sha256"])
+        reconstruct_capture_ids(
+            cursor,
+            extension["capture_membership_sha256"],
+            run_id=run_id,
+            noaa_artifact_id=noaa_artifact_id,
+        )
         == extension["capture_ids"],
         "CLIMATE_CAPTURE_IDS",
     )
@@ -323,20 +383,22 @@ def verify_extension(cursor: Any, extension: Any) -> None:
               '2025-01-01' AND '2025-01-31'
           OR COALESCE(payload:record:measure::VARCHAR,'') NOT IN ('PRCP','TMIN','TMAX','TAVG'))
         FROM GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS WHERE ingestion_run_id=%s""",
-        (NOAA_SHA, TIGER_SHA, RUN_ID),
+        (NOAA_SHA, TIGER_SHA, run_id),
     )
     _require(cursor.fetchone() == (ROW_COUNT, 0), "CLIMATE_NATIVE_SCOPE")
-    verify_payload_candidate(cursor, extension["candidate_sha256"])
+    verify_payload_candidate(
+        cursor, extension["candidate_sha256"], run_id=run_id, noaa_artifact_id=noaa_artifact_id
+    )
 
 
-def canonical_partitions(cursor: Any) -> Iterator[NormalizedPartition]:
+def canonical_partitions(cursor: Any, *, run_id: str = RUN_ID) -> Iterator[NormalizedPartition]:
     """Bounded reads using the same publication session; no hidden role/connection switch."""
     for ordinal in range(1560):
         cursor.execute(
             """SELECT partition_id, value_sha256, row_count, byte_count, records
             FROM GOVERNANCE.INGESTION_RUN_NORMALIZED_PARTITIONS
             WHERE ingestion_run_id=%s AND partition_ordinal=%s""",
-            (RUN_ID, ordinal),
+            (run_id, ordinal),
         )
         rows = cursor.fetchall()
         _require(len(rows) == 1, "CLIMATE_CANONICAL_PARTITION")
@@ -363,7 +425,13 @@ def canonical_partitions(cursor: Any) -> Iterator[NormalizedPartition]:
         yield partition
 
 
-def verify_payload_candidate(cursor: Any, expected_digest: str) -> None:
+def verify_payload_candidate(
+    cursor: Any,
+    expected_digest: str,
+    *,
+    run_id: str = RUN_ID,
+    noaa_artifact_id: str = NOAA_ARTIFACT_ID,
+) -> None:
     """Rebuild the complete target candidate through PR549's strict reconciliation.
 
     All seven numeric fields retain native DOUBLE recovery, exact canonical
@@ -372,7 +440,11 @@ def verify_payload_candidate(cursor: Any, expected_digest: str) -> None:
     """
     with tempfile.TemporaryDirectory(prefix="climate-activation-") as directory:
         report = project_verified_partitions(
-            cursor, canonical_partitions(cursor), Path(directory) / "candidate.ndjson"
+            cursor,
+            canonical_partitions(cursor, run_id=run_id),
+            Path(directory) / "candidate.ndjson",
+            run_id=run_id,
+            noaa_artifact_id=noaa_artifact_id,
         )
         _require(
             report["rows"] == ROW_COUNT and report["projection_sha256"] == expected_digest,
@@ -380,7 +452,9 @@ def verify_payload_candidate(cursor: Any, expected_digest: str) -> None:
         )
 
 
-def verify_persisted_extension(cursor: Any, release_id: str) -> None:
+def verify_persisted_extension(
+    cursor: Any, release_id: str, *, database: str | None = None
+) -> None:
     """Both publication and rollback validate the retained target before pointer mutation."""
     cursor.execute(
         "SELECT source_manifest FROM PRESENTATION.SEMANTIC_RELEASES WHERE release_id=%s",
@@ -391,7 +465,7 @@ def verify_persisted_extension(cursor: Any, release_id: str) -> None:
     manifest = json.loads(row[0]) if isinstance(row[0], str) else row[0]
     _require(isinstance(manifest, Mapping), "CLIMATE_RELEASE_MANIFEST")
     if "climate_extension" in manifest:
-        verify_extension(cursor, manifest["climate_extension"])
+        verify_extension(cursor, manifest["climate_extension"], database=database)
     if "nlcd_extension" in manifest:
         from .nlcd_release import verify_persisted_extension as verify_nlcd
 

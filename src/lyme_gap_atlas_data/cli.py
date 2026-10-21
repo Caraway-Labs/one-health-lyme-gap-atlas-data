@@ -26,6 +26,7 @@ from .alpha_parity import (
 )
 from .catalog_registration import register_completed_discovery, register_latest_completed_discovery
 from .cdc import collect_cdc_evidence
+from .cdc_consumer_admission import RELEASE_ID as CDC_LEGACY_RELEASE_ID
 from .cdc_consumer_runtime import CDCConsumerUnavailable, read_cdc_consumer_named
 from .cdc_operations import check_cdc_metadata, check_cdc_overdue, verify_cdc_ready
 from .cdc_publication import bootstrap_publication, rollback_publication
@@ -623,6 +624,7 @@ def apply_migrations_command(
         False, "--protected-intelligence-prerequisite"
     ),
     confirm: bool = typer.Option(False, "--confirm"),
+    january_climate_only: bool = typer.Option(False, "--january-climate-only"),
 ) -> None:
     """Apply checksum-validated migrations only after an explicit confirmation."""
     if not confirm:
@@ -639,6 +641,7 @@ def apply_migrations_command(
                     commit,
                     expected_pending=expected_pending,
                     protected_intelligence_prerequisite=protected_intelligence_prerequisite,
+                    january_climate_only=january_climate_only,
                 )
             }
         )
@@ -692,7 +695,7 @@ def apply_reviewed_dev_migrations_command(
             database,
             commit,
             expected_pending=reviewed,
-            **({"protected_intelligence_prerequisite": True} if feed_batch else {}),
+            protected_intelligence_prerequisite=feed_batch,
         )
         typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
 
@@ -1092,10 +1095,18 @@ def source_run(
     dry_run: bool = typer.Option(False, "--dry-run"),
     fixture_dir: str | None = typer.Option(None, "--fixture-dir"),
     fail_after_stage: str | None = typer.Option(None, "--fail-after-stage"),
+    run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
     """Run or dry-run ingestion through the shared orchestrator."""
     loaded = load_source_definition(Path(definition))
     selected_tier = Tier(tier.upper())
+    if run_id is not None and (
+        selected_tier is not Tier.C
+        or loaded.resource_key != "noaa_nclimgrid_daily_202501"
+        or dry_run
+        or fixture_dir is not None
+    ):
+        raise typer.BadParameter("Explicit January PROD run IDs reject fixtures and other tiers")
     resolved_fixture = Path(fixture_dir) if fixture_dir else None
     if selected_tier is Tier.A and resolved_fixture is None:
         candidate = Path("tests/fixtures/sources") / loaded.resource_key
@@ -1134,11 +1145,27 @@ def source_run(
             raise typer.Exit(code=1) from None
     else:
         orchestrator = _orchestrator(resolved_fixture, tier=selected_tier, dry_run=dry_run)
+        if run_id is not None:
+            from .climate_prod_manifest import PLANNED_RUN
+
+            if (
+                selected_tier is not Tier.C
+                or loaded.resource_key != "noaa_nclimgrid_daily_202501"
+                or run_id != PLANNED_RUN
+            ):
+                raise typer.BadParameter(
+                    "An explicit run ID is reserved for the reviewed January PROD capture"
+                )
+            if orchestrator.store.load(run_id) is not None:
+                raise typer.BadParameter(
+                    "Retained January run exists; inspect before an authorized resume"
+                )
         state = orchestrator.run(
             loaded,
             tier=selected_tier,
             dry_run=dry_run,
             fail_after_stage=fail_after_stage,
+            **({"run_id": run_id} if run_id else {}),
         )
     typer.echo(json.dumps(state.to_dict(), indent=2))
     if state.status.value != "SUCCEEDED":
@@ -1451,10 +1478,14 @@ def runs_retry(
 
 
 @pipeline_app.command("cdc-consumer-readback")
-def cdc_consumer_readback_command(measure: str, county: str, environment: str = "prod") -> None:
+def cdc_consumer_readback_command(
+    measure: str, county: str, environment: str = "prod", release_id: str = CDC_LEGACY_RELEASE_ID
+) -> None:
     """Bounded intended-reader acceptance. No publication or scientific approval."""
     try:
-        result = read_cdc_consumer_named(measure, county, environment=environment)
+        result = read_cdc_consumer_named(
+            measure, county, environment=environment, release_id=release_id
+        )
     except CDCConsumerUnavailable as error:
         typer.echo(str(error))
         raise typer.Exit(1) from None

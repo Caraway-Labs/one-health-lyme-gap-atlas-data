@@ -75,6 +75,13 @@ def _definition_payload(definition: SourceDefinition) -> dict[str, object]:
             }
         )
         payload["maximum_rows"] = definition.maximum_rows
+    if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY:
+        payload.update(
+            {
+                key: definition.extra[key]
+                for key in ("year_month", "noaa_sha256", "tiger_sha256", "tiger_url")
+            }
+        )
     return payload
 
 
@@ -97,8 +104,19 @@ def collect_routine_public_source_evidence(
     active_settings = settings or PipelineSettings()
     if active_settings.topx_env != "prod":
         raise ValueError("Routine public source evidence admission requires TOPX_ENV=prod")
+    if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY:
+        from .climate_prod_binding import verify_execution_resource
+
+        factory = connection_factory or (lambda: connect(SnowflakeSettings()))
+        with factory() as connection, connection.cursor() as cursor:
+            verify_execution_resource(cursor, "OH_LYME_PROD_RUNTIME", "OH_LYME_PROD_PIPELINE_SVC")
     client = spaces_client or _spaces_client(active_settings)
     acquisition = get_adapter(definition.adapter_kind).acquire(definition)
+    reference = None
+    if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY:
+        from .january_prod_evidence import binary_evidence
+
+        acquisition, reference = binary_evidence(definition, acquisition)
     validation = get_adapter(definition.adapter_kind).validate_payload(
         definition, acquisition.payload
     )
@@ -128,6 +146,17 @@ def collect_routine_public_source_evidence(
         resource_key=definition.resource_key,
         run_id=run_id,
     )
+    reference_artifact = (
+        create_artifact(
+            payload=reference.payload,
+            environment="prod",
+            resource_key="census_tiger_2025_us_county_analysis",
+            run_id=run_id,
+        )
+        if reference
+        else None
+    )
+    reference_artifact_id = str(uuid.uuid4()) if reference else None
     for artifact, body, media_type in (
         (config_artifact, config_bytes, "application/json"),
         (source_artifact, source_bytes, acquisition.media_type),
@@ -137,6 +166,13 @@ def collect_routine_public_source_evidence(
             Key=f"{active_settings.spaces_prefix}/{artifact.object_key}",
             Body=body,
             ContentType=media_type,
+        )
+    if reference is not None and reference_artifact is not None:
+        client.put_object(
+            Bucket=active_settings.spaces_bucket,
+            Key=f"{active_settings.spaces_prefix}/{reference_artifact.object_key}",
+            Body=reference.payload,
+            ContentType=reference.media_type,
         )
 
     profile_sha256 = hashlib.sha256(config_bytes).hexdigest()
@@ -216,7 +252,7 @@ def collect_routine_public_source_evidence(
                         now,
                     ),
                 )
-                for sequence, purpose, artifact, artifact_id, media_type, rows in (
+                retained = [
                     (
                         1,
                         "SOURCE_DEFINITION",
@@ -233,7 +269,20 @@ def collect_routine_public_source_evidence(
                         acquisition.media_type,
                         acquisition.row_count,
                     ),
-                ):
+                ]
+                if reference is not None and reference_artifact is not None:
+                    assert reference_artifact_id is not None
+                    retained.append(
+                        (
+                            3,
+                            "ANALYSIS_REFERENCE",
+                            reference_artifact,
+                            reference_artifact_id,
+                            reference.media_type,
+                            None,
+                        )
+                    )
+                for sequence, purpose, artifact, artifact_id, media_type, rows in retained:
                     request_id = str(uuid.uuid4())
                     cursor.execute(
                         """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
@@ -245,7 +294,9 @@ def collect_routine_public_source_evidence(
                             run_id,
                             sequence,
                             purpose,
-                            definition.endpoint_template,
+                            reference.source_uri
+                            if purpose == "ANALYSIS_REFERENCE" and reference
+                            else definition.endpoint_template,
                             json.dumps(
                                 redact_mapping(
                                     {
@@ -311,11 +362,33 @@ def collect_routine_public_source_evidence(
                     VALUES (%s, %s, 'PENDING_REVIEW', 95, 95, 95, 90, 90, 93, 'APPROVE', %s, %s)""",
                     (str(uuid.uuid4()), definition.resource_key, limitations, now),
                 )
+                if reference is not None and reference_artifact is not None:
+                    cursor.execute(
+                        "INSERT INTO GOVERNANCE.SOURCE_DOCUMENT_SNAPSHOTS (source_document_snapshot_id,resource_key,document_type,document_url,artifact_id,content_sha256,retrieved_at,is_material_change) VALUES (%s,%s,'SOURCE_PAYLOAD',%s,%s,%s,%s,FALSE)",
+                        (
+                            str(uuid.uuid4()),
+                            definition.resource_key,
+                            definition.endpoint_template,
+                            source_artifact_id,
+                            source_artifact.sha256,
+                            now,
+                        ),
+                    )
+                    from .january_prod_evidence import register_reference_candidate
+
+                    register_reference_candidate(
+                        cursor,
+                        definition,
+                        run_id,
+                        reference_artifact_id,
+                        reference_artifact.sha256,
+                        now,
+                    )
             connection.commit()
         except Exception:
             connection.rollback()
             raise
-    return {
+    receipt: dict[str, object] = {
         "ingestion_run_id": run_id,
         "resource_key": definition.resource_key,
         "source_artifact_id": source_artifact_id,
@@ -324,6 +397,9 @@ def collect_routine_public_source_evidence(
         "schema_sha256": schema_sha256,
         "status": "PENDING_STEWARD_REVIEW",
     }
+    if reference is not None:
+        receipt["reference_artifact_id"] = reference_artifact_id
+    return receipt
 
 
 def collect_routine_public_source_evidence_from_path(definition_path: str) -> dict[str, object]:

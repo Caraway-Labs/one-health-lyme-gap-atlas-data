@@ -46,7 +46,9 @@ def require(condition: bool, code: str) -> None:
         raise ManifestPreparationBlocked(code)
 
 
-def verified_review(token: str, release_commit: str) -> dict[str, str]:
+def verified_review(
+    token: str, release_commit: str, *, review_pr: int = REVIEW_PR, exact_merge: bool = False
+) -> dict[str, str]:
     """Bind recorded review to this exact merged release checkout."""
     require(bool(re.fullmatch(r"[0-9a-f]{40}", release_commit)), "JANUARY_REVIEW_COMMIT")
     require(bool(token), "JANUARY_REVIEW_TOKEN")
@@ -63,10 +65,11 @@ def verified_review(token: str, release_commit: str) -> dict[str, str]:
         with urlopen(request, timeout=10) as response:
             return json.load(response)
 
-    pull = fetch(REVIEW_API)
+    review_api = REVIEW_API.rsplit("/", 1)[0] + f"/{review_pr}"
+    pull = fetch(review_api)
     require(
         isinstance(pull, dict)
-        and pull.get("number") == REVIEW_PR
+        and pull.get("number") == review_pr
         and bool(pull.get("merged_at"))
         and bool(re.fullmatch(r"[0-9a-f]{40}", pull.get("merge_commit_sha", "")))
         and pull.get("base", {}).get("ref") == "main"
@@ -82,33 +85,86 @@ def verified_review(token: str, release_commit: str) -> dict[str, str]:
         == 0,
         "JANUARY_REVIEW_RELEASE_BINDING",
     )
+    if exact_merge:
+        require(pull["merge_commit_sha"] == release_commit, "JANUARY_EXACT_REVIEW_MERGE")
     reviewed_commit = pull["head"]["sha"]
-    reviews = fetch(REVIEW_API + "/reviews?per_page=100")
-    require(isinstance(reviews, list), "JANUARY_REVIEW_RECORD")
-    matching = [
-        review
-        for review in reviews
-        if isinstance(review, dict)
-        and review.get("commit_id") == reviewed_commit
-        and review.get("state") in {"APPROVED", "COMMENTED", "CHANGES_REQUESTED"}
-        and review.get("submitted_at")
-        and isinstance(review.get("body"), str)
-        and isinstance(review.get("user", {}).get("login"), str)
-        and isinstance(review.get("html_url"), str)
-        and re.fullmatch(
-            r"https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/"
-            r"pull/657#pullrequestreview-[0-9]+",
-            review["html_url"],
+    require(bool(re.fullmatch(r"[0-9a-f]{40}", reviewed_commit)), "JANUARY_REVIEW_RECORD")
+    reviews: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        suffix = "" if page == 1 else f"&page={page}"
+        batch = fetch(review_api + "/reviews?per_page=100" + suffix)
+        require(isinstance(batch, list), "JANUARY_REVIEW_RECORD")
+        reviews.extend(batch)
+        if len(batch) < 100:
+            break
+    else:
+        raise ManifestPreparationBlocked("JANUARY_REVIEW_LIMIT")
+    submitted = []
+    seen: set[int] = set()
+    for review in reviews:
+        require(isinstance(review, dict), "JANUARY_REVIEW_RECORD")
+        if review.get("state") == "PENDING":
+            continue
+        identifier = review.get("id")
+        user = review.get("user")
+        require(
+            type(identifier) is int
+            and identifier > 0
+            and identifier not in seen
+            and isinstance(user, dict)
+            and isinstance(user.get("login"), str)
+            and bool(user["login"])
+            and review.get("state") in {"APPROVED", "COMMENTED", "CHANGES_REQUESTED", "DISMISSED"}
+            and isinstance(review.get("commit_id"), str)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", review["commit_id"]))
+            and isinstance(review.get("submitted_at"), str)
+            and (review.get("body") is None or isinstance(review.get("body"), str))
+            and review.get("html_url")
+            == (
+                "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/"
+                f"pull/{review_pr}#pullrequestreview-{identifier}"
+            ),
+            "JANUARY_REVIEW_RECORD",
         )
+        assert isinstance(identifier, int)  # Established by the fail-closed check above.
+        seen.add(identifier)
+        try:
+            timestamp = datetime.fromisoformat(review["submitted_at"].replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ManifestPreparationBlocked("JANUARY_REVIEW_RECORD") from error
+        require(timestamp.tzinfo is not None, "JANUARY_REVIEW_RECORD")
+        submitted.append((timestamp, identifier, review))
+
+    marker = f"Independent read-only review of exact head {reviewed_commit}: no material findings."
+    pull_user = pull.get("user")
+    author = pull_user.get("login") if isinstance(pull_user, dict) else None
+
+    def approved(review: dict[str, Any]) -> bool:
+        if review["commit_id"] != reviewed_commit:
+            return False
+        if review["state"] == "APPROVED":
+            return (
+                isinstance(author, str) and review["user"]["login"].casefold() != author.casefold()
+            )
+        return review["state"] == "COMMENTED" and (review.get("body") or "").strip() == marker
+
+    # A different reviewer or a plain comment cannot clear an unresolved request.
+    blockers: set[str] = set()
+    for _, _, review in sorted(submitted, key=lambda item: item[:2]):
+        actor = review["user"]["login"].casefold()
+        if review["state"] == "CHANGES_REQUESTED":
+            blockers.add(actor)
+        elif approved(review):
+            blockers.discard(actor)
+    require(not blockers, "JANUARY_REVIEW_RECORD")
+    matching = [
+        item
+        for item in submitted
+        if item[2]["commit_id"] == reviewed_commit and item[2]["state"] != "DISMISSED"
     ]
     require(bool(matching), "JANUARY_REVIEW_RECORD")
-    selected = max(matching, key=lambda review: review["submitted_at"])
-    require(
-        selected["state"] in {"APPROVED", "COMMENTED"}
-        and selected["body"].strip()
-        == (f"Independent read-only review of exact head {reviewed_commit}: no material findings."),
-        "JANUARY_REVIEW_RECORD",
-    )
+    selected = max(matching, key=lambda item: item[:2])[2]
+    require(approved(selected), "JANUARY_REVIEW_RECORD")
     return {
         "commit": reviewed_commit,
         "url": selected["html_url"],
@@ -224,20 +280,53 @@ def _run() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     settings = SnowflakeSettings()
-    require(settings.snowflake_database == DEV_DATABASE, "JANUARY_DEV_ONLY")
+    spec = json.loads(args.input.read_text(encoding="utf-8"))
+    is_prod = spec.get("contract_version") == "atlas-january-climate-prod-release-input-v1"
+    require(
+        settings.snowflake_database
+        == ("ONE_HEALTH_LYME_GAP_ATLAS_PROD" if is_prod else DEV_DATABASE),
+        "JANUARY_TARGET_DATABASE",
+    )
     release_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    review = verified_review(os.environ.get("GH_TOKEN", ""), release_commit)
+    if is_prod:
+        pulls = json.loads(
+            subprocess.check_output(
+                [
+                    "gh",
+                    "api",
+                    f"repos/Caraway-Labs/one-health-lyme-gap-atlas-data/commits/{release_commit}/pulls",
+                ],
+                text=True,
+            )
+        )
+        exact = [
+            p for p in pulls if p.get("merge_commit_sha") == release_commit and p.get("merged_at")
+        ]
+        require(len(exact) == 1, "JANUARY_EXACT_REVIEW_MERGE")
+        review = verified_review(
+            os.environ.get("GH_TOKEN", ""),
+            release_commit,
+            review_pr=exact[0]["number"],
+            exact_merge=True,
+        )
+    else:
+        review = verified_review(os.environ.get("GH_TOKEN", ""), release_commit)
     spec = json.loads(args.input.read_text(encoding="utf-8"))
     metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
     with connect(settings) as connection, connection.cursor() as cursor:
-        manifest = prepare(
-            cursor,
-            spec,
-            metadata,
-            review_commit=review["commit"],
-            review_url=review["url"],
-            reviewer=review["reviewer"],
-        )
+        if is_prod:
+            from .climate_prod_manifest import prepare as prepare_prod
+
+            manifest = prepare_prod(cursor, spec, metadata, review)
+        else:
+            manifest = prepare(
+                cursor,
+                spec,
+                metadata,
+                review_commit=review["commit"],
+                review_url=review["url"],
+                reviewer=review["reviewer"],
+            )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=args.output.parent, prefix="january-manifest-")
     try:
@@ -252,7 +341,7 @@ def _run() -> None:
             {
                 "release_id": manifest["release_id"],
                 "capture_count": ROW_COUNT,
-                "membership_sha256": MEMBERSHIP_SHA,
+                "membership_sha256": manifest["climate_extension"]["capture_membership_sha256"],
             }
         )
     )

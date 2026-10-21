@@ -207,7 +207,11 @@ def build_semantic_release(
             with connection.cursor() as cursor:
                 _assert_release_absent(cursor, manifest.release_id)
                 if "climate_extension" in manifest.raw:
-                    verify_extension(cursor, manifest.raw["climate_extension"])
+                    verify_extension(
+                        cursor,
+                        manifest.raw["climate_extension"],
+                        database=settings.snowflake_database,
+                    )
                 nlcd_captures = (
                     nlcd_release.verify_extension(cursor, manifest.raw["nlcd_extension"])
                     if "nlcd_extension" in manifest.raw
@@ -348,7 +352,12 @@ def publish_semantic_release(
                 database_row = cursor.fetchone()
                 if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
                     _verify_restricted_final_copy_attestations(cursor, release_id)
-                verify_persisted_extension(cursor, release_id)
+                completeness = None
+                if settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    from .release_completeness import verify_candidate
+
+                    completeness = verify_candidate(cursor, release_id)
+                verify_persisted_extension(cursor, release_id, database=settings.snowflake_database)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"
@@ -357,6 +366,20 @@ def publish_semantic_release(
                 previous_id = str(previous[0]) if previous else None
                 if previous_id == release_id:
                     raise SemanticReleaseBlocked("Release is already the current pointer")
+                if database_row and str(database_row[0]) == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    from .cdc_promotion import verify_cdc_candidate
+
+                    try:
+                        cdc_counts = verify_cdc_candidate(
+                            cursor, release_id, str(release[1]), previous_id
+                        )
+                        reason += "; cdc-consumer-compatibility/v1 " + ",".join(
+                            f"{measure}={count}" for measure, count in sorted(cdc_counts.items())
+                        )
+                    except Exception:
+                        raise SemanticReleaseBlocked(
+                            "CDC consumer compatibility blocks publication"
+                        ) from None
                 cursor.execute(
                     """UPDATE PRESENTATION.SEMANTIC_RELEASES
                     SET status='RETIRED' WHERE status='PUBLISHED' AND release_id<>%s""",
@@ -391,6 +414,10 @@ def publish_semantic_release(
                         reason,
                     ),
                 )
+                if completeness is not None:
+                    from .release_completeness import verify_current
+
+                    verify_current(cursor, release_id, completeness)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -417,7 +444,12 @@ def rollback_semantic_release(
                     raise SemanticReleaseBlocked(
                         "Rollback target must be a retained published release"
                     )
-                verify_persisted_extension(cursor, release_id)
+                completeness = None
+                if settings.snowflake_database == "ONE_HEALTH_LYME_GAP_ATLAS_PROD":
+                    from .release_completeness import verify_candidate
+
+                    completeness = verify_candidate(cursor, release_id)
+                verify_persisted_extension(cursor, release_id, database=settings.snowflake_database)
                 cursor.execute(
                     "SELECT current_release_id FROM PRESENTATION.SEMANTIC_RELEASE_POINTER "
                     "WHERE pointer_key='ATLAS'"
@@ -455,6 +487,10 @@ def rollback_semantic_release(
                         reason,
                     ),
                 )
+                if completeness is not None:
+                    from .release_completeness import verify_current
+
+                    verify_current(cursor, release_id, completeness)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -832,6 +868,9 @@ def _verify_restricted_final_copy_attestations(cursor: Any, release_id: str) -> 
     # A release identifier is not a new restricted-source copy. Reuse only a
     # real receipt from a previously published release with identical source
     # metadata and derived output; never copy or synthesize an attestation.
+    # The exact January pair below changes only the overall climate contract.
+    # Its reviewed unchanged-CDC-copy policy and real delivery evidence are in
+    # docs/contracts/climate/january-2025-cdc-copy-reuse.md. All copy gates remain.
     cursor.execute(
         """SELECT DISTINCT s.resource_key, s.source_key, prior.release_id
         FROM PRESENTATION.SEMANTIC_DATA_SOURCES s
@@ -844,8 +883,26 @@ def _verify_restricted_final_copy_attestations(cursor: Any, release_id: str) -> 
          AND prior.source_url=s.source_url AND prior.note=s.note
         JOIN PRESENTATION.SEMANTIC_RELEASES old ON old.release_id=prior.release_id
         JOIN PRESENTATION.SEMANTIC_RELEASES candidate ON candidate.release_id=s.release_id
-         AND candidate.methodology_version=old.methodology_version
-         AND candidate.schema_version=old.schema_version
+         AND ((candidate.methodology_version=old.methodology_version
+               AND candidate.schema_version=old.schema_version)
+           OR (candidate.release_id='governed-2026-10-15-january-climate-prod'
+               AND candidate.bundle_sha256=
+                 '53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d'
+               AND candidate.status='CANDIDATE'
+               AND candidate.schema_version='2.0.0'
+               AND candidate.methodology_version='semantic-2.0.0'
+               AND old.release_id='governed-2026-10-06-nlcd-demo-cohort'
+               AND old.bundle_sha256=
+                 '603afb135a1a5c958d1d56d48d580d9942c67eb38986caf8b4b3acf69fcde2c9'
+               AND old.status='PUBLISHED'
+               AND old.schema_version='1.0.0'
+               AND old.methodology_version='semantic-1.0.0'
+               AND ((s.resource_key='cdc_tick_ixodes_county_status'
+                     AND s.source_key='tick'
+                     AND s.source_version_id='b81c116f-d93d-4c6b-9d11-ac2477e0e242')
+                 OR (s.resource_key='cdc_tick_ixodes_pathogen_status'
+                     AND s.source_key='pathogen'
+                     AND s.source_version_id='92b22f19-0d5d-4576-a7c6-6c9af9343edf'))))
         JOIN GOVERNANCE.RESTRICTED_SOURCE_PUBLICATION_ATTESTATIONS a
           ON a.semantic_release_id=prior.release_id AND a.resource_key=prior.resource_key
          AND a.data_source_version_id=prior.source_version_id

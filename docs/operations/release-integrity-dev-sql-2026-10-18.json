@@ -1,0 +1,137 @@
+{
+  "observed_at": "2026-10-18T21:14:29.129149+00:00",
+  "kind": "read_only_inline_engine_fixtures_not_installed_acceptance",
+  "context": {
+    "U": "MATTHEWCARAWAY",
+    "R": "OH_LYME_DEV_READ",
+    "D": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "W": "OH_LYME_DEV_INGEST_XS_WH"
+  },
+  "cases": [
+    {
+      "case": "exact",
+      "query": "situations",
+      "result": {
+        "N": 2
+      },
+      "query_id": "01c7d1fa-030c-4c6d-0064-2d07012cc772"
+    },
+    {
+      "case": "exact",
+      "query": "availability",
+      "result": {
+        "N": 2,
+        "AVAILABLE": 2
+      },
+      "query_id": "01c7d1fb-030c-4c6d-0064-2d07012cc77e"
+    },
+    {
+      "case": "exact",
+      "query": "tier1",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fb-030c-4c6d-0064-2d07012cc78a"
+    },
+    {
+      "case": "compatible",
+      "query": "situations",
+      "result": {
+        "N": 2
+      },
+      "query_id": "01c7d1fb-030c-4eac-0064-2d07012cd582"
+    },
+    {
+      "case": "compatible",
+      "query": "availability",
+      "result": {
+        "N": 2,
+        "AVAILABLE": 2
+      },
+      "query_id": "01c7d1fb-030c-4c6d-0064-2d07012cc7c2"
+    },
+    {
+      "case": "compatible",
+      "query": "tier1",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fb-030c-4c6d-0064-2d07012cc7d6"
+    },
+    {
+      "case": "duplicate",
+      "query": "situations",
+      "result": {
+        "N": 2
+      },
+      "query_id": "01c7d1fc-030c-4c6d-0064-2d07012cc7de"
+    },
+    {
+      "case": "duplicate",
+      "query": "availability",
+      "result": {
+        "N": 2,
+        "AVAILABLE": 2
+      },
+      "query_id": "01c7d1fc-030c-4c6d-0064-2d07012cc7ea"
+    },
+    {
+      "case": "duplicate",
+      "query": "tier1",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fc-030c-4eac-0064-2d07012cd5be"
+    },
+    {
+      "case": "incompatible",
+      "query": "situations",
+      "result": {
+        "N": 0
+      },
+      "query_id": "01c7d1fc-030c-4eac-0064-2d07012cd5ca"
+    },
+    {
+      "case": "incompatible",
+      "query": "availability",
+      "result": {
+        "N": 2,
+        "AVAILABLE": 0
+      },
+      "query_id": "01c7d1fc-030c-4eac-0064-2d07012cd5d2"
+    },
+    {
+      "case": "incompatible",
+      "query": "tier1",
+      "result": {
+        "N": 0
+      },
+      "query_id": "01c7d1fd-030c-4c6d-0064-2d07012cc806"
+    },
+    {
+      "case": "zero",
+      "query": "situations",
+      "result": {
+        "N": 0
+      },
+      "query_id": "01c7d1fd-030c-4c6d-0064-2d07012cc812"
+    },
+    {
+      "case": "zero",
+      "query": "availability",
+      "result": {
+        "N": 2,
+        "AVAILABLE": 0
+      },
+      "query_id": "01c7d1fd-030c-4eac-0064-2d07012cd5f6"
+    },
+    {
+      "case": "zero",
+      "query": "tier1",
+      "result": {
+        "N": 1
+      },
+      "query_id": "01c7d1fd-030c-4eac-0064-2d07012cd602"
+    }
+  ]
+}

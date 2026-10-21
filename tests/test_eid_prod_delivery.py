@@ -87,6 +87,7 @@ def test_cli_rejects_generic_tier_c_rss_and_alternate_eid_path(
             dry_run=False,
             fixture_dir=None,
             fail_after_stage=None,
+            run_id=None,
         )
     with pytest.raises(typer.BadParameter, match="exact EID protected route"):
         cli.source_run(
@@ -95,6 +96,7 @@ def test_cli_rejects_generic_tier_c_rss_and_alternate_eid_path(
             dry_run=True,
             fixture_dir=None,
             fail_after_stage=None,
+            run_id=None,
         )
 
 

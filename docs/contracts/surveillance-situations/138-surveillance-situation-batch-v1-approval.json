@@ -1,0 +1,47 @@
+{
+  "schema": "atlas-ml-surveillance-situation-batch-approval/138-v1",
+  "batch_id": "surveillance-situation-batch",
+  "batch_version": "v1",
+  "approval_state": "approved_for_data_handoff",
+  "approver": "Matthew Caraway",
+  "approved_at": "2026-10-18T11:37:14-06:00",
+  "git_sha": "cd936fe345664e606c916b137dd642caa0d6d73b",
+  "result_commit": "a2f9bad41f1ddb793e364399afbdd5fbad008b7a",
+  "release_id": "governed-2026-10-15-january-climate-prod",
+  "bundle_sha256": "53e50aa37c701635e96c48cd4931c4c4a9e7e695c146263fb9bb335e541ae74d",
+  "compatibility_disposition": "carry forward",
+  "compatibility_dated": "2026-10-18",
+  "compatibility_note": "docs/eda/143-release-compatibility.md",
+  "manifest": "config/models/138-surveillance-situation-batch-v1.json",
+  "class_dictionary": "config/models/138-surveillance-situation-class-dictionary-v1.json",
+  "class_dictionary_sha256": "c0fecc0766c7e485b670624793cd2b02a1c8bafd49c740bcc8db9c62e9d2494b",
+  "county_artifact": "outputs/138-surveillance-situation-batch-v1/county-assignments.json",
+  "county_sha256": "02b62d7a4cb8970b3cd2506f5206a386a9ceed7cb2253baea16299be2d06ec9b",
+  "handoff_note": "docs/contracts/138-surveillance-situation-data-handoff-v1.md",
+  "models": [
+    {
+      "id": "surveillance-situation-four-state",
+      "version": "v1"
+    },
+    {
+      "id": "surveillance-situation-tick-pathogen",
+      "version": "v1"
+    }
+  ],
+  "publisher": {
+    "repository": "Caraway-Labs/one-health-lyme-gap-atlas-data",
+    "issue": 702
+  },
+  "downstream": [
+    {
+      "repository": "Caraway-Labs/one-health-lyme-gap-atlas-api",
+      "issue": 253
+    },
+    {
+      "repository": "Caraway-Labs/one-health-lyme-gap-atlas-web",
+      "issue": 650
+    }
+  ],
+  "snowflake_objects_written": [],
+  "production_mutation": "This repository does not mutate production Snowflake."
+}

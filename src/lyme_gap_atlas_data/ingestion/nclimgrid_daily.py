@@ -188,6 +188,9 @@ class NClimGridDailyAdapter:
                 ) from error
         if hashlib.sha256(tiger).hexdigest() != SELECTED_ARTIFACT_SHA256 and fixture_dir is None:
             raise AcquisitionError("Approved TIGER bytes changed", code="TIGER_DIGEST_MISMATCH")
+        expected_noaa = definition.extra.get("noaa_sha256")
+        if expected_noaa and hashlib.sha256(noaa).hexdigest() != expected_noaa:
+            raise AcquisitionError("Approved NOAA bytes changed", code="NOAA_DIGEST_MISMATCH")
         noaa_member = AcquisitionArtifact(
             NOAA_MEMBER,
             noaa,

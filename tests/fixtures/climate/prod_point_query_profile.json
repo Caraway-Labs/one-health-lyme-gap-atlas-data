@@ -1,0 +1,476 @@
+{
+  "query_id": "01c7c3ed-030c-3e2e-0064-2d0701278042",
+  "source_file": "Untitled 33_2026-10-16-1053.csv",
+  "source_sha256": "bdb92a927337e1d7d9c178cc34cd42ac258920d8f0e75260881bd72b860b4100",
+  "operators": [
+    {
+      "step_id": 1,
+      "operator_id": 0,
+      "parents": [],
+      "type": "Result",
+      "attributes": {
+        "expressions": [
+          "C.RELEASE_ID"
+        ]
+      },
+      "statistics": {
+        "input_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 1,
+      "parents": [
+        0
+      ],
+      "type": "Limit",
+      "attributes": {},
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 2,
+      "parents": [
+        1
+      ],
+      "type": "Join",
+      "attributes": {
+        "equality_join_condition": "(C.RELEASE_ID = C.RELEASE_ID) AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) = 'nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day')",
+        "join_type": "INNER"
+      },
+      "statistics": {
+        "input_rows": 2,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 3,
+      "parents": [
+        2
+      ],
+      "type": "Filter",
+      "attributes": {
+        "filter_condition": "((TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id'))) = 'nclimgrid_prcp_county_day') AND (TO_CHAR(GET(GET(M.VALUE, 'measure'), 'measure_id')) IS NOT NULL)"
+      },
+      "statistics": {
+        "input_rows": 4,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 4,
+      "parents": [
+        3
+      ],
+      "type": "Flatten",
+      "attributes": {
+        "input": "\"GET(SYS_VW.EXTENSION_0, 'metadata')\""
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 4
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 5,
+      "parents": [
+        4
+      ],
+      "type": "WithReference",
+      "attributes": {
+        "alias": "C"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 6,
+      "parents": [
+        5,
+        18
+      ],
+      "type": "WithClause",
+      "attributes": {
+        "name": "CURRENT_CLIMATE"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 7,
+      "parents": [
+        6
+      ],
+      "type": "Join",
+      "attributes": {
+        "equality_join_condition": "(P.CURRENT_RELEASE_ID = R.RELEASE_ID)",
+        "join_type": "INNER"
+      },
+      "statistics": {
+        "input_rows": 2,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 8,
+      "parents": [
+        7
+      ],
+      "type": "TableScan",
+      "attributes": {
+        "columns": [
+          "CURRENT_RELEASE_ID"
+        ],
+        "table_alias": "P",
+        "table_name": "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASE_POINTER"
+      },
+      "statistics": {
+        "io": {
+          "bytes_scanned": 1024,
+          "percentage_scanned_from_cache": 0,
+          "scan_progress": 1
+        },
+        "output_rows": 1,
+        "pruning": {
+          "partitions_scanned": 1,
+          "partitions_total": 1
+        }
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 9,
+      "parents": [
+        7
+      ],
+      "type": "Filter",
+      "attributes": {
+        "filter_condition": "(R.STATUS = 'PUBLISHED') AND (TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.contract_version')) = 'atlas-january-climate-release-extension-v2')"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 10,
+      "parents": [
+        9
+      ],
+      "type": "JoinFilter",
+      "attributes": {
+        "join_id": "7"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 11,
+      "parents": [
+        10
+      ],
+      "type": "TableScan",
+      "attributes": {
+        "columns": [
+          "RELEASE_ID",
+          "STATUS"
+        ],
+        "extracted_variant_paths": [
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.capture_ids')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.ingestion_run_id')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.artifact_id')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.sources.noaa.sha256')",
+          "GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.metadata')",
+          "TO_CHAR(GET_PATH(R.SOURCE_MANIFEST, 'climate_extension.contract_version'))"
+        ],
+        "table_alias": "R",
+        "table_name": "ONE_HEALTH_LYME_GAP_ATLAS_PROD.PRESENTATION.SEMANTIC_RELEASES"
+      },
+      "statistics": {
+        "io": {
+          "bytes_scanned": 12632096,
+          "percentage_scanned_from_cache": 0,
+          "scan_progress": 1
+        },
+        "output_rows": 1,
+        "pruning": {
+          "partitions_scanned": 1,
+          "partitions_total": 1
+        }
+      },
+      "time": {
+        "overall_percentage": 0.07246376811594203,
+        "processing": 0.007246376811594203,
+        "remote_disk_io": 0.02173913043478261,
+        "synchronization": 0.04347826086956522
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 12,
+      "parents": [
+        2
+      ],
+      "type": "JoinFilter",
+      "attributes": {
+        "join_id": "2"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 13,
+      "parents": [
+        12
+      ],
+      "type": "Join",
+      "attributes": {
+        "equality_join_condition": "(TO_CHAR(C.\"SYS_EXPR_1baeaff1-1826-403f-b53f-fdc6204af812\") = V.INGESTION_RUN_ID) AND (TO_CHAR(C.\"SYS_EXPR_5c0336c5-dd1d-498c-a162-8e92fec22eee\") = V.ARTIFACT_SHA256) AND (TO_CHAR(C.\"SYS_EXPR_d401865e-cbde-4ab0-a61b-9aae04b28fb1\") = V.ARTIFACT_ID) AND (TO_CHAR(MEMBER.VALUE) = V.CAPTURE_RECORD_ID)",
+        "join_type": "INNER"
+      },
+      "statistics": {
+        "input_rows": 389857,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.07971014492753623,
+        "processing": 0.07971014492753623
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 14,
+      "parents": [
+        13
+      ],
+      "type": "Filter",
+      "attributes": {
+        "filter_condition": "TO_CHAR(MEMBER.VALUE) IS NOT NULL"
+      },
+      "statistics": {
+        "input_rows": 389856,
+        "output_rows": 389856
+      },
+      "time": {
+        "overall_percentage": 0.2173913043478261,
+        "processing": 0.2028985507246377,
+        "synchronization": 0.01449275362318841
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 15,
+      "parents": [
+        14
+      ],
+      "type": "Flatten",
+      "attributes": {
+        "input": "\"GET(SYS_VW.EXTENSION_0, 'capture_ids')\""
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 389856
+      },
+      "time": {
+        "overall_percentage": 0.1014492753623188,
+        "processing": 0.07971014492753624,
+        "synchronization": 0.02173913043478261
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 16,
+      "parents": [
+        15
+      ],
+      "type": "JoinFilter",
+      "attributes": {
+        "join_id": "2"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 17,
+      "parents": [
+        16
+      ],
+      "type": "WithReference",
+      "attributes": {
+        "alias": "C"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1,
+        "spilling": {
+          "bytes_spilled_local_storage": 23601152
+        }
+      },
+      "time": {
+        "overall_percentage": 0.01449275362318841,
+        "processing": 0.01449275362318841
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 18,
+      "parents": [
+        17
+      ],
+      "type": "Filter",
+      "attributes": {
+        "filter_condition": "(TO_CHAR(C.\"SYS_EXPR_1baeaff1-1826-403f-b53f-fdc6204af812\") IS NOT NULL) AND (TO_CHAR(C.\"SYS_EXPR_5c0336c5-dd1d-498c-a162-8e92fec22eee\") IS NOT NULL) AND (TO_CHAR(C.\"SYS_EXPR_d401865e-cbde-4ab0-a61b-9aae04b28fb1\") IS NOT NULL)"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 19,
+      "parents": [
+        13
+      ],
+      "type": "Filter",
+      "attributes": {
+        "filter_condition": "(V.RESOURCE_KEY = 'noaa_nclimgrid_daily_202501') AND (V.SOURCE_DEFINITION_VERSION = 2) AND (TO_CHAR(GET_PATH(V.PAYLOAD, 'record.county_fips')) = '48277') AND (TO_DATE(GET_PATH(V.PAYLOAD, 'record.observation_date')) = '2025-01-17') AND (('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day') = 'nclimgrid_prcp_county_day') AND ('nclimgrid_' || (LOWER(TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure')))) || '_county_day' IS NOT NULL)"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.0
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 20,
+      "parents": [
+        19
+      ],
+      "type": "JoinFilter",
+      "attributes": {
+        "join_id": "13"
+      },
+      "statistics": {
+        "input_rows": 1,
+        "output_rows": 1
+      },
+      "time": {
+        "overall_percentage": 0.007246376811594203,
+        "processing": 0.007246376811594203
+      }
+    },
+    {
+      "step_id": 1,
+      "operator_id": 21,
+      "parents": [
+        20
+      ],
+      "type": "TableScan",
+      "attributes": {
+        "columns": [
+          "CAPTURE_RECORD_ID",
+          "RESOURCE_KEY",
+          "SOURCE_DEFINITION_VERSION",
+          "INGESTION_RUN_ID",
+          "ARTIFACT_ID",
+          "ARTIFACT_SHA256"
+        ],
+        "extracted_variant_paths": [
+          "TO_CHAR(GET_PATH(V.PAYLOAD, 'record.measure'))",
+          "TO_CHAR(GET_PATH(V.PAYLOAD, 'record.county_fips'))",
+          "TO_DATE(GET_PATH(V.PAYLOAD, 'record.observation_date'))"
+        ],
+        "table_alias": "V",
+        "table_name": "ONE_HEALTH_LYME_GAP_ATLAS_PROD.GOVERNANCE.GOVERNED_SOURCE_RECORD_REVISIONS"
+      },
+      "statistics": {
+        "io": {
+          "bytes_scanned": 17802256,
+          "percentage_scanned_from_cache": 0,
+          "scan_progress": 1
+        },
+        "output_rows": 1,
+        "pruning": {
+          "partitions_scanned": 29,
+          "partitions_total": 29
+        }
+      },
+      "time": {
+        "overall_percentage": 0.4927536231884058,
+        "remote_disk_io": 0.4927536231884058
+      }
+    }
+  ]
+}

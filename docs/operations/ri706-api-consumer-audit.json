@@ -1,0 +1,184 @@
+{
+  "api_main_commit": "d0472707cfc2badae714a797ec54c83d4f7ad79b",
+  "method": "Pinned GitHub source archive; read only; no API checkout changed",
+  "reader_files": [
+    {
+      "path": "src/lyme_gap_atlas_api/county_context_probe.py",
+      "sha256": "55d5b72b9c2fe54f05bf51dc2de919803e55675ed5ea2c219e0e31bb99a058c5",
+      "views": [
+        "CURRENT_COUNTY_OBSERVATIONS_V",
+        "CURRENT_RELEASE_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/environmental_context.py",
+      "sha256": "372030659ecabd3846ee360cac3da8213537900838d3fbaecaecf6794a620c36",
+      "views": [
+        "CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V",
+        "CURRENT_CLIMATE_MEASURE_METADATA_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/environmental_reader_probe.py",
+      "sha256": "143c23ace80e7088fef56b464193398bd40f5ab8c05aa6f9384c092e35963e86",
+      "views": [
+        "CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V",
+        "CURRENT_CLIMATE_MEASURE_METADATA_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/feedback.py",
+      "sha256": "cf948aadb907b210935173da46e894fe7eca89a9b600d8229ad93a65704bb561",
+      "views": [],
+      "procedures": [
+        "SP_EXPORT_FEEDBACK_FOR_ACCOUNT",
+        "SP_REDACT_FEEDBACK_FOR_ACCOUNT",
+        "SP_SUBMIT_USER_FEEDBACK"
+      ]
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/intelligence_feed.py",
+      "sha256": "75d1913a1187e63b62a240ce859ee325a120731b91a225f99b440687a0ad3b3a",
+      "views": [
+        "INTELLIGENCE_FEED_V",
+        "INTELLIGENCE_FEED_V2"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/knowledge_chat.py",
+      "sha256": "8cf3a33159a2e8b3b378963b89c80f4b3bb2b8e1cf39eb6ef72571bfb33f6885",
+      "views": [],
+      "procedures": [
+        "SP_LOOKUP_RETRIEVAL_CORPUS_PROVENANCE",
+        "SP_PERSIST_KG_CONVERSATION_TURN",
+        "SP_RESERVE_KG_LLM_BUDGET",
+        "SP_VERIFY_KG_CONVERSATION_TOKEN"
+      ]
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/public_metadata.py",
+      "sha256": "b55d41b1df37ba27836d0d3ed59f58376307961d8581682d535db2adbd0b9e2a",
+      "views": [
+        "CURRENT_INDICATOR_METADATA_V",
+        "CURRENT_MEASURE_METADATA_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/public_observations.py",
+      "sha256": "4c76a0177105f868ad4119e4423d1e24e9e2f6abae2fd559165d653579d231f2",
+      "views": [
+        "CURRENT_COUNTY_OBSERVATIONS_V",
+        "CURRENT_RELEASE_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/public_provenance.py",
+      "sha256": "1058275b6371074581cdb176c3c111189e537cdfe059c6e4ddf8d9ef99d973f4",
+      "views": [
+        "CURRENT_METHODOLOGY_METADATA_V",
+        "CURRENT_RELEASE_V",
+        "CURRENT_SOURCE_METADATA_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/repository.py",
+      "sha256": "d93ef62f8bf6864b9d807a91c34b954b919c7a485ca6516f527407daf3ad1887",
+      "views": [
+        "CURRENT_COUNTY_ATLAS_V",
+        "CURRENT_RELEASE_V",
+        "CURRENT_SOURCE_METADATA_V"
+      ],
+      "procedures": []
+    },
+    {
+      "path": "src/lyme_gap_atlas_api/tier1_priority.py",
+      "sha256": "92322f0b49c3b7bed016357b9c66cac46b4edfc2c42e4ba17a620868abc1c2c9",
+      "views": [
+        "CURRENT_TIER1_COUNTY_REVIEW_V"
+      ],
+      "procedures": []
+    }
+  ],
+  "views": [
+    "CURRENT_CLIMATE_COUNTY_DAY_OBSERVATIONS_V",
+    "CURRENT_CLIMATE_MEASURE_METADATA_V",
+    "CURRENT_COUNTY_ATLAS_V",
+    "CURRENT_COUNTY_OBSERVATIONS_V",
+    "CURRENT_INDICATOR_METADATA_V",
+    "CURRENT_MEASURE_METADATA_V",
+    "CURRENT_METHODOLOGY_METADATA_V",
+    "CURRENT_RELEASE_V",
+    "CURRENT_SOURCE_METADATA_V",
+    "CURRENT_TIER1_COUNTY_REVIEW_V",
+    "INTELLIGENCE_FEED_V",
+    "INTELLIGENCE_FEED_V2"
+  ],
+  "procedures": [
+    "SP_EXPORT_FEEDBACK_FOR_ACCOUNT",
+    "SP_LOOKUP_RETRIEVAL_CORPUS_PROVENANCE",
+    "SP_PERSIST_KG_CONVERSATION_TURN",
+    "SP_REDACT_FEEDBACK_FOR_ACCOUNT",
+    "SP_RESERVE_KG_LLM_BUDGET",
+    "SP_SUBMIT_USER_FEEDBACK",
+    "SP_VERIFY_KG_CONVERSATION_TOKEN"
+  ],
+  "independent_operational_controls": [
+    {
+      "procedure": "SP_EXPORT_FEEDBACK_FOR_ACCOUNT",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "private feedback",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    },
+    {
+      "procedure": "SP_LOOKUP_RETRIEVAL_CORPUS_PROVENANCE",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "knowledge retrieval/budget/conversation",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    },
+    {
+      "procedure": "SP_PERSIST_KG_CONVERSATION_TURN",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "knowledge retrieval/budget/conversation",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    },
+    {
+      "procedure": "SP_REDACT_FEEDBACK_FOR_ACCOUNT",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "private feedback",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    },
+    {
+      "procedure": "SP_RESERVE_KG_LLM_BUDGET",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "knowledge retrieval/budget/conversation",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    },
+    {
+      "procedure": "SP_SUBMIT_USER_FEEDBACK",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "private feedback",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    },
+    {
+      "procedure": "SP_VERIFY_KG_CONVERSATION_TOKEN",
+      "lifecycle": "independent operational control, not a semantic dataset",
+      "domain": "knowledge retrieval/budget/conversation",
+      "release_invariant": "No DML, DDL, grant change or invocation by the semantic fixture or V157/V158 installation",
+      "runtime_acceptance": "Retain existing authority; separately authorized real-service smoke, never fabricate private user data"
+    }
+  ],
+  "uncovered_semantic_views": []
+}

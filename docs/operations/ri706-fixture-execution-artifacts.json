@@ -1,0 +1,14 @@
+[
+  {
+    "version": "V157",
+    "filename": "V157__model_release_compatibility.sql",
+    "source_sha256": "96ea5c9ee51769e207efc44479d380fe6fd7752e5c6621dcbfd71559231593d1",
+    "rendered_sha256": "a726a18d9b51eddca049ed64d7e2418a1f210317cc8f3dbbcdd0cd4c01b2be50"
+  },
+  {
+    "version": "V158",
+    "filename": "V158__surveillance_situation_publication.sql",
+    "source_sha256": "104f3022133066f7b6888628ecae6e3632f70ddb0dda6a1d0a7babe969ba8cf5",
+    "rendered_sha256": "3884abb1d04e7a168ea55b1498c33283ba1552aa0bda7d6f5f86dd1024b9a4c9"
+  }
+]

@@ -1,0 +1,815 @@
+{
+  "kind": "read_only_access_preflight_not_execution_or_approval",
+  "observed_at": "2026-10-18T21:31:27.888956+00:00",
+  "source_commit": "3b0c28b612cc6d37a466803b178232b56aee4dea",
+  "contexts": {
+    "DEV": {
+      "status": "PASS",
+      "query_id": "01c7d20b-030c-4eac-0064-2d07012cd79a",
+      "rows": [
+        {
+          "U": "MATTHEWCARAWAY",
+          "R": "OH_LYME_DEV_READ",
+          "D": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+          "W": "OH_LYME_DEV_INGEST_XS_WH"
+        }
+      ]
+    },
+    "PROD": {
+      "status": "PASS",
+      "query_id": "01c7d20b-030c-4c6d-0064-2d07012cc9d2",
+      "rows": [
+        {
+          "U": "MATTHEWCARAWAY",
+          "R": "OH_LYME_PROD_READ",
+          "D": "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+          "W": "COMPUTE_WH"
+        }
+      ]
+    }
+  },
+  "probes": {
+    "dev_ledger": {
+      "status": "PASS",
+      "query_id": "01c7d20b-030c-4eac-0064-2d07012cd7b2",
+      "rows": [
+        {
+          "VERSION": "V001",
+          "FILENAME": "V001__governed_platform.sql",
+          "SHA256": "b3096c4d64a263ae9ed456f03d22fe34b88e19a7a260b2e3e69ec83ef14e47e1",
+          "DEPLOYMENT_COMMIT": "migration-framework"
+        },
+        {
+          "VERSION": "V002",
+          "FILENAME": "V002__cdc_x5j9_raw_and_review.sql",
+          "SHA256": "45662356bda354ed2e02a7f0502438643260837c95c07d73b55a2cb9786d3ba9",
+          "DEPLOYMENT_COMMIT": "migration-framework"
+        },
+        {
+          "VERSION": "V003",
+          "FILENAME": "V003__approval_console_governance.sql",
+          "SHA256": "21c410c7b1c1f03dd7ef60cc8cfc65794fc3216a039aa7c7a4fb714a9c9f7fcb",
+          "DEPLOYMENT_COMMIT": "approval-console-cdc-evidence"
+        },
+        {
+          "VERSION": "V004",
+          "FILENAME": "V004__streamlit_owner_deployer_grant.sql",
+          "SHA256": "d28aac278ef06ed1229b4876a753bad5b04c8bce63e10bb30588e1fc1d1992c7",
+          "DEPLOYMENT_COMMIT": "approval-console-cdc-evidence"
+        },
+        {
+          "VERSION": "V005",
+          "FILENAME": "V005__approval_procedure_privileges.sql",
+          "SHA256": "3ccf94375cb66fd0daedb6e7d593babb3ad7280be663b3b9726173251f84683c",
+          "DEPLOYMENT_COMMIT": "approval-procedure-privileges"
+        },
+        {
+          "VERSION": "V006",
+          "FILENAME": "V006__approval_procedure_variant_safe_inserts.sql",
+          "SHA256": "7899389c82f36c4586d2695e79993983bdadd0f4e0e23b0a14255f6c30b1fce9",
+          "DEPLOYMENT_COMMIT": "approval-procedure-ledger-access"
+        },
+        {
+          "VERSION": "V007",
+          "FILENAME": "V007__streamlit_owner_procedure_creation.sql",
+          "SHA256": "fcd2f1c2534ae9a6f67cc0ee0183ca72d519f5d580a0b0a9724526c4a89a70c3",
+          "DEPLOYMENT_COMMIT": "streamlit-owner-create-procedure"
+        },
+        {
+          "VERSION": "V008",
+          "FILENAME": "V008__approval_procedure_variant_safe_inserts.sql",
+          "SHA256": "edb0c0936391ce4d633e87b669cbe3c2449f2e042e059167b75bf3a965689f19",
+          "DEPLOYMENT_COMMIT": "approval-procedure-variant-safe"
+        },
+        {
+          "VERSION": "V009",
+          "FILENAME": "V009__approval_procedure_source_version_read.sql",
+          "SHA256": "0aa45e276015469f9a9ef03490c08562c881770260a67a6ae01ea4c3af611a35",
+          "DEPLOYMENT_COMMIT": "approval-procedure-source-version-read"
+        },
+        {
+          "VERSION": "V010",
+          "FILENAME": "V010__approval_procedure_atomic_writes.sql",
+          "SHA256": "7ec3b028551fbb023685e3362e9719a32315dc1811e3538216f2bbc7db3ab0ef",
+          "DEPLOYMENT_COMMIT": "approval-procedure-atomic-writes"
+        },
+        {
+          "VERSION": "V011",
+          "FILENAME": "V011__retire_orphaned_approval_versions.sql",
+          "SHA256": "822e2040cd3f15e4d2d485a206fb0532ac1899e2f98aeee98207b9ff89351805",
+          "DEPLOYMENT_COMMIT": "retire-orphaned-approval-version"
+        },
+        {
+          "VERSION": "V012",
+          "FILENAME": "V012__approval_queue_active_resources_only.sql",
+          "SHA256": "0d02d1ba0d76a8157440527a48cdf7d987081cd23682485d1fc8667f53a096ec",
+          "DEPLOYMENT_COMMIT": "approval-queue-active-only"
+        },
+        {
+          "VERSION": "V013",
+          "FILENAME": "V013__approval_queue_streamlit_grant.sql",
+          "SHA256": "2683a1e1aff64f715ffa1b91d19137e2c63342d84747a41113b4c927339057b5",
+          "DEPLOYMENT_COMMIT": "approval-queue-streamlit-grant"
+        },
+        {
+          "VERSION": "V014",
+          "FILENAME": "V014__approval_queue_pending_only.sql",
+          "SHA256": "62c0d3063b8e1a05f8f35eb64eebc9e27b0fdf81e1480bf5d6ffc86aba7dc205",
+          "DEPLOYMENT_COMMIT": "approval-queue-pending-only"
+        },
+        {
+          "VERSION": "V015",
+          "FILENAME": "V015__pipeline_runtime_cdc_raw_grants.sql",
+          "SHA256": "076923def633494a14f1fd492cda804308542fcb4a3bfc869fd2aaac5f95f0e7",
+          "DEPLOYMENT_COMMIT": "80354cd474b21db056b17011968f9a556439e67b"
+        },
+        {
+          "VERSION": "V016",
+          "FILENAME": "V016__dev_cdc_source_approval_console_hardening.sql",
+          "SHA256": "f1758ff5154c1093d9acb279d6c8eba87eb581c458ec1d94bb89f5d5feb47ef7",
+          "DEPLOYMENT_COMMIT": "80354cd474b21db056b17011968f9a556439e67b"
+        },
+        {
+          "VERSION": "V017",
+          "FILENAME": "V017__streamlit_owner_catalog_dataset_read.sql",
+          "SHA256": "77a81136744ae4f7a1287b9dd7b93a31e3c587d49fdb30c62e1eada24f7c5188",
+          "DEPLOYMENT_COMMIT": "fd4ed3fa5e2d28e88062ce8d83afb0eae5ff2b96"
+        },
+        {
+          "VERSION": "V018",
+          "FILENAME": "V018__streamlit_owner_pipeline_status_read.sql",
+          "SHA256": "884ca57ff65c690df1de134d8638068779e74f44df5f3844fb1fca87ed67b9c6",
+          "DEPLOYMENT_COMMIT": "22070d98786113f58ba84e536c26ce9d04395ccb"
+        },
+        {
+          "VERSION": "V019",
+          "FILENAME": "V019__pipeline_runtime_dbt_cdc_grants.sql",
+          "SHA256": "be152c2a331baa04ae9818302e3cc7be15c4b54b8e4800ce33121112ef13f60f",
+          "DEPLOYMENT_COMMIT": "0b04223234c311cc6758219b6eff6eaafeb8621e"
+        },
+        {
+          "VERSION": "V019",
+          "FILENAME": "V019__pipeline_runtime_dbt_cdc_grants.sql",
+          "SHA256": "be152c2a331baa04ae9818302e3cc7be15c4b54b8e4800ce33121112ef13f60f",
+          "DEPLOYMENT_COMMIT": "2a43df32c7f1ccb2b9a3d2e2c3b870f9f57edcaf"
+        },
+        {
+          "VERSION": "V020",
+          "FILENAME": "V020__reassert_pipeline_runtime_dbt_cdc_grants.sql",
+          "SHA256": "8508472b42b74264ad95e9ee3431173d0f377251266234843883382aefa1535a",
+          "DEPLOYMENT_COMMIT": "aeaedbf32382ef27e92a84840c1467e3cbce9bba"
+        },
+        {
+          "VERSION": "V021",
+          "FILENAME": "V021__pipeline_runtime_database_and_warehouse.sql",
+          "SHA256": "e47763f9a12989aa03dfab251c359fa2109289096f9bc639bd3816a1e1ea9cae",
+          "DEPLOYMENT_COMMIT": "c5c54cb"
+        },
+        {
+          "VERSION": "V022",
+          "FILENAME": "V022__reconcile_duplicate_v019_ledger_entry.sql",
+          "SHA256": "f257fe70c50f83b11a21ab4277331d891c5178200e2f61754538f2f135b41af4",
+          "DEPLOYMENT_COMMIT": "c49587e"
+        },
+        {
+          "VERSION": "V023",
+          "FILENAME": "V023__pipeline_service_user.sql",
+          "SHA256": "c463bad7d77e48d8312629233100c4e7e52fded311df87cc900d0ea58940b6b8",
+          "DEPLOYMENT_COMMIT": "c49587e"
+        },
+        {
+          "VERSION": "V024",
+          "FILENAME": "V024__discovery_rate_limit_resume.sql",
+          "SHA256": "ba02b90f080b6f15e839de112ee34fe2fac45fbb08bb731fc29f0a9bc35621cc",
+          "DEPLOYMENT_COMMIT": "7cf84053ffdcbe34ee22acfa565baa4e894fa95b"
+        },
+        {
+          "VERSION": "V025",
+          "FILENAME": "V025__knowledge_graph_v1.sql",
+          "SHA256": "0981050f6b6d7fccb9628add6f5024c035ee21cb88ff576cac8118eea9e7f90d",
+          "DEPLOYMENT_COMMIT": "648438b"
+        },
+        {
+          "VERSION": "V026",
+          "FILENAME": "V026__reassert_kg_api_runtime_database_usage.sql",
+          "SHA256": "0ca9e17f02cc4d73b698b618f849b66a7319542993ace29b65199ebdb5808804",
+          "DEPLOYMENT_COMMIT": "99b3935"
+        },
+        {
+          "VERSION": "V027",
+          "FILENAME": "V027__catalog_discovery_candidate_registration.sql",
+          "SHA256": "25ee5062a2cff75196785b47cfd3df8ec9b0172ed0d38478ab02ab229f041bb8",
+          "DEPLOYMENT_COMMIT": "16b23ec"
+        },
+        {
+          "VERSION": "V028",
+          "FILENAME": "V028__resumable_catalog_discovery_registration.sql",
+          "SHA256": "a0744172dd021eed2c538a44152c69026a8e3aa7a64ae18a093233f0552d8b85",
+          "DEPLOYMENT_COMMIT": null
+        },
+        {
+          "VERSION": "V029",
+          "FILENAME": "V029__catalog_registration_dataset_checkpoint.sql",
+          "SHA256": "86ab0b8f9553ba7dbcc4d0ada34cecf7172a84f8bf1ab23168472ba853a227f5",
+          "DEPLOYMENT_COMMIT": null
+        },
+        {
+          "VERSION": "V030",
+          "FILENAME": "V030__knowledge_graph_pipeline_grants.sql",
+          "SHA256": "c9927e6bbee304606478beb46e82c80442f9bdea574517a6c604497f94a6796d",
+          "DEPLOYMENT_COMMIT": "45287c3795efb007018004bd4ce88907f5cb9e20"
+        },
+        {
+          "VERSION": "V031",
+          "FILENAME": "V031__knowledge_graph_conversation_history.sql",
+          "SHA256": "6202033eeb1fc664d92ba31ff3d162b55a9dd810fd3ec8da87aa01b564708c24",
+          "DEPLOYMENT_COMMIT": "45287c3795efb007018004bd4ce88907f5cb9e20"
+        },
+        {
+          "VERSION": "V032",
+          "FILENAME": "V032__knowledge_graph_pmc_artifact_ledger.sql",
+          "SHA256": "faa2b2ff813e3b9f23a983c93b4d7088fca02bbb8c54de989d02f34613002378",
+          "DEPLOYMENT_COMMIT": "45287c3795efb007018004bd4ce88907f5cb9e20"
+        },
+        {
+          "VERSION": "V033",
+          "FILENAME": "V033__pipeline_observability_views.sql",
+          "SHA256": "ff90ba209e6a525690bbc53b92e015942d8d5590debd3dbd2bf495b7a00a150f",
+          "DEPLOYMENT_COMMIT": null
+        },
+        {
+          "VERSION": "V034",
+          "FILENAME": "V034__reassert_redacted_pipeline_observability_views.sql",
+          "SHA256": "8cff3fecb3faa76f6fafbca34001256f20c8097c32a2197e7cad01f151ef029a",
+          "DEPLOYMENT_COMMIT": "45287c3795efb007018004bd4ce88907f5cb9e20"
+        },
+        {
+          "VERSION": "V035",
+          "FILENAME": "V035__pmc_extraction_receipt_lineage.sql",
+          "SHA256": "832710c29a20eb97f419ecff8bae2f746f187a51d739c952aceb52ab227ec830",
+          "DEPLOYMENT_COMMIT": "13f51959c4970914fc0428dbc832b313207ceb16"
+        },
+        {
+          "VERSION": "V036",
+          "FILENAME": "V036__paper_review_procedure_owner.sql",
+          "SHA256": "472436b9b0493c835a66c0e2c51d2f2f9168622847c38e2d526181609de19ab7",
+          "DEPLOYMENT_COMMIT": "13f51959c4970914fc0428dbc832b313207ceb16"
+        },
+        {
+          "VERSION": "V037",
+          "FILENAME": "V037__dev_pmc_review_recovery.sql",
+          "SHA256": "cf9a56c6fc7abf26c34b360029c4f0cf378b6a2bd84598cae2cf503505a043f1",
+          "DEPLOYMENT_COMMIT": "3c2d3dc5cc323ba363f241ad99fc4c070ffa8610"
+        },
+        {
+          "VERSION": "V038",
+          "FILENAME": "V038__dev_pmc_recovery_procedure.sql",
+          "SHA256": "1c459680f04ccfeb61a0538cdcaf004bc593c68af81bcda75307abc4e31057e4",
+          "DEPLOYMENT_COMMIT": "9dc852b735a356903e9ebc7fd6f9985902ba30db"
+        },
+        {
+          "VERSION": "V039",
+          "FILENAME": "V039__pipeline_operations_console.sql",
+          "SHA256": "6da8df9b844d1f60b8669ec7cbd1156ad3296d65ad37cd8f827a6f1e01310dfe",
+          "DEPLOYMENT_COMMIT": "3d3296b7d3042e7cff247cc132300abf0b72c755"
+        },
+        {
+          "VERSION": "V040",
+          "FILENAME": "V040__fix_source_review_exception_code.sql",
+          "SHA256": "f848844260d813714cd2e709401d48328f6e0c86825daa217dbcf67a422f5f37",
+          "DEPLOYMENT_COMMIT": "1f242124ea1a3a341b3414d771ae33d469ceebe2"
+        },
+        {
+          "VERSION": "V041",
+          "FILENAME": "V041__streamlit_validation_and_data_explorer.sql",
+          "SHA256": "ba1c636396955657bdf9c95ae5a5fccc3b292401b267308affd9d79b9ca3101e",
+          "DEPLOYMENT_COMMIT": "9696102b89bf24262425eac30d997aa00ea2208f"
+        },
+        {
+          "VERSION": "V042",
+          "FILENAME": "V042__pipeline_runtime_cdc_evidence_grants.sql",
+          "SHA256": "c43279096bfde90357b5ed216a7ef3570e30f4bedca8cebe4d285b51bdaefec4",
+          "DEPLOYMENT_COMMIT": "06fa9102a45144430bbb810d10a93b633399c5c9"
+        },
+        {
+          "VERSION": "V043",
+          "FILENAME": "V043__cdc_snapshot_operations.sql",
+          "SHA256": "a992b918915028c5615311ae5d8d4fe75b9201ccb766d75a837ef6dff6ac2c9a",
+          "DEPLOYMENT_COMMIT": "06fa9102a45144430bbb810d10a93b633399c5c9"
+        },
+        {
+          "VERSION": "V044",
+          "FILENAME": "V044__dev_historical_cdc_review.sql",
+          "SHA256": "7a48964a7bf1fa6bedcdaf81d9343661d40056f7f809c6433c67d462846f5bfc",
+          "DEPLOYMENT_COMMIT": "58b33876df1d10677dd03188af9fbce55ec1a964"
+        },
+        {
+          "VERSION": "V045",
+          "FILENAME": "V045__dev_historical_cdc_decision.sql",
+          "SHA256": "d6415ab84fb0a5b31573dc16fd995dc73c0004177e02a727728653dd2e51311d",
+          "DEPLOYMENT_COMMIT": "9572c8cbb736d182a5c98003ab4aa719d20d1627"
+        },
+        {
+          "VERSION": "V046",
+          "FILENAME": "V046__dev_historical_cdc_storage.sql",
+          "SHA256": "20bef34934b79d636dbd4e89d2c4bd7529ac326571c6ce50f8b7470e81ff4665",
+          "DEPLOYMENT_COMMIT": "907a5886547039573a23e64a59012cc52bd499ca"
+        },
+        {
+          "VERSION": "V047",
+          "FILENAME": "V047__dev_historical_cdc_explorer.sql",
+          "SHA256": "4bd3748b8fc5abc6648160df8426471609df099ef9f030dd5856f1b57fb6927c",
+          "DEPLOYMENT_COMMIT": "907a5886547039573a23e64a59012cc52bd499ca"
+        },
+        {
+          "VERSION": "V048",
+          "FILENAME": "V048__dev_historical_cdc_view_ownership.sql",
+          "SHA256": "7acfe139566a446668f9ebffca1dabc02baf1f2a5a654922ef18022ebb6653d5",
+          "DEPLOYMENT_COMMIT": "e75dc303a66883e652c648e802304d12617a29a0"
+        },
+        {
+          "VERSION": "V053",
+          "FILENAME": "V053__dev_tick_surveillance_review.sql",
+          "SHA256": "0aa6b4f89c3ada2dc30cb8bed8803e240589d48487694418fb12ab26a78122be",
+          "DEPLOYMENT_COMMIT": "10a0cc2dfec1373e4342358dd7e2147c9b009858"
+        },
+        {
+          "VERSION": "V054",
+          "FILENAME": "V054__dev_tick_surveillance_decision.sql",
+          "SHA256": "7046118cb606e8c773a74db635264e06231fd43213d1789797b20bd039e087c0",
+          "DEPLOYMENT_COMMIT": "10a0cc2dfec1373e4342358dd7e2147c9b009858"
+        },
+        {
+          "VERSION": "V055",
+          "FILENAME": "V055__dev_restore_pmc_budget_reservation.sql",
+          "SHA256": "bf7d6f9abd83e1819f8ffa4468498f094a9a93a3ef4e89ae97f0d5f9c6fbd990",
+          "DEPLOYMENT_COMMIT": "b6f34d08c58f3f63899b0bc9e02ed6ccd608df59"
+        },
+        {
+          "VERSION": "V056",
+          "FILENAME": "V056__dev_pmc_budget_procedure_owner.sql",
+          "SHA256": "ce91849043456aa9633eae10e2701a9d4593a9c129c37fe9467ff90ea5be104d",
+          "DEPLOYMENT_COMMIT": "ad9bc4cce810c268237b850c8da6b76ae00f9798"
+        },
+        {
+          "VERSION": "V057",
+          "FILENAME": "V057__dev_pmc_budget_reservation_insert.sql",
+          "SHA256": "508875ce912270bf40ac5ee236fbc9cc45d2e5afe3c761f4de5c5a490f5a7472",
+          "DEPLOYMENT_COMMIT": "7c0266c2b748bb9d9e9824e55e1255257a21690b"
+        },
+        {
+          "VERSION": "V058",
+          "FILENAME": "V058__dev_pmc_review_view_grant.sql",
+          "SHA256": "c96827ca07cb107fc5eef06d2714e41cf0a8d995c07244af0f40662a4efed288",
+          "DEPLOYMENT_COMMIT": "46de976bab64fb755de9454638fd5564a55a94d8"
+        },
+        {
+          "VERSION": "V059",
+          "FILENAME": "V059__dev_pmc_review_decision_parameter.sql",
+          "SHA256": "694896639ca74e798a01bb052c4a7a20772186f8311df34d3e656828e970e5b3",
+          "DEPLOYMENT_COMMIT": "eb7bc7eb002dc91350a5f7a58b2fac253b0cd472"
+        },
+        {
+          "VERSION": "V060",
+          "FILENAME": "V060__dev_pmc_provider_rejection_recovery.sql",
+          "SHA256": "0d34c11e9efed301783f66014cced05d8cff17132a8007fe525722a766b782fc",
+          "DEPLOYMENT_COMMIT": "f22bb806258094fa4f6cb377c7b906b370213d7e"
+        },
+        {
+          "VERSION": "V061",
+          "FILENAME": "V061__dev_pmc_budget_finalization.sql",
+          "SHA256": "074c78c82c2f566ec698b71c65b693d05f798bbd07fe3e8a9054e1c158db41ea",
+          "DEPLOYMENT_COMMIT": "d2ee8334cd4d589be5adbdc981fa88b55b6b7f0f"
+        },
+        {
+          "VERSION": "V062",
+          "FILENAME": "V062__dev_pmc_budget_finalization_procedures.sql",
+          "SHA256": "7e5282658d25c1e11e74d356e32e4e97a53b0e4412de9fd26e39ca0bf1e71827",
+          "DEPLOYMENT_COMMIT": "d2ee8334cd4d589be5adbdc981fa88b55b6b7f0f"
+        },
+        {
+          "VERSION": "V063",
+          "FILENAME": "V063__extraction_attempt_diagnostics.sql",
+          "SHA256": "c389c4c6778d4a584190bdc9755c4841db66479ecec03ef355050c2ee2d6301a",
+          "DEPLOYMENT_COMMIT": "5d072c66aec4976b19da16c817d1303d6bc7ecec"
+        },
+        {
+          "VERSION": "V064",
+          "FILENAME": "V064__dev_pmc_contract_remediation_recovery.sql",
+          "SHA256": "80c24b6eb67a0da5ef8fcd10f54694327f6faa0088b38dc0e90d93d475ced682",
+          "DEPLOYMENT_COMMIT": "929ecb4daee5ba2a68d28f638a5b7eb971e7634c"
+        },
+        {
+          "VERSION": "V065",
+          "FILENAME": "V065__retrieval_corpus.sql",
+          "SHA256": "f25ad081c8854171195660aa7829a61c5e3234c3c5ca2d82800d93e53d973474",
+          "DEPLOYMENT_COMMIT": "b03c8d712651aa22b8da3aa76ae279bebb87b007"
+        },
+        {
+          "VERSION": "V066",
+          "FILENAME": "V066__retrieval_corpus_prod_and_api_lookup.sql",
+          "SHA256": "a4b03bcf847e2c3795470ef7c67be8326050d237e5764e884d0e2327a165e9fe",
+          "DEPLOYMENT_COMMIT": "7807debd257a9d956e4feed73b735fd431f5ac23"
+        },
+        {
+          "VERSION": "V067",
+          "FILENAME": "V067__kg_budget_reserve_select_insert.sql",
+          "SHA256": "71050cd73f0eeccb49efed2079bf86efed1f4c7bbcfbf64b0c0c71aefc86a615",
+          "DEPLOYMENT_COMMIT": "23b80e77bfd15ccb876122bd9391f999e3da4415"
+        },
+        {
+          "VERSION": "V068",
+          "FILENAME": "V068__simplified_ingestion_checkpoints.sql",
+          "SHA256": "8b740f9ca9e411ad0fb6fadcfebd9b1d108bf77896a38eddae4eaebdde4e49a7",
+          "DEPLOYMENT_COMMIT": "827dc16f46ac9cd36c8f28e3f05465d94848b5c1"
+        },
+        {
+          "VERSION": "V069",
+          "FILENAME": "V069__generic_ingestion_records_and_publications.sql",
+          "SHA256": "b51b1939c2c4facdf971b9f8d1f3e54a4c779446c0caa4953e5aaada2058b8a4",
+          "DEPLOYMENT_COMMIT": "f00b01d47b80ae50a66d03154bd4771a2722ee60"
+        },
+        {
+          "VERSION": "V070",
+          "FILENAME": "V070__durable_ingestion_payload_checkpoints.sql",
+          "SHA256": "0a9b43f4525f94401dc3698bda0f91228282b5aa704f90c523ee7e99d0540689",
+          "DEPLOYMENT_COMMIT": "098c5ca34c1af16d19fc360117be8c373b48a3fe"
+        },
+        {
+          "VERSION": "V071",
+          "FILENAME": "V071__governed_semantic_release_storage.sql",
+          "SHA256": "57adf5fa43186308cbf1dfccff6c88417ea6916af1fcc7447138b7d3bf4a078b",
+          "DEPLOYMENT_COMMIT": "a141f87ee5793a006eee14125ab9d1af633c906e"
+        },
+        {
+          "VERSION": "V072",
+          "FILENAME": "V072__governed_semantic_release_views.sql",
+          "SHA256": "aa378cba1b7528cf41c69e23b605bc1c6c96324f423e34b1d5006fcbf8c4432e",
+          "DEPLOYMENT_COMMIT": "a141f87ee5793a006eee14125ab9d1af633c906e"
+        },
+        {
+          "VERSION": "V073",
+          "FILENAME": "V073__semantic_release_pipeline_runtime_schema_usage.sql",
+          "SHA256": "b936332f43c516e9307ef7dcd8dc590696d0aedc8694397d118f6572aa49da7a",
+          "DEPLOYMENT_COMMIT": "a141f87ee5793a006eee14125ab9d1af633c906e"
+        },
+        {
+          "VERSION": "V074",
+          "FILENAME": "V074__dev_pathogen_surveillance_review.sql",
+          "SHA256": "70bc1b8d8d0e2fff5f42288feac7116a5036a80bcff6499f9b3407662a1e610d",
+          "DEPLOYMENT_COMMIT": "a141f87ee5793a006eee14125ab9d1af633c906e"
+        },
+        {
+          "VERSION": "V075",
+          "FILENAME": "V075__dev_pathogen_surveillance_decision.sql",
+          "SHA256": "f07c3721c1c75c05dc0c9b9a055d5db911ad6a85a6e2ae646f192ef80dd9f17b",
+          "DEPLOYMENT_COMMIT": "a141f87ee5793a006eee14125ab9d1af633c906e"
+        },
+        {
+          "VERSION": "V076",
+          "FILENAME": "V076__dev_context_source_semantic_review.sql",
+          "SHA256": "f74bf4c89b2b6fbfe3926f2645fd937d3e10cd11e28651dae0904a22e8481b11",
+          "DEPLOYMENT_COMMIT": "2a51528d71487776b9a753054c3373f3f45177f9"
+        },
+        {
+          "VERSION": "V077",
+          "FILENAME": "V077__dev_restricted_pathogen_derivation_boundary.sql",
+          "SHA256": "be8b58a03e75b8bfa90c5a63f46c90fe02b02f7e7dbf374aa63c1e8df6b49bcb",
+          "DEPLOYMENT_COMMIT": "071d3d559bdde12050b153d04a33556cf3707d83"
+        },
+        {
+          "VERSION": "V078",
+          "FILENAME": "V078__dev_restricted_pathogen_ingestion_run_update_grant.sql",
+          "SHA256": "452dc419c2fd150ce5031187c096edc630ddce141ae3741f3c869f48dfa7aa1e",
+          "DEPLOYMENT_COMMIT": "a2ea610267c766a3cdcb37d2bc03e1c52559411d"
+        },
+        {
+          "VERSION": "V079",
+          "FILENAME": "V079__dev_restricted_pathogen_governance_output_grants.sql",
+          "SHA256": "b67c88f050aabec83fcfe36e3c1b6ad2a22e21517c106662b8607e4b63fb184e",
+          "DEPLOYMENT_COMMIT": "190f414"
+        },
+        {
+          "VERSION": "V080",
+          "FILENAME": "V080__dev_restricted_pathogen_parity_classification.sql",
+          "SHA256": "ffa9377a6db7e807ccb60c74f15707e9674ef4822ac01635488e48f18c5c220d",
+          "DEPLOYMENT_COMMIT": "f5e7caa"
+        },
+        {
+          "VERSION": "V081",
+          "FILENAME": "V081__dev_evidence_only_tick_coverage_classification.sql",
+          "SHA256": "71cfd6146da7b5184da45ae4fb1a05059321b4749bdb755e2b2a724328785860",
+          "DEPLOYMENT_COMMIT": "29d68c9ea0ac62784fcb77266b1fd9383089f009"
+        },
+        {
+          "VERSION": "V082",
+          "FILENAME": "V082__dev_evidence_only_tick_coverage_read_grants.sql",
+          "SHA256": "5ee609d465105fcaee0e0995a367ab772f42a18cf726058049eff6d03182690a",
+          "DEPLOYMENT_COMMIT": "47be9afc02938561231fd36c31e6aa1d37738143"
+        },
+        {
+          "VERSION": "V083",
+          "FILENAME": "V083__dev_semantic_runtime_tick_coverage_read_grant.sql",
+          "SHA256": "06fae635c2d00c2aa7a253335921f80810405f197cfab8eca80ab1f295246d6b",
+          "DEPLOYMENT_COMMIT": "7439cc62fe072505055202985149ff24ef9b5b91"
+        },
+        {
+          "VERSION": "V084",
+          "FILENAME": "V084__dev_semantic_runtime_pathogen_parity_read_grant.sql",
+          "SHA256": "55ae95c946bd2d9347015d026d809fac68f4a81bcb030f1938b96edfa3e2094f",
+          "DEPLOYMENT_COMMIT": "16713e14e2de2b8fc92b1d96c101598c77cb05ed"
+        },
+        {
+          "VERSION": "V085",
+          "FILENAME": "V085__dev_pathogen_parity_canonical_coverage.sql",
+          "SHA256": "174e72310dc0952af00f922a56a819a15b40f8ca906472eb0feaacb3dd2e17a5",
+          "DEPLOYMENT_COMMIT": "23226d5ac5d2e16e8599183edc4d078625e1153c"
+        },
+        {
+          "VERSION": "V100",
+          "FILENAME": "V100__dev_infected_tick_derived_results.sql",
+          "SHA256": "625c88ecd5316c6b8319b442bdc5e26477dd01a3fccfb89cde27294d1f1469e8",
+          "DEPLOYMENT_COMMIT": "2d8ebb8ce0fa00ee73b9fbc798926d7c9c61cbb0"
+        },
+        {
+          "VERSION": "V101",
+          "FILENAME": "V101__dev_surveillance_coverage_derived_results.sql",
+          "SHA256": "e8c5d3af7477365e9339d288c37b5893c83822301ce2f8fc181a8aefe07336cc",
+          "DEPLOYMENT_COMMIT": "904e02d9b4570739bfdadfea8a80ca747f4b6d03"
+        },
+        {
+          "VERSION": "V102",
+          "FILENAME": "V102__dev_surveillance_priority_derived_results.sql",
+          "SHA256": "838eae8c6ae171a0ef3b66203316c6887634818aafd575475f0aecff9b6f13e7",
+          "DEPLOYMENT_COMMIT": "fe177e7df55d4b004a8c7a3c6257bda5e6f4746a"
+        },
+        {
+          "VERSION": "V103",
+          "FILENAME": "V103__bounded_ingestion_partitions_and_revisions.sql",
+          "SHA256": "babdfbb1d6df68415ed9814701c1ec4542aeab60550867a3898fe4c8f4a6d1ce",
+          "DEPLOYMENT_COMMIT": "9813399e2560404ffd470a508fbac721b9d7e914"
+        },
+        {
+          "VERSION": "V104",
+          "FILENAME": "V104__user_feedback_submission.sql",
+          "SHA256": "dd47a9bf4bca53a6f2faed2e88c7dd792cc0181715715c47f9c9235ac17015d6",
+          "DEPLOYMENT_COMMIT": "9813399e2560404ffd470a508fbac721b9d7e914"
+        },
+        {
+          "VERSION": "V105",
+          "FILENAME": "V105__user_feedback_triage.sql",
+          "SHA256": "04264fa65f958fc373a580dc38cea223d81b8d994d69ad7ab1801c66ab6d17d7",
+          "DEPLOYMENT_COMMIT": "24d2b67f0b58140ed27cd78c74f22a7516451d8e"
+        },
+        {
+          "VERSION": "V106",
+          "FILENAME": "V106__dataset_discovery_persistence_foundation.sql",
+          "SHA256": "69caa3d3b606b5d36ef508d425fb5ffb87c3df32e9b70eb695cf339bb451add7",
+          "DEPLOYMENT_COMMIT": "51ec76d27700840092e8dc6178dc9f9386a15622"
+        },
+        {
+          "VERSION": "V107",
+          "FILENAME": "V107__dataset_discovery_runtime_procedures.sql",
+          "SHA256": "645ded8311987d96783b05e761d2e8d2c438f3740001a8ac7405fba949ad7eb1",
+          "DEPLOYMENT_COMMIT": "51ec76d27700840092e8dc6178dc9f9386a15622"
+        },
+        {
+          "VERSION": "V108",
+          "FILENAME": "V108__dataset_discovery_recommendation_commit.sql",
+          "SHA256": "6da4a6c72ef6668ef396ed0f53f7ba1e344f6b3421290609bd29f046e68bf41a",
+          "DEPLOYMENT_COMMIT": "51ec76d27700840092e8dc6178dc9f9386a15622"
+        },
+        {
+          "VERSION": "V109",
+          "FILENAME": "V109__dataset_discovery_review_events.sql",
+          "SHA256": "47eb21322264238a82ec4ac9e77fead31bc74c3f07a3fe4b65afa90a4bdd8775",
+          "DEPLOYMENT_COMMIT": "51ec76d27700840092e8dc6178dc9f9386a15622"
+        },
+        {
+          "VERSION": "V110",
+          "FILENAME": "V110__dataset_discovery_governed_handoff.sql",
+          "SHA256": "79d3bbb6a4b1d8008230ef872ae511c56317e117f529865ef8419490cb0a189c",
+          "DEPLOYMENT_COMMIT": "51ec76d27700840092e8dc6178dc9f9386a15622"
+        },
+        {
+          "VERSION": "V111",
+          "FILENAME": "V111__dataset_discovery_identity_links.sql",
+          "SHA256": "40601863b9dcd95c92e91aeb09b0a19a5719534e4b5757de9768e5350dfcb3b6",
+          "DEPLOYMENT_COMMIT": "e4d321f632f01b7ac50bb886107db70f4382105b"
+        },
+        {
+          "VERSION": "V112",
+          "FILENAME": "V112__dataset_discovery_candidate_context_views.sql",
+          "SHA256": "bb7b493ff90c58e573ee41c6142d9735a4a2a52cc3076259da11de5f80954e14",
+          "DEPLOYMENT_COMMIT": "e4d321f632f01b7ac50bb886107db70f4382105b"
+        },
+        {
+          "VERSION": "V113",
+          "FILENAME": "V113__dataset_discovery_handoff_snapshot_validation.sql",
+          "SHA256": "c0f49ff5daa5dad43809458e7cb5d78121881b62703844f109c7b52a18d178f7",
+          "DEPLOYMENT_COMMIT": "e4d321f632f01b7ac50bb886107db70f4382105b"
+        },
+        {
+          "VERSION": "V114",
+          "FILENAME": "V114__dev_dataset_discovery_role_grants.sql",
+          "SHA256": "c72ed6dfeea2b799234ad8cd128f74a01b84a48b7e029b478253076058868f54",
+          "DEPLOYMENT_COMMIT": "e7884e4f2a603c886d60a7e5d05a79782356ebcb"
+        },
+        {
+          "VERSION": "V115",
+          "FILENAME": "V115__dev_dataset_discovery_initial_reviewer.sql",
+          "SHA256": "5e2eecd11b6b1b413e496f81e3c3ca5b1641069da685a071e243101dbca97af2",
+          "DEPLOYMENT_COMMIT": "fb77c7e9d28ece54d8907b6f8f6d48fe4dd09c9c"
+        },
+        {
+          "VERSION": "V116",
+          "FILENAME": "V116__dev_dataset_discovery_nullable_retry_bind.sql",
+          "SHA256": "a6b8efe1f517a82174a731415a62660518bf6cb3e8679ad98130d48bd4b27846",
+          "DEPLOYMENT_COMMIT": "7c982a3b9f955615850ce729d4749b7ecd2a2119"
+        },
+        {
+          "VERSION": "V117",
+          "FILENAME": "V117__ingestion_bulk_transport_stage.sql",
+          "SHA256": "97dc205df634efdefa5dc561b36481068cfaa09dc6391d2acdc8cdf474add5e0",
+          "DEPLOYMENT_COMMIT": "6cb85249966758c763735e84ee789bfa99b15f60"
+        },
+        {
+          "VERSION": "V119",
+          "FILENAME": "V119__dev_dataset_discovery_safe_metadata_projection.sql",
+          "SHA256": "5937d59066944c396329e4d9d3fdbf58f72fdad2dbf8c1598316913ac4056c5c",
+          "DEPLOYMENT_COMMIT": "0e6564b77adc0d959bf1025a77290617a1cabf1e"
+        },
+        {
+          "VERSION": "V120",
+          "FILENAME": "V120__dev_dataset_discovery_candidate_decision_audit.sql",
+          "SHA256": "6e72f759237931d4d2ad86a8936d17067918420f16957d2b85955ceca58a424d",
+          "DEPLOYMENT_COMMIT": "0e6564b77adc0d959bf1025a77290617a1cabf1e"
+        },
+        {
+          "VERSION": "V121",
+          "FILENAME": "V121__dev_dataset_discovery_model_validation_diagnostics.sql",
+          "SHA256": "7080aa564986402288b9ec29f932ac7033fa3300b793260a49935d5532d4fb62",
+          "DEPLOYMENT_COMMIT": "730aeb0c8b406e4908484b0f67282e217ee4fbfa"
+        },
+        {
+          "VERSION": "V122",
+          "FILENAME": "V122__dev_dataset_discovery_provider_completion_diagnostics.sql",
+          "SHA256": "17d45dee9fa03f3a8b3655e3c777a2ed05782d5a71369a19ba7a8727c2456d69",
+          "DEPLOYMENT_COMMIT": "11da938ca731e7400b7e00a48dd24ca701e4e5a5"
+        },
+        {
+          "VERSION": "V123",
+          "FILENAME": "V123__current_semantic_metadata_views.sql",
+          "SHA256": "d0d9cb658da7a7c993944c6509cf58411e22f7832f0596ccf592d5dad02d7cac",
+          "DEPLOYMENT_COMMIT": "77f68efb0905c63e9fb8c99a0920ce1677b6c3e9"
+        },
+        {
+          "VERSION": "V124",
+          "FILENAME": "V124__normalize_current_measure_identity_view.sql",
+          "SHA256": "08e682e26cee143e8915e9548c44603826242495109f5355babd04d666b7038b",
+          "DEPLOYMENT_COMMIT": "3429a5ae0ea41cb9c2e8edede31e59fb1b23914a"
+        },
+        {
+          "VERSION": "V125",
+          "FILENAME": "V125__dev_dataset_discovery_runtime_handoff_receipts.sql",
+          "SHA256": "bb3d0838168f8924a81fcf2c4c8aa3b6192b00356743db8d3e98012e1f83b8b6",
+          "DEPLOYMENT_COMMIT": "382f0ba9202b99c2310ce10c855d59a1b57c25ff"
+        },
+        {
+          "VERSION": "V127",
+          "FILENAME": "V127__current_county_observation_projection.sql",
+          "SHA256": "5c8593215d228ca4b507802553ee6c38b358d6d1d89f1ce8ae0130db7968d9f7",
+          "DEPLOYMENT_COMMIT": "8ae505515f5c6262d964a45d3a1bd3a37d62ef7a"
+        },
+        {
+          "VERSION": "V128",
+          "FILENAME": "V128__current_source_methodology_metadata.sql",
+          "SHA256": "e989e869f5b2a07cf6cd70f1a7b71f0730eb421a705678fa736bd297e6f701fd",
+          "DEPLOYMENT_COMMIT": "611aba7f1998f752dd8c7131fac42cc0fd479e72"
+        },
+        {
+          "VERSION": "V134",
+          "FILENAME": "V134__pmc_stage_failure_diagnostics.sql",
+          "SHA256": "2a7138e7928aae7b50a6fe8ce92e46649d063488a0f709438cbd93a5c2bfe7ec",
+          "DEPLOYMENT_COMMIT": "189218cc38f075051d39f41e79a1de07cbe16770"
+        },
+        {
+          "VERSION": "V135",
+          "FILENAME": "V135__intelligence_item_revisions_and_captures.sql",
+          "SHA256": "101f68f3583a357b4adc8aceeb904cad796ddc887c5b25115729c4efc58646f6",
+          "DEPLOYMENT_COMMIT": "740581e33ffc8ea019decc8d04bfff0de144b9fa"
+        },
+        {
+          "VERSION": "V136",
+          "FILENAME": "V136__dev_january_climate_consumer_views.sql",
+          "SHA256": "f3a33d21cba33f27a4e1683b65f9295f33c796f445c8c9ed82c84bd16948b2c2",
+          "DEPLOYMENT_COMMIT": "d4d4ff813ca87e600288cb8ec620b11ac08c3d78"
+        },
+        {
+          "VERSION": "V137",
+          "FILENAME": "V137__semantic_lineage_audit_view.sql",
+          "SHA256": "504fa5725f7169a439655b894799d86dbad400bce5a9f9dc749c44f111590ac7",
+          "DEPLOYMENT_COMMIT": "4558338c15cb9f5c5bcae2d8eb23c6cc945a5642"
+        },
+        {
+          "VERSION": "V138",
+          "FILENAME": "V138__bounded_nlcd_consumer_observations.sql",
+          "SHA256": "a849fcdcc63a000c79ba215c8ac7bd79dd7a9d1da914f8813adb60410b66be5e",
+          "DEPLOYMENT_COMMIT": "130c28f1940c15e418ec5a14bc55137ff6cf5e00"
+        },
+        {
+          "VERSION": "V140",
+          "FILENAME": "V140__dev_tier1_county_review_publication.sql",
+          "SHA256": "a0324ece0a06cd43438e331c2bbca62b3403b04d4f06eac43a44f21124ccf4df",
+          "DEPLOYMENT_COMMIT": "130c28f1940c15e418ec5a14bc55137ff6cf5e00"
+        },
+        {
+          "VERSION": "V142",
+          "FILENAME": "V142__dev_intelligence_retention_and_v2_view.sql",
+          "SHA256": "093017fc1507a67452eb47d1cec4c3c49e7a5881e981feede61bb88246986a15",
+          "DEPLOYMENT_COMMIT": "f0c8ce94555220729bbdf154b7eb37aa449e81b8"
+        },
+        {
+          "VERSION": "V143",
+          "FILENAME": "V143__dev_intelligence_raw_cleanup_authority.sql",
+          "SHA256": "a92157ddac0d7b087b6c93f7fff65c65a081dd1e1aea0b5918a4e604a2a52968",
+          "DEPLOYMENT_COMMIT": "3ae7b4a1cce854dd24c893c6dd5186c32178ea16"
+        },
+        {
+          "VERSION": "V144",
+          "FILENAME": "V144__dev_january_climate_partition_release_read.sql",
+          "SHA256": "e39669127fc2ffcbdd803f013b9abb486b93af883fb8a6be05ffc4524e243d13",
+          "DEPLOYMENT_COMMIT": "38927543fd3b6a5c9597f926e8f63a1c00338402"
+        },
+        {
+          "VERSION": "V145",
+          "FILENAME": "V145__dev_semantic_release_source_reads.sql",
+          "SHA256": "d73ec95c43ee1cf6ffed61d9b8624912b8afd2db5a516b5f8a7b77f2b84fa3ac",
+          "DEPLOYMENT_COMMIT": "1cfd52b84d95219645f6319364ccbbd012a882ad"
+        },
+        {
+          "VERSION": "V147",
+          "FILENAME": "V147__dev_climate_scalar_membership_join.sql",
+          "SHA256": "22caabb8abb205316005d866286d7adb995a0b7dc5ec8b05aa6c6f053dfca83b",
+          "DEPLOYMENT_COMMIT": "daddc2f3c299ae62622c4791e853a50a0d2e3688"
+        }
+      ]
+    },
+    "dev_release": {
+      "status": "PASS",
+      "query_id": "01c7d20c-030c-4c6d-0064-2d07012cc9f2",
+      "rows": [
+        {
+          "RELEASE_ID": "governed-2026-10-09-january-climate-dev",
+          "BUNDLE_SHA256": "67cdf470a8c39973251d8325777132a840f63ee42b67f129973936c30e66d9f4"
+        }
+      ]
+    },
+    "retained_manifests": {
+      "status": "BLOCKED",
+      "query_id": "01c7d20c-030c-4eac-0064-2d07012cd7d6",
+      "error_code": "002003 (42S02)",
+      "rows": null
+    },
+    "retained_sources": {
+      "status": "BLOCKED",
+      "query_id": "01c7d20c-030c-4c6d-0064-2d07012cca16",
+      "error_code": "002003 (42S02)",
+      "rows": null
+    },
+    "retained_observations": {
+      "status": "BLOCKED",
+      "query_id": "01c7d20c-030c-4eac-0064-2d07012cd7f2",
+      "error_code": "002003 (42S02)",
+      "rows": null
+    },
+    "retained_membership": {
+      "status": "BLOCKED",
+      "query_id": "01c7d20d-030c-4c6d-0064-2d07012cca22",
+      "error_code": "002003 (42S02)",
+      "rows": null
+    },
+    "governed_lineage": {
+      "status": "PASS",
+      "query_id": "01c7d20d-030c-4c6d-0064-2d07012cca2a",
+      "rows": []
+    }
+  },
+  "migration_source": [
+    {
+      "version": "V157",
+      "filename": "V157__model_release_compatibility.sql",
+      "sha256": "96ea5c9ee51769e207efc44479d380fe6fd7752e5c6621dcbfd71559231593d1"
+    },
+    {
+      "version": "V158",
+      "filename": "V158__surveillance_situation_publication.sql",
+      "sha256": "104f3022133066f7b6888628ecae6e3632f70ddb0dda6a1d0a7babe969ba8cf5"
+    }
+  ],
+  "dev_release_integrity_installed": {
+    "V157": false,
+    "V158": false
+  },
+  "workflow_sha256": "cc00b79942e1eee935e91c5b11ea72326395d8a3afa5ab7701fc0c533c26e18d"
+}

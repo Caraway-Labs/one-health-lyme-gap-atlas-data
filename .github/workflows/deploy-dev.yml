@@ -2,6 +2,33 @@ name: Verify DEV governed pipeline
 on:
   workflow_dispatch:
     inputs:
+      release_integrity_fixture:
+        description: Independently reviewed RI706-only synthetic fixture install and acceptance
+        type: boolean
+        default: false
+      ri706_expected_artifacts:
+        description: Exact V157/V158/V159 original and rendered artifact JSON from the reviewed checkout
+        type: string
+        required: false
+      ri706_synthetic_authorization:
+        description: Must equal RI706_DEV_SYNTHETIC_TEST_ONLY_NOT_SCIENTIFIC_APPROVAL
+        type: string
+        required: false
+      ri706_recovery_run_id:
+        description: Prior owner-authorized failed fixture run with the identical installed V157/V158/V159 pair
+        type: string
+        required: false
+        default: ""
+      ledger_diagnostic_only:
+        description: Fixed three-statement ledger evidence diagnostic; requires metadata_preflight_only
+        required: false
+        type: boolean
+        default: false
+      metadata_preflight_only:
+        description: Fixed 18-statement V147 DEV metadata preflight only; approved 7 USD ceiling
+        required: false
+        type: boolean
+        default: false
       expected_pending_json:
         description: Reviewed exact pending version/filename/sha256 JSON array; required for mutation, [] for none
         required: false
@@ -73,6 +100,7 @@ permissions:
   checks: read
 jobs:
   deploy:
+    if: inputs.release_integrity_fixture != true && inputs.ri706_recovery_run_id == ''
     environment: dev
     runs-on: ubuntu-latest
     steps:
@@ -92,6 +120,46 @@ jobs:
       - name: Configure and verify the DEV Snowflake service connection
         run: |
           set -euo pipefail
+          if [ "$LEDGER_DIAGNOSTIC_ONLY" = "true" ]; then
+            test "$METADATA_PREFLIGHT_ONLY" = "true"
+          fi
+          if [ "$METADATA_PREFLIGHT_ONLY" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+            test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+            for other_mode in "$REGISTER_EID_EXPEDITED_DEV" "$DIAGNOSE_V143_CLEANUP_OWNER" \
+              "$DIAGNOSE_JANUARY_PAIR" "$DIAGNOSE_JANUARY_RUNTIME_INIT" \
+              "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" "$DIAGNOSE_INTELLIGENCE_DEV" \
+              "$DIAGNOSE_CLIMATE_DEV" "$DIAGNOSE_V103_STATE" "$DIAGNOSE_CLIMATE_VIEWS" \
+              "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED"; do
+              test "$other_mode" != "true"
+            done
+            test -z "$DIAGNOSE_QUERY_ID"
+            test -n "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
+            test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            test "$passed_checks" -gt 0
+            # Secrets stay process-local. The shared connector expects full PEM
+            # encoded as base64; workflow secrets contain the encrypted PEM body.
+            key_file="$RUNNER_TEMP/oh-lyme-dev-metadata-preflight-key.p8"
+            trap 'rm -f "$key_file"' EXIT
+            umask 077
+            {
+              printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'
+              printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64
+              printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'
+            } > "$key_file"
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            MAX_CON_RETRY_ATTEMPTS=0 \
+            timeout --signal=INT --kill-after=15s 180s uv run python scripts/preflight_climate_v147_dev.py
+            exit 0
+          fi
           key_file="$RUNNER_TEMP/oh-lyme-dev-pipeline-key.p8"
           config_file="$RUNNER_TEMP/snowflake-connections.toml"
           trap 'rm -f "$key_file" "$config_file"' EXIT
@@ -112,6 +180,16 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$DIAGNOSE_CLIMATE_VIEWS" = true ]; then
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            for other_mode in "$REGISTER_EID_EXPEDITED_DEV" "$DIAGNOSE_V143_CLEANUP_OWNER" \
+              "$DIAGNOSE_JANUARY_PAIR" "$DIAGNOSE_JANUARY_RUNTIME_INIT" \
+              "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" "$DIAGNOSE_INTELLIGENCE_DEV" \
+              "$DIAGNOSE_CLIMATE_DEV" "$DIAGNOSE_V103_STATE"; do
+              test "$other_mode" != "true"
+            done
+            test -z "$DIAGNOSE_QUERY_ID"
+          fi
           if [ "$REGISTER_EID_EXPEDITED_DEV" = "true" ]; then
             test "$GITHUB_REF" = refs/heads/main
             test "$EXPECTED_PENDING_JSON" = '[]'
@@ -323,18 +401,82 @@ jobs:
               --feed-preflight-accounting-confirmed --confirm
             exit 0
           fi
-          snow --config-file "$config_file" sql -c oh_lyme_dev \
-            -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
           if [ "$DIAGNOSE_CLIMATE_VIEWS" = "true" ]; then
-            if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ] || [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ]; then
-              echo 'Choose one diagnostic mode.' >&2
-              exit 2
-            fi
+            test "$GITHUB_REF" = refs/heads/main
+            test "$EXPECTED_PENDING_JSON" = '[]'
+            test "$DIAGNOSE_CLIMATE_DEV" != "true"
+            test "$DIAGNOSE_V103_STATE" != "true"
+            test "$DIAGNOSE_INTELLIGENCE_DEV" != "true"
+            test "$DIAGNOSE_JANUARY_PAIR" != "true"
+            test "$DIAGNOSE_JANUARY_RUNTIME_INIT" != "true"
+            test "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" != "true"
+            test "$DIAGNOSE_V143_CLEANUP_OWNER" != "true"
+            test "$REGISTER_EID_EXPEDITED_DEV" != "true"
+            test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" != "true"
+            test -z "$DIAGNOSE_QUERY_ID"
+            test -z "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+            test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            test "$passed_checks" -gt 0
+            # The script validates identity inside its bounded connection. Do not
+            # run an unbounded CLI identity query before the process deadline.
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
-            uv run python scripts/verify_climate_dev_views.py
+            MAX_CON_RETRY_ATTEMPTS=0 \
+            timeout --signal=INT --kill-after=15s 300s uv run python scripts/verify_climate_dev_views.py
             exit 0
           fi
+          # Bound only the exact January view migration; unrelated migrations
+          # continue through their existing reviewed deployment path.
+          climate_v147_batch="$(uv run python - <<'PY'
+          import os
+          from lyme_gap_atlas_data.migrations import parse_reviewed_pending_set
+          raw = os.environ.get("EXPECTED_PENDING_JSON", "")
+          expected = [{"version": "V147", "filename": "V147__dev_climate_scalar_membership_join.sql", "sha256": "22caabb8abb205316005d866286d7adb995a0b7dc5ec8b05aa6c6f053dfca83b"}]
+          print("true" if raw and parse_reviewed_pending_set(raw) == expected else "false")
+          PY
+          )"
+          if [ "$climate_v147_batch" = "true" ]; then
+            test "$GITHUB_REF" = refs/heads/main
+            [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+            test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+            for other_mode in "$REGISTER_EID_EXPEDITED_DEV" "$DIAGNOSE_V143_CLEANUP_OWNER" \
+              "$DIAGNOSE_JANUARY_PAIR" "$DIAGNOSE_JANUARY_RUNTIME_INIT" \
+              "$DIAGNOSE_LEGACY_DEV_RECONCILIATIONS" "$DIAGNOSE_INTELLIGENCE_DEV" \
+              "$DIAGNOSE_CLIMATE_DEV" "$DIAGNOSE_V103_STATE" "$DIAGNOSE_CLIMATE_VIEWS"; do
+              test "$other_mode" != "true"
+            done
+            test -z "$DIAGNOSE_QUERY_ID"
+            test -z "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
+            test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" != "true"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            test "$passed_checks" -gt 0
+            SNOWFLAKE_AUTH_METHOD=key_pair \
+            SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            MAX_CON_RETRY_ATTEMPTS=0 ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS=60 \
+            timeout --signal=INT --kill-after=15s 180s uv run python - <<'PY'
+          import os
+          import runpy
+          from lyme_gap_atlas_data.cli import apply_reviewed_dev_migrations_command
+          from lyme_gap_atlas_data.climate_dev_validation import DEV, ROLE, USER, WAREHOUSE
+          bounded_connection = runpy.run_path("scripts/verify_climate_dev_views.py")["bounded_connection"]
+          with bounded_connection() as connection, connection.cursor() as cursor:
+              cursor.execute("SELECT CURRENT_USER(),CURRENT_ROLE(),CURRENT_DATABASE(),CURRENT_WAREHOUSE()")
+              if cursor.fetchone() != (USER, ROLE, DEV, WAREHOUSE):
+                  raise SystemExit("CLIMATE_MIGRATION_IDENTITY")
+          apply_reviewed_dev_migrations_command(
+              database=DEV, expected_pending_json=os.environ["EXPECTED_PENDING_JSON"],
+              commit=os.environ["GITHUB_SHA"], confirm=True,
+              feed_preflight_accounting_confirmed=False,
+          )
+          PY
+            exit 0
+          fi
+          snow --config-file "$config_file" sql -c oh_lyme_dev \
+            -q "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()" --format JSON
           if [ "$DIAGNOSE_CLIMATE_DEV" = "true" ]; then
             if [ "$DIAGNOSE_V103_STATE" = "true" ] || [ -n "$DIAGNOSE_QUERY_ID" ]; then
               echo 'Choose one diagnostic mode.' >&2
@@ -371,6 +513,8 @@ jobs:
             --expected-pending-json "$EXPECTED_PENDING_JSON" \
             --database "$SNOWFLAKE_DATABASE" --commit "$GITHUB_SHA" --confirm
         env:
+          METADATA_PREFLIGHT_ONLY: ${{ inputs.metadata_preflight_only }}
+          LEDGER_DIAGNOSTIC_ONLY: ${{ inputs.ledger_diagnostic_only }}
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
           REGISTER_EID_EXPEDITED_DEV: ${{ inputs.register_eid_expedited_dev }}
@@ -397,3 +541,176 @@ jobs:
           SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
           SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+
+
+  release-integrity-prepare:
+    if: inputs.release_integrity_fixture == true || inputs.ri706_recovery_run_id != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Prepare exact-source expiring owner authorization without deployment credentials
+        run: uv run python scripts/review_release_integrity_fixture_gate.py --prepare
+
+  release-integrity-owner-authorization:
+    if: inputs.release_integrity_fixture == true
+    needs: release-integrity-prepare
+    environment: ri706-dev-fixture
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --extra pipeline
+      - name: Verify native CarawayLabs deployment authorization without Snowflake credentials
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
+
+  release-integrity-fixture:
+    if: inputs.release_integrity_fixture == true
+    needs: release-integrity-owner-authorization
+    environment: dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: ri706-dev-fixture
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: read
+    env:
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      RI706_EXPECTED_ARTIFACTS: ${{ inputs.ri706_expected_artifacts }}
+      RI706_DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+      RI706_REVIEW_RECEIPT: ${{ github.workspace }}/ri706-review.json
+      IMAGE: registry.digitalocean.com/oh-lyme-data/pipeline
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Verify exact-run owner authorization before building the fixture image
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Build or reuse immutable reviewed fixture image
+        id: fixture_image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          doctl registry login --expiry-seconds 1200
+          tag="ri706-${REVIEWED_COMMIT}"
+          digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "$tag" '[.[] | select((.tags // []) | index($tag)) | .digest] | if length == 1 then .[0] else empty end')"
+          if [ -z "$digest" ]; then
+            docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$REVIEWED_COMMIT" -t "$IMAGE:$tag" .
+            docker push "$IMAGE:$tag"
+            digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$tag" | cut -d@ -f2)"
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull "$IMAGE@$digest"
+          test "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE@$digest")" = "$REVIEWED_COMMIT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Replay exact public ML138 handoff without refitting
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-machine-learning.git "$RUNNER_TEMP/ri706-handoff"
+          git -C "$RUNNER_TEMP/ri706-handoff" checkout --detach c186e0bdc9ee096a15284bc848de034981fe634b
+          test "$(git -C "$RUNNER_TEMP/ri706-handoff" rev-parse HEAD)" = c186e0bdc9ee096a15284bc848de034981fe634b
+          uv run --project "$RUNNER_TEMP/ri706-handoff" python "$RUNNER_TEMP/ri706-handoff/scripts/assemble_138_surveillance_situation_batch.py"
+          # Restore the exact frozen metadata bytes, including approved CRLF.
+          # No --write-committed, inference, source reconstruction or model refresh.
+          cp docs/contracts/surveillance-situations/138-surveillance-situation-*.json "$RUNNER_TEMP/ri706-handoff/config/models/"
+      - name: Recheck owner authorization expiry and binding before privileged execution
+        run: uv run python scripts/review_release_integrity_fixture_gate.py
+      - name: Execute fixed-schema partial recovery and acceptance in the pinned image
+        timeout-minutes: 20
+        env:
+          RI706_IMAGE_DIGEST: ${{ steps.fixture_image.outputs.digest }}
+          RI706_FIXTURE_MODE: 'true'
+          RI706_RECOVERY_RUN_ID: ${{ inputs.ri706_recovery_run_id }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_AUTH_METHOD: key_pair
+          SNOWFLAKE_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+          RI706_OWNER_USER: ${{ vars.RI706_OWNER_USER }}
+          RI706_OWNER_PRIVATE_KEY_B64: ${{ secrets.RI706_OWNER_PRIVATE_KEY_B64 }}
+          RI706_OWNER_PRIVATE_KEY_PASSPHRASE: ${{ secrets.RI706_OWNER_PRIVATE_KEY_PASSPHRASE }}
+          RI706_PUBLISHER_USER: ${{ vars.RI706_PUBLISHER_USER }}
+          RI706_PUBLISHER_PRIVATE_KEY_B64: ${{ secrets.RI706_PUBLISHER_PRIVATE_KEY_B64 }}
+          RI706_PUBLISHER_PRIVATE_KEY_PASSPHRASE: ${{ secrets.RI706_PUBLISHER_PRIVATE_KEY_PASSPHRASE }}
+          RI706_READER_USER: ${{ vars.RI706_READER_USER }}
+          RI706_READER_PRIVATE_KEY_B64: ${{ secrets.RI706_READER_PRIVATE_KEY_B64 }}
+          RI706_READER_PRIVATE_KEY_PASSPHRASE: ${{ secrets.RI706_READER_PRIVATE_KEY_PASSPHRASE }}
+          RI706_RUNTIME_USER: ${{ secrets.SNOWFLAKE_RUNTIME_USER }}
+          RI706_RUNTIME_PRIVATE_KEY_B64: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_B64 }}
+          RI706_RUNTIME_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_RUNTIME_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # All role credentials must be provisioned before any fixture DDL.
+          for name in RI706_EXPECTED_ARTIFACTS RI706_OWNER_USER RI706_OWNER_PRIVATE_KEY_B64 RI706_PUBLISHER_USER RI706_PUBLISHER_PRIVATE_KEY_B64 RI706_READER_USER RI706_READER_PRIVATE_KEY_B64 RI706_RUNTIME_USER RI706_RUNTIME_PRIVATE_KEY_B64; do
+            test -n "${!name}"
+          done
+          mkdir -p "$RUNNER_TEMP/ri706-receipts"
+          # Existing secret stores the encrypted PEM body. Convert process-locally.
+          pem="$RUNNER_TEMP/ri706-key.p8"
+          trap 'rm -f "$pem"' EXIT
+          { printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'; printf '%s' "$SNOWFLAKE_PRIVATE_KEY_B64" | fold -w 64; printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'; } > "$pem"
+          export SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$pem")"
+          { printf '%s\n' '-----BEGIN ENCRYPTED PRIVATE KEY-----'; printf '%s' "$RI706_RUNTIME_PRIVATE_KEY_B64" | fold -w 64; printf '\n%s\n' '-----END ENCRYPTED PRIVATE KEY-----'; } > "$pem"
+          export RI706_RUNTIME_PRIVATE_KEY_B64="$(base64 --wrap=0 "$pem")"
+          export ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS=60
+          args=()
+          for name in GITHUB_ACTIONS GITHUB_REPOSITORY GITHUB_SHA REVIEWED_COMMIT RI706_IMAGE_DIGEST RI706_FIXTURE_MODE RI706_EXPECTED_ARTIFACTS SNOWFLAKE_ACCOUNT SNOWFLAKE_USER SNOWFLAKE_ROLE SNOWFLAKE_DATABASE SNOWFLAKE_WAREHOUSE SNOWFLAKE_AUTH_METHOD SNOWFLAKE_PRIVATE_KEY_B64 SNOWFLAKE_PRIVATE_KEY_PASSPHRASE ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS RI706_OWNER_USER RI706_OWNER_PRIVATE_KEY_B64 RI706_OWNER_PRIVATE_KEY_PASSPHRASE RI706_PUBLISHER_USER RI706_PUBLISHER_PRIVATE_KEY_B64 RI706_PUBLISHER_PRIVATE_KEY_PASSPHRASE RI706_READER_USER RI706_READER_PRIVATE_KEY_B64 RI706_READER_PRIVATE_KEY_PASSPHRASE RI706_RUNTIME_USER RI706_RUNTIME_PRIVATE_KEY_B64 RI706_RUNTIME_PRIVATE_KEY_PASSPHRASE; do
+            args+=(--env "$name")
+          done
+          args+=(--env RI706_REVIEW_RECEIPT=/review.json -v "$RI706_REVIEW_RECEIPT:/review.json:ro" -v "$RUNNER_TEMP/ri706-handoff:/handoff:ro" -v "$RUNNER_TEMP/ri706-receipts:/receipts")
+          if [[ -z "$RI706_RECOVERY_RUN_ID" ]]; then
+            set +e
+            docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/partial-install.json --install-only --stop-after-v157
+            partial_status=$?
+            set -e
+            test "$partial_status" = 0 -o "$partial_status" = 75
+          fi
+          docker run --rm "${args[@]}" "$IMAGE@$RI706_IMAGE_DIGEST" /app/.venv/bin/python /app/scripts/run_release_integrity_fixture.py --handoff /handoff --receipt /receipts/acceptance.json
+      - name: Retain redacted fixture execution receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ri706-dev-fixture-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.RI706_REVIEW_RECEIPT }}
+            ${{ runner.temp }}/ri706-receipts/*.json
+          if-no-files-found: ignore
+          retention-days: 30

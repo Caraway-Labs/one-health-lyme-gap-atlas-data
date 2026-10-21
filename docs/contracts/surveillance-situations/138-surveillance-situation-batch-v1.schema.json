@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-machine-learning/blob/main/docs/contracts/138-surveillance-situation-batch-v1.schema.json",
+  "title": "Surveillance-situation batch handoff v1",
+  "oneOf": [
+    {"$ref": "#/$defs/county_batch"},
+    {"$ref": "#/$defs/class_dictionary"},
+    {"$ref": "#/$defs/manifest"}
+  ],
+  "$defs": {
+    "county_batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "batch_id", "batch_version", "models"],
+      "properties": {
+        "schema": {"const": "atlas-ml-surveillance-situation-county-batch/138-v1"},
+        "batch_id": {"const": "surveillance-situation-batch"},
+        "batch_version": {"const": "v1"},
+        "models": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/county_model"}
+        }
+      }
+    },
+    "county_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_id", "model_version", "rows"],
+      "properties": {
+        "model_id": {"$ref": "#/$defs/model_id"},
+        "model_version": {"const": "v1"},
+        "rows": {
+          "type": "array",
+          "minItems": 3144,
+          "maxItems": 3144,
+          "items": {"$ref": "#/$defs/county_row"}
+        }
+      }
+    },
+    "county_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["county_fips", "state", "population", "class_id", "probabilities"],
+      "properties": {
+        "county_fips": {"type": "string", "pattern": "^[0-9]{5}$"},
+        "state": {"type": "string", "pattern": "^[A-Z]{2}$"},
+        "population": {"type": "integer", "minimum": 1},
+        "class_id": {"type": "string", "pattern": "^surveillance-situation-(four-state|tick-pathogen)\\.v1\\.class-[0-3]$"},
+        "probabilities": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"$ref": "#/$defs/probability"}
+        }
+      }
+    },
+    "probability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class_id", "probability"],
+      "properties": {
+        "class_id": {"type": "string", "pattern": "^surveillance-situation-(four-state|tick-pathogen)\\.v1\\.class-[0-3]$"},
+        "probability": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "class_dictionary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "batch_id", "batch_version", "models"],
+      "properties": {
+        "schema": {"const": "atlas-ml-surveillance-situation-class-dictionary/138-v1"},
+        "batch_id": {"const": "surveillance-situation-batch"},
+        "batch_version": {"const": "v1"},
+        "models": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/dictionary_model"}
+        }
+      }
+    },
+    "dictionary_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "role", "indicators", "classes"],
+      "properties": {
+        "id": {"$ref": "#/$defs/model_id"},
+        "version": {"const": "v1"},
+        "role": {"type": "string", "minLength": 1},
+        "indicators": {"type": "array", "minItems": 3, "maxItems": 4, "items": {"type": "string", "minLength": 1}},
+        "classes": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"$ref": "#/$defs/dictionary_class"}
+        }
+      }
+    },
+    "dictionary_class": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fit_class_index", "name", "description", "county_count", "must_not_be_read_as"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^surveillance-situation-(four-state|tick-pathogen)\\.v1\\.class-[0-3]$"},
+        "fit_class_index": {"type": "integer", "minimum": 0, "maximum": 3},
+        "name": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "county_count": {"type": "integer", "minimum": 1},
+        "must_not_be_read_as": {"$ref": "#/$defs/prohibited_readings"}
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "batch_id",
+        "batch_version",
+        "approval_state",
+        "models",
+        "algorithm",
+        "config",
+        "dependencies",
+        "primary_seed",
+        "git_sha",
+        "result_commit",
+        "result",
+        "release_id",
+        "bundle_sha256",
+        "feature_contract",
+        "missingness_contract",
+        "model_contract",
+        "class_dictionary",
+        "class_dictionary_sha256",
+        "population_scope",
+        "run",
+        "probability_sum_tolerance",
+        "county_artifact",
+        "county_sha256",
+        "county_row_count",
+        "prohibited_readings",
+        "inheritance_rule",
+        "batch_schema",
+        "handoff_document",
+        "snowflake_objects_written",
+        "stored_estimator"
+      ],
+      "properties": {
+        "schema": {"const": "atlas-ml-surveillance-situation-batch-manifest/138-v1"},
+        "batch_id": {"const": "surveillance-situation-batch"},
+        "batch_version": {"const": "v1"},
+        "approval_state": {"const": "approved_for_data_handoff"},
+        "algorithm": {"const": "in-repository categorical latent class EM"},
+        "stored_estimator": {"const": "in-repository categorical latent class EM"},
+        "config": {"const": "config/experiments/119-latent-class-v1.json"},
+        "result": {"const": "config/experiments/119-latent-class-v1-result.json"},
+        "model_contract": {"const": "config/models/138-surveillance-situation-models-v1.json"},
+        "class_dictionary": {"const": "config/models/138-surveillance-situation-class-dictionary-v1.json"},
+        "county_artifact": {"const": "outputs/138-surveillance-situation-batch-v1/county-assignments.json"},
+        "batch_schema": {"const": "docs/contracts/138-surveillance-situation-batch-v1.schema.json"},
+        "handoff_document": {"const": "docs/contracts/138-surveillance-situation-batch-v1.md"},
+        "primary_seed": {"const": 1192026},
+        "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "result_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "release_id": {"const": "governed-2026-10-15-january-climate-prod"},
+        "bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "class_dictionary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "county_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "county_row_count": {"const": 6288},
+        "probability_sum_tolerance": {"const": 1e-6},
+        "inheritance_rule": {"type": "string", "minLength": 1},
+        "prohibited_readings": {"$ref": "#/$defs/prohibited_readings"},
+        "snowflake_objects_written": {"type": "array", "maxItems": 0},
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["numpy", "scikit-learn"],
+          "properties": {
+            "numpy": {"const": "2.2.6"},
+            "scikit-learn": {"const": "1.9.1"}
+          }
+        },
+        "models": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "version", "role", "class_count"],
+            "properties": {
+              "id": {"$ref": "#/$defs/model_id"},
+              "version": {"const": "v1"},
+              "role": {"type": "string", "minLength": 1},
+              "class_count": {"const": 4}
+            }
+          }
+        },
+        "feature_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dataset_id", "dataset_version", "feature_set_id", "feature_set_version", "document"],
+          "properties": {
+            "dataset_id": {"const": "surveillance-latent-class-counties"},
+            "dataset_version": {"const": "v1.1"},
+            "feature_set_id": {"const": "surveillance-latent-class-indicators"},
+            "feature_set_version": {"const": "v1.1"},
+            "document": {"const": "docs/contracts/119-surveillance-latent-class-dataset-v1.md"}
+          }
+        },
+        "missingness_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document", "no_records", "unknown", "imputation", "unavailable_is_not_zero"],
+          "properties": {
+            "document": {"const": "config/models/138-surveillance-situation-models-v1.json"},
+            "no_records": {"const": "category"},
+            "unknown": {"const": "real_class_not_missing_assignment"},
+            "imputation": {"const": "forbidden"},
+            "unavailable_is_not_zero": {"const": true}
+          }
+        },
+        "population_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["geography", "county_count", "population", "population_role"],
+          "properties": {
+            "geography": {"const": "US counties and county equivalents, including Alaska and Hawaii"},
+            "county_count": {"const": 3144},
+            "population": {"const": 331097593},
+            "population_role": {"const": "reporting denominator"}
+          }
+        },
+        "run": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "training_location",
+            "max_em_iterations",
+            "log_likelihood_tolerance",
+            "random_starts_per_seed",
+            "wall_clock_seconds_recorded"
+          ],
+          "properties": {
+            "training_location": {"const": "local machine"},
+            "max_em_iterations": {"const": 2000},
+            "log_likelihood_tolerance": {"const": 1e-8},
+            "random_starts_per_seed": {"const": 20},
+            "wall_clock_seconds_recorded": {"const": false}
+          }
+        }
+      }
+    },
+    "model_id": {
+      "enum": [
+        "surveillance-situation-four-state",
+        "surveillance-situation-tick-pathogen"
+      ]
+    },
+    "prohibited_readings": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

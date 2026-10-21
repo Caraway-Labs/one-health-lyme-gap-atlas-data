@@ -1,0 +1,5 @@
+-- Protected revocation only after receipt-matched DDL/grant/dependency review.
+USE DATABASE ONE_HEALTH_LYME_GAP_ATLAS_PROD;
+REVOKE SELECT ON VIEW LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V FROM ROLE OH_LYME_PROD_READ;
+DROP VIEW LINEAGE_AUDIT.RETAINED_MODEL_HUMAN_RECORDS_V;
+-- Preserve V160's four views, V137/V148, the schema, existing USAGE and all data.
