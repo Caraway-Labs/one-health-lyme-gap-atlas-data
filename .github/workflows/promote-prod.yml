@@ -64,7 +64,7 @@ on:
         required: false
         type: string
       protected_intelligence_prerequisite:
-        description: Confirm exact one-migration intelligence cleanup promotion after V146 is already applied
+        description: Apply only the exact reviewed intelligence migration set after V146; no image promotion
         required: false
         default: false
         type: boolean
@@ -258,7 +258,7 @@ jobs:
           MAX_CON_RETRY_ATTEMPTS=0 \
           timeout --signal=INT --kill-after=15s 300s uv run python scripts/apply_release_integrity_migrations.py
       - name: Promote the immutable image across the existing operational topology without exposing secrets
-        if: ${{ inputs.release_integrity_only != true }}
+        if: ${{ inputs.release_integrity_only != true && inputs.protected_intelligence_prerequisite != true }}
         run: |
           prod_spec="$(mktemp)"
           next_spec="$(mktemp)"
