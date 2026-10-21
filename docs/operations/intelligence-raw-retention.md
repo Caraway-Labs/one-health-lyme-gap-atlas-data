@@ -5,6 +5,14 @@ long term and raw feed copies for 30 days. Excerpts/full article text require
 separate rights. The old 7/90/365 proposal is superseded. Neither metadata nor
 publisher dates are silently deleted/refreshed by this policy.
 
+The October 20 owner decision permits standard Snowflake Time Travel and
+Fail-safe within documented platform limits; active copies must be removed by
+capture + 30 days. The proposed [PROD proactive correction](intelligence-proactive-cleanup-prod.md)
+closes the daily scheduling gap with a fixed 48-hour lead. PROD EID raw I/O
+closes at day 28 so old checkpoints cannot recreate cleaned copies. The immutable
+30-day maximum lease and other environment/source policies remain unchanged.
+Production scheduling, migration, handoff and physical proof remain separate gates.
+
 `intelligence_retention.py` defines feed-only leases and exact-plan cleanup.
 The durable runtime integration is described in
 [intelligence-raw-runtime.md](intelligence-raw-runtime.md). Concrete checkpoint,
@@ -20,8 +28,8 @@ The private authoritative ledger must create an immutable successful-200 capture
 lease and source/version/rights binding. Raw copies reference the lease hash.
 A 304, retry, resume, checkpoint resave or cache-reference change reuses that
 lease; it cannot mint a new capture. A genuinely fresh 200 may create a distinct
-lease even if bytes are identical. Readers reject at `now >= expires_at`, before
-loading bytes or decoding base64. Expired validators are discarded and a normal
+lease even if bytes are identical. Readers reject at their operational cutoff (PROD EID day 28, otherwise
+`now >= expires_at`), before loading bytes or decoding base64. Expired validators are discarded and a normal
 fresh request is required, never an accepted 304 with unavailable retained bytes.
 
 Every copy needs a claim before its write, including `feed.xml` objects, embedded

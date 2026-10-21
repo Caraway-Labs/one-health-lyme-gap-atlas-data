@@ -57,12 +57,12 @@ def snapshot(now="2026-09-01T00:00:00Z"):
     )
 
 
-def test_exact_pair_is_expired_at_30_days_and_requires_both_stores():
+def test_exact_pair_is_eligible_at_28_days_and_requires_both_stores():
     gate = snapshot()
     plan = module.synthetic_plan(gate, "2026-10-01T00:00:00Z")
     assert len(plan.copies) == 2
     with pytest.raises(PermissionError, match="EXACT_SYNTHETIC_PAIR"):
-        module.synthetic_plan(gate, "2026-09-30T23:59:59Z")
+        module.synthetic_plan(gate, "2026-09-28T23:59:59.999999Z")
     copies = gate.copies()
     gate.copies = lambda: copies[:1]
     with pytest.raises(PermissionError, match="EXACT_SYNTHETIC_PAIR"):

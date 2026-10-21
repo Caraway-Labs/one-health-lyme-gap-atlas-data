@@ -422,10 +422,10 @@ class FeedRawRetention:
     def require_lease(self, sha256: str) -> RawLease:
         lease = self.lease(sha256)
         # No bytes are loaded to establish expiry/authority.
-        from .intelligence_retention import _time
+        from .intelligence_retention import _time, cleanup_due_at
 
-        if _time(self.clock()) < _time(lease.captured_at) or _time(self.clock()) >= _time(
-            lease.expires_at
+        if _time(self.clock()) < _time(lease.captured_at) or _time(self.clock()) >= cleanup_due_at(
+            lease, self.environment
         ):
             raise PermissionError("INTELLIGENCE_RAW_EXPIRED")
         if not self._permitted(lease):

@@ -16,6 +16,18 @@ from urllib.parse import unquote, urlsplit
 from .intelligence_items import TOKEN, canonical_timestamp, identity_hash
 
 POLICY_VERSION = "intelligence-raw-30d-v1"
+PROD_CLEANUP_LEAD = timedelta(hours=48)
+
+
+def cleanup_due_at(lease: RawLease, environment: str) -> datetime:
+    """Maximum retention is unchanged; PROD EID is removed proactively."""
+    lease.validate()
+    deadline = _time(lease.expires_at)
+    if environment == "PROD" and lease.source_id == "cdc-eid-expedited":
+        return deadline - PROD_CLEANUP_LEAD
+    return deadline
+
+
 CopyKind = Literal[
     "raw_object",
     "checkpoint_payload",
@@ -196,7 +208,7 @@ def require_read(
     ):
         raise PermissionError("INTELLIGENCE_RAW_CLAIM_REQUIRED")
     instant = _time(now)
-    if instant < _time(lease.captured_at) or instant >= _time(lease.expires_at):
+    if instant < _time(lease.captured_at) or instant >= cleanup_due_at(lease, copy.environment):
         raise PermissionError("INTELLIGENCE_RAW_EXPIRED")
     if not permitted(lease):
         raise PermissionError("INTELLIGENCE_RAW_RIGHTS_REQUIRED")
@@ -250,9 +262,9 @@ def plan_cleanup(
                 or lease.source_id != claim.source_id
             ):
                 raise PermissionError("INTELLIGENCE_RAW_CLAIM_REQUIRED")
-            # A shared physical copy is protected by every live claim, including
-            # claims from another source outside this exact cleanup scope.
-            if instant < _time(lease.expires_at):
+            # Every claim must reach its cleanup boundary. Unrelated sources and
+            # DEV retain their original expiry-only protection.
+            if instant < cleanup_due_at(lease, environment):
                 expired = False
         if expired:
             if any(not scope(claim) or claim.source_id not in source_ids for claim in claims):

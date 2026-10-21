@@ -24,7 +24,7 @@ from .intelligence_retention import (
 )
 from .migrations import (
     INTELLIGENCE_CLEANUP_MIGRATION,
-    PROD_INTELLIGENCE_CLEANUP_MIGRATION,
+    PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION,
     load_migrations,
 )
 
@@ -256,11 +256,11 @@ def verify_cleanup_handoff(factory: Callable[[], Any], environment: str) -> None
     """Fail closed on absent/partial ownership handoff before any raw mutation."""
     if environment not in {"DEV", "PROD"}:
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
-    version = "V143" if environment == "DEV" else "V150"
+    version = "V143" if environment == "DEV" else "V162"
     expected_migration = (
         INTELLIGENCE_CLEANUP_MIGRATION
         if environment == "DEV"
-        else PROD_INTELLIGENCE_CLEANUP_MIGRATION
+        else PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION
     )
     migration = next(item for item in load_migrations() if item.version == version)
     if migration.sha256 != expected_migration["sha256"]:
@@ -284,7 +284,8 @@ def verify_cleanup_handoff(factory: Callable[[], Any], environment: str) -> None
         cursor.execute(
             "SELECT MIGRATION_SHA256,PROCEDURE_BODY_SHA256,PROCEDURE_CREATED_ON,"
             "OWNER_ROLE,HANDOFF_REF,ATTESTED_BY,ATTESTED_AT "
-            "FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS LIMIT 2"
+            "FROM GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS "
+            f"WHERE MIGRATION_SHA256='{migration.sha256}' LIMIT 2"
         )
         attestations = cursor.fetchall()
         if len(attestations) != 1:

@@ -76,3 +76,17 @@ implemented by this extension.** DATA #135 must cover all raw XML objects,
 resume paths. A304 or retry must not renew an old capture. Scoped cleanup/audit,
 cache invalidation, immutable capture deadlines and restart/expiry tests remain
 mandatory before feed deployment. No90daymetadata deletion.
+
+## PROD operational deadline safeguard (DATA #680)
+
+The October 20 owner retention decision permits standard Snowflake platform
+Time Travel/Fail-safe recovery. Active Snowflake checkpoint and Spaces RSS raw
+copies must be removed no later than successful capture + 30 days. For the
+fixed PROD EID pilot, proactive cleanup and raw I/O cutoff occur 48 hours before
+that immutable maximum; DEV and other-source policy boundaries are unchanged.
+The same cutoff gates raw read/write, replay, checkpoint resave and conditional
+reuse, preventing a cleaned copy from being recreated under an old lease.
+V162 is a separately reviewed forward migration; historical leases and V150 are
+not rewritten. This correction grants no execution or source activation.
+[Operational cadence/failure acceptance](../../../operations/intelligence-proactive-cleanup-prod.md)
+requires intended-role physical proof and separately approved daily execution.
