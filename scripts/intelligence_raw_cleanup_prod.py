@@ -177,10 +177,13 @@ def dry_run(path: Path) -> None:
         raise PermissionError("INTELLIGENCE_RAW_OBJECT_INSPECTION_UNAVAILABLE") from None
     payloads = inspection_query(
         "SELECT COUNT(*) AS N,COUNT_IF(payload:raw_lease_sha256::VARCHAR="
-        f"'{object_copy.lease_sha256}') AS MATCHED FROM GOVERNANCE.INGESTION_RUN_PAYLOADS "
+        f"'{object_copy.lease_sha256}') AS MATCHED,COUNT_IF("
+        "OCTET_LENGTH(TRY_BASE64_DECODE_BINARY(payload:xml_base64::VARCHAR))>0 "
+        f"AND payload:artifact_sha256::VARCHAR='{SYNTHETIC_SHA}') AS RAW_BYTES "
+        "FROM GOVERNANCE.INGESTION_RUN_PAYLOADS "
         f"WHERE ingestion_run_id='{SYNTHETIC_RUN}'"
     )
-    if payloads != [{"N": 1, "MATCHED": 1}] or not object_present:
+    if payloads != [{"N": 1, "MATCHED": 1, "RAW_BYTES": 1}] or not object_present:
         raise PermissionError("INTELLIGENCE_RAW_SYNTHETIC_BYTES_REQUIRED")
     if synthetic_plan(inspection_snapshot(), now) != plan:
         raise PermissionError("INTELLIGENCE_RAW_PLAN_CHANGED")

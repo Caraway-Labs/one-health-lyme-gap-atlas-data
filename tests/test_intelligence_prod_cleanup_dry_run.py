@@ -132,7 +132,8 @@ def test_snapshot_rejects_tampered_or_duplicate_documents(monkeypatch):
         module.inspection_snapshot()
 
 
-def test_dry_run_reads_pair_without_writes_and_does_not_overwrite(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("raw_bytes", [0, 1])
+def test_dry_run_requires_raw_bytes_and_never_overwrites(monkeypatch, tmp_path, capsys, raw_bytes):
     gate = snapshot()
     queries = []
 
@@ -148,7 +149,7 @@ def test_dry_run_reads_pair_without_writes_and_does_not_overwrite(monkeypatch, t
                     "W": module.WAREHOUSE,
                 }
             ]
-        return [{"N": 1, "MATCHED": 1}]
+        return [{"N": 1, "MATCHED": 1, "RAW_BYTES": raw_bytes}]
 
     events = []
     client = SimpleNamespace(
@@ -160,6 +161,12 @@ def test_dry_run_reads_pair_without_writes_and_does_not_overwrite(monkeypatch, t
     monkeypatch.setenv("INTELLIGENCE_CLEANUP_SPACES_ACCESS_KEY_ID", "test-only")
     monkeypatch.setenv("INTELLIGENCE_CLEANUP_SPACES_SECRET_ACCESS_KEY", "test-only")
     path = tmp_path / "plan.json"
+    if not raw_bytes:
+        with pytest.raises(PermissionError, match="SYNTHETIC_BYTES_REQUIRED"):
+            module.dry_run(path)
+        assert not path.exists()
+        assert capsys.readouterr().out == ""
+        return
     module.dry_run(path)
     result = json.loads(capsys.readouterr().out)
     assert result["copy_count"] == 2

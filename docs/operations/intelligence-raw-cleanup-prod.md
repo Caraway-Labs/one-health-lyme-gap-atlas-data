@@ -26,11 +26,15 @@ uv run python scripts/intelligence_raw_cleanup_prod.py dry-run --plan-file '<pri
 ```
 
 This action uses bounded Snowflake `SELECT`, Spaces exact-key version listing
-and `HEAD`, with no guard `UPDATE`, approval insert, audit insert, payload read,
+and `HEAD`, with no guard `UPDATE`, approval insert, audit insert, raw payload retrieval,
 object creation, or deletion. It requires exactly the named synthetic capture's
 two expired physical copies: one checkpoint and one Spaces object, bound to the
 same immutable 30-day lease. Any additional eligible EID copy, missing copy,
-live claim, mismatched payload lease, denied access, or inventory drift fails.
+live claim, mismatched payload lease, missing/invalid/empty base64 bytes,
+mismatched artifact hash, denied access, or inventory drift fails. Snowflake
+evaluates raw-byte presence server-side and returns only counts; this is not a
+content checksum proof. The separately authorized fixture creator must verify
+the actual bytes' SHA256 in both stores against the reviewed synthetic hash.
 An empty inventory is a blocker, not a passing zero-target proof. The plan file
 is created exclusively and must never be committed or attached publicly. On
 Windows, the operator must restrict the parent directory's ACL; POSIX mode
