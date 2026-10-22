@@ -254,6 +254,7 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "diagnose_v103_state",
         "diagnose_legacy_dev_reconciliations",
         "diagnose_v143_cleanup_owner",
+        "report_dev_cleanup_ownership",
         "diagnose_query_id",
         "diagnose_climate_dev",
         "diagnose_climate_views",
