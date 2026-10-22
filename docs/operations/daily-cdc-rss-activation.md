@@ -31,7 +31,7 @@ The encrypted existing component configuration does not prove the actual Snowfla
 Before any deployment, require either actual existing service identity proof or explicit owner approval for the following new credential placement. The workflow and deployment helper fail closed without the separate placement flag; an agent must not infer approval or submit native human approvals.
 
 Source component: `approved-source-ingestion`, app `5d8966ed-d152-4a78-bdd6-14553dbc1483`.
-New recipients: temporary `intelligence-feed-daily-preflight`, then permanent `intelligence-feed-daily`.
+New recipients: temporary `intelligence-feed-preflight`, then permanent `intelligence-feed-daily`. The temporary name fits DigitalOcean's 32-character component-name limit; the originally proposed `intelligence-feed-daily-preflight` was rejected before any application change in run 39697461617. This shortens the same approved temporary recipient's name without changing its credential scope, command or purpose.
 Existing credential key names copied in memory only: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY_B64`, `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SPACES_ACCESS_KEY_ID`, `SPACES_SECRET_ACCESS_KEY`. Existing non-secret connection/storage scope is copied with them. No keys are minted, logged, written to disk or granted new database privileges.
 Expected role/database/warehouse: `OH_LYME_PROD_RUNTIME` / `ONE_HEALTH_LYME_GAP_ATLAS_PROD` / `OH_LYME_PROD_INGEST_XS_WH`; canonical runtime verifies the intended service user as well. Failure must prevent scheduled activation.
 
