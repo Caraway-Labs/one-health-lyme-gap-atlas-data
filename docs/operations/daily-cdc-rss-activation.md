@@ -38,3 +38,19 @@ Expected role/database/warehouse: `OH_LYME_PROD_RUNTIME` / `ONE_HEALTH_LYME_GAP_
 ## Validation status
 
 Draft. Focused tests, type checks, full hosted CI and independent technical review remain in progress. No production readiness or activation claim is made by this document.
+# Safe rejected-update diagnostics
+
+The deployment helper continues to raise on a nonzero `doctl apps update` result;
+it does not retry or proceed to activation. Alongside status, request ID and the
+existing category, it emits bounded validation metadata decoded from doctl JSON
+stdout or stderr. Schema field names must match a fixed schema vocabulary;
+numeric indices become `[]`. Reason tokens come from a fixed vocabulary and
+unknown content becomes `OTHER`. These tokens are a diagnostic summary, not a
+provider quotation or proof of root cause.
+
+App/component environment values and the active DigitalOcean token are collected
+only in memory for redaction before producing that summary. Raw errors, specs,
+credential values and request traces must not be logged or uploaded as artifacts.
+The regression fixture is synthetic output from pinned doctl 1.160.1 against a
+loopback mock, with a synthetic token and secret canary; it is not a provider
+response or a production verification receipt.
