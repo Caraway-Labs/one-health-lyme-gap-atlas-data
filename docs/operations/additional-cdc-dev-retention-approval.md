@@ -23,13 +23,49 @@ pending/outcome audit and already-absent semantics are preserved. The executor
 receives no direct DELETE. No plan is approved and no deletion is performed by
 the migration. No schedule, service user, credential or role is added.
 
+Review5608497093 caught an unapproved PROD 48-hour threshold in the initial
+preparation before deployment. The corrected DEV SQL requires expiry at or
+before CURRENT_TIMESTAMP and blocks any shared claim expiring after now. The
+old migration/body hashes are superseded; no early DEV cleanup is authorized.
+
 Migration SHA256:
-`d7b889702c87e89bd3ac7a1dc7ab89825b54e84897dd307f216054ee3df68aee`
+`a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a`
 
 Procedure body SHA256:
-`5f927aad5c15b3c5a4141b31bcbc84b7c41abb6f559598367ad55d05be459d4d`
+`0bb15e8c6e0baa89f66dd24d260534a20aa26a7e6870a3abb023d1c48087a097`
 
 ## Exact approvals before execution
+
+Live current owners are **not yet verified** by the available role-filtered
+metadata. The following is the expected V143 state and the exact proposed
+transition; SECURITYADMIN/migration-owner readback must confirm it before any
+ownership or grant statement. Stop on a different owner, overload or grantee.
+
+| Fully qualified DEV object | Expected current owner (unverified) | Temporary owner | Final owner |
+| --- | --- | --- | --- |
+| ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(VARCHAR,VARCHAR,VARCHAR,VARCHAR) | OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER | OH_LYME_DEV_MIGRATION_DEPLOYER | OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER |
+| ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_EXPECTED_HANDOFF_V | OH_LYME_DEV_MIGRATION_DEPLOYER | OH_LYME_DEV_MIGRATION_DEPLOYER | OH_LYME_DEV_MIGRATION_DEPLOYER |
+
+REVOKE CURRENT GRANTS removes executor procedure USAGE during preparation;
+CREATE OR REPLACE does not copy grants. Final procedure grants must be exactly
+OWNERSHIP to the purge-owner and USAGE to
+OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP, with no executor grant option or other
+grantee. V166 restores SELECT on the expected-handoff view to the existing
+purge-owner. The handoff appends one independently approved row to
+ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS;
+that table's owner/grants do not change.
+
+Pause duration has not been measured: it is the staffed window from preparation
+through V166, verified handoff/attestation and compatible runtime deployment.
+The bounded migration invocation does not bound human handoff or recovery time.
+Throughout that window all DEV raw cleanup, including EID, remains unavailable.
+No PROD job, published/normalized article or API read is changed by these steps.
+
+No broader role/table privilege, direct executor DELETE, grant option, user,
+credential or purge-owner role assignment is introduced. There **is** a
+persistent source-scope expansion of the existing owner-rights procedure to
+MMWR/Newsroom, still restricted to one approved expired-copy plan at a time.
+Restoring the same executor USAGE does not make that scope expansion temporary.
 
 1. **Code review/merge:** approve this PR's exact current head after quality and
    independent review. Merge alone does not run migration, cleanup or ingestion.
@@ -46,7 +82,7 @@ Procedure body SHA256:
    SHA, environment dev, with only the following expected pending array:
 
    ```json
-   [{"version":"V166","filename":"V166__dev_additional_cdc_feed_cleanup.sql","sha256":"d7b889702c87e89bd3ac7a1dc7ab89825b54e84897dd307f216054ee3df68aee"}]
+   [{"version":"V166","filename":"V166__dev_additional_cdc_feed_cleanup.sql","sha256":"a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a"}]
    ```
 
    All diagnostic/registration/fixture modes stay false. The protected batch is
