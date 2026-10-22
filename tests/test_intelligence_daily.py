@@ -206,6 +206,30 @@ def test_platform_error_exposes_only_closed_metadata(detail, category):
     )
 
 
+def test_platform_json_error_stdout_matches_actual_doctl_channel():
+    m = script("deploy_intelligence_daily")
+    # Actual doctl v1.160.1 local mock response: JSON stdout, empty stderr.
+    output = json.dumps(
+        {
+            "errors": [
+                {
+                    "detail": "PUT https://api.digitalocean.com/v2/apps/example: 403 "
+                    '(request "c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0") not authorized '
+                    "SNOWFLAKE_PRIVATE_KEY_B64=private-key-secret EV[encrypted-secret]"
+                }
+            ]
+        }
+    )
+    assert m.update_failure("", output) == (
+        "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME status=403 "
+        "request_id=c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0 category=AUTHORIZATION_REJECTED"
+    )
+    for unexpected in ("private-key-secret", "[]", '{"errors":[null,{}, {"detail":123}]}'):
+        assert m.update_failure("", unexpected).endswith(
+            "status=UNKNOWN request_id=UNKNOWN category=UNCLASSIFIED"
+        )
+
+
 def activation_connection():
     con = sqlite3.connect(":memory:")
     con.execute(
