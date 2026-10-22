@@ -79,6 +79,15 @@ PROD bounds are rejected by both composition and direct store construction.
 
 ## Approvals and execution order
 
+Operational continuation and finalized owner-bound DEV review receipts are in
+`additional-cdc-dev-operational-gates-2026-10-22.md`. The initial pending
+candidate documents remain historical proposal evidence. Final manual DEV
+documents and checksummed native/retention receipts now exist separately; they
+are not registered or loaded by the live runner before operational review.
+V069/V135/V142/V143 live DEV ledger hashes match committed migration bytes.
+Source-scoped DEV cleanup extension and actual runtime/accounting proof remain
+prerequisites. No new policy or US$5 allowance approval is outstanding.
+
 1. **Code merge:** review the draft Data implementation, current quality and
    independent findings. Merge integrates code only. Actual current
    `.github/workflows/quality.yml` deploys DEV only for explicit

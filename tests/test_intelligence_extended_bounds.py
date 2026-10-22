@@ -119,6 +119,9 @@ def test_complete_large_native_fixture_needs_explicit_extended_byte_bound():
     assert channel is not None
     for node in packet["samples"][0]["native_metadata"]["feed"]:
         channel.insert(0, _element(node))
+    for entry in channel.findall("item"):
+        ET.SubElement(entry, "description").text = "Publisher-provided summary. " * 10
+        ET.SubElement(entry, "category").text = "Tick borne disease"
     raw = ET.tostring(root)
     payload["xml_base64"] = base64.b64encode(raw).decode()
     payload["artifact_sha256"] = hashlib.sha256(raw).hexdigest()
@@ -128,7 +131,16 @@ def test_complete_large_native_fixture_needs_explicit_extended_byte_bound():
         source_sha256=identity_hash(source),
         inventory=frozenset(inventory_feed(raw, source)),
         permitted_paths=frozenset(
-            {"feed/language", "feed/link", "feed/title", "item/link", "item/pubDate", "item/title"}
+            {
+                "feed/language",
+                "feed/link",
+                "feed/title",
+                "item/link",
+                "item/pubDate",
+                "item/title",
+                "item/description",
+                "item/category",
+            }
         ),
         published_path="item/pubDate",
         published_format="rfc822",
@@ -143,6 +155,12 @@ def test_complete_large_native_fixture_needs_explicit_extended_byte_bound():
     assert records[-1]["canonical_url"] == "https://example.org/article/2342"
     assert all(
         row["excerpt"] is None and row["publisher_metadata"]["media"] == [] for row in records
+    )
+    assert all(
+        row["publisher_metadata"]["description"]["text"]
+        == ("Publisher-provided summary. " * 10).strip()
+        and row["publisher_metadata"]["categories"] == ["Tick borne disease"]
+        for row in records
     )
     with pytest.raises(PermissionError, match="PILOT_NORMALIZED_LIMIT"):
         PilotFeedAdapter(

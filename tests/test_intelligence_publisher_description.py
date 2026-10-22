@@ -25,6 +25,11 @@ def receipt(raw: bytes):
         (b"<description/>", "", "empty"),
         (b"<description>   </description>", "", "empty"),
         (
+            b"<description><![CDATA[Literal &amp;lt; label]]></description>",
+            "Literal &lt; label",
+            "present",
+        ),
+        (
             b"<description><![CDATA[<p>Publisher <b>summary</b>.</p>"
             b"<script>bad()</script><img src='https://example.org/a'>]]></description>",
             "Publisher summary .",
@@ -55,3 +60,10 @@ def test_description_is_revision_content_and_not_silently_truncated():
     huge = RAW.replace(b"Rights-restricted article text", b"x" * 4097)
     with pytest.raises(ValueError, match="INTELLIGENCE_NATIVE_FIELD_LIMIT"):
         records(huge, receipt=receipt(huge))
+
+
+def test_description_exact_field_bound_survives_writer_reconstruction():
+    raw = RAW.replace(b"Rights-restricted article text", b"x" * 4096)
+    document = records(raw, receipt=receipt(raw))[0]
+    verify_native_item(document, receipt(raw), approved())
+    assert document["publisher_metadata"]["description"]["text"] == "x" * 4096
