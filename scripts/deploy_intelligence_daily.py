@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import re
 import subprocess
 from typing import Any
@@ -132,7 +133,174 @@ def verify_preflight(deployment: dict[str, Any], digest: str) -> None:
         raise PermissionError("INTELLIGENCE_DAILY_SERVICE_PREFLIGHT_REQUIRED")
 
 
-def update_failure(stderr: str, stdout: str = "") -> str:
+# Only schema identifiers may leave the process, never provider-supplied values.
+SCHEMA_WORDS = frozenset(
+    [
+        "spec",
+        "jobs",
+        "envs",
+        "name",
+        "value",
+        "key",
+        "type",
+        "scope",
+        "image",
+        "digest",
+        "registry",
+        "registry_type",
+        "repository",
+        "instance_count",
+        "instance_size_slug",
+        "kind",
+        "run_command",
+        "schedule",
+        "cron",
+        "time_zone",
+        "region",
+        "features",
+        "ingress",
+        "services",
+        "workers",
+        "functions",
+        "databases",
+        "domains",
+        "alerts",
+        "health_check",
+        "build_command",
+        "dockerfile_path",
+        "source_dir",
+        "github",
+        "branch",
+        "repo",
+        "tag",
+        "deploy_on_push",
+    ]
+)
+REASON_WORDS = frozenset(
+    [
+        "error",
+        "errors",
+        "validating",
+        "validation",
+        "app",
+        "spec",
+        "field",
+        "body",
+        "should",
+        "be",
+        "at",
+        "most",
+        "least",
+        "chars",
+        "long",
+        "required",
+        "invalid",
+        "unsupported",
+        "unknown",
+        "duplicate",
+        "name",
+        "not",
+        "found",
+        "cannot",
+        "must",
+        "empty",
+        "missing",
+        "encrypted",
+        "secret",
+        "env",
+        "environment",
+        "value",
+        "before",
+        "created",
+        "update",
+        "component",
+        "job",
+        "image",
+        "registry",
+        "access",
+        "denied",
+        "forbidden",
+        "authorized",
+        "authenticate",
+        "permission",
+        "quota",
+        "limit",
+        "exceeded",
+        "does",
+        "exist",
+        "unable",
+        "incompatible",
+        "valid",
+        "allowed",
+        "only",
+        "one",
+        "of",
+    ]
+)
+
+
+def validation_metadata(stderr, stdout="", sensitive_values=()):
+    """Keep schema structure and a bounded fixed-vocabulary reason, not raw output.
+
+    Callers must supply *all* spec env values and the active access token as
+    sensitive_values. This proposal does not change the update invocation.
+    """
+    chunks = [stderr]
+    malformed = False
+    try:
+        data = json.loads(stdout) if stdout.strip() else None
+    except ValueError:
+        data = None
+        malformed = True
+    if isinstance(data, dict) and isinstance(data.get("errors"), list):
+        chunks.extend(
+            e["detail"]
+            for e in data["errors"][:16]
+            if isinstance(e, dict) and isinstance(e.get("detail"), str)
+        )
+    message = "\n".join(chunks)
+    status = re.search(r"https://api\.digitalocean\.com/[^\s:]+: ([1-5][0-9]{2})\b", message)
+    request = re.search(
+        r'\(request "([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"\)', message
+    )
+    # Collect only protocol metadata before redaction; provider details remain private.
+    result = {
+        "status": status[1] if status else "UNKNOWN",
+        "request_id": request[1].lower() if request else "UNKNOWN",
+        "malformed_json": malformed,
+    }
+    for value in sorted(
+        {v for v in sensitive_values if isinstance(v, str) and v}, key=len, reverse=True
+    ):
+        message = message.replace(value, " REDACTED ")
+    # Strip the transport envelope so IDs/URLs cannot become reason tokens.
+    message = re.sub(r'https://\S+|\(request "[^"]*"\)', " REDACTED ", message)
+    fields = []
+    for match in re.finditer(r"\bfield\s+[\"']([^\"'\r\n]{1,180})[\"']", message):
+        parts = re.split(r"[.\[\]]+", match[1])
+        if all(p in SCHEMA_WORDS or p.isdecimal() or not p for p in parts):
+            normalized = ".".join("[]" if p.isdecimal() else p for p in parts if p)
+            if normalized not in fields:
+                fields.append(normalized)
+    # This is deliberately labeled a token summary, never a quotation or root cause.
+    # Unknown words collapse to one marker; no raw substring is copied to output.
+    tokens = []
+    for word in re.findall(r"[A-Za-z_]+|[0-9]+", message.lower()):
+        token = word if word in REASON_WORDS else "OTHER"
+        if token != "OTHER" or not tokens or tokens[-1] != "OTHER":
+            tokens.append(token)
+        if len(tokens) == 96:
+            break
+    result.update(
+        validation_fields=fields[:16],
+        reason_tokens=tokens,
+        raw_detail_withheld=True,
+        root_cause_established=False,
+    )
+    return result
+
+
+def update_failure(stderr: str, stdout: str = "", sensitive_values=()) -> str:
     """Expose only closed metadata; provider output can contain credential values."""
     try:
         output = json.loads(stdout)
@@ -161,7 +329,28 @@ def update_failure(stderr: str, stdout: str = "") -> str:
         "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME"
         f" status={status.group(1) if status else 'UNKNOWN'}"
         f" request_id={request.group(1) if request else 'UNKNOWN'} category={category}"
+        " validation="
+        + json.dumps(validation_metadata(stderr, stdout, sensitive_values), sort_keys=True)
     )
+
+
+def diagnostic_sensitive_values(spec):
+    """Collect values for redaction only; never return them to a log or artifact."""
+    values = [os.environ.get("DIGITALOCEAN_ACCESS_TOKEN", "")]
+
+    def visit(node):
+        if isinstance(node, dict):
+            envs = node.get("envs")
+            if isinstance(envs, list):
+                values.extend(e.get("value", "") for e in envs if isinstance(e, dict))
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(spec)
+    return values
 
 
 def main() -> None:
@@ -189,7 +378,7 @@ def main() -> None:
         timeout=1800,
     )
     if r.returncode:
-        raise RuntimeError(update_failure(r.stderr, r.stdout))
+        raise RuntimeError(update_failure(r.stderr, r.stdout, diagnostic_sensitive_values(spec)))
     current = get(["apps", "get", APP_ID])
     before = {j["name"]: j for j in app["spec"]["jobs"] if j["name"] in BASE}
     after = {j["name"]: j for j in current["spec"]["jobs"] if j["name"] in BASE}
