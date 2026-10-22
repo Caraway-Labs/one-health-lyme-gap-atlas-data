@@ -31,6 +31,74 @@ OBJECT_SQL = {
 }
 ALLOWED_SQL = frozenset({IDENTITY_SQL, *OBJECT_SQL.values()})
 Query = Callable[[str], list[dict[str, Any]]]
+EXPECTED_OWNERS = {
+    "migration_deployer": ROLE,
+    "purge_owner": "OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER",
+}
+
+
+class QueryFailure(RuntimeError):
+    def __init__(self, category: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("DEV_OWNERSHIP_QUERY_UNAVAILABLE")
+        self.details = {
+            "category": category,
+            "error_code": None,
+            "sqlstate": None,
+            "query_id": None,
+            "meaning": "Diagnostic failed; no access conclusion can be drawn.",
+            **(details or {}),
+        }
+
+
+def cli_error_details(stdout: str, stderr: str) -> dict[str, Any]:
+    """Keep only validated identifiers and fixed explanations, never provider prose."""
+    text = (stderr + "\n" + stdout)[:16384]
+    match = re.search(r"\b([0-9]{6})\s*\(([A-Z0-9]{5})\)", text)
+    code, state = match.groups() if match else (None, None)
+    query_match = re.search(
+        r"(?i)\b(?:query[_ ]?id|sfqid)\s*[:=]\s*"
+        r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b",
+        text,
+    )
+    query_id = query_match.group(1).lower() if query_match else None
+    for candidate in (stderr, stdout):
+        try:
+            payload = json.loads(candidate) if len(candidate) <= 16384 else None
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        raw_code = payload.get("errno", payload.get("error_code"))
+        if type(raw_code) is int and 0 <= raw_code <= 999999:
+            raw_code = f"{raw_code:06d}"
+        if isinstance(raw_code, str) and re.fullmatch(r"[0-9]{6}", raw_code):
+            code = raw_code
+        raw_state = payload.get("sqlstate")
+        if isinstance(raw_state, str) and re.fullmatch(r"[A-Z0-9]{5}", raw_state):
+            state = raw_state
+        raw_id = payload.get("sfqid", payload.get("query_id"))
+        if isinstance(raw_id, str) and re.fullmatch(
+            r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", raw_id
+        ):
+            query_id = raw_id.lower()
+    meaning = "CLI query failed; provider message withheld; cause remains unresolved."
+    if code == "002003":
+        meaning = "Object does not exist or is not authorized; these causes are not distinguished."
+    elif code == "001003":
+        meaning = "SQL compilation/syntax error; inspect the fixed query formulation."
+    elif state == "42501":
+        meaning = "Insufficient privilege reported; this does not authorize a grant or role change."
+    elif state and state.startswith("08"):
+        meaning = "Connection/session error; object visibility was not established."
+    return {"error_code": code, "sqlstate": state, "query_id": query_id, "meaning": meaning}
+
+
+def failure_details(error: Exception) -> dict[str, Any]:
+    return (
+        error.details
+        if isinstance(error, QueryFailure)
+        else QueryFailure("UNEXPECTED_ERROR").details
+    )
 
 
 def validate_dispatch(inputs: Any, ref: str) -> None:
@@ -65,6 +133,7 @@ def object_report(target: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             "reason": "RESPONSE_LIMIT",
             "owner": None,
             "grants": [],
+            "owner_matches_expected": {label: None for label in EXPECTED_OWNERS},
         }
     grants = []
     valid = True
@@ -97,6 +166,10 @@ def object_report(target: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "status": "VISIBLE" if visible else "UNKNOWN",
         "reason": "CURRENT_METADATA" if visible else "PARTIAL_OR_NOT_VISIBLE",
         "owner": owners[0] if len(owners) == 1 else None,
+        "owner_matches_expected": {
+            label: owners[0] == expected if visible else None
+            for label, expected in EXPECTED_OWNERS.items()
+        },
         "grants": grants,
     }
 
@@ -115,8 +188,9 @@ def report(query: Query) -> dict[str, Any]:
                 ("WAREHOUSE_NAME", WAREHOUSE),
             )
         }
-    except Exception:
+    except Exception as error:
         result["reason"] = "IDENTITY_UNAVAILABLE"
+        result["error"] = failure_details(error)
         return result
     if not all(result["identity_matches"].values()):
         result["reason"] = "IDENTITY_MISMATCH"
@@ -127,7 +201,7 @@ def report(query: Query) -> dict[str, Any]:
             if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
                 raise ValueError("INVALID_METADATA_SHAPE")
             result["objects"].append(object_report(target, rows))
-        except Exception:
+        except Exception as error:
             result["objects"].append(
                 {
                     "object": target,
@@ -135,6 +209,8 @@ def report(query: Query) -> dict[str, Any]:
                     "reason": "QUERY_UNAVAILABLE",
                     "owner": None,
                     "grants": [],
+                    "owner_matches_expected": {label: None for label in EXPECTED_OWNERS},
+                    "error": failure_details(error),
                 }
             )
     result["status"] = (
@@ -165,18 +241,35 @@ def snow_query(config_file: Path, sql: str) -> list[dict[str, Any]]:
             check=False,
             timeout=15,
         )
-        if completed.returncode or len(completed.stdout.encode()) > 1_048_576:
-            raise ValueError("QUERY_UNAVAILABLE")
-        rows = json.loads(completed.stdout)
+        if completed.returncode:
+            raise QueryFailure("CLI_ERROR", cli_error_details(completed.stdout, completed.stderr))
+        if len(completed.stdout.encode()) > 1_048_576:
+            raise QueryFailure("RESPONSE_LIMIT", {"meaning": "Response exceeded the 1 MiB bound."})
+        try:
+            rows = json.loads(completed.stdout)
+        except ValueError:
+            raise QueryFailure("INVALID_JSON", {"meaning": "CLI returned invalid JSON."}) from None
         if (
             not isinstance(rows, list)
             or not all(isinstance(row, dict) for row in rows)
             or len(rows) > 64
         ):
-            raise ValueError("RESPONSE_LIMIT_OR_SHAPE")
+            raise QueryFailure(
+                "RESPONSE_LIMIT_OR_SHAPE",
+                {"meaning": "Unexpected metadata shape or more than 64 rows."},
+            )
         return rows
+    except QueryFailure:
+        raise
+    except subprocess.TimeoutExpired:
+        raise QueryFailure(
+            "TIMEOUT", {"meaning": "The fixed query did not complete within 15 seconds."}
+        ) from None
     except Exception:
-        raise RuntimeError("DEV_OWNERSHIP_QUERY_UNAVAILABLE") from None
+        raise QueryFailure(
+            "CLI_EXECUTION_ERROR",
+            {"meaning": "CLI execution/response processing failed; SQL completion is unverified."},
+        ) from None
 
 
 def main() -> int:

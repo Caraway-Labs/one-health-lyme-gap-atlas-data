@@ -166,3 +166,103 @@ def test_other_mutating_jobs_are_disabled_for_report_mode():
     conditions = [line.strip() for line in workflow.splitlines() if line.startswith("    if:")]
     assert len(conditions) == 4
     assert all("inputs.report_dev_cleanup_ownership != true" in line for line in conditions[1:])
+
+
+def test_cli_error_keeps_only_validated_identifiers_and_fixed_meaning():
+    query_id = "00000000-0000-0000-0000-000000000001"
+    result = diagnostic.cli_error_details(
+        "SECRET_STDOUT", f"002003 (02000): SECRET SQL TEXT query_id: {query_id}"
+    )
+    assert result["error_code"] == "002003" and result["sqlstate"] == "02000"
+    assert result["query_id"] == query_id
+    assert "not distinguished" in result["meaning"]
+    assert "SECRET" not in json.dumps(result)
+
+
+def test_structured_error_does_not_emit_provider_message_or_extra_fields():
+    result = diagnostic.cli_error_details(
+        json.dumps({"errno": 1003, "sqlstate": "42000", "message": "SECRET", "token": "SECRET"}),
+        "",
+    )
+    assert result["error_code"] == "001003" and result["sqlstate"] == "42000"
+    assert "syntax" in result["meaning"]
+    assert "SECRET" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"errno": "SECRET", "sqlstate": "SECRET", "sfqid": "SECRET"},
+        {"errno": True, "sqlstate": "***", "sfqid": "***"},
+        {"errno": -1, "sqlstate": "42000 SECRET", "sfqid": "query_id: SECRET"},
+    ],
+)
+def test_unvalidated_error_identifiers_are_absent(payload):
+    result = diagnostic.cli_error_details(json.dumps(payload), "")
+    assert result["error_code"] is None
+    assert result["sqlstate"] is None and result["query_id"] is None
+    assert "SECRET" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "owner,expected",
+    [
+        (diagnostic.ROLE, {"migration_deployer": True, "purge_owner": False}),
+        (
+            diagnostic.EXPECTED_OWNERS["purge_owner"],
+            {"migration_deployer": False, "purge_owner": True},
+        ),
+        ("OTHER_OWNER", {"migration_deployer": False, "purge_owner": False}),
+        ("***", {"migration_deployer": None, "purge_owner": None}),
+    ],
+)
+def test_owner_comparison_uses_observed_unambiguous_values_only(owner, expected):
+    result = diagnostic.object_report(diagnostic.VIEW, [grant("OWNERSHIP", owner)])
+    assert result["owner_matches_expected"] == expected
+
+
+def test_timeout_has_useful_safe_explanation_without_provider_output(monkeypatch):
+    def run(*args, **kwargs):
+        raise diagnostic.subprocess.TimeoutExpired("SECRET_COMMAND", 15, output="SECRET")
+
+    monkeypatch.setattr(diagnostic.subprocess, "run", run)
+    with pytest.raises(diagnostic.QueryFailure) as raised:
+        diagnostic.snow_query(Path("fixture"), diagnostic.IDENTITY_SQL)
+    assert raised.value.details["category"] == "TIMEOUT"
+    assert "15 seconds" in raised.value.details["meaning"]
+    assert "SECRET" not in json.dumps(raised.value.details)
+
+
+def test_denied_procedure_error_retained_while_view_still_reports():
+    def query(sql):
+        if sql == diagnostic.IDENTITY_SQL:
+            return identity()
+        if sql == diagnostic.OBJECT_SQL[diagnostic.PROCEDURE]:
+            raise diagnostic.QueryFailure(
+                "CLI_ERROR", diagnostic.cli_error_details("", "002003 (02000): SECRET")
+            )
+        return [grant("OWNERSHIP", diagnostic.ROLE)]
+
+    result = diagnostic.report(query)
+    assert result["status"] == "PARTIAL" and result["writes"] is False
+    assert result["objects"][0]["error"]["error_code"] == "002003"
+    assert result["objects"][1]["owner_matches_expected"]["migration_deployer"] is True
+    assert "SECRET" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "stdout,category", [("not-json SECRET", "INVALID_JSON"), ("[1]", "RESPONSE_LIMIT_OR_SHAPE")]
+)
+def test_invalid_success_payload_is_not_mislabeled_as_privilege_error(
+    monkeypatch, stdout, category
+):
+    monkeypatch.setattr(
+        diagnostic.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout=stdout, stderr=""),
+    )
+    with pytest.raises(diagnostic.QueryFailure) as raised:
+        diagnostic.snow_query(Path("fixture"), diagnostic.IDENTITY_SQL)
+    assert raised.value.details["category"] == category
+    assert raised.value.details["error_code"] is None
+    assert "SECRET" not in json.dumps(raised.value.details)

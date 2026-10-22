@@ -4,7 +4,7 @@ This report is separate from the historical V143 pre-handoff verifier. It does
 not require deployer ownership, one grant, the V143 body, or an empty attestation
 table. That verifier remains unchanged.
 
-The proposed `report_dev_cleanup_ownership` input uses the existing DEV migration
+The `report_dev_cleanup_ownership` input uses the existing DEV migration
 service connection, on main only. All other dispatch inputs must be disabled or
 empty. Validation runs before credential materialization; fixture/recovery jobs
 are excluded when report mode is selected. Report mode exits before deployment,
@@ -27,9 +27,24 @@ printed. Each query has a 15-second limit, a 1 MiB JSON/64-row response limit,
 and the process has a 60-second watchdog. Responses exceeding bounds are rejected.
 
 No grants, ownership changes, migration, purge, or source capture are included.
-The existing DEV_OWNER role could not SHOW GRANTS on either object (002003).
-This proposed existing-service route has not executed; its visibility remains
-unverified. If it is denied, report the exact object and stop; do not add grants
-or substitute a more privileged credential. Review and merge are required before
-any main-only workflow dispatch; dispatch capability is not currently available
-through the connected tool. Native environment gates remain applicable.
+A PARTIAL result leaves visibility unresolved; a successful view read does not
+establish procedure visibility. For denied or unavailable metadata, report the
+exact object and stop; do not add grants or substitute a more privileged
+credential. Changes require review and merge before execution through the
+main-only workflow. Native environment gates remain applicable.
+
+The diagnostic refinement keeps the same three statements and identity. Failures
+include a validated six-digit Snowflake error code, five-character SQLSTATE, and
+UUID query ID where the CLI supplies them. Provider messages, SQL text, command
+arguments, stdout/stderr, and unrelated JSON fields are never copied into the
+report. Only fixed explanations are emitted. In particular, 002003 remains
+ambiguous between an absent object and insufficient visibility; it cannot justify
+granting access. Timeout, invalid JSON, excessive response size, malformed rows,
+and local CLI failures are classified separately from database errors.
+
+For a valid, unambiguous observed owner only, `owner_matches_expected` records
+explicit equality against the documented migration-deployer and purge-owner
+roles. Missing, masked, ambiguous, or invalid metadata yields null comparisons.
+This does not recover or infer any value hidden by GitHub masking. Runtime
+verification must still use the reviewed workflow under the same existing role;
+this refinement does not run queries or alter access.
