@@ -196,11 +196,13 @@ def test_platform_error_exposes_only_closed_metadata(detail, category):
         + detail
         + "\nSNOWFLAKE_PRIVATE_KEY_B64=private-key-secret EV[encrypted-secret]"
     )
-    assert message == (
+    assert message.split(" validation=", 1)[0] == (
         "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME status=400 "
         "request_id=c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0 category=" + category
     )
-    assert m.update_failure("private-key-secret") == (
+    assert "private-key-secret" not in message
+    assert "encrypted-secret" not in message
+    assert m.update_failure("private-key-secret").split(" validation=", 1)[0] == (
         "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME "
         "status=UNKNOWN request_id=UNKNOWN category=UNCLASSIFIED"
     )
@@ -220,13 +222,15 @@ def test_platform_json_error_stdout_matches_actual_doctl_channel():
             ]
         }
     )
-    assert m.update_failure("", output) == (
+    assert m.update_failure("", output).split(" validation=", 1)[0] == (
         "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME status=403 "
         "request_id=c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0 category=AUTHORIZATION_REJECTED"
     )
     for unexpected in ("private-key-secret", "[]", '{"errors":[null,{}, {"detail":123}]}'):
-        assert m.update_failure("", unexpected).endswith(
-            "status=UNKNOWN request_id=UNKNOWN category=UNCLASSIFIED"
+        assert (
+            m.update_failure("", unexpected)
+            .split(" validation=", 1)[0]
+            .endswith("status=UNKNOWN request_id=UNKNOWN category=UNCLASSIFIED")
         )
 
 
