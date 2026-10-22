@@ -87,3 +87,26 @@ rejected before any update. Each existing job is copied unchanged, including its
 digest, command, schedule and environment. No new credential, permission or source
 scope is introduced. Both phases retain the existing single-attempt, no-retry
 behavior and native protected production approval.
+
+## Production-context validation only
+
+To isolate the local-versus-workflow credential context, the existing protected
+production job supports `intelligence_daily_validate_only=true` together with
+`intelligence_daily_only=true`. Set `daily_credential_placement_approved=false`;
+all other mutation modes must be false. This selects validation, not deployment.
+The native production gate, existing credential, permissions and concurrency
+group remain unchanged. Review the exact new main commit before dispatch.
+
+The helper accepts only the exact already DEV-verified failed-attempt image
+`sha256:3b3002e1fed2386b336fb14951e06e13a0ddecdfbde1d63945fcf0ca91149226`.
+It checks the unchanged six-job baseline and actual DEV digest, then makes two
+Propose requests: original digest control and verified digest. Both preserve the
+actual public sizing, command, schedule, image, feature and empty-ingress fields.
+No environment keys/values, encrypted references or private configuration enter
+the payload. Unknown or changed public structure fails closed before proposals.
+
+Only acceptance, redacted errors and a normalized-image comparison boolean are
+reported. Responses/specifications are not logged or saved. Final readback must
+confirm the app specification and active deployment are unchanged. No Update,
+deployment, source acquisition, SQL, image push or credential placement occurs.
+Passing Propose still does not establish Update-specific source resolution.
