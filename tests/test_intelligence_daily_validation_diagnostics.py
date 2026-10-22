@@ -300,6 +300,7 @@ def test_failed_update_still_calls_once_and_never_activates():
         m.main()
     get.assert_called_once()
     run.assert_called_once()
+    assert "--update-sources" in run.call_args.args[0]
     assert "sensitive-canary" not in str(exc.value)
     assert PROSE in str(exc.value)
 
