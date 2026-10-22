@@ -23,8 +23,9 @@ def image_update_steps():
     [(False, False, True), (True, False, False), (False, True, False), (True, True, False)],
 )
 @pytest.mark.parametrize("daily", [False, True])
+@pytest.mark.parametrize("validation", [False, True])
 def test_actual_image_update_condition_excludes_each_migration_only_mode(
-    intelligence, integrity, allowed, daily
+    intelligence, integrity, allowed, daily, validation
 ):
     steps = image_update_steps()
     assert len(steps) == 1
@@ -33,6 +34,7 @@ def test_actual_image_update_condition_excludes_each_migration_only_mode(
     clauses = expression.split(" && ")
     inputs = {
         "inputs.intelligence_daily_only": daily,
+        "inputs.intelligence_daily_validate_only": validation,
         "inputs.protected_intelligence_prerequisite": intelligence,
         "inputs.release_integrity_only": integrity,
     }
@@ -41,7 +43,7 @@ def test_actual_image_update_condition_excludes_each_migration_only_mode(
         name, operator, value = clause.strip("()").split()
         assert name in inputs and operator == "!=" and value == "true"
         results.append(inputs[name] is not True)
-    assert all(results) is (allowed and not daily)
+    assert all(results) is (allowed and not daily and not validation)
 
 
 def test_migration_path_keeps_exact_pending_set_and_protected_environment():
