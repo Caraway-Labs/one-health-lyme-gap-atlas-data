@@ -162,6 +162,9 @@ def test_daily_platform_render_preserves_six_jobs_and_reuses_only_required_refs(
     assert spec == old and pre["jobs"][:-1] == old["jobs"]
     assert pre["jobs"][-1]["name"] == m.CHECK and "schedule" not in pre["jobs"][-1]
     active = m.render(pre, "sha256:" + "a" * 64, "activate")
+    # DigitalOcean rejects component names longer than 32 characters.
+    assert len(m.NAME + "-preflight") > 32
+    assert all(1 <= len(j["name"]) <= 32 for s in (pre, active) for j in s["jobs"])
     assert active["jobs"][:-1] == old["jobs"] and active["jobs"][-1]["name"] == m.NAME
     assert active["jobs"][-1]["schedule"] == {"cron": "0 7 * * *", "time_zone": "America/Denver"}
     assert {e["key"] for e in active["jobs"][-1]["envs"]} == m.KEYS | {"INTELLIGENCE_DAILY_ENABLED"}

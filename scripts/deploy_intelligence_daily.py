@@ -11,7 +11,7 @@ from typing import Any
 
 APP_ID = "5d8966ed-d152-4a78-bdd6-14553dbc1483"
 NAME = "intelligence-feed-daily"
-CHECK = NAME + "-preflight"
+CHECK = "intelligence-feed-preflight"
 COMMAND = "/app/.venv/bin/atlas-data pipeline run-intelligence-daily"
 BASE = {
     "catalog-discovery",
