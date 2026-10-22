@@ -1,4 +1,4 @@
-"""Bounded, exact-plan DEV EID raw expiry; never a feed acquisition command."""
+"""Bounded, single-source DEV raw expiry; never a feed acquisition command."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import pilot_watchdog
 from lyme_gap_atlas_data.intelligence_items import TOKEN, canonical_json
 from lyme_gap_atlas_data.intelligence_raw_cleanup import (
+    DEV_CLEANUP_SOURCE_IDS,
     ObjectRawDelete,
     dev_cleanup_scope,
     execute_reviewed_dev_plan,
@@ -63,7 +64,7 @@ def verify_current_inventory(
         current = plan_cleanup(
             gate,
             environment="DEV",
-            source_ids=("cdc-eid-expedited",),
+            source_ids=plan.source_ids,
             now=plan.planned_at,
             scope=lambda copy: dev_cleanup_scope(copy, object_delete),
         )
@@ -115,6 +116,9 @@ def factory() -> Iterator[Any]:
 def run() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("plan", "approve", "execute"))
+    parser.add_argument(
+        "--source-id", choices=sorted(DEV_CLEANUP_SOURCE_IDS), default="cdc-eid-expedited"
+    )
     parser.add_argument("--plan-file", type=Path, required=True)
     parser.add_argument("--plan-sha256")
     parser.add_argument("--approval-ref")
@@ -156,7 +160,7 @@ def run() -> None:
                 plan = plan_cleanup(
                     gate,
                     environment="DEV",
-                    source_ids=("cdc-eid-expedited",),
+                    source_ids=(args.source_id,),
                     now=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                     scope=lambda copy: dev_cleanup_scope(copy, object_delete),
                 )
@@ -166,6 +170,8 @@ def run() -> None:
             print(json.dumps({"plan_sha256": plan.sha256, "copy_count": len(plan.copies)}))
             return
         plan = load_exact_plan(args.plan_file, args.plan_sha256)
+        if plan.source_ids != (args.source_id,):
+            raise PermissionError("INTELLIGENCE_RAW_PLAN_CHANGED")
         if args.action == "approve":
             approve(
                 factory,
