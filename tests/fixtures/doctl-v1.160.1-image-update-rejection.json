@@ -1,0 +1,1 @@
+{"errors":[{"detail":"PUT http://127.0.0.1:49198/v2/apps/00000000-0000-0000-0000-000000000000: 400 (request \"c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0\") App spec image reconciliation requires an explicit component source binding before update. credential=\"offline-private-key-canary\""}]}
