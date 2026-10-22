@@ -180,6 +180,32 @@ def test_missing_placement_approval_prevents_any_platform_access(monkeypatch):
         m.main()
 
 
+@pytest.mark.parametrize(
+    ("detail", "category"),
+    [
+        ("secret env value must not be encrypted", "ENCRYPTED_SECRET_REJECTED"),
+        ("should be at most 32 chars long", "COMPONENT_NAME_TOO_LONG"),
+        ("unknown provider error", "UNCLASSIFIED"),
+    ],
+)
+def test_platform_error_exposes_only_closed_metadata(detail, category):
+    m = script("deploy_intelligence_daily")
+    message = m.update_failure(
+        "Error: PUT https://api.digitalocean.com/v2/apps/example: 400 "
+        '(request "c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0") '
+        + detail
+        + "\nSNOWFLAKE_PRIVATE_KEY_B64=private-key-secret EV[encrypted-secret]"
+    )
+    assert message == (
+        "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME status=400 "
+        "request_id=c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0 category=" + category
+    )
+    assert m.update_failure("private-key-secret") == (
+        "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME "
+        "status=UNKNOWN request_id=UNKNOWN category=UNCLASSIFIED"
+    )
+
+
 def activation_connection():
     con = sqlite3.connect(":memory:")
     con.execute(

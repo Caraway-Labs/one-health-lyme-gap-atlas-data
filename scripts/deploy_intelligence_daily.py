@@ -132,6 +132,27 @@ def verify_preflight(deployment: dict[str, Any], digest: str) -> None:
         raise PermissionError("INTELLIGENCE_DAILY_SERVICE_PREFLIGHT_REQUIRED")
 
 
+def update_failure(stderr: str) -> str:
+    """Expose only closed metadata; provider output can contain credential values."""
+    status = re.search(r"https://api\.digitalocean\.com/[^\s:]+: ([1-5][0-9]{2})\b", stderr)
+    request = re.search(r'\(request "([0-9a-fA-F-]{36})"\)', stderr)
+    category = "UNCLASSIFIED"
+    for text, code in (
+        ("secret env value must not be encrypted", "ENCRYPTED_SECRET_REJECTED"),
+        ("should be at most 32 chars long", "COMPONENT_NAME_TOO_LONG"),
+        ("Unable to authenticate", "AUTHENTICATION_REJECTED"),
+        ("not authorized", "AUTHORIZATION_REJECTED"),
+    ):
+        if text in stderr:
+            category = code
+            break
+    return (
+        "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME"
+        f" status={status.group(1) if status else 'UNKNOWN'}"
+        f" request_id={request.group(1) if request else 'UNKNOWN'} category={category}"
+    )
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--image-digest", required=True)
@@ -157,7 +178,7 @@ def main() -> None:
         timeout=1800,
     )
     if r.returncode:
-        raise RuntimeError("INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME")
+        raise RuntimeError(update_failure(r.stderr))
     current = get(["apps", "get", APP_ID])
     before = {j["name"]: j for j in app["spec"]["jobs"] if j["name"] in BASE}
     after = {j["name"]: j for j in current["spec"]["jobs"] if j["name"] in BASE}
