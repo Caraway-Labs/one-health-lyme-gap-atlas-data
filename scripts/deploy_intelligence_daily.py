@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import json
 import os
 import re
 import subprocess
 from typing import Any
+from urllib.parse import quote, quote_plus
 
 APP_ID = "5d8966ed-d152-4a78-bdd6-14553dbc1483"
 NAME = "intelligence-feed-daily"
@@ -133,188 +135,153 @@ def verify_preflight(deployment: dict[str, Any], digest: str) -> None:
         raise PermissionError("INTELLIGENCE_DAILY_SERVICE_PREFLIGHT_REQUIRED")
 
 
-# Only schema identifiers may leave the process, never provider-supplied values.
-SCHEMA_WORDS = frozenset(
-    [
-        "spec",
-        "jobs",
-        "envs",
-        "name",
-        "value",
-        "key",
-        "type",
-        "scope",
-        "image",
-        "digest",
-        "registry",
-        "registry_type",
-        "repository",
-        "instance_count",
-        "instance_size_slug",
-        "kind",
-        "run_command",
-        "schedule",
-        "cron",
-        "time_zone",
-        "region",
-        "features",
-        "ingress",
-        "services",
-        "workers",
-        "functions",
-        "databases",
-        "domains",
-        "alerts",
-        "health_check",
-        "build_command",
-        "dockerfile_path",
-        "source_dir",
-        "github",
-        "branch",
-        "repo",
-        "tag",
-        "deploy_on_push",
-    ]
-)
-REASON_WORDS = frozenset(
-    [
-        "error",
-        "errors",
-        "validating",
-        "validation",
-        "app",
-        "spec",
-        "field",
-        "body",
-        "should",
-        "be",
-        "at",
-        "most",
-        "least",
-        "chars",
-        "long",
-        "required",
-        "invalid",
-        "unsupported",
-        "unknown",
-        "duplicate",
-        "name",
-        "not",
-        "found",
-        "cannot",
-        "must",
-        "empty",
-        "missing",
-        "encrypted",
-        "secret",
-        "env",
-        "environment",
-        "value",
-        "before",
-        "created",
-        "update",
-        "component",
-        "job",
-        "image",
-        "registry",
-        "access",
-        "denied",
-        "forbidden",
-        "authorized",
-        "authenticate",
-        "permission",
-        "quota",
-        "limit",
-        "exceeded",
-        "does",
-        "exist",
-        "unable",
-        "incompatible",
-        "valid",
-        "allowed",
-        "only",
-        "one",
-        "of",
-    ]
-)
+MAX_ERROR_INPUT = 131072
+MAX_ERROR_MESSAGES = 8
+MAX_ERROR_MESSAGE = 2048
+MAX_ERROR_TOTAL = 8192
 
 
-def validation_metadata(stderr, stdout="", sensitive_values=()):
-    """Keep schema structure and a bounded fixed-vocabulary reason, not raw output.
-
-    Callers must supply *all* spec env values and the active access token as
-    sensitive_values. This proposal does not change the update invocation.
-    """
-    chunks = [stderr]
-    malformed = False
+def _error_channel_messages(channel: str) -> list[str]:
+    """Decode each CLI channel once; never stringify arbitrary JSON/specs."""
+    if not channel.strip():
+        return []
+    if len(channel) > MAX_ERROR_INPUT:
+        return ["[oversized error channel withheld]"]
     try:
-        data = json.loads(stdout) if stdout.strip() else None
+        data = json.loads(channel)
     except ValueError:
-        data = None
-        malformed = True
+        if channel.lstrip().startswith(("{", "[")):
+            return ["[malformed JSON error channel withheld]"]
+        return [channel]
     if isinstance(data, dict) and isinstance(data.get("errors"), list):
-        chunks.extend(
-            e["detail"]
-            for e in data["errors"][:16]
-            if isinstance(e, dict) and isinstance(e.get("detail"), str)
-        )
-    message = "\n".join(chunks)
-    status = re.search(r"https://api\.digitalocean\.com/[^\s:]+: ([1-5][0-9]{2})\b", message)
-    request = re.search(
-        r'\(request "([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"\)', message
+        return [
+            error["detail"]
+            for error in data["errors"][: MAX_ERROR_MESSAGES + 1]
+            if isinstance(error, dict) and isinstance(error.get("detail"), str)
+        ]
+    if isinstance(data, dict) and isinstance(data.get("message"), str):
+        return [data["message"]]
+    return ["[non-error JSON output withheld]"]
+
+
+def _secret_representations(values) -> list[str]:
+    forms = set()
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        seeds = {value, value.replace("\r\n", "\n"), value.replace("\n", "\r\n")}
+        for encoded in (base64.b64encode(value.encode()), base64.urlsafe_b64encode(value.encode())):
+            seeds.update({encoded.decode(), encoded.decode().rstrip("=")})
+        # Cover JSON/URL escaping, including a doubly escaped error representation.
+        frontier = seeds
+        forms.update(seeds)
+        for _ in range(2):
+            generated = set()
+            for item in frontier:
+                encoded = quote(item, safe="")
+                generated.update(
+                    {
+                        json.dumps(item, ensure_ascii=True)[1:-1],
+                        json.dumps(item, ensure_ascii=False)[1:-1].replace("/", "\\/"),
+                        encoded,
+                        re.sub(r"%[0-9A-F]{2}", lambda m: m[0].lower(), encoded),
+                        quote_plus(item, safe=""),
+                    }
+                )
+            frontier = generated - forms
+            forms.update(generated)
+    return sorted(forms, key=len, reverse=True)
+
+
+def _redact_error_prose(message: str, representations: list[str]) -> str:
+    if message in {
+        "[oversized error channel withheld]",
+        "[malformed JSON error channel withheld]",
+        "[non-error JSON output withheld]",
+    }:
+        return message
+    if len(message) > MAX_ERROR_INPUT:
+        return "[oversized error message withheld]"
+    message = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", message)
+    # Refuse structured payloads and raw HTTP traces rather than risk logging a spec.
+    if re.search(
+        r'(?im)^\s*(?:[\{\[]|["\'](?:spec|envs)["\']\s*:|'
+        r"(?:request|response)\s+(?:body|headers)\s*:|[<>]\s*(?:PUT|POST|GET|HTTP/))",
+        message,
+    ):
+        return "[structured payload or trace withheld]"
+    for value in representations:
+        message = message.replace(value, "[REDACTED]")
+    message = re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)",
+        "[REDACTED PRIVATE KEY]",
+        message,
+        flags=re.DOTALL,
     )
-    # Collect only protocol metadata before redaction; provider details remain private.
-    result = {
+    message = re.sub(r"EV\[[^\]\r\n]*\]", "[REDACTED]", message)
+    message = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [REDACTED]", message)
+    message = re.sub(
+        r"\b(?:dop_v1_|doo_v1_|gh[pousr]_|github_pat_)[A-Za-z0-9_]+\b",
+        "[REDACTED TOKEN]",
+        message,
+    )
+    message = re.sub(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", "[REDACTED KEY]", message)
+    message = re.sub(
+        r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+        "[REDACTED TOKEN]",
+        message,
+    )
+    message = re.sub(
+        r"(?i)(\b(?:authorization|[A-Z0-9_]*(?:token|secret|password|passwd|passphrase|"
+        r"api_key|access_key(?:_id)?|private_key(?:_b64)?|registry_credentials))\b\s*[:=]\s*)"
+        r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)""",
+        r"\1[REDACTED]",
+        message,
+    )
+    message = re.sub(r"(https?://)[^\s/@:]+:[^\s/@]+@", r"\1[REDACTED]@", message)
+    # Keep the provider's prose, not the transport envelope or arbitrary controls.
+    message = re.sub(
+        r"^(?:Error:\s*)?(?:PUT|POST|GET|PATCH|DELETE) https?://\S+: [1-5][0-9]{2} "
+        r'\(request "[0-9a-fA-F-]{36}"\)\s*',
+        "",
+        message,
+    )
+    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", message).strip()
+
+
+def validation_metadata(stderr: str, stdout: str = "", sensitive_values=()) -> dict:
+    messages = _error_channel_messages(stderr) + _error_channel_messages(stdout)
+    joined = "\n".join(messages)
+    status = re.search(r"https://api\.digitalocean\.com/[^\s:]+: ([1-5][0-9]{2})\b", joined)
+    request = re.search(r'\(request "([0-9a-fA-F-]{36})"\)', joined)
+    representations = _secret_representations(sensitive_values)
+    prose = []
+    remaining = MAX_ERROR_TOTAL
+    truncated = len(messages) > MAX_ERROR_MESSAGES
+    for message in messages[:MAX_ERROR_MESSAGES]:
+        safe = _redact_error_prose(message, representations)
+        limit = min(MAX_ERROR_MESSAGE, remaining)
+        if len(safe) > limit:
+            safe = safe[: max(0, limit - 12)] + " [TRUNCATED]"
+            truncated = True
+        prose.append(safe)
+        remaining -= len(safe)
+        if remaining <= 12:
+            truncated = True
+            break
+    return {
         "status": status[1] if status else "UNKNOWN",
         "request_id": request[1].lower() if request else "UNKNOWN",
-        "malformed_json": malformed,
+        "redacted_messages": prose,
+        "truncated": truncated,
+        "raw_output_withheld": True,
+        "root_cause_established": False,
     }
-    for value in sorted(
-        {v for v in sensitive_values if isinstance(v, str) and v}, key=len, reverse=True
-    ):
-        message = message.replace(value, " REDACTED ")
-    # Strip the transport envelope so IDs/URLs cannot become reason tokens.
-    message = re.sub(r'https://\S+|\(request "[^"]*"\)', " REDACTED ", message)
-    fields = []
-    for match in re.finditer(r"\bfield\s+[\"']([^\"'\r\n]{1,180})[\"']", message):
-        parts = re.split(r"[.\[\]]+", match[1])
-        if all(p in SCHEMA_WORDS or p.isdecimal() or not p for p in parts):
-            normalized = ".".join("[]" if p.isdecimal() else p for p in parts if p)
-            if normalized not in fields:
-                fields.append(normalized)
-    # This is deliberately labeled a token summary, never a quotation or root cause.
-    # Unknown words collapse to one marker; no raw substring is copied to output.
-    tokens = []
-    for word in re.findall(r"[A-Za-z_]+|[0-9]+", message.lower()):
-        token = word if word in REASON_WORDS else "OTHER"
-        if token != "OTHER" or not tokens or tokens[-1] != "OTHER":
-            tokens.append(token)
-        if len(tokens) == 96:
-            break
-    result.update(
-        validation_fields=fields[:16],
-        reason_tokens=tokens,
-        raw_detail_withheld=True,
-        root_cause_established=False,
-    )
-    return result
 
 
 def update_failure(stderr: str, stdout: str = "", sensitive_values=()) -> str:
-    """Expose only closed metadata; provider output can contain credential values."""
-    try:
-        output = json.loads(stdout)
-    except ValueError:
-        output = None
-    if isinstance(output, dict) and isinstance(output.get("errors"), list):
-        # doctl --output json reports failures on stdout, leaving stderr empty.
-        stderr += "\n" + "\n".join(
-            error["detail"]
-            for error in output["errors"]
-            if isinstance(error, dict) and isinstance(error.get("detail"), str)
-        )
-    status = re.search(r"https://api\.digitalocean\.com/[^\s:]+: ([1-5][0-9]{2})\b", stderr)
-    request = re.search(r'\(request "([0-9a-fA-F-]{36})"\)', stderr)
+    metadata = validation_metadata(stderr, stdout, sensitive_values)
+    joined = "\n".join(metadata["redacted_messages"])
     category = "UNCLASSIFIED"
     for text, code in (
         ("secret env value must not be encrypted", "ENCRYPTED_SECRET_REJECTED"),
@@ -322,15 +289,13 @@ def update_failure(stderr: str, stdout: str = "", sensitive_values=()) -> str:
         ("Unable to authenticate", "AUTHENTICATION_REJECTED"),
         ("not authorized", "AUTHORIZATION_REJECTED"),
     ):
-        if text in stderr:
+        if text in joined:
             category = code
             break
     return (
         "INTELLIGENCE_DAILY_PLATFORM_UPDATE_FAILED_INSPECT_OUTCOME"
-        f" status={status.group(1) if status else 'UNKNOWN'}"
-        f" request_id={request.group(1) if request else 'UNKNOWN'} category={category}"
-        " validation="
-        + json.dumps(validation_metadata(stderr, stdout, sensitive_values), sort_keys=True)
+        f" status={metadata['status']} request_id={metadata['request_id']} category={category}"
+        " validation=" + json.dumps(metadata, sort_keys=True)
     )
 
 
@@ -342,7 +307,19 @@ def diagnostic_sensitive_values(spec):
         if isinstance(node, dict):
             envs = node.get("envs")
             if isinstance(envs, list):
-                values.extend(e.get("value", "") for e in envs if isinstance(e, dict))
+                values.extend(
+                    e.get("value", "")
+                    for e in envs
+                    if isinstance(e, dict)
+                    and (
+                        e.get("type") == "SECRET"
+                        or re.search(
+                            r"TOKEN|SECRET|PASSWORD|PASSPHRASE|PRIVATE_KEY|ACCESS_KEY|CREDENTIAL",
+                            str(e.get("key", "")),
+                            re.IGNORECASE,
+                        )
+                    )
+                )
             for value in node.values():
                 visit(value)
         elif isinstance(node, list):

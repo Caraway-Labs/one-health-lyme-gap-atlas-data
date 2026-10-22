@@ -1,139 +1,210 @@
+"""Offline error-preservation and unchanged deployment-boundary checks."""
+
+import base64
 import importlib.util
 import json
 import sys
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import quote, quote_plus
 
+import pytest
+
+ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location(
-    "daily_diagnostics", Path(__file__).parents[1] / "scripts/deploy_intelligence_daily.py"
+    "daily_prose", ROOT / "scripts/deploy_intelligence_daily.py"
 )
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-safe_failure = module.validation_metadata
-
-RID = "39bd6bbe-face-4553-b470-c07f0e502d15"
-PREFIX = f'PUT https://api.digitalocean.com/v2/apps/example: 400 (request "{RID}") '
-
-
-class DiagnosticsTests(unittest.TestCase):
-    def test_recorded_pinned_cli_loopback_json_fixture(self):
-        # Synthetic local PUT rejection, actual doctl 1.160.1 JSON stdout shape.
-        output = (
-            Path(__file__).parent / "fixtures/doctl-v1.160.1-update-validation.json"
-        ).read_text()
-        result = safe_failure("", output, ["offline-private-key-canary"])
-        self.assertEqual(result["request_id"], "c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0")
-        self.assertEqual(result["validation_fields"], ["jobs.envs.[].value"])
-        self.assertNotIn("offline-private-key-canary", json.dumps(result))
-
-    def test_failed_update_redacts_spec_values_and_never_continues_or_retries(self):
-        secret = "invalid encrypted secret"
-        rendered = {
-            "envs": [{"value": "app-env-canary"}],
-            "jobs": [{"envs": [{"value": secret}]}],
-        }
-        result = SimpleNamespace(
-            returncode=1,
-            stderr="",
-            stdout=json.dumps({"errors": [{"detail": PREFIX + secret + " token-canary"}]}),
-        )
-        with (
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "deploy",
-                    "--phase",
-                    "preflight",
-                    "--image-digest",
-                    "sha256:" + "a" * 64,
-                    "--credential-placement-approved",
-                ],
-            ),
-            patch.object(module, "get", return_value={"spec": rendered}) as get,
-            patch.object(module, "render", return_value=rendered),
-            patch.object(module.subprocess, "run", return_value=result) as run,
-            patch.dict(module.os.environ, {"DIGITALOCEAN_ACCESS_TOKEN": "token-canary"}),
-            self.assertRaises(RuntimeError) as raised,
-        ):
-            module.main()
-        self.assertNotIn(secret, str(raised.exception))
-        self.assertNotIn("token-canary", str(raised.exception))
-        run.assert_called_once()
-        get.assert_called_once()  # No activation/readback follows a rejected update.
-        self.assertEqual(run.call_args.args[0][1:3], ["apps", "update"])
-
-    def test_collector_covers_app_and_all_component_values(self):
-        spec = {
-            "envs": [{"value": "app"}],
-            "services": [{"envs": [{"value": "service"}]}],
-            "jobs": [{"envs": [{"value": "job"}]}],
-        }
-        with patch.dict(module.os.environ, {"DIGITALOCEAN_ACCESS_TOKEN": "token"}):
-            self.assertEqual(
-                set(module.diagnostic_sensitive_values(spec)), {"app", "service", "job", "token"}
-            )
-
-    def test_pinned_doctl_json_stdout_shape(self):
-        detail = (
-            PREFIX + 'errors validating app spec; first error in field "jobs.envs.5.value": '
-            "value is invalid"
-        )
-        out = safe_failure("", json.dumps({"errors": [{"detail": detail}]}))
-        self.assertEqual(out["status"], "400")
-        self.assertEqual(out["request_id"], RID)
-        self.assertEqual(out["validation_fields"], ["jobs.envs.[].value"])
-        self.assertIn("invalid", out["reason_tokens"])
-
-    def test_stderr_channel_and_previously_unclassified_reason(self):
-        out = safe_failure(PREFIX + 'field "jobs.image.registry": image registry does not exist')
-        self.assertEqual(out["validation_fields"], ["jobs.image.registry"])
-        self.assertIn("exist", out["reason_tokens"])
-        self.assertFalse(out["root_cause_established"])
-
-    def test_secret_values_in_field_and_reason_are_removed(self):
-        secret = "invalid encrypted secret"
-        output = safe_failure(
-            PREFIX
-            + f'field "jobs.{secret}.value": {secret} private-key-canary EV[ciphertext-canary]',
-            sensitive_values=[secret],
-        )
-        encoded = json.dumps(output)
-        for canary in (secret, "private-key-canary", "ciphertext-canary"):
-            self.assertNotIn(canary, encoded)
-        self.assertEqual(output["validation_fields"], [])
-        self.assertNotIn("encrypted", output["reason_tokens"])
-
-    def test_untrusted_fields_and_html_do_not_escape(self):
-        out = safe_failure(
-            PREFIX + 'field "jobs.secret_canary.value": <script>private_key_canary</script>'
-        )
-        self.assertEqual(out["validation_fields"], [])
-        self.assertNotIn("canary", json.dumps(out))
-
-    def test_malformed_empty_and_wrong_json_types(self):
-        for value in ("{", "[]", '{"errors":[null,{}, {"detail":123}]}', ""):
-            with self.subTest(value=value):
-                out = safe_failure("", value)
-                self.assertEqual(out["status"], "UNKNOWN")
-                self.assertEqual(out["validation_fields"], [])
-
-    def test_multiple_errors_and_output_bounds(self):
-        errors = [
-            {"detail": PREFIX + f'field "jobs.{i}.name": duplicate name ' + "private_canary " * 200}
-            for i in range(40)
-        ]
-        out = safe_failure("", json.dumps({"errors": errors}))
-        self.assertEqual(out["validation_fields"], ["jobs.[].name"])
-        self.assertLessEqual(len(out["reason_tokens"]), 96)
-        self.assertNotIn("private_canary", json.dumps(out))
-
-    def test_valid_schema_bracket_index(self):
-        out = safe_failure(PREFIX + 'field "jobs[3].schedule.cron": required')
-        self.assertEqual(out["validation_fields"], ["jobs.[].schedule.cron"])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+RID = "c3041e18-5aa5-4b2c-bbc5-9ef53bc828d0"
+ENVELOPE = f'PUT https://api.digitalocean.com/v2/apps/example: 400 (request "{RID}") '
+PROSE = "App spec image reconciliation requires an explicit component source binding before update."
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize("channel", ["stdout", "stderr"])
+def test_useful_unknown_error_meaning_survives_in_full(channel):
+    detail = ENVELOPE + PROSE
+    stdout = json.dumps({"errors": [{"detail": detail}]}) if channel == "stdout" else ""
+    stderr = detail if channel == "stderr" else ""
+    result = m.validation_metadata(stderr, stdout)
+    assert result["redacted_messages"] == [PROSE]
+    assert result["status"] == "400" and result["request_id"] == RID
+    assert not result["root_cause_established"]
+    assert "OTHER" not in json.dumps(result)
+
+
+def test_each_channel_json_decoded_once_and_error_not_duplicated():
+    stdout = json.dumps({"errors": [{"detail": ENVELOPE + PROSE}]})
+    original = m.json.loads
+    with patch.object(m.json, "loads", wraps=original) as decode:
+        message = m.update_failure("", stdout)
+    assert decode.call_count == 1
+    assert message.count(PROSE) == 1
+
+
+SECRET = "p@ss word/\\\nΩ-sensitive-canary"
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    [
+        SECRET,
+        json.dumps(SECRET)[1:-1],
+        json.dumps(json.dumps(SECRET)[1:-1])[1:-1],
+        json.dumps(SECRET, ensure_ascii=False)[1:-1].replace("/", "\\/"),
+        quote(SECRET, safe=""),
+        quote_plus(SECRET, safe=""),
+        quote(quote(SECRET, safe=""), safe=""),
+        base64.b64encode(SECRET.encode()).decode(),
+        base64.urlsafe_b64encode(SECRET.encode()).decode().rstrip("="),
+    ],
+)
+def test_encoded_known_secret_removed_before_any_truncation(encoded):
+    prose = 'invalid credential value "' + encoded + '"; component source binding is required.'
+    result = m.validation_metadata(
+        "", json.dumps({"errors": [{"detail": ENVELOPE + prose}]}), [SECRET]
+    )
+    safe = json.dumps(result)
+    assert encoded not in "\n".join(result["redacted_messages"])
+    assert "sensitive-canary" not in safe
+    assert "component source binding is required." in safe
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "dop_v1_" + "a" * 64,
+        "ghp_" + "b" * 36,
+        "github_pat_" + "c" * 50,
+        "AKIA" + "D" * 16,
+        "EV[opaque-provider-reference]",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturecanary00",
+    ],
+)
+def test_credential_patterns_are_defensively_redacted(value):
+    result = m.validation_metadata(ENVELOPE + "invalid credential " + value)
+    assert value not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        'SNOWFLAKE_PRIVATE_KEY_B64="unlisted-credential-canary"',
+        "Authorization: Bearer unlisted-credential-canary",
+        "password='unlisted-credential-canary'",
+        "registry_credentials=unlisted-credential-canary",
+        "https://user:unlisted-credential-canary@registry.example/image",
+        "-----BEGIN PRIVATE KEY-----\nunlisted-credential-canary\n-----END PRIVATE KEY-----",
+    ],
+)
+def test_header_assignment_pem_and_url_credentials_are_not_logged(value):
+    result = m.validation_metadata(ENVELOPE + "invalid access: " + value)
+    assert "unlisted-credential-canary" not in json.dumps(result)
+
+
+def test_redaction_precedes_length_bound_and_indicates_truncation():
+    secret = "near-boundary-secret-canary"
+    detail = ENVELOPE + "x" * (m.MAX_ERROR_MESSAGE - 6) + secret + " end"
+    result = m.validation_metadata("", json.dumps({"errors": [{"detail": detail}]}), [secret])
+    assert result["truncated"]
+    assert len(result["redacted_messages"][0]) <= m.MAX_ERROR_MESSAGE
+    assert "near-boundary" not in json.dumps(result)
+
+
+def test_total_output_bound_multiple_errors_and_oversized_input():
+    output = json.dumps({"errors": [{"detail": "x" * 3000} for _ in range(16)]})
+    result = m.validation_metadata("", output)
+    assert sum(map(len, result["redacted_messages"])) <= m.MAX_ERROR_TOTAL
+    assert result["truncated"]
+    assert (
+        "oversized" in m.validation_metadata("z" * (m.MAX_ERROR_INPUT + 1))["redacted_messages"][0]
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '{"spec":{"jobs":[{"envs":[]}]}}',
+        '{"envs": [{"value": "canary"}',
+        ENVELOPE + '\nrequest body:\n{"jobs": []}',
+        ENVELOPE + "\n> PUT /v2/apps/example\nAuthorization: Bearer canary",
+    ],
+)
+def test_raw_specs_malformed_json_and_traces_withheld(value):
+    safe = json.dumps(m.validation_metadata(value))
+    assert "withheld" in safe
+    assert '"envs"' not in safe and '"jobs"' not in safe
+    assert "canary" not in safe
+
+
+def test_pinned_doctl_loopback_fixture_retains_reason_and_suppresses_canary():
+    output = (ROOT / "tests/fixtures/doctl-v1.160.1-update-validation.json").read_text()
+    result = m.validation_metadata("", output, ["offline-private-key-canary"])
+    safe = "\n".join(result["redacted_messages"])
+    assert 'field "jobs.envs.5.value": invalid value' in safe
+    assert "offline-private-key-canary" not in safe
+
+
+def test_synthetic_image_rejection_fixture_preserves_full_unknown_meaning():
+    # Representative synthetic error, not the unknown historical provider cause.
+    output = (ROOT / "tests/fixtures/doctl-v1.160.1-image-update-rejection.json").read_text()
+    result = m.validation_metadata("", output, ["offline-private-key-canary"])
+    assert result["redacted_messages"] == [PROSE + ' credential="[REDACTED]"']
+
+
+def test_secret_collector_leaves_public_config_words_readable():
+    spec = {
+        "envs": [
+            {"key": "PUBLIC_WORD", "value": "image"},
+            {"key": "ACCOUNT", "type": "SECRET", "value": "account-canary"},
+        ],
+        "jobs": [{"envs": [{"key": "SPACES_ACCESS_KEY_ID", "value": "key-canary"}]}],
+    }
+    with patch.dict(m.os.environ, {"DIGITALOCEAN_ACCESS_TOKEN": "token-canary"}):
+        values = m.diagnostic_sensitive_values(spec)
+    assert set(values) == {"account-canary", "key-canary", "token-canary"}
+    assert m.validation_metadata(ENVELOPE + PROSE, sensitive_values=values)[
+        "redacted_messages"
+    ] == [PROSE]
+
+
+def test_color_escapes_cannot_split_a_known_secret_around_redaction():
+    result = m.validation_metadata(
+        ENVELOPE + "invalid credential token-\x1b[31mcanary; " + PROSE,
+        sensitive_values=["token-canary"],
+    )
+    assert "canary" not in json.dumps(result)
+    assert PROSE in result["redacted_messages"][0]
+
+
+def test_failed_update_still_calls_once_and_never_activates():
+    rendered = {"jobs": [{"envs": [{"key": "SECRET", "type": "SECRET", "value": SECRET}]}]}
+    result = SimpleNamespace(
+        returncode=1,
+        stderr="",
+        stdout=json.dumps({"errors": [{"detail": ENVELOPE + PROSE + SECRET}]}),
+    )
+    with (
+        patch.object(
+            sys,
+            "argv",
+            [
+                "deploy",
+                "--phase",
+                "preflight",
+                "--image-digest",
+                "sha256:" + "a" * 64,
+                "--credential-placement-approved",
+            ],
+        ),
+        patch.object(m, "get", return_value={"spec": rendered}) as get,
+        patch.object(m, "render", return_value=rendered),
+        patch.object(m.subprocess, "run", return_value=result) as run,
+        pytest.raises(RuntimeError) as exc,
+    ):
+        m.main()
+    get.assert_called_once()
+    run.assert_called_once()
+    assert "sensitive-canary" not in str(exc.value)
+    assert PROSE in str(exc.value)

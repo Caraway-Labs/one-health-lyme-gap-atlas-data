@@ -38,19 +38,25 @@ Expected role/database/warehouse: `OH_LYME_PROD_RUNTIME` / `ONE_HEALTH_LYME_GAP_
 ## Validation status
 
 Draft. Focused tests, type checks, full hosted CI and independent technical review remain in progress. No production readiness or activation claim is made by this document.
+
 # Safe rejected-update diagnostics
 
-The deployment helper continues to raise on a nonzero `doctl apps update` result;
-it does not retry or proceed to activation. Alongside status, request ID and the
-existing category, it emits bounded validation metadata decoded from doctl JSON
-stdout or stderr. Schema field names must match a fixed schema vocabulary;
-numeric indices become `[]`. Reason tokens come from a fixed vocabulary and
-unknown content becomes `OTHER`. These tokens are a diagnostic summary, not a
-provider quotation or proof of root cause.
+A nonzero `doctl apps update` result still raises immediately without retry or
+activation. Each output channel is decoded once. Actual error prose is retained
+after in-memory redaction of known secret values, JSON/URL/base64 representations,
+and token, authorization-header, credential-assignment and private-key patterns.
+Unknown validation words are not replaced with a vocabulary marker. The existing
+four-category summary remains supplementary; it never filters the prose.
 
-App/component environment values and the active DigitalOcean token are collected
-only in memory for redaction before producing that summary. Raw errors, specs,
-credential values and request traces must not be logged or uploaded as artifacts.
-The regression fixture is synthetic output from pinned doctl 1.160.1 against a
-loopback mock, with a synthetic token and secret canary; it is not a provider
-response or a production verification receipt.
+Only secret-typed or credential-named app/component environment values and the
+active DigitalOcean token feed the redactor; ordinary public configuration words
+remain readable. Raw output, traces and specs must never be emitted or retained.
+Structured payloads, malformed JSON and oversized input channels are withheld.
+Redaction precedes truncation: at most eight messages, 2,048 characters per message
+and 8,192 total, with an explicit truncation indicator. These bounds and redaction
+can still make an error incomplete; a summary is not automatically a root cause.
+
+Fixtures use synthetic loopback errors and credentials with the pinned doctl
+1.160.1 JSON stdout shape. The representative image-validation prose is not a
+claim about the unknown historical HTTP 400. Preparing this diagnostic change
+performs no provider update and authorizes no production attempt.
