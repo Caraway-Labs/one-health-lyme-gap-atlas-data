@@ -64,3 +64,26 @@ Fixtures use synthetic loopback errors and credentials with the pinned doctl
 1.160.1 JSON stdout shape. The representative image-validation prose is not a
 claim about the unknown historical HTTP 400. Preparing this diagnostic change
 performs no provider update and authorizes no production attempt.
+
+## Explicit immutable image source refresh
+
+Run 39726707822 rejected the preflight update with HTTP 400 and request ID
+`def74747-9fa3-442e-9292-c30a2a34cb6a`. The retained error reports that the
+repository is known but the requested image version is not configured for this
+app. The requested digest existed in DOCR and had passed actual DEV execution;
+production remained on its original six jobs, with no preflight installed.
+
+The pinned [doctl 1.160.1 implementation](https://github.com/digitalocean/doctl/blob/v1.160.1/commands/apps.go)
+maps `--update-sources` to `AppUpdateRequest.UpdateAllSourceVersions`; the default
+is false. The daily helper now explicitly requests source refresh to resolve the
+new immutable image version. An offline pinned-CLI loopback comparison confirms
+that this changes only that request boolean and leaves the submitted spec intact.
+This is an evidence-backed repair, not proof of production acceptance.
+
+Because the option applies to all sources, rendering fails closed unless every
+existing job has only the expected DOCR registry/repository and a SHA256 digest.
+Tags, deploy-on-push settings, Git-backed jobs, and other component classes are
+rejected before any update. Each existing job is copied unchanged, including its
+digest, command, schedule and environment. No new credential, permission or source
+scope is introduced. Both phases retain the existing single-attempt, no-retry
+behavior and native protected production approval.

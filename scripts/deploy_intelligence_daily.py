@@ -53,6 +53,22 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
         or {j["name"] for j in jobs} - {NAME, CHECK} != BASE
     ):
         raise PermissionError("INTELLIGENCE_DAILY_BASELINE_REQUIRED")
+    # --update-sources refreshes all component sources. It is safe here only
+    # when every existing source is an immutable image, with no mutable aliases
+    # or Git-backed components that could advance unrelated application code.
+    if any(spec.get(kind) for kind in ("services", "workers", "static_sites", "functions")):
+        raise PermissionError("INTELLIGENCE_DAILY_IMMUTABLE_SOURCES_REQUIRED")
+    for job in jobs:
+        image = job.get("image", {})
+        if (
+            any(job.get(kind) for kind in ("git", "github", "gitlab", "bitbucket"))
+            or set(image) != {"registry_type", "registry", "repository", "digest"}
+            or image.get("registry_type") != "DOCR"
+            or image.get("registry") != "oh-lyme-data"
+            or image.get("repository") != "pipeline"
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", image.get("digest", ""))
+        ):
+            raise PermissionError("INTELLIGENCE_DAILY_IMMUTABLE_SOURCES_REQUIRED")
     template = next(j for j in jobs if j["name"] == "approved-source-ingestion")
     env = {e["key"]: e for e in template.get("envs", [])}
     if not env.keys() >= KEYS:
@@ -372,7 +388,18 @@ def main() -> None:
         )
     spec = render(app["spec"], args.image_digest, args.phase)
     r = subprocess.run(
-        ["doctl", "apps", "update", APP_ID, "--spec", "-", "--wait", "--output", "json"],
+        [
+            "doctl",
+            "apps",
+            "update",
+            APP_ID,
+            "--spec",
+            "-",
+            "--update-sources",
+            "--wait",
+            "--output",
+            "json",
+        ],
         input=json.dumps(spec),
         capture_output=True,
         text=True,

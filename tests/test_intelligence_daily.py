@@ -146,12 +146,68 @@ def platform_spec(module):
                 "kind": "SCHEDULED",
                 "run_command": "existing-" + name,
                 "schedule": {"cron": "0 9 1 * *", "time_zone": "America/Denver"},
-                "image": {"digest": "sha256:" + "0" * 64},
+                "image": {
+                    "registry_type": "DOCR",
+                    "registry": "oh-lyme-data",
+                    "repository": "pipeline",
+                    "digest": "sha256:" + "0" * 64,
+                },
                 "envs": [{"key": k, "value": v} for k, v in env.items()],
             }
             for name in sorted(module.BASE)
         ],
     }
+
+
+@pytest.mark.parametrize("phase", ["preflight", "activate"])
+def test_source_refresh_preserves_all_six_immutable_image_versions(phase):
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    for i, job in enumerate(original["jobs"]):
+        job["image"]["digest"] = "sha256:" + str(i) * 64
+    snapshot = copy.deepcopy(original)
+    rendered = module.render(original, "sha256:" + "a" * 64, phase)
+    assert original == snapshot
+    assert [j for j in rendered["jobs"] if j["name"] in module.BASE] == snapshot["jobs"]
+    assert rendered["jobs"][-1]["image"]["digest"] == "sha256:" + "a" * 64
+
+
+@pytest.mark.parametrize("kind", ["services", "workers", "static_sites", "functions"])
+def test_source_refresh_rejects_other_components_before_update(kind):
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    original[kind] = [{"name": "unrelated", "github": {"repo": "owner/repo"}}]
+    with pytest.raises(PermissionError, match="IMMUTABLE_SOURCES_REQUIRED"):
+        module.render(original, "sha256:" + "a" * 64, "preflight")
+
+
+@pytest.mark.parametrize("kind", ["git", "github", "gitlab", "bitbucket"])
+def test_source_refresh_rejects_git_job_even_with_an_image(kind):
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    original["jobs"][0][kind] = {"repo": "owner/repo"}
+    with pytest.raises(PermissionError, match="IMMUTABLE_SOURCES_REQUIRED"):
+        module.render(original, "sha256:" + "a" * 64, "preflight")
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("tag", "latest"),
+        ("deploy_on_push", {"enabled": True}),
+        ("digest", ""),
+        ("digest", "sha256:invalid"),
+        ("registry_type", "GHCR"),
+        ("registry", "other"),
+        ("repository", "other"),
+    ],
+)
+def test_source_refresh_rejects_mutable_or_unexpected_image_sources(field, value):
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    original["jobs"][0]["image"][field] = value
+    with pytest.raises(PermissionError, match="IMMUTABLE_SOURCES_REQUIRED"):
+        module.render(original, "sha256:" + "a" * 64, "preflight")
 
 
 def test_daily_platform_render_preserves_six_jobs_and_reuses_only_required_refs():
