@@ -67,6 +67,11 @@ on:
         required: false
         type: boolean
         default: false
+      report_dev_cleanup_ownership:
+        description: Fixed read-only current DEV procedure/view owners and grants; no handoff assumptions
+        required: false
+        type: boolean
+        default: false
       diagnose_climate_dev:
         description: Fixture-only numeric/large-manifest DEV validation; no migration apply or release writes
         required: false
@@ -120,6 +125,10 @@ jobs:
       - name: Configure and verify the DEV Snowflake service connection
         run: |
           set -euo pipefail
+          if [ "$REPORT_DEV_CLEANUP_OWNERSHIP" = "true" ]; then
+            uv run python scripts/report_dev_cleanup_ownership.py \
+              --validate-event "$GITHUB_EVENT_PATH" --ref "$GITHUB_REF"
+          fi
           if [ "$LEDGER_DIAGNOSTIC_ONLY" = "true" ]; then
             test "$METADATA_PREFLIGHT_ONLY" = "true"
           fi
@@ -180,6 +189,14 @@ jobs:
           private_key_path = "$key_file"
           private_key_passphrase = "$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"
           EOF
+          if [ "$REPORT_DEV_CLEANUP_OWNERSHIP" = "true" ]; then
+            test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
+            test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            timeout 70s uv run python scripts/report_dev_cleanup_ownership.py --config-file "$config_file"
+            exit 0
+          fi
           if [ "$DIAGNOSE_CLIMATE_VIEWS" = true ]; then
             test "$EXPECTED_PENDING_JSON" = '[]'
             for other_mode in "$REGISTER_EID_EXPEDITED_DEV" "$DIAGNOSE_V143_CLEANUP_OWNER" \
@@ -218,6 +235,7 @@ jobs:
             exit 0
           fi
           if [ "$DIAGNOSE_V143_CLEANUP_OWNER" = "true" ]; then
+            # Keep the legacy pre-handoff verifier and its expectations intact.
             test "$GITHUB_REF" = refs/heads/main
             test -z "$EXPECTED_PENDING_JSON"
             test "$DIAGNOSE_INTELLIGENCE_DEV" != "true"
@@ -523,6 +541,7 @@ jobs:
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}
           DIAGNOSE_LEGACY_DEV_RECONCILIATIONS: ${{ inputs.diagnose_legacy_dev_reconciliations }}
           DIAGNOSE_V143_CLEANUP_OWNER: ${{ inputs.diagnose_v143_cleanup_owner }}
+          REPORT_DEV_CLEANUP_OWNERSHIP: ${{ inputs.report_dev_cleanup_ownership }}
           DIAGNOSE_CLIMATE_DEV: ${{ inputs.diagnose_climate_dev }}
           DIAGNOSE_CLIMATE_VIEWS: ${{ inputs.diagnose_climate_views }}
           DIAGNOSE_JANUARY_PAIR: ${{ inputs.diagnose_january_pair }}
@@ -544,7 +563,7 @@ jobs:
 
 
   release-integrity-prepare:
-    if: inputs.release_integrity_fixture == true || inputs.ri706_recovery_run_id != ''
+    if: inputs.report_dev_cleanup_ownership != true && (inputs.release_integrity_fixture == true || inputs.ri706_recovery_run_id != '')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -564,7 +583,7 @@ jobs:
         run: uv run python scripts/review_release_integrity_fixture_gate.py --prepare
 
   release-integrity-owner-authorization:
-    if: inputs.release_integrity_fixture == true
+    if: inputs.report_dev_cleanup_ownership != true && inputs.release_integrity_fixture == true
     needs: release-integrity-prepare
     environment: ri706-dev-fixture
     runs-on: ubuntu-latest
@@ -587,7 +606,7 @@ jobs:
         run: uv run python scripts/review_release_integrity_fixture_gate.py
 
   release-integrity-fixture:
-    if: inputs.release_integrity_fixture == true
+    if: inputs.report_dev_cleanup_ownership != true && inputs.release_integrity_fixture == true
     needs: release-integrity-owner-authorization
     environment: dev
     runs-on: ubuntu-latest
