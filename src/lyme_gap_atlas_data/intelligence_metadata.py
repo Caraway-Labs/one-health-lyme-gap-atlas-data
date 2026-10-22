@@ -198,6 +198,10 @@ def parse_native_feed(
 
     policy.validate(source)
     parent, entries = _envelope(raw, source, base_url)
+    # Elements have identity equality/hash. Set membership keeps exclusion of
+    # publication nodes bounded when a complete publisher feed has thousands
+    # of entries; list membership here made the per-item mapping cubic.
+    entry_nodes = set(entries)
     inventory = _fields(parent, entries)
     required = (
         policy.required_paths
@@ -219,7 +223,7 @@ def parse_native_feed(
             "feed": [
                 _node(child, "feed/" + child.tag, policy)
                 for child in parent
-                if child not in entries
+                if child not in entry_nodes
             ],
             "feed_attributes": [
                 {"name": name, **_value(value, "feed/@" + name, policy)}

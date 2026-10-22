@@ -46,6 +46,7 @@ SAFE_ERRORS = {
     "INTELLIGENCE_TIMESTAMP_NOT_CANONICAL",
     "INTELLIGENCE_TITLE_NOT_SANITIZED",
     "INTELLIGENCE_WRITE_LIMIT",
+    "INTELLIGENCE_WRITE_COUNT_MISMATCH",
     "INTELLIGENCE_WRITE_GUARD_INVALID",
     "INTELLIGENCE_RUN_REFERENCE_INVALID",
     "INTELLIGENCE_ARTIFACT_REFERENCE_INVALID",
@@ -127,11 +128,17 @@ class IntelligenceStore:
         retention_allowed: Callable[[str], bool],
         native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
         settings: PipelineSettings | None = None,
+        maximum_write_bytes: int = 10_000_000,
     ) -> None:
         self.factory = connection_factory
         self.retention_allowed = retention_allowed
         self.native_policy_lookup = native_policy_lookup
         self.settings = settings or PipelineSettings()
+        if type(maximum_write_bytes) is not int or not 1 <= maximum_write_bytes <= 32_000_000:
+            raise ValueError("INTELLIGENCE_WRITE_BOUND_INVALID")
+        if self.settings.topx_env == "prod" and maximum_write_bytes > 10_000_000:
+            raise PermissionError("INTELLIGENCE_PROD_EXPANDED_BOUNDS_NOT_ADMITTED")
+        self.maximum_write_bytes = maximum_write_bytes
 
     @contextmanager
     def _session(self) -> Iterator[tuple[Any, Any]]:
@@ -345,7 +352,7 @@ class IntelligenceStore:
         # Freeze caller documents, bound the entire unit and reject malformed data
         # before opening a write transaction. One run/source is one atomic unit.
         serialized = canonical_json(items)
-        if len(items) > 5000 or len(serialized.encode("utf-8")) > 10_000_000:
+        if len(items) > 5000 or len(serialized.encode("utf-8")) > self.maximum_write_bytes:
             raise IntelligenceStorageError("INTELLIGENCE_WRITE_LIMIT")
         frozen: list[dict[str, Any]] = json.loads(serialized)
         for item in frozen:
@@ -365,6 +372,14 @@ class IntelligenceStore:
                 )
                 if run is None or run[0] != resource_key or resource_key != source_id:
                     raise IntelligenceStorageError("INTELLIGENCE_RUN_REFERENCE_INVALID")
+                if self.maximum_write_bytes > 10_000_000:
+                    from .intelligence_batch_storage import write_complete_batches
+
+                    result = write_complete_batches(
+                        self, cursor, source, resource_key, run_id, frozen
+                    )
+                    connection.commit()
+                    return result
                 revisions = captures = replays = 0
                 seen: dict[str, str] = {}
                 for item in frozen:

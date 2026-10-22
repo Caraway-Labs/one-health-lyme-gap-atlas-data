@@ -14,7 +14,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -40,6 +40,8 @@ ENDPOINTS = {
     "cdc-outbreaks": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
     "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
+    "cdc-mmwr": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+    "cdc-newsroom": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
 }
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
@@ -233,8 +235,33 @@ class _Connection:
         return result
 
 
+@dataclass(frozen=True)
+class FeedPassBounds:
+    """Reviewed complete-document bounds, separate from source admission.
+
+    Storage still rejects more than 5,000 records or 32 MB atomically. Larger
+    documents are rejected in full; this is never a newest-N selection policy.
+    """
+
+    maximum_items: int = 250
+    maximum_normalized_bytes: int = 1024 * 1024
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.maximum_items) is not int
+            or not 1 <= self.maximum_items <= 5000
+            or type(self.maximum_normalized_bytes) is not int
+            or not 1 <= self.maximum_normalized_bytes <= 32_000_000
+        ):
+            raise ValueError("INTELLIGENCE_PASS_BOUNDS_INVALID")
+
+
 class PilotFeedAdapter(IntelligenceFeedAdapter):
     """Reject the complete source if it exceeds the small-pass bounds."""
+
+    def __init__(self, *, pass_bounds: FeedPassBounds | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.pass_bounds = pass_bounds or FeedPassBounds()
 
     def _retained_entries(self, definition: SourceDefinition, payload: Any) -> list[dict[str, Any]]:
         if (
@@ -244,7 +271,7 @@ class PilotFeedAdapter(IntelligenceFeedAdapter):
         ):
             raise PermissionError("INTELLIGENCE_PILOT_REPLAY_LIMIT")
         entries = super()._retained_entries(definition, payload)
-        if len(entries) > 250:
+        if len(entries) > self.pass_bounds.maximum_items:
             raise PermissionError("INTELLIGENCE_PILOT_ITEM_LIMIT")
         return entries
 
@@ -252,15 +279,15 @@ class PilotFeedAdapter(IntelligenceFeedAdapter):
         self, definition: SourceDefinition, *, fixture_dir: Path | None = None
     ) -> AcquireResult:
         acquired = super().acquire(definition, fixture_dir=fixture_dir)
-        if acquired.row_count is None or acquired.row_count > 250:
+        if acquired.row_count is None or acquired.row_count > self.pass_bounds.maximum_items:
             raise PermissionError("INTELLIGENCE_PILOT_ITEM_LIMIT")
         return acquired
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
         normalized = super().normalize(definition, payload)
-        if len(normalized.records) > 250:
+        if len(normalized.records) > self.pass_bounds.maximum_items:
             raise PermissionError("INTELLIGENCE_PILOT_ITEM_LIMIT")
-        if len(json.dumps(normalized.records).encode()) > 1024 * 1024:
+        if len(json.dumps(normalized.records).encode()) > self.pass_bounds.maximum_normalized_bytes:
             raise PermissionError("INTELLIGENCE_PILOT_NORMALIZED_LIMIT")
         return normalized
 
@@ -273,11 +300,17 @@ def compose_pilot(
     settings: PipelineSettings,
     budget: PilotBudget | None = None,
     registry_version: int = 1,
+    pass_bounds: FeedPassBounds | None = None,
 ) -> tuple[IngestionOrchestrator, SourceDefinition]:
     """Assemble existing runtime components; perform no approval or schema DDL."""
     if settings.topx_env not in {"dev", "prod"}:
         raise PermissionError("INTELLIGENCE_PILOT_ENVIRONMENT_REQUIRED")
     environment: Literal["DEV", "PROD"] = "PROD" if settings.topx_env == "prod" else "DEV"
+    pass_bounds = pass_bounds or FeedPassBounds()
+    # The existing three-source production package and its native approval run
+    # retain their original bounds. An expanded DEV proof cannot widen PROD.
+    if environment == "PROD" and pass_bounds != FeedPassBounds():
+        raise PermissionError("INTELLIGENCE_PROD_EXPANDED_BOUNDS_NOT_ADMITTED")
     if registry_version not in ({1, 2} if environment == "PROD" else {1}):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
     if environment == "PROD":
@@ -389,6 +422,7 @@ def compose_pilot(
             ref == policy_ref and artifact == receipt["artifact_policy"]
         ),
         native_policy_lookup=lambda sid, version: native,
+        maximum_write_bytes=pass_bounds.maximum_normalized_bytes,
     )
     source = effects.store.lookup_latest_source(definition.source_id)
     if environment == "PROD" and (
@@ -409,6 +443,8 @@ def compose_pilot(
     ):
         raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
     native.validate(source)
+    if source["limits"]["maximum_items"] > pass_bounds.maximum_items:
+        raise PermissionError("INTELLIGENCE_PASS_SOURCE_BOUND_MISMATCH")
     definition = replace(
         definition,
         definition_version=source["registry_version"],
@@ -423,6 +459,7 @@ def compose_pilot(
     )
     effects.feed_retention = retention
     adapter = PilotFeedAdapter(
+        pass_bounds=pass_bounds,
         registry_lookup=effects.store.lookup_source,
         retention_allowed=lambda ref: ref == policy_ref,
         native_policy_lookup=lambda sid, version: native,
@@ -465,6 +502,18 @@ def canonical_pilot(definition: SourceDefinition) -> tuple[IngestionOrchestrator
             if len(rows) != 1 or rows[0][0] not in {1, 2}:
                 raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
             version = rows[0][0]
+    selected = [
+        receipt
+        for receipt in receipts
+        if receipt.get("source_id") == definition.source_id
+        and (settings.topx_env != "prod" or receipt.get("registry_version") == version)
+    ]
+    bounds_document = selected[0].get("pass_bounds", {}) if len(selected) == 1 else {}
+    if not isinstance(bounds_document, dict):
+        raise PermissionError("INTELLIGENCE_PASS_BOUNDS_RECEIPT_REQUIRED")
+    # Only the committed reviewed receipt can opt in; source YAML cannot grant
+    # itself a larger pass. compose_pilot still rejects expanded PROD bounds.
+    pass_bounds = FeedPassBounds(**bounds_document)
     return compose_pilot(
         definition,
         receipts=receipts,
@@ -472,4 +521,5 @@ def canonical_pilot(definition: SourceDefinition) -> tuple[IngestionOrchestrator
         connection_factory=lambda: connect(SnowflakeSettings()),
         budget=budget,
         registry_version=version,
+        pass_bounds=pass_bounds,
     )

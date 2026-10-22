@@ -1,0 +1,58 @@
+{
+  "contract_version": "1.0.0",
+  "source_id": "cdc-mmwr",
+  "registry_version": 1,
+  "organization": "Centers for Disease Control and Prevention",
+  "family": "cdc_mmwr",
+  "source_type": "publication",
+  "geographies": [],
+  "topics": [],
+  "trust_review": {
+    "status": "pending",
+    "decision_ref": null,
+    "reviewed_at": null,
+    "owner": "MATTHEWCARAWAY"
+  },
+  "trust_classification": "unreviewed",
+  "transport": "rss",
+  "canonical_location": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+  "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+  "approved_hosts": [
+    "tools.cdc.gov"
+  ],
+  "state": "candidate",
+  "cadence": {
+    "poll_seconds": 86400,
+    "expected_item_seconds": null,
+    "basis": "unknown"
+  },
+  "access_use": {
+    "terms_location": "https://www.cdc.gov/other/agencymaterials.html",
+    "conditions": [
+      "Attribute the source as CDC and link to the original item available from CDC at no charge.",
+      "Display a clear CDC nonendorsement statement with any public use.",
+      "Publish title, link, language, and publisher date only; no descriptions, article text, excerpts, image values, image bytes, or logos.",
+      "Restrict raw RSS transport and checkpoint artifacts; expire them 30 days after immutable successful capture time.",
+      "Endpoint availability is verified separately from rights, retention, registry admission and production activation."
+    ],
+    "availability_verified_at": "2026-10-22T00:24:41.748919Z",
+    "excerpt_max_chars": 0,
+    "content_retention_policy_ref": "cdc-mmwr-metadata-raw-30d-v1",
+    "public_excerpt_permitted": false
+  },
+  "approval": {
+    "status": "pending",
+    "decision_ref": null,
+    "reviewed_at": null,
+    "owner": "MATTHEWCARAWAY"
+  },
+  "change_review_policy": "new_version_requires_review",
+  "fallback_reason": null,
+  "limits": {
+    "maximum_bytes": 2097152,
+    "timeout_seconds": 30,
+    "maximum_items": 3000,
+    "maximum_redirects": 0,
+    "maximum_attempts": 1
+  }
+}
