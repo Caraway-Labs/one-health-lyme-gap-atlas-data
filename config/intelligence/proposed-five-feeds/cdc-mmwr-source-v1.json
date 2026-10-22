@@ -31,7 +31,7 @@
     "conditions": [
       "Attribute the source as CDC and link to the original item available from CDC at no charge.",
       "Display a clear CDC nonendorsement statement with any public use.",
-      "Publish title, link, language, and publisher date only; no descriptions, article text, excerpts, image values, image bytes, or logos.",
+      "Retain complete feed-provided descriptions as sanitized plain text and original publisher category labels for API availability. Labels are not validated or inferred scientific taxonomy. No linked article text, image values, image bytes or logos; UI display requires a separate product choice.",
       "Restrict raw RSS transport and checkpoint artifacts; expire them 30 days after immutable successful capture time.",
       "Endpoint availability is verified separately from rights, retention, registry admission and production activation."
     ],

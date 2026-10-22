@@ -10,8 +10,8 @@ not requests for a verbal override or permission to bypass restrictions.
 
 | Source | Exact endpoint | Pending source document SHA256 |
 | --- | --- | --- |
-| cdc-mmwr | https://tools.cdc.gov/api/v2/resources/media/342778.rss | 6a4d6a12918f1642a6be2e203be7173f9926abbcf005b93a96fe3d4f83f4714c |
-| cdc-newsroom | https://tools.cdc.gov/api/v2/resources/media/132608.rss | d19b1ef9cadca36f45d5581f9fbbc3d33cb212c7e55d0058b4275729ccced0ac |
+| cdc-mmwr | https://tools.cdc.gov/api/v2/resources/media/342778.rss | 638514d8085bd1c1eb79853ed27824b1b8a5cb4a207fa4514c60cf631b9b1aa1 |
+| cdc-newsroom | https://tools.cdc.gov/api/v2/resources/media/132608.rss | 78b25be79247de406f29a5524c9ec29e76125e735de5f3c61a5b87b989ee8aee |
 
 Documents and hash-bound native-policy proposals are in
 `config/intelligence/proposed-five-feeds/`. Both sources remain `candidate` with
@@ -19,14 +19,31 @@ pending approval/trust review, no decision receipt, empty topics/geographies and
 no inference. Their SourceDefinitions remain `artifact_policy: REVIEW_REQUIRED`.
 Nothing in this PR makes a source eligible for live warehouse acquisition.
 
-Each proposed native policy permits exactly six paths: `feed/language`,
-`feed/link`, `feed/title`, `item/link`, `item/pubDate`, `item/title`. Publish only
-title, original link, publisher timing/language, attribution and provenance.
-Descriptions, excerpts, article text, image/media values and logos remain
-withheld. Native field inventory records structure and withheld states, not a
-right to retain those values. Preserve CDC attribution, free original links and
-nonendorsement. The proposed raw class is restricted replay/debug copies with
-immutable capture+30-day expiry, separate from long-lived permitted metadata.
+Owner decision `Sentinel_dafa6b0ae8108191b308b077e58b0f27`, October 22
+01:17 UTC, approves the rest of this packet and changes metadata scope to
+retain feed-provided descriptions/summaries and original category labels for
+API availability. No UI previews or topic badges are authorized by that choice.
+
+Each proposed native policy now permits eight paths: `feed/language`,
+`feed/link`, `feed/title`, `item/link`, `item/pubDate`, `item/title`,
+`item/description`, `item/category`. Description representation is complete
+sanitized plain text, with explicit present/empty/not-provided states. It is
+not generated or shortened; the existing excerpt remains withheld. Category
+labels remain publisher labels, not validated/inferred scientific taxonomy.
+No linked full article, asset/media bytes, media values or logos are acquired.
+Native field inventory retains structure and withholding states for other
+fields. Restricted raw RSS expires capture+30 days as previously proposed.
+
+The eight-path policy is approved in scope but source documents remain
+candidate/pending until reviewed final version/hash-bound runtime receipts and
+the DEV capability/accounting preflight are complete. No production execution,
+daily scheduling or native approval is inferred. Prior probes consumed none of
+the new four sequential DEV capture/repoll runs. New approved runs used: **0**.
+Live description values were not retained by earlier probes; content and size
+qualification is still required during the approved bounded DEV workflow.
+The unchanged 4096-character native field bound rejects oversize values, and
+32,000,000 normalized bytes rejects the whole feed. Any incompatible real
+value must be reported before expanding these bounds or changing semantics.
 
 ## Evidence and complete-feed limits
 
@@ -67,16 +84,15 @@ PROD bounds are rejected by both composition and direct store construction.
    `.github/workflows/quality.yml` deploys DEV only for explicit
    `workflow_dispatch` with `deploy_dev=true`; main merge itself does not deploy.
    No production schedule, migration, source registration or grant is enabled.
-2. **Native policy and registry receipt:** approve the two exact pending
+2. **Native policy and registry receipt:** finalize the two owner-approved
    metadata/retention proposals and the stated complete-feed limits. A separately
    recorded actual decision must then finalize each `manual` source version and
    its reviewed receipt with the resulting checksum. Do not manufacture approval
    timestamps or reuse a pending-document checksum after changing its fields.
    Only the committed receipt may opt into `pass_bounds`; source YAML cannot.
-3. **Finite DEV qualification:** proposed new allowance is at most **US$5 total,
+3. **Finite DEV qualification:** owner-approved allowance is at most **US$5 total,
    four provider requests, four runs**, covering one complete capture and one
-   unchanged repoll per named source, sequentially. This allowance is a proposal,
-   not an approval or estimate of actual charges. Reconcile private accounting,
+   unchanged repoll per named source, sequentially. This is an approved ceiling, not an estimate of actual charges. Reconcile private accounting,
    existing DEV runtime/retention capabilities and warehouse/resource headroom
    before dispatch; no borrowed allowance, new credentials or self-grants.
    Stop on the first admission, limit, lineage, storage, quality or accounting

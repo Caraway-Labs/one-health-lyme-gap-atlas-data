@@ -326,6 +326,26 @@ def _publisher_metadata(
             if (category_value := _value(raw_value, category_path, policy))["value"]
         )
     )
+    # Retain a publisher description only under an explicit path receipt. This
+    # is a complete plain-text representation, never a generated/truncated excerpt.
+    # Optional for compatibility with immutable records from older policies.
+    description_path = "item/description" if rss else "item/" + ATOM + "summary"
+    if description_path in policy.permitted_paths:
+        if any(path.startswith(description_path + "/") for path in fields):
+            raise ValueError("INTELLIGENCE_DESCRIPTION_NESTED_MARKUP")
+        values = fields.get(description_path, [])
+        if len(values) > 1:
+            raise ValueError("INTELLIGENCE_NATIVE_MAPPING_AMBIGUOUS")
+        raw_description = values[0] if values else None
+        if raw_description is not None and len(raw_description) > 4096:
+            raise ValueError("INTELLIGENCE_NATIVE_FIELD_LIMIT")
+        text = permitted_text(raw_description, 4096) or ""
+        canonical["description"] = {
+            "text": text if values else None,
+            "state": ("present" if text else "empty") if values else "not_provided",
+            "format": "plain_text",
+            "origin": "publisher",
+        }
     language_paths = [
         "item/{http://purl.org/dc/elements/1.1/}language",
         "feed/language",

@@ -2,10 +2,10 @@
   "status": "proposed-not-an-approval",
   "selection_ref": "matthew-feed-selection-2026-10-03",
   "scope_ref": "five-additional-feeds-2026-10-22",
-  "source_sha256": "6a4d6a12918f1642a6be2e203be7173f9926abbcf005b93a96fe3d4f83f4714c",
+  "source_sha256": "638514d8085bd1c1eb79853ed27824b1b8a5cb4a207fa4514c60cf631b9b1aa1",
   "native_policy": {
     "policy_ref": "cdc-mmwr-native-metadata-v1",
-    "source_sha256": "6a4d6a12918f1642a6be2e203be7173f9926abbcf005b93a96fe3d4f83f4714c",
+    "source_sha256": "638514d8085bd1c1eb79853ed27824b1b8a5cb4a207fa4514c60cf631b9b1aa1",
     "inventory": [
       "feed/category",
       "feed/copyright",
@@ -44,6 +44,8 @@
       "feed/language",
       "feed/link",
       "feed/title",
+      "item/category",
+      "item/description",
       "item/link",
       "item/pubDate",
       "item/title"
@@ -103,5 +105,7 @@
   "proposed_pass_bounds": {
     "maximum_normalized_bytes": 32000000,
     "maximum_items": 3000
-  }
+  },
+  "owner_scope_decision_ref": "Sentinel_dafa6b0ae8108191b308b077e58b0f27",
+  "owner_scope_decision_at": "2026-10-22T01:17:00Z"
 }

@@ -241,6 +241,8 @@ def test_real_cdc_proposals_are_exact_but_cannot_self_admit(source_id):
             "item/link",
             "item/pubDate",
             "item/title",
+            "item/description",
+            "item/category",
         }
     )
     assert proposal["endpoint_evidence"]["status"] == 200
