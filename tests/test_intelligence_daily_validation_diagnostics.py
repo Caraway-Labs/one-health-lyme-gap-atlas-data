@@ -1,8 +1,12 @@
 """Offline error-preservation and unchanged deployment-boundary checks."""
 
 import base64
+import binascii
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -71,6 +75,96 @@ def test_encoded_known_secret_removed_before_any_truncation(encoded):
     assert "component source binding is required." in safe
 
 
+def _synthetic_invalid_jwt():
+    """Pattern fixture only: no key material and an undecodable signature segment."""
+    segments = [
+        base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        for payload in ({"alg": "HS256"}, {"sub": "synthetic-canary"})
+    ]
+    return ".".join([*segments, "x" * 17])
+
+
+def test_runtime_jwt_fixture_cannot_be_a_valid_hs256_signature():
+    signature = _synthetic_invalid_jwt().split(".")[2]
+    assert len(signature) % 4 == 1
+    with pytest.raises((ValueError, binascii.Error)):
+        base64.b64decode(signature + "=" * ((-len(signature)) % 4), altchars=b"-_", validate=True)
+
+
+def test_only_exact_approved_historical_fingerprint_is_ignored():
+    assert (ROOT / ".gitleaksignore").read_text().splitlines() == [
+        "2f9258d511c6ed70b5fe37ab3561de988e7d66b1:"
+        "tests/test_intelligence_daily_validation_diagnostics.py:jwt:82"
+    ]
+
+
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") != "true",
+    reason="Pinned Docker verification executes on hosted CI, not the local missing Docker engine.",
+)
+def test_pinned_scanner_still_rejects_a_separate_synthetic_history_finding(tmp_path):
+    image = (
+        "ghcr.io/gitleaks/gitleaks@sha256:"
+        "c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+    )
+    workflow = (ROOT / ".github/workflows/quality.yml").read_text()
+    assert image in workflow
+    assert "git /repo --config /repo/.gitleaks.toml --redact --no-banner" in workflow
+    docker = shutil.which("docker")
+    assert docker is not None
+    fixture = tmp_path / "separate-scanner-proof"
+    fixture.mkdir()
+    (fixture / "canary.txt").write_text(_synthetic_invalid_jwt() + "\n")
+    for filename in (".gitleaksignore", ".gitleaks.toml"):
+        shutil.copyfile(ROOT / filename, fixture / filename)
+    for args in (
+        ["init", "-q"],
+        ["add", "."],
+        [
+            "-c",
+            "user.name=Synthetic scanner proof",
+            "-c",
+            "user.email=scanner@example.invalid",
+            "commit",
+            "-qm",
+            "Synthetic local-only scanner verification",
+        ],
+    ):
+        subprocess.run(["git", *args], cwd=fixture, capture_output=True, check=True, timeout=30)
+    result = subprocess.run(
+        [
+            docker,
+            "run",
+            "--rm",
+            "-v",
+            f"{fixture}:/repo",
+            image,
+            "git",
+            "/repo",
+            "--config",
+            "/repo/.gitleaks.toml",
+            "--redact",
+            "--no-banner",
+            "--report-format",
+            "json",
+            "--report-path",
+            "/repo/proof.json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    if result.returncode != 1:
+        raise AssertionError("Pinned scanner failed to reject separate synthetic fixture")
+    findings = json.loads((fixture / "proof.json").read_text())
+    jwt = [row for row in findings if row.get("RuleID") == "jwt"]
+    if len(jwt) != 1 or jwt[0].get("File") != "canary.txt":
+        raise AssertionError("Expected exactly one separate synthetic JWT finding")
+    approved = (ROOT / ".gitleaksignore").read_text().strip()
+    assert jwt[0]["Fingerprint"] != approved
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -79,7 +173,7 @@ def test_encoded_known_secret_removed_before_any_truncation(encoded):
         "github_pat_" + "c" * 50,
         "AKIA" + "D" * 16,
         "EV[opaque-provider-reference]",
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturecanary00",
+        pytest.param(_synthetic_invalid_jwt(), id="synthetic-invalid-jwt"),
     ],
 )
 def test_credential_patterns_are_defensively_redacted(value):
