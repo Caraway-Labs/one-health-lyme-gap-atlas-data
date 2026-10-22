@@ -48,9 +48,13 @@ and token, authorization-header, credential-assignment and private-key patterns.
 Unknown validation words are not replaced with a vocabulary marker. The existing
 four-category summary remains supplementary; it never filters the prose.
 
-Only secret-typed or credential-named app/component environment values and the
-active DigitalOcean token feed the redactor; ordinary public configuration words
-remain readable. Raw output, traces and specs must never be emitted or retained.
+Every unrecognized app/component environment key is private regardless of its
+declared type. Only a fixed list of documented public connection/control keys is
+exempt, and an explicit SECRET type overrides that exemption. The active
+DigitalOcean token is also redacted. Percent-hex matching tolerates mixed casing
+and nested escapes without case-folding literal secret bytes. Embedded structured
+payloads are withheld wherever they appear after envelope removal; known-value
+redaction happens before cutting a payload, so partial secrets cannot escape. Raw output, traces and specs must never be emitted or retained.
 Structured payloads, malformed JSON and oversized input channels are withheld.
 Redaction precedes truncation: at most eight messages, 2,048 characters per message
 and 8,192 total, with an explicit truncation indicator. These bounds and redaction

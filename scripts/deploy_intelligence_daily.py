@@ -203,15 +203,35 @@ def _redact_error_prose(message: str, representations: list[str]) -> str:
     if len(message) > MAX_ERROR_INPUT:
         return "[oversized error message withheld]"
     message = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", message)
-    # Refuse structured payloads and raw HTTP traces rather than risk logging a spec.
-    if re.search(
-        r'(?im)^\s*(?:[\{\[]|["\'](?:spec|envs)["\']\s*:|'
-        r"(?:request|response)\s+(?:body|headers)\s*:|[<>]\s*(?:PUT|POST|GET|HTTP/))",
+    message = re.sub(
+        r"^(?:Error:\s*)?(?:PUT|POST|GET|PATCH|DELETE) https?://\S+: [1-5][0-9]{2} "
+        r'\(request "[0-9a-fA-F-]{36}"\)\s*',
+        "",
         message,
-    ):
-        return "[structured payload or trace withheld]"
+    )
     for value in representations:
-        message = message.replace(value, "[REDACTED]")
+        # Hex casing can vary independently in every URL escape, at any nesting
+        # depth represented by this value. Literal secret bytes remain case-sensitive.
+        parts = []
+        position = 0
+        for escape in re.finditer(r"%(?:25)*[0-9a-fA-F]{2}", value):
+            parts.extend(
+                (re.escape(value[position : escape.start()]), "(?i:%(?:25)*" + escape[0][-2:] + ")")
+            )
+            position = escape.end()
+        parts.append(re.escape(value[position:]))
+        message = re.sub("".join(parts), "[REDACTED]", message)
+    # A provider can embed a complete or malformed spec after ordinary prose.
+    # Withhold it anywhere, including JSON/URL-escaped opening delimiters.
+    payload = re.search(
+        r"(?i)\{|\[\s*[\{\[\"']|%(?:25)*7b|%(?:25)*5b|"
+        r"\\+(?:u007b|x7b|u005b|x5b)|"
+        r"\b(?:spec|jobs|services|workers|envs)\s*:\s*(?:[\r\n-]|\\+[nr])|"
+        r"(?:request|response)\s+(?:body|headers)\s*:|[<>]\s*(?:PUT|POST|GET|HTTP/)",
+        message,
+    )
+    if payload:
+        message = message[: payload.start()] + "[structured payload or trace withheld]"
     message = re.sub(
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)",
         "[REDACTED PRIVATE KEY]",
@@ -239,13 +259,6 @@ def _redact_error_prose(message: str, representations: list[str]) -> str:
         message,
     )
     message = re.sub(r"(https?://)[^\s/@:]+:[^\s/@]+@", r"\1[REDACTED]@", message)
-    # Keep the provider's prose, not the transport envelope or arbitrary controls.
-    message = re.sub(
-        r"^(?:Error:\s*)?(?:PUT|POST|GET|PATCH|DELETE) https?://\S+: [1-5][0-9]{2} "
-        r'\(request "[0-9a-fA-F-]{36}"\)\s*',
-        "",
-        message,
-    )
     return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", message).strip()
 
 
@@ -302,6 +315,21 @@ def update_failure(stderr: str, stdout: str = "", sensitive_values=()) -> str:
 def diagnostic_sensitive_values(spec):
     """Collect values for redaction only; never return them to a log or artifact."""
     values = [os.environ.get("DIGITALOCEAN_ACCESS_TOKEN", "")]
+    # Unknown keys are private by default, even with GENERAL or omitted type.
+    # This avoids guessing every possible credential name (API_KEY, PASSWD, etc.).
+    public_keys = {
+        "TOPX_ENV",
+        "ENABLE_PRODUCTION_EXECUTION",
+        "SNOWFLAKE_DATABASE",
+        "SNOWFLAKE_ROLE",
+        "SNOWFLAKE_WAREHOUSE",
+        "SNOWFLAKE_AUTH_METHOD",
+        "SPACES_REGION",
+        "SPACES_ENDPOINT",
+        "SPACES_BUCKET",
+        "SPACES_PREFIX",
+        "INTELLIGENCE_DAILY_ENABLED",
+    }
 
     def visit(node):
         if isinstance(node, dict):
@@ -312,12 +340,8 @@ def diagnostic_sensitive_values(spec):
                     for e in envs
                     if isinstance(e, dict)
                     and (
-                        e.get("type") == "SECRET"
-                        or re.search(
-                            r"TOKEN|SECRET|PASSWORD|PASSPHRASE|PRIVATE_KEY|ACCESS_KEY|CREDENTIAL",
-                            str(e.get("key", "")),
-                            re.IGNORECASE,
-                        )
+                        str(e.get("type", "")).strip().upper() == "SECRET"
+                        or e.get("key") not in public_keys
                     )
                 )
             for value in node.values():

@@ -156,7 +156,7 @@ def test_synthetic_image_rejection_fixture_preserves_full_unknown_meaning():
 def test_secret_collector_leaves_public_config_words_readable():
     spec = {
         "envs": [
-            {"key": "PUBLIC_WORD", "value": "image"},
+            {"key": "TOPX_ENV", "value": "prod"},
             {"key": "ACCOUNT", "type": "SECRET", "value": "account-canary"},
         ],
         "jobs": [{"envs": [{"key": "SPACES_ACCESS_KEY_ID", "value": "key-canary"}]}],
@@ -208,3 +208,112 @@ def test_failed_update_still_calls_once_and_never_activates():
     run.assert_called_once()
     assert "sensitive-canary" not in str(exc.value)
     assert PROSE in str(exc.value)
+
+
+@pytest.mark.parametrize("channel", ["stdout", "stderr"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"jobs":[{"envs":[{"key":"PUBLIC_CONFIG","value":"private-config-canary"}]}]}',
+        '{"jobs":[{"envs":[{"key":"PUBLIC_CONFIG","value":"private-config-canary"}',
+        '[{"envs":[{"key":"PUBLIC_CONFIG","value":"private-config-canary"}]}]',
+        r"{\"jobs\":[{\"envs\":[{\"value\":\"private-config-canary\"}]}]}",
+        "%7b%22jobs%22%3a%22private-config-canary%22%7d",
+        "%257B%2522envs%2522%253A%2522private-config-canary%2522%257D",
+        r'\u007b"jobs":"private-config-canary"}',
+        "jobs:\n - envs:\n   - value: private-config-canary",
+    ],
+)
+def test_inline_specs_anywhere_after_envelope_are_withheld(channel, payload):
+    detail = ENVELOPE + "invalid spec: " + payload
+    stderr = detail if channel == "stderr" else ""
+    stdout = json.dumps({"errors": [{"detail": detail}]}) if channel == "stdout" else ""
+    message = m.update_failure(stderr, stdout)
+    assert "private-config-canary" not in message
+    assert "PUBLIC_CONFIG" not in message
+    assert '"jobs"' not in message
+    assert "invalid spec:" in message
+    assert "withheld" in message
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "API_KEY",
+        "api-key",
+        "apiKey",
+        "PASSWD",
+        "DB_PASSWD",
+        "PASSWORD",
+        "AUTHORIZATION",
+        "arbitrary_name",
+    ],
+)
+@pytest.mark.parametrize("declared_type", [None, "GENERAL", "SECRET"])
+@pytest.mark.parametrize("location", ["app", "jobs", "services"])
+def test_all_unrecognized_env_keys_are_private_regardless_type(key, declared_type, location):
+    entry = {"key": key, "value": "apikey-canary"}
+    if declared_type:
+        entry["type"] = declared_type
+    app = {"envs": [entry]} if location == "app" else {location: [{"envs": [entry]}]}
+    values = m.diagnostic_sensitive_values(app)
+    assert "apikey-canary" in values
+    output = json.dumps({"errors": [{"detail": ENVELOPE + "invalid value apikey-canary"}]})
+    assert "apikey-canary" not in m.update_failure("", output, values)
+
+
+@pytest.mark.parametrize("channel", ["stdout", "stderr"])
+@pytest.mark.parametrize(
+    ("secret", "encoded"),
+    [
+        ("p/ss:word", "p%2Fss%3aword"),
+        ("Ω/secret", "%CE%a9%2Fsecret"),
+        ("p/ss:word", "p%252Fss%253aword"),
+        ("Ω/secret", "%25CE%25a9%252Fsecret"),
+        ("p/ss:word", "p%25252fss%25253Aword"),
+    ],
+)
+def test_mixed_percent_hex_casing_at_each_encoding_depth(channel, secret, encoded):
+    values = m.diagnostic_sensitive_values({"envs": [{"key": "API_KEY", "value": secret}]})
+    detail = ENVELOPE + 'invalid value "' + encoded + '"; ' + PROSE
+    stderr = detail if channel == "stderr" else ""
+    stdout = json.dumps({"errors": [{"detail": detail}]}) if channel == "stdout" else ""
+    message = m.update_failure(stderr, stdout, values)
+    assert encoded not in message
+    assert PROSE in message
+
+
+def test_percent_hex_matching_does_not_casefold_literal_secret_bytes():
+    result = m.validation_metadata(
+        ENVELOPE + "invalid value s%2FWord; actual S%2fWord",
+        sensitive_values=["S/Word"],
+    )
+    prose = result["redacted_messages"][0]
+    assert "s%2FWord" in prose
+    assert "S%2fWord" not in prose
+
+
+def test_mixed_percent_encoding_redacted_before_truncation():
+    detail = ENVELOPE + "x" * (m.MAX_ERROR_MESSAGE - 4) + "p%2Fss%3aword"
+    result = m.validation_metadata(detail, sensitive_values=["p/ss:word"])
+    assert result["truncated"]
+    assert "p%2F" not in json.dumps(result)
+
+
+def test_secret_type_overrides_documented_public_key():
+    values = m.diagnostic_sensitive_values(
+        {
+            "envs": [{"key": "TOPX_ENV", "type": "secret", "value": "secret-prod-canary"}],
+        }
+    )
+    assert "secret-prod-canary" in values
+    assert "secret-prod-canary" not in m.update_failure(
+        ENVELOPE + "invalid value secret-prod-canary",
+        sensitive_values=values,
+    )
+
+
+def test_payload_opening_inside_known_secret_cannot_leak_a_cut_prefix():
+    secret = "secret-prefix-canary{credential-data}"
+    message = m.update_failure(ENVELOPE + "invalid value " + secret, sensitive_values=[secret])
+    assert "secret-prefix-canary" not in message
