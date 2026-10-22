@@ -132,8 +132,19 @@ def verify_preflight(deployment: dict[str, Any], digest: str) -> None:
         raise PermissionError("INTELLIGENCE_DAILY_SERVICE_PREFLIGHT_REQUIRED")
 
 
-def update_failure(stderr: str) -> str:
+def update_failure(stderr: str, stdout: str = "") -> str:
     """Expose only closed metadata; provider output can contain credential values."""
+    try:
+        output = json.loads(stdout)
+    except ValueError:
+        output = None
+    if isinstance(output, dict) and isinstance(output.get("errors"), list):
+        # doctl --output json reports failures on stdout, leaving stderr empty.
+        stderr += "\n" + "\n".join(
+            error["detail"]
+            for error in output["errors"]
+            if isinstance(error, dict) and isinstance(error.get("detail"), str)
+        )
     status = re.search(r"https://api\.digitalocean\.com/[^\s:]+: ([1-5][0-9]{2})\b", stderr)
     request = re.search(r'\(request "([0-9a-fA-F-]{36})"\)', stderr)
     category = "UNCLASSIFIED"
@@ -178,7 +189,7 @@ def main() -> None:
         timeout=1800,
     )
     if r.returncode:
-        raise RuntimeError(update_failure(r.stderr))
+        raise RuntimeError(update_failure(r.stderr, r.stdout))
     current = get(["apps", "get", APP_ID])
     before = {j["name"]: j for j in app["spec"]["jobs"] if j["name"] in BASE}
     after = {j["name"]: j for j in current["spec"]["jobs"] if j["name"] in BASE}
