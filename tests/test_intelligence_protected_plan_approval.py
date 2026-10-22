@@ -290,11 +290,13 @@ def test_all_existing_job_conditions_remain_isolated_for_every_mode_combination(
             and january,
             "retained-lineage": retained,
         }
-        for approval_only in (False, True):
+        for approval_only, validation_only in itertools.product((False, True), repeat=2):
             values["approve_intelligence_cleanup_only"] = approval_only
+            values["intelligence_daily_validate_only"] = validation_only
             for name, previously_enabled in old.items():
                 assert evaluate(jobs[name]["if"], values) is (
                     previously_enabled
                     and not approval_only
                     and not values["intelligence_daily_only"]
+                    and not validation_only
                 )
