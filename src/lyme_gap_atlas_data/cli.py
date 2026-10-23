@@ -1001,11 +1001,12 @@ def run_production_schedule_command() -> None:
 @pipeline_app.command("run-intelligence-daily")
 def run_intelligence_daily_command(
     preflight_only: bool = typer.Option(False, "--preflight-only"),
+    reopen_attempt: int = typer.Option(1, "--reopen-attempt", min=1),
 ) -> None:
     """Run the fixed daily RSS set on the existing production job platform."""
     from .intelligence_polling import run_production_daily
 
-    result = run_production_daily(preflight_only=preflight_only)
+    result = run_production_daily(preflight_only=preflight_only, reopen_attempt=reopen_attempt)
     typer.echo(json.dumps(result))
     if result["status"] == "FAILED":
         raise typer.Exit(code=1)

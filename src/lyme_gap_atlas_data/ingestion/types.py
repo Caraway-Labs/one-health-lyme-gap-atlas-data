@@ -75,6 +75,7 @@ class FailureCategory(StrEnum):
     DEPLOYMENT = "DEPLOYMENT"
     PERMISSION = "PERMISSION"
     PROCESS = "PROCESS"
+    DEADLINE = "DEADLINE"
 
 
 DEFAULT_SOCRATA_STAGES: tuple[Stage, ...] = (

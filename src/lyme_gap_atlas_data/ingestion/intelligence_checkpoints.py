@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import uuid4
 
 from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..intelligence_retention import CopyKind
 from .artifact_replay import ArtifactMember, resolve_member
 from .checkpoints import FileCheckpointStore, InMemoryCheckpointStore, SnowflakeCheckpointStore
+from .intelligence_daily_run_ids import prior_daily_run_id, reopen_attempt_for_run_id
+from .types import RunState
 
 
 class IntelligenceMemoryCheckpoints(InMemoryCheckpointStore):
@@ -175,6 +177,12 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         self.feed_retention = retention
         self._unvalidated_factory = self._connection_factory
         self._connection_factory = self._checked_factory
+        self.stage_observer: Callable[[Iterable[Any]], None] | None = None
+
+    def save(self, state: RunState) -> None:
+        super().save(state)
+        if self.stage_observer is not None:
+            self.stage_observer(state.stages)
 
     def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
         """Commit one daily admission before I/O using the existing write guard.
@@ -184,18 +192,16 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         """
         from .intelligence_runtime import PROD_DAILY_SOURCE_SHA256
 
-        expected_id = str(
-            uuid5(
-                NAMESPACE_URL,
-                f"atlas:intelligence:daily:{source_id}:{datetime.now(UTC).date().isoformat()}",
-            )
-        )
+        day = datetime.now(UTC).date()
+        attempt = reopen_attempt_for_run_id(source_id, day, run_id)
         if (
             self.feed_retention.environment != "PROD"
-            or run_id != expected_id
+            or attempt is None
             or PROD_DAILY_SOURCE_SHA256.get(source_id) != source_sha256
         ):
             raise PermissionError("INTELLIGENCE_DAILY_CLAIM_SCOPE_REQUIRED")
+        if attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":
+            raise PermissionError("INTELLIGENCE_DAILY_REOPEN_REQUIRED")
         with self._connection_factory() as connection, connection.cursor() as cursor:
             connection.autocommit(False)
             try:
@@ -206,6 +212,22 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
                 )
                 if cursor.rowcount != 1:
                     raise PermissionError("INTELLIGENCE_RAW_WRITE_GUARD_REQUIRED")
+                if attempt >= 2:
+                    prior_id = prior_daily_run_id(source_id, day, attempt)
+                    # The prior attempt row is immutable evidence: read it, never change it.
+                    cursor.execute(
+                        "SELECT status, resource_key, code_version, config_sha256 "
+                        "FROM GOVERNANCE.INGESTION_RUNS WHERE ingestion_run_id=%s",
+                        (prior_id,),
+                    )
+                    prior = cursor.fetchone()
+                    if prior is None or tuple(prior) != (
+                        "FAILED",
+                        source_id,
+                        "intelligence-daily-v1",
+                        source_sha256,
+                    ):
+                        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED")
                 cursor.execute(
                     "SELECT ingestion_run_id FROM GOVERNANCE.INGESTION_RUNS "
                     "WHERE ingestion_run_id=%s",

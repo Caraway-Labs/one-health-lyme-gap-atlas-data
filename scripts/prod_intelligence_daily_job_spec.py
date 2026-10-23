@@ -24,6 +24,7 @@ def build_operation_spec(
     *,
     preflight_only: bool,
     recover_ingestion_run_id: str = "",
+    reopen_attempt: int = 1,
 ) -> dict[str, Any]:
     jobs = baseline.get("jobs", [])
     job_names = {job.get("name") for job in jobs if isinstance(job, dict)}
@@ -39,6 +40,12 @@ def build_operation_spec(
         raise PermissionError("INTELLIGENCE_DAILY_COMMAND_REQUIRED")
     if recover_ingestion_run_id and preflight_only:
         raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_MODE_EXCLUSIVE")
+    if not 1 <= reopen_attempt <= 31:
+        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID")
+    if recover_ingestion_run_id and reopen_attempt >= 2:
+        raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_MODE_EXCLUSIVE")
+    if reopen_attempt >= 2 and preflight_only:
+        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_MODE_EXCLUSIVE")
     if recover_ingestion_run_id:
         if not re.fullmatch(
             r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
@@ -48,6 +55,8 @@ def build_operation_spec(
         run_command = RECOVER_PREFIX + recover_ingestion_run_id
     else:
         run_command = COMMAND + (" --preflight-only" if preflight_only else "")
+        if reopen_attempt >= 2:
+            run_command = f"{COMMAND} --reopen-attempt {reopen_attempt}"
     manual = copy.deepcopy(template)
     manual.update(
         name=MANUAL_JOB,
@@ -55,6 +64,18 @@ def build_operation_spec(
         run_command=run_command,
         instance_count=1,
     )
+    if reopen_attempt >= 2:
+        envs = list(manual.get("envs", []))
+        if not any(entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" for entry in envs):
+            envs.append(
+                {
+                    "key": "INTELLIGENCE_DAILY_REOPEN",
+                    "scope": "RUN_TIME",
+                    "type": "GENERAL",
+                    "value": "true",
+                }
+            )
+        manual["envs"] = envs
     manual.pop("schedule", None)
     result = copy.deepcopy(baseline)
     result["jobs"] = [job for job in jobs if job.get("name") != MANUAL_JOB] + [manual]
@@ -67,6 +88,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--recover-ingestion-run-id", default="")
+    parser.add_argument("--reopen-attempt", type=int, default=1)
     args = parser.parse_args()
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     args.output.write_text(
@@ -75,6 +97,7 @@ def main() -> None:
                 baseline,
                 preflight_only=args.preflight_only,
                 recover_ingestion_run_id=args.recover_ingestion_run_id,
+                reopen_attempt=args.reopen_attempt,
             )
         ),
         encoding="utf-8",

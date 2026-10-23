@@ -21,6 +21,11 @@ on:
         required: false
         default: ""
         type: string
+      reopen_attempt:
+        description: Governed same-UTC-day reopen attempt (2 or higher); requires manual job env
+        required: false
+        default: 1
+        type: number
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ jobs:
   run:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     environment: production
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -43,6 +49,7 @@ jobs:
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
       RECOVER_INGESTION_RUN_ID: ${{ inputs.recover_ingestion_run_id }}
+      REOPEN_ATTEMPT: ${{ inputs.reopen_attempt }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -104,8 +111,13 @@ jobs:
           if [ -n "$RECOVER_INGESTION_RUN_ID" ]; then
             recover_args=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID")
           fi
+          reopen_args=()
+          if [ "${REOPEN_ATTEMPT:-1}" -ge 2 ] 2>/dev/null; then
+            reopen_args=(--reopen-attempt "$REOPEN_ATTEMPT")
+          fi
           python scripts/prod_intelligence_daily_job_spec.py \
-            --baseline "$baseline_spec" --output "$operation_spec" $preflight_flag "${recover_args[@]}"
+            --baseline "$baseline_spec" --output "$operation_spec" $preflight_flag \
+            "${recover_args[@]}" "${reopen_args[@]}"
           baseline_captured=true
           doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
             --format ID,ActiveDeployment.ID --no-header

@@ -10,7 +10,18 @@ This reuses the existing DigitalOcean application and canonical ingestion runtim
 - Add only `intelligence-feed-daily`, daily at 07:00 America/Denver, one instance. Disabled by default in application settings.
 - Claim each source/day in the existing ingestion ledger before provider I/O. Duplicate invocations, including after a failed attempt, cannot retry that source that day.
 - Preserve one attempt, 30 seconds per HTTP operation, 2 MiB, 250 items, verified TLS, no redirects and existing 30-day raw-copy enforcement.
-- Each daily source runs under its own fifteen-minute process watchdog (`DAILY_SOURCE_WATCHDOG_SECONDS`); the five-minute pilot cap applies only to bounded pilot/prerequisite paths.
+- Each daily source has its own 900-second owned-work budget (`DAILY_SOURCE_BUDGET_SECONDS`, passed to `PilotBudget`) inside a 960-second process watchdog (`DAILY_SOURCE_WATCHDOG_SECONDS` = budget plus two 30-second grace windows). The five-minute pilot cap still applies to pilot/prerequisite paths. When the budget expires, the budget wrapper blocks the run's own writes, so the runner records the run FAILED on a fresh short connection (`intelligence_daily_deadline`): the RUNNING checkpoint becomes FAILED with category `DEADLINE`, code `PILOT_BUDGET_EXCEEDED`. No claim is left RUNNING by a budget expiry.
+- Daily output includes redacted per-stage timing (`stage`, `status`, `seconds`, `queries`; stages still open at exit are `UNFINISHED`). No payloads, URLs, credentials or exception text.
+- Recovery (`recover-intelligence-daily-stuck-run`) terminalizes a RUNNING daily run even when no checkpoint is RUNNING: only the run row becomes FAILED (`INTELLIGENCE_DAILY_PROCESS_EXIT`); PENDING/COMPLETED stages are untouched. Scope guards (code version, source, config checksum) are unchanged. Ledger rows are never deleted or rewritten otherwise.
+
+## Governed same-UTC-day reopen (owner-approved, DATA #132)
+
+The scheduled job still claims `uuid5(atlas:intelligence:daily:{source}:{day})` once per UTC day and never retries. The owner approved a recorded reopen for 2026-10-23 instead of waiting for UTC rollover. No schema change and no ADR; this extends claim semantics only for the one-shot manual job.
+
+- Manual one-shot workflow input `reopen_attempt` (2-31) becomes `run-intelligence-daily --reopen-attempt N` and sets `INTELLIGENCE_DAILY_REOPEN=true` only on the temporary `intelligence-daily-manual-once` job spec. The scheduled `intelligence-feed-daily` spec and `deploy_intelligence_daily.py` never set either. Preflight and recovery modes cannot be combined with a reopen.
+- Both the CLI path and `claim_daily_run` fail closed (before any SQL) if attempt >= 2 and the env var is not `true`.
+- The attempt run id is `uuid5(...:{source}:{day}:attempt-N)`, an additional immutable ledger row. Attempt N is admitted only if attempt N-1 (the base id for N=2) exists for the same source and checksum, with `code_version=intelligence-daily-v1` and terminal `status=FAILED`, read inside the same transaction as the write-guard bump. RUNNING, SUCCEEDED, missing or mismatched priors are denied; an existing attempt-N row returns ALREADY_CLAIMED. Prior rows are only read.
+- The new ledger row, the GitHub run URL and an issue comment are the recorded reopen event. Never delete or rewrite attempt rows.
 - Immutable source v2 packages activate only the existing three approved sources. Manual/paused states suppress daily execution. No new scientific approval is asserted.
 - V164 preserves existing published v1 entries only across the exact pinned approved active v2 transition; future, revoked or unknown transitions fail closed. Cross-version duplicate entries are collapsed.
 
