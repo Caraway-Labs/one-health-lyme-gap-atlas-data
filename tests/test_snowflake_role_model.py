@@ -83,6 +83,9 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         # It preserves the six-job PROD baseline and requires a human steward
         # decision between discovery and approved-paper extraction.
         "run-prod-literature-once",
+        # DATA #132: protected, temporary intelligence-daily PRE_DEPLOY operation.
+        # It preserves the seven-job PROD baseline and restores it after one run.
+        "run-prod-intelligence-daily-once",
         # DATA #132/#135: one fixed, checksum-bound EID registry version under
         # the protected PROD migration identity; no feed fetch or SQL input.
         "register-prod-eid",
