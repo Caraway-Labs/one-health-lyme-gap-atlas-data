@@ -14,7 +14,10 @@ import deploy_intelligence_daily as daily
 EXPECTED_JOBS = daily.BASE | {daily.NAME}
 MANUAL_JOB = "intelligence-daily-manual-once"
 COMMAND = daily.COMMAND
-RECOVER_PREFIX = "/app/.venv/bin/atlas-data pipeline recover-intelligence-daily-stuck-run --ingestion-run-id "
+RECOVER_PREFIX = (
+    "/app/.venv/bin/atlas-data pipeline recover-intelligence-daily-stuck-run "
+    "--ingestion-run-id "
+)
 
 
 def build_operation_spec(
