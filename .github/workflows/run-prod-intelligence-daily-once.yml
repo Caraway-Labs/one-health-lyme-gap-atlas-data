@@ -51,12 +51,13 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "$PROD_APP_ID"
-          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          CODE_SHA="$REVIEWED_COMMIT"
+          [[ "$CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed_checks" -gt 0
           source_digest="$(doctl registry repository list-manifests pipeline --output json \
-            | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
+            | jq -r --arg tag "sha-${CODE_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
           test "$source_digest" = "$IMAGE_DIGEST"
 
           baseline_spec="$(mktemp)"
