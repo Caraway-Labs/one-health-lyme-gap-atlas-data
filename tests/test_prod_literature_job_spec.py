@@ -408,7 +408,8 @@ def test_all_prod_app_spec_mutators_share_one_non_canceling_lock() -> None:
         }, path.name
     assert "promote-prod.yml" in mutators
     assert "run-prod-literature-once.yml" in mutators
-    assert len(mutators) == 7
+    assert "run-prod-intelligence-daily-once.yml" in mutators
+    assert len(mutators) == 8
 
 
 def test_host_secret_readiness_collects_every_stage_without_values() -> None:
