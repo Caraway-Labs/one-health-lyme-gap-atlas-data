@@ -37,6 +37,7 @@ jobs:
       IMAGE_DIGEST: ${{ inputs.image_digest }}
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
