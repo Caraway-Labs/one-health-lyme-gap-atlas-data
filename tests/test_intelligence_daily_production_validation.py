@@ -203,8 +203,16 @@ def test_validation_mode_keeps_native_gate_and_excludes_every_mutation_job():
         if name != "intelligence-daily":
             assert "inputs.intelligence_daily_validate_only != true" in node["if"]
     for step in job["steps"]:
+        if "--phase refresh-digest" in step.get("run", ""):
+            assert (
+                step["if"]
+                == "inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active == 'true'"
+            )
         if "--phase preflight" in step.get("run", "") or "--phase activate" in step.get("run", ""):
-            assert step["if"] == "inputs.intelligence_daily_validate_only != true"
+            assert (
+                step["if"]
+                == "inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active != 'true'"
+            )
     checks = next(
         s["run"] for s in job["steps"] if s.get("name", "").startswith("Require isolated")
     )
