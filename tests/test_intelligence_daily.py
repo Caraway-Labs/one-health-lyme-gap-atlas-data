@@ -172,6 +172,60 @@ def test_source_refresh_preserves_all_six_immutable_image_versions(phase):
     assert rendered["jobs"][-1]["image"]["digest"] == "sha256:" + "a" * 64
 
 
+def test_baseline_alignment_pins_only_six_jobs():
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    target = "sha256:" + "b" * 64
+    aligned = module.with_baseline_digests(original, target)
+    assert len(aligned["jobs"]) == len(original["jobs"])
+    for job in aligned["jobs"]:
+        assert job["image"]["digest"] == target
+    assert module.baseline_needs_digest_alignment(original, target)
+    assert not module.baseline_needs_digest_alignment(aligned, target)
+
+
+def test_main_aligns_baseline_digest_before_preflight(monkeypatch):
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    old_digest = "sha256:" + "0" * 64
+    new_digest = "sha256:" + "b" * 64
+    for job in original["jobs"]:
+        job["image"]["digest"] = old_digest
+    app = {"spec": original, "active_deployment": {"id": "dep-1"}}
+    calls: list[bool] = []
+
+    def fake_update(spec, *, update_sources):
+        calls.append(update_sources)
+        if not update_sources:
+            app["spec"] = copy.deepcopy(spec)
+        else:
+            app["spec"] = copy.deepcopy(spec)
+        return SimpleNamespace(returncode=0, stderr="", stdout="[]")
+
+    def fake_get(_args):
+        return copy.deepcopy(app)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "deploy",
+            "--phase",
+            "preflight",
+            "--image-digest",
+            new_digest,
+            "--credential-placement-approved",
+        ],
+    )
+    monkeypatch.setattr(module, "get", fake_get)
+    monkeypatch.setattr(module, "platform_update", fake_update)
+    module.main()
+    assert calls == [False, True]
+    for job in app["spec"]["jobs"]:
+        if job["name"] in module.BASE:
+            assert job["image"]["digest"] == new_digest
+
+
 @pytest.mark.parametrize("kind", ["services", "workers", "static_sites", "functions"])
 def test_source_refresh_rejects_other_components_before_update(kind):
     module = script("deploy_intelligence_daily")

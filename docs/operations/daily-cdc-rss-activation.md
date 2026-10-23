@@ -65,6 +65,15 @@ Fixtures use synthetic loopback errors and credentials with the pinned doctl
 claim about the unknown historical HTTP 400. Preparing this diagnostic change
 performs no provider update and authorizes no production attempt.
 
+## Baseline digest alignment before the seventh job
+
+Production Update rejected the preflight job when the reviewed immutable digest was
+present on DEV but not yet referenced by any existing production component. The daily
+helper now performs a separate Update that pins all six approved jobs to the reviewed
+digest first, using the same digest-only promotion pattern as the standard production
+promotion path and without adding components. Only after that alignment does it add
+the preflight or scheduled daily job.
+
 ## Explicit immutable image source refresh
 
 Run 39726707822 rejected the preflight update with HTTP 400 and request ID
