@@ -123,3 +123,29 @@ def test_terminalize_rejects_non_running(monkeypatch) -> None:
     monkeypatch.setattr(recovery, "connect", lambda _settings: _BadConnection())
     with pytest.raises(PermissionError, match="RECOVERY_SCOPE"):
         recovery.terminalize_stuck_daily_run(RUN_ID)
+
+
+def test_terminalize_run_without_running_checkpoint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.intelligence_daily_run_recovery.PipelineSettings",
+        lambda: PipelineSettings(
+            topx_env="prod",
+            enable_production_execution=True,
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        ),
+    )
+
+    class _NoRunningCursor(_Cursor):
+        def execute(self, sql: str, params=None) -> None:
+            super().execute(sql, params)
+            if "INGESTION_RUN_CHECKPOINTS" in sql and "SELECT" in sql:
+                self._queue[-1] = [("NORMALIZE", "COMPLETED"), ("LOAD", "PENDING")]
+
+    class _NoRunningConnection(_Connection):
+        def cursor(self) -> _NoRunningCursor:
+            return _NoRunningCursor()
+
+    monkeypatch.setattr(recovery, "connect", lambda _settings: _NoRunningConnection())
+    result = recovery.terminalize_stuck_daily_run(RUN_ID)
+    assert result["status"] == "SUCCEEDED"
+    assert result["terminalized_stages"] == []

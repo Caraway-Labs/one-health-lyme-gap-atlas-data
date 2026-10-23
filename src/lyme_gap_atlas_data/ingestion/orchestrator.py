@@ -74,6 +74,8 @@ class IngestionOrchestrator:
         self.store = store or InMemoryCheckpointStore()
         self.fixture_dir = fixture_dir
         self._adapter_override = adapter
+        # Optional owned-work budget attached by the bounded intelligence runtime.
+        self.pilot_budget: Any = None
         self._effects_override = effects
         self._payloads: dict[str, Any] = {}
         self._normalized: dict[str, Any] = {}

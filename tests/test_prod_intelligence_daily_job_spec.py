@@ -67,6 +67,44 @@ def test_rejects_competing_predeploy() -> None:
         build_operation_spec(baseline, preflight_only=False)
 
 
+def test_reopen_attempt_appends_flag_and_env() -> None:
+    spec = build_operation_spec(_baseline(), preflight_only=False, reopen_attempt=2)
+    manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
+    assert manual["run_command"] == COMMAND + " --reopen-attempt 2"
+    assert any(
+        entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" and entry.get("value") == "true"
+        for entry in manual.get("envs", [])
+    )
+
+
+def test_default_manual_spec_never_sets_reopen_env_or_flag() -> None:
+    spec = build_operation_spec(_baseline(), preflight_only=False)
+    for job in spec["jobs"]:
+        assert "--reopen-attempt" not in job["run_command"]
+        assert not any(e.get("key") == "INTELLIGENCE_DAILY_REOPEN" for e in job.get("envs", []))
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"preflight_only": True, "reopen_attempt": 2},
+        {"preflight_only": False, "reopen_attempt": 2, "recover_ingestion_run_id": "x"},
+        {"preflight_only": False, "reopen_attempt": 0},
+        {"preflight_only": False, "reopen_attempt": 32},
+    ],
+)
+def test_reopen_is_exclusive_and_bounded(kwargs) -> None:
+    with pytest.raises(PermissionError, match="REOPEN|RECOVERY"):
+        build_operation_spec(_baseline(), **kwargs)
+
+
+def test_reopen_leaves_scheduled_daily_job_untouched() -> None:
+    baseline = _baseline()
+    spec = build_operation_spec(baseline, preflight_only=False, reopen_attempt=2)
+    scheduled = next(j for j in spec["jobs"] if j["name"] == "intelligence-feed-daily")
+    assert scheduled == next(j for j in baseline["jobs"] if j["name"] == "intelligence-feed-daily")
+
+
 def test_cli_writes_json(tmp_path: Path) -> None:
     baseline_path = tmp_path / "baseline.json"
     output_path = tmp_path / "out.json"

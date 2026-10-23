@@ -738,6 +738,7 @@
         "DEPLOYMENT",
         "PERMISSION",
         "PROCESS",
+        "DEADLINE",
         "UNKNOWN"
       ]
     },

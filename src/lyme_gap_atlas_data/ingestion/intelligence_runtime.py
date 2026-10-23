@@ -12,7 +12,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -45,7 +45,11 @@ RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
 DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
 # Pilot feeds use a five-minute process cap; each daily CDC source needs its own budget.
-DAILY_SOURCE_WATCHDOG_SECONDS = 900
+DAILY_SOURCE_BUDGET_SECONDS = 900
+# After the budget expires, a fresh short connection records the FAILED terminal state.
+DEADLINE_GRACE_SECONDS = 30
+# The process watchdog must outlive the budget plus the terminalization grace window.
+DAILY_SOURCE_WATCHDOG_SECONDS = DAILY_SOURCE_BUDGET_SECONDS + 2 * DEADLINE_GRACE_SECONDS
 PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
     "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",
@@ -132,11 +136,42 @@ class PilotBudget:
     Operators track the approved six-request/$5 aggregate across invocations.
     """
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, clock: Callable[[], float] = time.monotonic, *, seconds: int = 300) -> None:
+        if seconds < 1:
+            raise ValueError("Pilot budget seconds must be positive")
         self.clock = clock
-        self.deadline = clock() + 300
+        self.seconds = seconds
+        self.deadline = clock() + seconds
         self.requests = 0
         self.queries = 0
+        self.stage_timings: list[dict[str, Any]] = []
+        self._open_stages: dict[str, tuple[float, int]] = {}
+
+    def observe_stages(self, stages: Iterable[Any]) -> None:
+        """Record redacted per-stage seconds and query counts as checkpoints are saved."""
+        for checkpoint in stages:
+            name, status = checkpoint.stage.value, checkpoint.status.value
+            if status == "RUNNING" and name not in self._open_stages:
+                self._open_stages[name] = (self.clock(), self.queries)
+            elif status in {"COMPLETED", "FAILED"} and name in self._open_stages:
+                started, queries = self._open_stages.pop(name)
+                self.stage_timings.append(self._timing(name, status, started, queries))
+
+    def _timing(self, stage: str, status: str, started: float, queries: int) -> dict[str, Any]:
+        return {
+            "stage": stage,
+            "status": status,
+            "seconds": round(self.clock() - started, 2),
+            "queries": self.queries - queries,
+        }
+
+    def timing_report(self) -> list[dict[str, Any]]:
+        """Closed stages plus any stage still open now (for example at a deadline)."""
+        open_rows = [
+            self._timing(name, "UNFINISHED", started, queries)
+            for name, (started, queries) in self._open_stages.items()
+        ]
+        return [*self.stage_timings, *open_rows]
 
     def remaining(self) -> float:
         seconds = self.deadline - self.clock()
@@ -433,14 +468,19 @@ def compose_pilot(
         resolve=lambda host, timeout: _resolve(host, min(timeout, 30, budget.remaining())),
     )
     checkpoints = IntelligenceSnowflakeCheckpoints(retention, connection_factory=factory)
-    return IngestionOrchestrator(store=checkpoints, adapter=adapter, effects=effects), definition
+    checkpoints.stage_observer = budget.observe_stages
+    orchestrator = IngestionOrchestrator(store=checkpoints, adapter=adapter, effects=effects)
+    orchestrator.pilot_budget = budget
+    return orchestrator, definition
 
 
-def canonical_pilot(definition: SourceDefinition) -> tuple[IngestionOrchestrator, SourceDefinition]:
+def canonical_pilot(
+    definition: SourceDefinition, *, budget_seconds: int = 300
+) -> tuple[IngestionOrchestrator, SourceDefinition]:
     """Called by existing source run, using existing environment credentials."""
     receipts = json.loads(RECEIPTS.read_text(encoding="utf-8"))["receipts"]
     settings = PipelineSettings()
-    budget = PilotBudget()
+    budget = PilotBudget(seconds=budget_seconds)
     version = 1
     if settings.topx_env == "prod":
         receipts += json.loads(DAILY_RECEIPTS.read_text(encoding="utf-8"))["receipts"]

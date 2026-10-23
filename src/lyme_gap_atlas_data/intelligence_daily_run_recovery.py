@@ -63,20 +63,19 @@ def terminalize_stuck_daily_run(ingestion_run_id: str) -> dict[str, Any]:
         )
         checkpoints = cursor.fetchall()
         running_stages = [stage for stage, stage_status in checkpoints if stage_status == "RUNNING"]
-        if not running_stages:
-            raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_NO_RUNNING_STAGE")
         connection.autocommit(False)
         try:
-            cursor.execute(
-                """UPDATE GOVERNANCE.INGESTION_RUN_CHECKPOINTS
-                SET status='FAILED', failure_category='PROCESS',
-                    redacted_diagnostic_code=%s, updated_at=CURRENT_TIMESTAMP(),
-                    completed_at=CURRENT_TIMESTAMP()
-                WHERE ingestion_run_id=%s AND status='RUNNING'""",
-                (DIAGNOSTIC, ingestion_run_id),
-            )
-            if cursor.rowcount != len(running_stages):
-                raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_CHECKPOINT_MISMATCH")
+            if running_stages:
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUN_CHECKPOINTS
+                    SET status='FAILED', failure_category='PROCESS',
+                        redacted_diagnostic_code=%s, updated_at=CURRENT_TIMESTAMP(),
+                        completed_at=CURRENT_TIMESTAMP()
+                    WHERE ingestion_run_id=%s AND status='RUNNING'""",
+                    (DIAGNOSTIC, ingestion_run_id),
+                )
+                if cursor.rowcount != len(running_stages):
+                    raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_CHECKPOINT_MISMATCH")
             cursor.execute(
                 """UPDATE GOVERNANCE.INGESTION_RUNS
                 SET status='FAILED', completed_at=CURRENT_TIMESTAMP(),

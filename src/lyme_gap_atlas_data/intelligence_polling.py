@@ -6,20 +6,30 @@ No scheduler deployment, source approval, policy creation or warehouse writes.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
-from uuid import NAMESPACE_URL, uuid5
 
+from .ingestion.intelligence_daily_run_ids import daily_run_id
 from .ingestion.types import AdapterKind, SourceDefinition
+from .intelligence_daily_deadline import terminalize_daily_pilot_deadline
 from .intelligence_items import canonical_url, identity_hash, validate_record
 
 DAILY_POLL_SECONDS = 86_400
 
 
-def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
+def _stage_timings(budget: Any) -> list[dict[str, Any]]:
+    """Redacted per-stage seconds and query counts: no payloads, URLs or error text."""
+    report = getattr(budget, "timing_report", None)
+    return report() if callable(report) else []
+
+
+def run_production_daily(
+    *, preflight_only: bool = False, reopen_attempt: int = 1
+) -> dict[str, Any]:
     """Run each exact accepted active source once per UTC day, without retries.
 
     This is a bounded entry point for the existing DigitalOcean job platform,
@@ -27,6 +37,7 @@ def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
     """
     from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
     from .ingestion.intelligence_runtime import (
+        DAILY_SOURCE_BUDGET_SECONDS,
         DAILY_SOURCE_WATCHDOG_SECONDS,
         PROD_DAILY_SOURCE_SHA256,
         PROD_SOURCE_DEFINITIONS,
@@ -37,17 +48,24 @@ def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
     from .ingestion.types import RunStatus, Tier
     from .settings import PipelineSettings
 
+    if reopen_attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":
+        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_REQUIRED")
+    if reopen_attempt < 1:
+        raise ValueError("reopen_attempt must be at least 1")
     settings = PipelineSettings()
     if not settings.intelligence_daily_enabled:
         return {"status": "DISABLED", "sources": [], "provider_requests": 0}
     if settings.topx_env != "prod":
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
     day = datetime.now(UTC).date().isoformat()
-    results = []
+    results: list[dict[str, Any]] = []
     for source_id, path in PROD_SOURCE_DEFINITIONS.items():
         try:
             with pilot_watchdog(seconds=DAILY_SOURCE_WATCHDOG_SECONDS):
-                orchestrator, definition = canonical_pilot(load_source_definition(Path(path)))
+                orchestrator, definition = canonical_pilot(
+                    load_source_definition(Path(path)),
+                    budget_seconds=DAILY_SOURCE_BUDGET_SECONDS,
+                )
                 source = definition.extra["intelligence_registry"]
                 if source["state"] != "active":
                     results.append({"source_id": source_id, "outcome": "SCHEDULE_SUPPRESSED"})
@@ -61,18 +79,36 @@ def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
                 if preflight_only:
                     results.append({"source_id": source_id, "outcome": "READY"})
                     continue
-                run_id = str(uuid5(NAMESPACE_URL, f"atlas:intelligence:daily:{source_id}:{day}"))
+                run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
                 if not cast(IntelligenceSnowflakeCheckpoints, orchestrator.store).claim_daily_run(
                     run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id]
                 ):
                     results.append({"source_id": source_id, "outcome": "ALREADY_CLAIMED"})
                     continue
-                state = orchestrator.run(definition, tier=Tier.C, run_id=run_id)
+                budget = getattr(orchestrator, "pilot_budget", None)
+                try:
+                    state = orchestrator.run(definition, tier=Tier.C, run_id=run_id)
+                except PermissionError as error:
+                    if str(error) != "INTELLIGENCE_PILOT_DEADLINE":
+                        raise
+                    # Budget expiry blocks the run's own writes; record FAILED on a
+                    # fresh short connection so the claim is never left RUNNING.
+                    terminalize_daily_pilot_deadline(run_id)
+                    results.append(
+                        {
+                            "source_id": source_id,
+                            "run_id": run_id,
+                            "outcome": "FAILED",
+                            "stage_timings": _stage_timings(budget),
+                        }
+                    )
+                    continue
                 results.append(
                     {
                         "source_id": source_id,
                         "run_id": run_id,
                         "outcome": "SUCCEEDED" if state.status is RunStatus.SUCCEEDED else "FAILED",
+                        "stage_timings": _stage_timings(budget),
                     }
                 )
         except Exception:
@@ -82,12 +118,14 @@ def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
     if preflight_only and any(row["outcome"] != "READY" for row in results):
         failed = True
-    return {
+    payload: dict[str, Any] = {
         "status": "FAILED" if failed else "SUCCEEDED",
         "day": day,
         "preflight_only": preflight_only,
+        "reopen_attempt": reopen_attempt,
         "sources": results,
     }
+    return payload
 
 
 @dataclass(frozen=True)

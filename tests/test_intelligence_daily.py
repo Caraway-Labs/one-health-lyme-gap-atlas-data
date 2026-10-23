@@ -71,7 +71,7 @@ def composed_sources(monkeypatch, states=None, failed=None):
     claimed = set()
     events = []
 
-    def compose(definition):
+    def compose(definition, *, budget_seconds=300):
         sid = definition.source_id
         source = json.loads((ROOT / f"config/intelligence/{sid}-source-v2.json").read_text())
         source["state"] = (states or {}).get(sid, "active")
@@ -126,6 +126,35 @@ def test_preflight_requires_active_pins_and_has_no_claim_or_capture(monkeypatch)
     events = composed_sources(monkeypatch)
     assert polling.run_production_daily(preflight_only=True)["status"] == "SUCCEEDED"
     assert events == []
+
+
+def test_daily_canonical_pilot_uses_per_source_budget_seconds(monkeypatch):
+    daily_settings(monkeypatch)
+    seen: list[int] = []
+
+    def capture_pilot(definition, *, budget_seconds=300):
+        seen.append(budget_seconds)
+        sid = definition.source_id
+        source = json.loads((ROOT / f"config/intelligence/{sid}-source-v2.json").read_text())
+
+        def run(definition, *, tier, run_id):
+            return SimpleNamespace(status=RunStatus.SUCCEEDED)
+
+        return (
+            SimpleNamespace(
+                store=SimpleNamespace(claim_daily_run=lambda *args: True),
+                run=run,
+            ),
+            SimpleNamespace(extra={"intelligence_registry": source}),
+        )
+
+    monkeypatch.setattr(runtime, "canonical_pilot", capture_pilot)
+    polling.run_production_daily()
+    assert seen == [runtime.DAILY_SOURCE_BUDGET_SECONDS] * len(runtime.PROD_SOURCE_DEFINITIONS)
+    # The watchdog must outlive budget expiry so the FAILED terminal write can happen.
+    assert runtime.DAILY_SOURCE_WATCHDOG_SECONDS >= (
+        runtime.DAILY_SOURCE_BUDGET_SECONDS + runtime.DEADLINE_GRACE_SECONDS
+    )
 
 
 def test_daily_uses_per_source_watchdog_not_pilot_default(monkeypatch):
