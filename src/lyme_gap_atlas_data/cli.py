@@ -1011,6 +1011,16 @@ def run_intelligence_daily_command(
         raise typer.Exit(code=1)
 
 
+@pipeline_app.command("recover-intelligence-daily-stuck-run")
+def recover_intelligence_daily_stuck_run_command(
+    ingestion_run_id: str = typer.Option(..., "--ingestion-run-id"),
+) -> None:
+    """Terminalize one RUNNING intelligence-daily admission after a process watchdog exit."""
+    from .intelligence_daily_run_recovery import terminalize_stuck_daily_run
+
+    typer.echo(json.dumps(terminalize_stuck_daily_run(ingestion_run_id)))
+
+
 @pipeline_app.command("run-production-cdc-dbt-recovery")
 def run_production_cdc_dbt_recovery_command(
     source_version_id: str = typer.Option(..., "--source-version-id"),
