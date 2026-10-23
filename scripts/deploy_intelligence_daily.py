@@ -114,6 +114,63 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
     return result
 
 
+def with_baseline_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
+    """Pin every approved six-job image to digest without adding daily components."""
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise PermissionError("INTELLIGENCE_DAILY_DEPLOY_TARGET_REQUIRED")
+    result = copy.deepcopy(spec)
+    for job in result.get("jobs", []):
+        if job["name"] not in BASE:
+            continue
+        image = job.get("image", {})
+        if (
+            set(image) != {"registry_type", "registry", "repository", "digest"}
+            or image.get("registry_type") != "DOCR"
+            or image.get("registry") != "oh-lyme-data"
+            or image.get("repository") != "pipeline"
+        ):
+            raise PermissionError("INTELLIGENCE_DAILY_IMMUTABLE_SOURCES_REQUIRED")
+        job["image"] = {
+            "registry_type": "DOCR",
+            "registry": "oh-lyme-data",
+            "repository": "pipeline",
+            "digest": digest,
+        }
+    return result
+
+
+def baseline_needs_digest_alignment(spec: dict[str, Any], digest: str) -> bool:
+    return any(
+        job.get("name") in BASE and job.get("image", {}).get("digest") != digest
+        for job in spec.get("jobs", [])
+    )
+
+
+def platform_update(
+    spec: dict[str, Any], *, update_sources: bool
+) -> subprocess.CompletedProcess[str]:
+    command = [
+        "doctl",
+        "apps",
+        "update",
+        APP_ID,
+        "--spec",
+        "-",
+        "--wait",
+        "--output",
+        "json",
+    ]
+    if update_sources:
+        command.append("--update-sources")
+    return subprocess.run(
+        command,
+        input=json.dumps(spec),
+        capture_output=True,
+        text=True,
+        timeout=1800,
+    )
+
+
 def get(args: list[str]) -> dict[str, Any]:
     r = subprocess.run(
         ["doctl", *args, "--output", "json"], capture_output=True, text=True, timeout=90
@@ -317,6 +374,7 @@ def update_failure(stderr: str, stdout: str = "", sensitive_values=()) -> str:
         ("should be at most 32 chars long", "COMPONENT_NAME_TOO_LONG"),
         ("Unable to authenticate", "AUTHENTICATION_REJECTED"),
         ("not authorized", "AUTHORIZATION_REJECTED"),
+        ("not configured for this app", "IMAGE_DIGEST_NOT_CONFIGURED"),
     ):
         if text in joined:
             category = code
@@ -386,30 +444,24 @@ def main() -> None:
             get(["apps", "get-deployment", APP_ID, app["active_deployment"]["id"]]),
             args.image_digest,
         )
+    if baseline_needs_digest_alignment(app["spec"], args.image_digest):
+        aligned = with_baseline_digests(app["spec"], args.image_digest)
+        align = platform_update(aligned, update_sources=False)
+        if align.returncode:
+            raise RuntimeError(
+                update_failure(align.stderr, align.stdout, diagnostic_sensitive_values(aligned))
+            )
+        app = get(["apps", "get", APP_ID])
+        if app.get("in_progress_deployment"):
+            raise PermissionError("INTELLIGENCE_DAILY_BASELINE_ALIGNMENT_INCOMPLETE")
+    preserved_baseline = {j["name"]: j for j in app["spec"]["jobs"] if j.get("name") in BASE}
     spec = render(app["spec"], args.image_digest, args.phase)
-    r = subprocess.run(
-        [
-            "doctl",
-            "apps",
-            "update",
-            APP_ID,
-            "--spec",
-            "-",
-            "--update-sources",
-            "--wait",
-            "--output",
-            "json",
-        ],
-        input=json.dumps(spec),
-        capture_output=True,
-        text=True,
-        timeout=1800,
-    )
+    r = platform_update(spec, update_sources=True)
     if r.returncode:
         raise RuntimeError(update_failure(r.stderr, r.stdout, diagnostic_sensitive_values(spec)))
     current = get(["apps", "get", APP_ID])
-    before = {j["name"]: j for j in app["spec"]["jobs"] if j["name"] in BASE}
-    after = {j["name"]: j for j in current["spec"]["jobs"] if j["name"] in BASE}
+    before = preserved_baseline
+    after = {j["name"]: j for j in current["spec"]["jobs"] if j.get("name") in BASE}
     if before != after or current.get("in_progress_deployment"):
         raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_BASELINE_CHANGED")
     installed = next(
