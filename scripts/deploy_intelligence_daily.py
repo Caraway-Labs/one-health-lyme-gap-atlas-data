@@ -24,6 +24,8 @@ BASE = {
     "catalog-registration-02",
     "catalog-registration-03",
 }
+# Existing pipeline images that must share one digest before DO accepts a spec update.
+OPERATIONAL_IMAGE_JOBS = BASE | {NAME, CHECK}
 KEYS = {
     "TOPX_ENV",
     "ENABLE_PRODUCTION_EXECUTION",
@@ -115,12 +117,12 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
 
 
 def with_baseline_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
-    """Pin every approved six-job image to digest without adding daily components."""
+    """Pin every operational pipeline job image to digest without adding components."""
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
         raise PermissionError("INTELLIGENCE_DAILY_DEPLOY_TARGET_REQUIRED")
     result = copy.deepcopy(spec)
     for job in result.get("jobs", []):
-        if job["name"] not in BASE:
+        if job["name"] not in OPERATIONAL_IMAGE_JOBS:
             continue
         image = job.get("image", {})
         if (
@@ -141,9 +143,25 @@ def with_baseline_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
 
 def baseline_needs_digest_alignment(spec: dict[str, Any], digest: str) -> bool:
     return any(
-        job.get("name") in BASE and job.get("image", {}).get("digest") != digest
+        job.get("name") in OPERATIONAL_IMAGE_JOBS
+        and job.get("image", {}).get("digest") != digest
         for job in spec.get("jobs", [])
     )
+
+
+def daily_job_active(spec: dict[str, Any]) -> bool:
+    return any(job.get("name") == NAME for job in spec.get("jobs", []))
+
+
+def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
+    if not daily_job_active(spec):
+        raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_ACTIVE_JOB")
+    if any(job.get("name") == CHECK for job in spec.get("jobs", [])):
+        raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_NO_PREFLIGHT_JOB")
+    if not baseline_needs_digest_alignment(spec, digest):
+        return copy.deepcopy(spec)
+    aligned = with_baseline_digests(spec, digest)
+    return aligned
 
 
 def platform_update(
@@ -432,13 +450,44 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--image-digest", required=True)
     p.add_argument("--credential-placement-approved", action="store_true")
-    p.add_argument("--phase", choices=["preflight", "activate"], required=True)
+    p.add_argument(
+        "--phase",
+        choices=["preflight", "activate", "refresh-digest"],
+        required=True,
+    )
     args = p.parse_args()
     if not args.credential_placement_approved:
         raise PermissionError("INTELLIGENCE_DAILY_NEW_COMPONENT_CREDENTIAL_APPROVAL_REQUIRED")
     app = get(["apps", "get", APP_ID])
     if app.get("in_progress_deployment"):
         raise PermissionError("INTELLIGENCE_DAILY_COMPETING_DEPLOYMENT")
+    if args.phase == "refresh-digest":
+        spec = refresh_operational_digests(app["spec"], args.image_digest)
+        if spec != app["spec"]:
+            align = platform_update(spec, update_sources=False)
+            if align.returncode:
+                raise RuntimeError(
+                    update_failure(
+                        align.stderr, align.stdout, diagnostic_sensitive_values(spec)
+                    )
+                )
+            app = get(["apps", "get", APP_ID])
+            if app.get("in_progress_deployment"):
+                raise PermissionError("INTELLIGENCE_DAILY_BASELINE_ALIGNMENT_INCOMPLETE")
+        if baseline_needs_digest_alignment(app["spec"], args.image_digest):
+            raise PermissionError("INTELLIGENCE_DAILY_REFRESH_DIGEST_INCOMPLETE")
+        print(
+            json.dumps(
+                {
+                    "phase": args.phase,
+                    "app_id": APP_ID,
+                    "deployment_id": app["active_deployment"]["id"],
+                    "operational_jobs_aligned": True,
+                    "credential_provisioning": False,
+                }
+            )
+        )
+        return
     if args.phase == "activate":
         verify_preflight(
             get(["apps", "get-deployment", APP_ID, app["active_deployment"]["id"]]),
