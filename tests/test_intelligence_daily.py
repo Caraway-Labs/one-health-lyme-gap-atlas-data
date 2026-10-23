@@ -195,7 +195,7 @@ def test_source_refresh_preserves_all_six_immutable_image_versions(phase):
     assert rendered["jobs"][-1]["image"]["digest"] == "sha256:" + "a" * 64
 
 
-def test_baseline_alignment_pins_only_six_jobs():
+def test_baseline_alignment_pins_operational_jobs():
     module = script("deploy_intelligence_daily")
     original = platform_spec(module)
     target = "sha256:" + "b" * 64
@@ -205,6 +205,27 @@ def test_baseline_alignment_pins_only_six_jobs():
         assert job["image"]["digest"] == target
     assert module.baseline_needs_digest_alignment(original, target)
     assert not module.baseline_needs_digest_alignment(aligned, target)
+
+
+def test_baseline_alignment_pins_active_daily_job_when_present():
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    daily = copy.deepcopy(original["jobs"][0])
+    daily["name"] = module.NAME
+    daily["image"]["digest"] = "sha256:" + "c" * 64
+    original["jobs"].append(daily)
+    target = "sha256:" + "b" * 64
+    aligned = module.with_baseline_digests(original, target)
+    daily_job = next(j for j in aligned["jobs"] if j["name"] == module.NAME)
+    assert daily_job["image"]["digest"] == target
+    assert module.baseline_needs_digest_alignment(original, target)
+
+
+def test_refresh_digest_requires_active_daily_job():
+    module = script("deploy_intelligence_daily")
+    original = platform_spec(module)
+    with pytest.raises(PermissionError, match="REFRESH_REQUIRES_ACTIVE_JOB"):
+        module.refresh_operational_digests(original, "sha256:" + "b" * 64)
 
 
 def test_main_aligns_baseline_digest_before_preflight(monkeypatch):

@@ -586,11 +586,25 @@ jobs:
           set -euo pipefail
           test "$(doctl apps spec get b33dbae7-e243-4e27-b3ca-1018f5897f87 --format json | jq -r '.jobs[0].image.digest')" = "$IMAGE_DIGEST"
           test "$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')" = "$IMAGE_DIGEST"
-      - name: Deploy explicitly approved credential-scoped preflight (no source acquisition)
+      - name: Detect whether the daily job is already active in PROD
         if: inputs.intelligence_daily_validate_only != true
+        id: intelligence_daily_prod_state
+        run: |
+          set -euo pipefail
+          if doctl apps spec get 5d8966ed-d152-4a78-bdd6-14553dbc1483 --format json \
+            | jq -e '.jobs[] | select(.name == "intelligence-feed-daily")' >/dev/null; then
+            echo active=true >> "$GITHUB_OUTPUT"
+          else
+            echo active=false >> "$GITHUB_OUTPUT"
+          fi
+      - name: Refresh only the immutable digest across all operational PROD jobs
+        if: inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active == 'true'
+        run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase refresh-digest --credential-placement-approved
+      - name: Deploy explicitly approved credential-scoped preflight (no source acquisition)
+        if: inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active != 'true'
         run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase preflight --credential-placement-approved
       - name: Enable only the daily job after successful service preflight
-        if: inputs.intelligence_daily_validate_only != true
+        if: inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active != 'true'
         run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase activate --credential-placement-approved
       - name: Validate credential-free image metadata only (no app update)
         if: inputs.intelligence_daily_validate_only == true
