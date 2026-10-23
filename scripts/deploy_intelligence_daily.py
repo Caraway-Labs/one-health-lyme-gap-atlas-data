@@ -146,7 +146,9 @@ def baseline_needs_digest_alignment(spec: dict[str, Any], digest: str) -> bool:
     )
 
 
-def platform_update(spec: dict[str, Any], *, update_sources: bool) -> subprocess.CompletedProcess[str]:
+def platform_update(
+    spec: dict[str, Any], *, update_sources: bool
+) -> subprocess.CompletedProcess[str]:
     command = [
         "doctl",
         "apps",
