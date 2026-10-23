@@ -143,8 +143,7 @@ def with_baseline_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
 
 def baseline_needs_digest_alignment(spec: dict[str, Any], digest: str) -> bool:
     return any(
-        job.get("name") in OPERATIONAL_IMAGE_JOBS
-        and job.get("image", {}).get("digest") != digest
+        job.get("name") in OPERATIONAL_IMAGE_JOBS and job.get("image", {}).get("digest") != digest
         for job in spec.get("jobs", [])
     )
 
@@ -467,9 +466,7 @@ def main() -> None:
             align = platform_update(spec, update_sources=False)
             if align.returncode:
                 raise RuntimeError(
-                    update_failure(
-                        align.stderr, align.stdout, diagnostic_sensitive_values(spec)
-                    )
+                    update_failure(align.stderr, align.stdout, diagnostic_sensitive_values(spec))
                 )
             app = get(["apps", "get", APP_ID])
             if app.get("in_progress_deployment"):
