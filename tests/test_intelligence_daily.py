@@ -128,6 +128,29 @@ def test_preflight_requires_active_pins_and_has_no_claim_or_capture(monkeypatch)
     assert events == []
 
 
+def test_daily_uses_per_source_watchdog_not_pilot_default(monkeypatch):
+    daily_settings(monkeypatch)
+    seen: list[int] = []
+
+    def capture_watchdog(*, seconds: int):
+        seen.append(seconds)
+
+        class _Ctx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *args):
+                return False
+
+        return _Ctx()
+
+    monkeypatch.setattr(runtime, "pilot_watchdog", capture_watchdog)
+    composed_sources(monkeypatch)
+    polling.run_production_daily()
+    assert seen == [runtime.DAILY_SOURCE_WATCHDOG_SECONDS] * len(runtime.PROD_SOURCE_DEFINITIONS)
+    assert runtime.DAILY_SOURCE_WATCHDOG_SECONDS > 300
+
+
 def platform_spec(module):
     env = {k: "EV[opaque-existing-reference]" for k in module.KEYS}
     env.update(

@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      recover_ingestion_run_id:
+        description: Optional RUNNING intelligence-daily run to terminalize before another attempt
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -37,6 +42,7 @@ jobs:
       IMAGE_DIGEST: ${{ inputs.image_digest }}
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+      RECOVER_INGESTION_RUN_ID: ${{ inputs.recover_ingestion_run_id }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -94,8 +100,12 @@ jobs:
           if [ "$PREFLIGHT_ONLY" = true ]; then
             preflight_flag="--preflight-only"
           fi
+          recover_args=()
+          if [ -n "$RECOVER_INGESTION_RUN_ID" ]; then
+            recover_args=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID")
+          fi
           python scripts/prod_intelligence_daily_job_spec.py \
-            --baseline "$baseline_spec" --output "$operation_spec" $preflight_flag
+            --baseline "$baseline_spec" --output "$operation_spec" $preflight_flag "${recover_args[@]}"
           baseline_captured=true
           doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
             --format ID,ActiveDeployment.ID --no-header

@@ -9,7 +9,8 @@ This reuses the existing DigitalOcean application and canonical ingestion runtim
 - Preserve all six existing production jobs, including their exact images, commands, schedules and credentials.
 - Add only `intelligence-feed-daily`, daily at 07:00 America/Denver, one instance. Disabled by default in application settings.
 - Claim each source/day in the existing ingestion ledger before provider I/O. Duplicate invocations, including after a failed attempt, cannot retry that source that day.
-- Preserve one attempt, 30 seconds, 2 MiB, 250 items, verified TLS, no redirects and existing 30-day raw-copy enforcement.
+- Preserve one attempt, 30 seconds per HTTP operation, 2 MiB, 250 items, verified TLS, no redirects and existing 30-day raw-copy enforcement.
+- Each daily source runs under its own fifteen-minute process watchdog (`DAILY_SOURCE_WATCHDOG_SECONDS`); the five-minute pilot cap applies only to bounded pilot/prerequisite paths.
 - Immutable source v2 packages activate only the existing three approved sources. Manual/paused states suppress daily execution. No new scientific approval is asserted.
 - V164 preserves existing published v1 entries only across the exact pinned approved active v2 transition; future, revoked or unknown transitions fail closed. Cross-version duplicate entries are collapsed.
 

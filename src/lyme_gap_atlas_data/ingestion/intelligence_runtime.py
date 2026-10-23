@@ -44,6 +44,8 @@ ENDPOINTS = {
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
 DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
+# Pilot feeds use a five-minute process cap; each daily CDC source needs its own budget.
+DAILY_SOURCE_WATCHDOG_SECONDS = 900
 PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
     "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",

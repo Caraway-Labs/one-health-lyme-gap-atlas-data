@@ -27,6 +27,7 @@ def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
     """
     from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
     from .ingestion.intelligence_runtime import (
+        DAILY_SOURCE_WATCHDOG_SECONDS,
         PROD_DAILY_SOURCE_SHA256,
         PROD_SOURCE_DEFINITIONS,
         canonical_pilot,
@@ -45,7 +46,7 @@ def run_production_daily(*, preflight_only: bool = False) -> dict[str, Any]:
     results = []
     for source_id, path in PROD_SOURCE_DEFINITIONS.items():
         try:
-            with pilot_watchdog():
+            with pilot_watchdog(seconds=DAILY_SOURCE_WATCHDOG_SECONDS):
                 orchestrator, definition = canonical_pilot(load_source_definition(Path(path)))
                 source = definition.extra["intelligence_registry"]
                 if source["state"] != "active":
