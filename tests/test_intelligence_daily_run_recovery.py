@@ -44,9 +44,7 @@ class _Cursor:
             )
         elif "INGESTION_RUN_CHECKPOINTS" in sql and "SELECT" in sql:
             self._queue.append([("NORMALIZE", "RUNNING")])
-        elif "INGESTION_RUN_CHECKPOINTS" in sql and "UPDATE" in sql:
-            self.rowcount = 1
-        elif "INGESTION_RUNS" in sql and "UPDATE" in sql:
+        elif ("INGESTION_RUN_CHECKPOINTS" in sql or "INGESTION_RUNS" in sql) and "UPDATE" in sql:
             self.rowcount = 1
 
     def fetchall(self) -> list[tuple]:
