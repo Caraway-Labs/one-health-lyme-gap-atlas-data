@@ -18,7 +18,8 @@ COMMAND = daily.COMMAND
 
 def build_operation_spec(baseline: dict[str, Any], *, preflight_only: bool) -> dict[str, Any]:
     jobs = baseline.get("jobs", [])
-    if not isinstance(jobs, list) or {job.get("name") for job in jobs if isinstance(job, dict)} != EXPECTED_JOBS:
+    job_names = {job.get("name") for job in jobs if isinstance(job, dict)}
+    if not isinstance(jobs, list) or job_names != EXPECTED_JOBS:
         raise PermissionError("INTELLIGENCE_DAILY_BASELINE_TOPOLOGY_REQUIRED")
     if any(job.get("kind") == "PRE_DEPLOY" for job in jobs if isinstance(job, dict)):
         raise PermissionError("INTELLIGENCE_DAILY_COMPETING_PREDEPLOY")

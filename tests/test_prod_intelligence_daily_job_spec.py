@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from runpy import run_path
-import sys
 
 import pytest
 
@@ -74,10 +74,11 @@ def test_cli_writes_json(tmp_path: Path) -> None:
     import subprocess
     import sys
 
+    script = ROOT / "scripts" / "prod_intelligence_daily_job_spec.py"
     subprocess.run(
         [
             sys.executable,
-            str(Path(__file__).resolve().parents[1] / "scripts" / "prod_intelligence_daily_job_spec.py"),
+            str(script),
             "--baseline",
             str(baseline_path),
             "--output",
