@@ -454,9 +454,7 @@ def main() -> None:
         app = get(["apps", "get", APP_ID])
         if app.get("in_progress_deployment"):
             raise PermissionError("INTELLIGENCE_DAILY_BASELINE_ALIGNMENT_INCOMPLETE")
-    preserved_baseline = {
-        j["name"]: j for j in app["spec"]["jobs"] if j.get("name") in BASE
-    }
+    preserved_baseline = {j["name"]: j for j in app["spec"]["jobs"] if j.get("name") in BASE}
     spec = render(app["spec"], args.image_digest, args.phase)
     r = platform_update(spec, update_sources=True)
     if r.returncode:
