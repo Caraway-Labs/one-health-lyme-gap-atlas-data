@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: prod-app-topology
@@ -26,6 +27,7 @@ concurrency:
 
 jobs:
   run:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -47,7 +49,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$GITHUB_REF" = refs/heads/main
           test -n "$PROD_APP_ID"
           test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
