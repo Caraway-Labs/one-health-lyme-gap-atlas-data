@@ -1,0 +1,101 @@
+name: Run bounded PROD intelligence daily operation once
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact immutable pipeline image active in DEV and PROD
+        required: true
+        type: string
+      reviewed_commit:
+        description: Exact reviewed main commit whose pipeline image is deployed
+        required: true
+        type: string
+      preflight_only:
+        description: Run provider-free readiness only; no acquisition
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-app-topology
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.reviewed_commit }}
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Run one temporary intelligence-daily job and restore baseline
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test -n "$PROD_APP_ID"
+          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          test "$passed_checks" -gt 0
+          source_digest="$(doctl registry repository list-manifests pipeline --output json \
+            | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
+          test "$source_digest" = "$IMAGE_DIGEST"
+
+          baseline_spec="$(mktemp)"
+          operation_spec="$(mktemp)"
+          dev_spec="$(mktemp)"
+          chmod 600 "$baseline_spec" "$operation_spec" "$dev_spec"
+          baseline_captured=false
+          restore_baseline() {
+            operation_status=$?
+            set +e
+            if [ "$baseline_captured" = true ]; then
+              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
+                --format ID,ActiveDeployment.ID --no-header
+              if [ "$?" -ne 0 ]; then
+                echo "::error::Intelligence daily topology restoration failed. Restore the captured seven-job spec before another production action."
+                operation_status=1
+              fi
+            fi
+            rm -f "$baseline_spec" "$operation_spec" "$dev_spec"
+            trap - EXIT
+            exit "$operation_status"
+          }
+          trap restore_baseline EXIT
+
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          dev_deployment_id="$(doctl apps get "$DEV_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
+          prod_deployment_id="$(doctl apps get "$PROD_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
+          test "$(doctl apps get-deployment "$DEV_APP_ID" "$dev_deployment_id" --output json | jq -r '.[0].phase')" = ACTIVE
+          test "$(doctl apps get-deployment "$PROD_APP_ID" "$prod_deployment_id" --output json | jq -r '.[0].phase')" = ACTIVE
+          doctl apps spec get "$DEV_APP_ID" --deployment "$dev_deployment_id" --format json > "$dev_spec"
+          test "$(jq -r '[.jobs[].image.digest] | unique | .[0]' "$dev_spec")" = "$IMAGE_DIGEST"
+          test "$(jq -r '[.jobs[].image.digest] | unique | length' "$dev_spec")" = 1
+          test "$(jq -r '.jobs[] | select(.name == "intelligence-feed-daily") | .image.digest' "$baseline_spec")" = "$IMAGE_DIGEST"
+
+          preflight_flag=""
+          if [ "$PREFLIGHT_ONLY" = true ]; then
+            preflight_flag="--preflight-only"
+          fi
+          python scripts/prod_intelligence_daily_job_spec.py \
+            --baseline "$baseline_spec" --output "$operation_spec" $preflight_flag
+          baseline_captured=true
+          doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
+            --format ID,ActiveDeployment.ID --no-header
+          echo "One bounded intelligence-daily invocation completed; restoring the seven-job topology."
