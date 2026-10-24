@@ -121,6 +121,9 @@ def _rehearsal_pilot(definition: Any, *, budget_seconds: int) -> tuple[Any, Any]
             version = rows[0][0]
     if version == 2:
         receipts = receipts + json.loads(DAILY_RECEIPTS.read_text(encoding="utf-8"))["receipts"]
+    # compose_pilot only filters receipts by registry_version in PROD, so in DEV keep exactly the
+    # receipt for the version under test; otherwise v1 and v2 both match and it rejects the run.
+    receipts = [item for item in receipts if item.get("registry_version") == version]
     return compose_pilot(
         definition,
         receipts=receipts,
