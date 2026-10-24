@@ -16,6 +16,7 @@ APP_ID = "5d8966ed-d152-4a78-bdd6-14553dbc1483"
 NAME = "intelligence-feed-daily"
 CHECK = "intelligence-feed-preflight"
 COMMAND = "/app/.venv/bin/atlas-data pipeline run-intelligence-daily"
+DAILY_SCHEDULE = {"cron": "15 18 * * *", "time_zone": "America/Denver"}
 BASE = {
     "catalog-discovery",
     "approved-source-ingestion",
@@ -107,7 +108,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
     if phase == "preflight":
         new.pop("schedule", None)
     else:
-        new["schedule"] = {"cron": "0 7 * * *", "time_zone": "America/Denver"}
+        new["schedule"] = dict(DAILY_SCHEDULE)
     removed = {CHECK} if phase == "preflight" else {CHECK, NAME}
     result["jobs"] = [j for j in result["jobs"] if j["name"] not in removed] + [new]
     assert [j for j in result["jobs"] if j["name"] in BASE] == [
@@ -152,14 +153,25 @@ def daily_job_active(spec: dict[str, Any]) -> bool:
     return any(job.get("name") == NAME for job in spec.get("jobs", []))
 
 
+def sync_daily_job_schedule(spec: dict[str, Any]) -> dict[str, Any]:
+    """Align the active scheduled job cron with the reviewed deploy helper constant."""
+    if not daily_job_active(spec):
+        return copy.deepcopy(spec)
+    result = copy.deepcopy(spec)
+    for job in result.get("jobs", []):
+        if job.get("name") == NAME and job.get("schedule") != DAILY_SCHEDULE:
+            job["schedule"] = dict(DAILY_SCHEDULE)
+    return result
+
+
 def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
     if not daily_job_active(spec):
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_ACTIVE_JOB")
     if any(job.get("name") == CHECK for job in spec.get("jobs", [])):
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_NO_PREFLIGHT_JOB")
-    if not baseline_needs_digest_alignment(spec, digest):
+    aligned = sync_daily_job_schedule(with_baseline_digests(spec, digest))
+    if aligned == spec:
         return copy.deepcopy(spec)
-    aligned = with_baseline_digests(spec, digest)
     return aligned
 
 

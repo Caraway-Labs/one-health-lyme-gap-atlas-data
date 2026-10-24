@@ -7,7 +7,7 @@ This reuses the existing DigitalOcean application and canonical ingestion runtim
 ## Invariants
 
 - Preserve all six existing production jobs, including their exact images, commands, schedules and credentials.
-- Add only `intelligence-feed-daily`, daily at 07:00 America/Denver, one instance. Disabled by default in application settings.
+- Add only `intelligence-feed-daily`, daily at 18:15 America/Denver, one instance. Disabled by default in application settings.
 - Claim each source/day in the existing ingestion ledger before provider I/O. Duplicate invocations, including after a failed attempt, cannot retry that source that day.
 - Preserve one attempt, 30 seconds per HTTP operation, 2 MiB, 250 items, verified TLS, no redirects and existing 30-day raw-copy enforcement.
 - Each daily source has its own 900-second owned-work budget (`DAILY_SOURCE_BUDGET_SECONDS`, passed to `PilotBudget`) inside a 960-second process watchdog (`DAILY_SOURCE_WATCHDOG_SECONDS` = budget plus two 30-second grace windows). The five-minute pilot cap still applies to pilot/prerequisite paths. When the budget expires, the budget wrapper blocks the run's own writes, so the runner records the run FAILED on a fresh short connection (`intelligence_daily_deadline`): the RUNNING checkpoint becomes FAILED with category `DEADLINE`, code `PILOT_BUDGET_EXCEEDED`. No claim is left RUNNING by a budget expiry.
