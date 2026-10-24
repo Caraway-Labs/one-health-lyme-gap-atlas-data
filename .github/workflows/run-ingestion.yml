@@ -32,6 +32,7 @@ on:
           - inspect
           - nclimgrid-pilot-measurement
           - bulk-transport-canary
+          - intelligence-cdc-mmwr-rehearsal
           - january-source-registration
           - spaces-readiness
       intelligence_acquisition_only:
@@ -164,8 +165,8 @@ jobs:
     if: inputs.operation != 'spaces-readiness' || inputs.intelligence_acquisition_only
     name: Canonical ingestion entry point
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.intelligence_acquisition_only && 6 || inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || startsWith(inputs.source_definition, 'config/sources/intelligence_') && 6 || 360 }}
-    environment: ${{ inputs.intelligence_acquisition_only && 'dev' || inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
+    timeout-minutes: ${{ inputs.intelligence_acquisition_only && 6 || inputs.operation == 'intelligence-cdc-mmwr-rehearsal' && 35 || inputs.operation == 'nclimgrid-pilot-measurement' && inputs.measurement_action == 'frozen-membership' && 5 || inputs.operation == 'january-source-registration' && 15 || startsWith(inputs.source_definition, 'config/sources/intelligence_') && 6 || 360 }}
+    environment: ${{ inputs.intelligence_acquisition_only && 'dev' || inputs.operation == 'nclimgrid-pilot-measurement' && 'dev' || inputs.operation == 'bulk-transport-canary' && 'dev' || inputs.operation == 'intelligence-cdc-mmwr-rehearsal' && 'dev' || inputs.operation == 'january-source-registration' && 'dev' || inputs.environment_name }}
     env:
       TOPX_ENV: dev
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -217,7 +218,7 @@ jobs:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
         run: uv run atlas-data source validate --definition "$SOURCE_DEFINITION"
       - name: Enforce environment and tier boundary
-        if: inputs.intelligence_acquisition_only || inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'january-source-registration'
+        if: inputs.intelligence_acquisition_only || inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'intelligence-cdc-mmwr-rehearsal' || inputs.operation == 'january-source-registration'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           MEASUREMENT_RUN_ID: ${{ inputs.run_id }}
@@ -265,6 +266,15 @@ jobs:
             test "${{ inputs.publish }}" = "false"
             test -z "$MEASUREMENT_RUN_ID"
           fi
+          if [ "${{ inputs.operation }}" = "intelligence-cdc-mmwr-rehearsal" ]; then
+            test "${{ inputs.environment_name }}" = "dev"
+            test "${{ inputs.tier }}" = "B"
+            test "$SOURCE_DEFINITION" = "config/sources/intelligence_cdc_mmwr.yml"
+            test "${{ inputs.recapture }}" = "false"
+            test "${{ inputs.publish }}" = "false"
+            test -z "$MEASUREMENT_RUN_ID"
+            test "${INTELLIGENCE_ACQUISITION_ONLY:-false}" != "true"
+          fi
           if [ "${{ inputs.operation }}" = "january-source-registration" ]; then
             test "${{ inputs.environment_name }}" = "dev"
             test "${{ inputs.tier }}" = "B"
@@ -274,7 +284,7 @@ jobs:
             test "${{ inputs.publish }}" = "false"
           fi
       - name: Execute orchestrator operation with ephemeral Snowflake key
-        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'january-source-registration'
+        if: inputs.operation == 'run' || inputs.operation == 'nclimgrid-batch' || inputs.operation == 'resume' || inputs.operation == 'nclimgrid-pilot-measurement' || inputs.operation == 'bulk-transport-canary' || inputs.operation == 'intelligence-cdc-mmwr-rehearsal' || inputs.operation == 'january-source-registration'
         env:
           SOURCE_DEFINITION: ${{ inputs.source_definition }}
           INGESTION_RUN_ID: ${{ inputs.run_id }}
@@ -297,7 +307,7 @@ jobs:
               exit 1
             fi
           done
-          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ] && [ "${{ inputs.operation }}" != "bulk-transport-canary" ] && [ "${{ inputs.operation }}" != "january-source-registration" ]; then
+          if [ "${{ inputs.operation }}" != "nclimgrid-pilot-measurement" ] && [ "${{ inputs.operation }}" != "bulk-transport-canary" ] && [ "${{ inputs.operation }}" != "intelligence-cdc-mmwr-rehearsal" ] && [ "${{ inputs.operation }}" != "january-source-registration" ]; then
             for required_var in \
               SPACES_ENDPOINT \
               SPACES_BUCKET \
@@ -366,6 +376,10 @@ jobs:
           fi
           if [ "${{ inputs.operation }}" = "bulk-transport-canary" ]; then
             uv run python scripts/nclimgrid_bulk_transport_canary.py
+          elif [ "${{ inputs.operation }}" = "intelligence-cdc-mmwr-rehearsal" ]; then
+            test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
+            test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
+            uv run python scripts/rehearse_intelligence_cdc_mmwr_dev.py
           elif [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then
             if [ -n "$INGESTION_RUN_ID" ]; then
               uv run atlas-data source nclimgrid-pilot-measure --action "$MEASUREMENT_ACTION" --run-id "$INGESTION_RUN_ID"

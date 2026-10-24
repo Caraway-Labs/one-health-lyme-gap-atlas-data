@@ -47,6 +47,28 @@ New recipients: temporary `intelligence-feed-preflight`, then permanent `intelli
 Existing credential key names copied in memory only: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY_B64`, `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SPACES_ACCESS_KEY_ID`, `SPACES_SECRET_ACCESS_KEY`. Existing non-secret connection/storage scope is copied with them. No keys are minted, logged, written to disk or granted new database privileges.
 Expected role/database/warehouse: `OH_LYME_PROD_RUNTIME` / `ONE_HEALTH_LYME_GAP_ATLAS_PROD` / `OH_LYME_PROD_INGEST_XS_WH`; canonical runtime verifies the intended service user as well. Failure must prevent scheduled activation.
 
+## DEV bulk LOAD rehearsal (cdc-mmwr, pre-PROD promotion)
+
+After merge of the bulk LOAD recovery (#786), run one bounded DEV proof against real
+Snowflake before promoting the immutable image to PROD:
+
+```bash
+gh workflow run run-ingestion.yml \
+  --repo Caraway-Labs/one-health-lyme-gap-atlas-data \
+  --ref main \
+  -f source_definition=config/sources/intelligence_cdc_mmwr.yml \
+  -f environment_name=dev \
+  -f operation=intelligence-cdc-mmwr-rehearsal \
+  -f tier=B
+```
+
+The job uses `OH_LYME_DEV_PIPELINE_SVC` / `OH_LYME_DEV_RUNTIME`, runs the full
+ACQUIRE → NORMALIZE → bulk LOAD → publish path twice, and prints per-pass
+`statement_count`, `items_loaded`, insert/replay counts, and whether the second
+pass inserted zero new rows. If stage `PUT` or `PARSE_JSON`/`MERGE` fails for
+privileges, the log includes the exact Snowflake error and the reviewed grant
+hint without attempting a workaround.
+
 ## Validation status
 
 Draft. Focused tests, type checks, full hosted CI and independent technical review remain in progress. No production readiness or activation claim is made by this document.
