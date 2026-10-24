@@ -95,7 +95,7 @@ def _snowflake_error_fields(error: BaseException) -> tuple[str, str | None]:
 
 
 def _checkpoint_detail(state: Any, stage: Stage) -> dict[str, Any]:
-    for checkpoint in state.checkpoints:
+    for checkpoint in state.stages:
         if checkpoint.stage is stage and checkpoint.detail:
             detail = checkpoint.detail
             if isinstance(detail, dict):
