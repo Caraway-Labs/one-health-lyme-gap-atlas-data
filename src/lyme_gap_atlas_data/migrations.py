@@ -56,7 +56,13 @@ PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION = {
     "filename": "V165__prod_intelligence_daily_view_join_compatibility.sql",
     "sha256": "1c5bdcdaaed21a0e5b44a57b224d536f623ee7c8ec15d35052224eb3c321b41d",
 }
+DEV_FEED_EXPANSION_CLEANUP_MIGRATION = {
+    "version": "V166",
+    "filename": "V166__dev_additional_cdc_feed_cleanup.sql",
+    "sha256": "a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a",
+}
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
+    DEV_FEED_EXPANSION_CLEANUP_MIGRATION,
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
     PROD_INTELLIGENCE_CLEANUP_MIGRATION,
@@ -66,6 +72,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
+    "V166",
     "V034",
     "V037",
     "V038",
@@ -1025,7 +1032,7 @@ def apply_migrations(
             continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
         protected_database = (
-            DEV_DATABASE if pinned["version"] in {"V142", "V143"} else PROD_DATABASE
+            DEV_DATABASE if pinned["version"] in {"V142", "V143", "V166"} else PROD_DATABASE
         )
         if (
             database == protected_database
