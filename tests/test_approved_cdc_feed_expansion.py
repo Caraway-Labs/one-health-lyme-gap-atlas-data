@@ -89,7 +89,6 @@ def test_exact_source_receipt_and_definition_preserve_metadata_bounds(source_id:
         "niaid-news",
         "who-disease-outbreaks",
         "cdc-vital-signs",
-        "nih-news-releases",
         "cdc-mmwr",
         "cdc-newsroom",
         "pubmed-lyme-borrelia",
@@ -100,6 +99,14 @@ def test_unadmitted_sources_cannot_use_the_fixed_registration(source_id: str) ->
     with pytest.raises(PermissionError, match="REVIEWED_PACKAGE"):
         registration.reviewed_package(source_id)
     assert source_id not in PROD_SOURCE_DEFINITIONS
+
+
+def test_nih_news_releases_daily_package_matches_pins() -> None:
+    source, checksum = registration.reviewed_package("nih-news-releases", registry_version=2)
+    assert checksum == identity_hash(source)
+    assert source["source_id"] == "nih-news-releases"
+    assert source["registry_version"] == 2
+    assert source["state"] == "active"
 
 
 @pytest.mark.parametrize("source_id", sorted(PROD_METADATA_FEED_IDS))
@@ -161,7 +168,7 @@ def test_forward_migration_keeps_exact_single_source_and_security_boundaries() -
     [(p, True) for p in PROD_SOURCE_DEFINITIONS.values()]
     + [
         ("config/sources/cdc_x5j9_wybp.yml", False),
-        ("config/sources/intelligence_nih_news.yml", False),
+        ("config/sources/intelligence_nih_news_releases.yml", True),
     ],
 )
 def test_actual_workflow_fixed_source_guard_and_generic_identity_guard_are_complements(

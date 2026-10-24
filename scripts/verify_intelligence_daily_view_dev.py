@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = "V165__prod_intelligence_daily_view_join_compatibility.sql"
+MIGRATION = "V166__prod_nih_news_daily_activation_view.sql"
 DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 
 

@@ -214,7 +214,9 @@ def main() -> None:
     os.environ["ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS"] = "10"
     with pilot_watchdog(seconds=120):
         try:
-            source, checksum = reviewed_package()
+            source_id = os.environ.get("INTELLIGENCE_SOURCE_ID", SOURCE_ID)
+            registry_version = int(os.environ.get("INTELLIGENCE_SOURCE_REGISTRY_VERSION", "1"))
+            source, checksum = reviewed_package(source_id, registry_version)
             with connect(SnowflakeSettings()) as connection:
                 result = register(connection, source, checksum)
         except Exception:
@@ -223,8 +225,8 @@ def main() -> None:
             json.dumps(
                 {
                     "result": result,
-                    "source_id": SOURCE_ID,
-                    "registry_version": 1,
+                    "source_id": source_id,
+                    "registry_version": registry_version,
                     "sha256": checksum,
                 }
             )

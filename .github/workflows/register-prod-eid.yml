@@ -12,6 +12,7 @@ on:
           - cdc-eid-expedited
           - cdc-eid-ahead-of-print
           - cdc-outbreaks
+          - nih-news-releases
       reviewed_commit:
         description: Exact green main commit approved for PROD source registration
         required: true

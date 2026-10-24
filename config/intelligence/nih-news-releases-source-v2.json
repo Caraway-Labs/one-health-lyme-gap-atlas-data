@@ -1,0 +1,58 @@
+{
+  "contract_version": "1.0.0",
+  "source_id": "nih-news-releases",
+  "registry_version": 2,
+  "organization": "National Institutes of Health",
+  "family": "nih_niaid",
+  "source_type": "publication",
+  "geographies": [],
+  "topics": [],
+  "trust_review": {
+    "status": "approved",
+    "decision_ref": "matthew-feed-selection-2026-10-03",
+    "reviewed_at": "2026-10-24T03:08:00Z",
+    "owner": "MATTHEWCARAWAY"
+  },
+  "trust_classification": "official_public_health",
+  "transport": "rss",
+  "canonical_location": "https://www.nih.gov/news-releases/feed.xml",
+  "fetch_location": "https://www.nih.gov/news-releases/feed.xml",
+  "approved_hosts": [
+    "www.nih.gov"
+  ],
+  "state": "active",
+  "cadence": {
+    "poll_seconds": 86400,
+    "expected_item_seconds": null,
+    "basis": "unknown"
+  },
+  "access_use": {
+    "terms_location": "https://www.nih.gov/web-policies",
+    "conditions": [
+      "Attribute the source as NIH and link to the original item available from NIH at no charge.",
+      "Display a clear NIH nonendorsement statement with any public use.",
+      "Publish title, link, language, and publisher date only; no descriptions, article text, excerpts, image values, image bytes, or logos.",
+      "Restrict raw RSS transport and checkpoint artifacts; expire them 30 days after immutable successful capture time.",
+      "A bounded RSS metadata capture verified availability on 2026-10-24 with User-Agent AtlasIntelligence/1; reverify the endpoint at activation."
+    ],
+    "availability_verified_at": "2026-10-24T03:08:00Z",
+    "excerpt_max_chars": 0,
+    "content_retention_policy_ref": "nih-news-releases-metadata-raw-30d-v1",
+    "public_excerpt_permitted": false
+  },
+  "approval": {
+    "status": "approved",
+    "decision_ref": "DATA-132-DAILY-CDC-2026-10-21",
+    "reviewed_at": "2026-10-21T21:16:00Z",
+    "owner": "MATTHEWCARAWAY"
+  },
+  "change_review_policy": "new_version_requires_review",
+  "fallback_reason": null,
+  "limits": {
+    "maximum_bytes": 2097152,
+    "timeout_seconds": 30,
+    "maximum_items": 250,
+    "maximum_redirects": 0,
+    "maximum_attempts": 1
+  }
+}

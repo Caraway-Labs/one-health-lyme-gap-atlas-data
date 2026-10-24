@@ -13,6 +13,7 @@ from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
     PROD_DATABASE,
     PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION,
+    PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
     migration_plan,
 )
 
@@ -46,6 +47,41 @@ def test_repair_is_append_only_pinned_and_prod_only():
     expected = PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION
     path = ROOT / "migrations" / expected["filename"]
     assert hashlib.sha256(path.read_bytes()).hexdigest() == expected["sha256"]
+    assert expected in migration_plan(PROD_DATABASE)
+    assert expected not in migration_plan(DEV_DATABASE)
+
+
+def _daily_activation_predicate(sql: str) -> str:
+    return sql.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
+
+
+def test_nih_activation_extends_v165_predicate_without_projection_drift():
+    prior_path = ROOT / "migrations" / PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION["filename"]
+    updated_path = ROOT / "migrations" / PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION["filename"]
+    prior = prior_path.read_text()
+    updated = updated_path.read_text()
+    prior_predicate = _daily_activation_predicate(prior)
+    updated_predicate = _daily_activation_predicate(updated)
+
+    def normalize(value):
+        return re.sub(r"\s+", "", value)
+
+    without_nih = re.sub(
+        r" WHEN 'nih-news-releases' THEN '[0-9a-f]{64}'",
+        "",
+        updated_predicate,
+    )
+
+    assert normalize(without_nih) == normalize(prior_predicate)
+    assert updated_predicate.count("nih-news-releases") == 2
+    assert prior.split("SELECT c.item_id", 1)[1] == updated.split("SELECT c.item_id", 1)[1]
+
+
+def test_nih_activation_migration_is_append_only_pinned_and_prod_only():
+    expected = PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION
+    path = ROOT / "migrations" / expected["filename"]
+    digest = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
+    assert digest == expected["sha256"]
     assert expected in migration_plan(PROD_DATABASE)
     assert expected not in migration_plan(DEV_DATABASE)
 

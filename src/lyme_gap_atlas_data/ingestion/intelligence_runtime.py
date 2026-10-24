@@ -54,22 +54,26 @@ PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
     "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",
     "cdc-outbreaks": "d8bdcc90b16c98fe2b3661a9316ac78071bd355cbb46ee5d0299c15ca4f53b8f",
+    "nih-news-releases": "1542aa4d8f85a650ac216e574907ec19f65e1d17a26dd8c8b607bfdcd17faaa1",
 }
 PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
 PROD_SOURCE_SHA256 = {
     "cdc-eid-expedited": PROD_EID_SHA256,
     "cdc-eid-ahead-of-print": "b92e97c9e958c270645c9710118b3a3076228c6bcb2390b5c58cff9bacb2a7be",
     "cdc-outbreaks": "54793f2c4856602bf8901d09972a44d2a7479056e71eac75ddc88db060646172",
+    "nih-news-releases": "38d7364d5ce7b730d16e07197d0bb1cf88403eae59defc66de05e3a3df825bea",
 }
 PROD_SOURCE_DECISIONS = {
     "cdc-eid-expedited": "DATA-132-135-EID-ADMISSION-2026-10-09",
     "cdc-eid-ahead-of-print": "matthew-feed-selection-2026-10-03",
     "cdc-outbreaks": "matthew-feed-selection-2026-10-03",
+    "nih-news-releases": "matthew-feed-selection-2026-10-03",
 }
 PROD_SOURCE_DEFINITIONS = {
     "cdc-eid-expedited": "config/sources/intelligence_cdc_eid_expedited.yml",
     "cdc-eid-ahead-of-print": "config/sources/intelligence_cdc_eid_ahead_of_print.yml",
     "cdc-outbreaks": "config/sources/intelligence_cdc_outbreaks.yml",
+    "nih-news-releases": "config/sources/intelligence_nih_news_releases.yml",
 }
 
 
