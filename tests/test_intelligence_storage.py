@@ -27,24 +27,6 @@ from lyme_gap_atlas_data.intelligence_storage import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _fake_intelligence_bulk_transport(monkeypatch: pytest.MonkeyPatch) -> None:
-    def stage(cursor: Any, *, run_id: str, kind: str, rows: list[dict[str, Any]]) -> str:
-        reference = f"@GOVERNANCE.INGESTION_BULK_STAGE/{run_id}/{kind}/bulk-test.json.gz"
-        cursor.connection.ledger.bulk_rows = rows
-        cursor.connection.ledger.bulk_transport = reference
-        return reference
-
-    monkeypatch.setattr(
-        "lyme_gap_atlas_data.intelligence_bulk_write.stage_json_rows",
-        stage,
-    )
-    monkeypatch.setattr(
-        "lyme_gap_atlas_data.ingestion.bulk_stage.remove_transport",
-        lambda _cursor, _source: None,
-    )
-
-
 class Ledger:
     def __init__(self) -> None:
         self.sources: list[dict[str, Any]] = [approved()]
