@@ -63,21 +63,15 @@ class RehearsalPass:
 def permission_guidance_for_error(message: str, sqlstate: str | None = None) -> str | None:
     """Map a Snowflake failure to the reviewed grant surface; no credential workarounds."""
     upper = message.upper()
-    if (
-        (_STAGE_PUT.search(message) or "INGESTION_BULK_STAGE" in upper)
-        and ("403" in message or "ACCESS DENIED" in upper or "INSUFFICIENT" in upper)
+    if (_STAGE_PUT.search(message) or "INGESTION_BULK_STAGE" in upper) and (
+        "403" in message or "ACCESS DENIED" in upper or "INSUFFICIENT" in upper
     ):
         return (
             "Grant READ, WRITE on stage GOVERNANCE.INGESTION_BULK_STAGE to role "
             "OH_LYME_DEV_RUNTIME (see migrations/V117__ingestion_bulk_transport_stage.sql)."
         )
-    if (
-        (_STAGE_MERGE.search(message) or _STAGE_PARSE_JSON.search(message))
-        and (
-            "ACCESS DENIED" in upper
-            or "INSUFFICIENT" in upper
-            or "OBJECT DOES NOT EXIST" in upper
-        )
+    if (_STAGE_MERGE.search(message) or _STAGE_PARSE_JSON.search(message)) and (
+        "ACCESS DENIED" in upper or "INSUFFICIENT" in upper or "OBJECT DOES NOT EXIST" in upper
     ):
         return (
             "Verify OH_LYME_DEV_RUNTIME has INSERT (and SELECT for conflict checks) on "
@@ -109,9 +103,7 @@ def _checkpoint_detail(state: Any, stage: Stage) -> dict[str, Any]:
     return {}
 
 
-def _rehearsal_pilot(
-    definition: Any, *, budget_seconds: int
-) -> tuple[Any, Any]:
+def _rehearsal_pilot(definition: Any, *, budget_seconds: int) -> tuple[Any, Any]:
     """Compose the MMWR pilot using the highest registered DEV source version."""
     settings = PipelineSettings()
     budget = PilotBudget(seconds=budget_seconds)

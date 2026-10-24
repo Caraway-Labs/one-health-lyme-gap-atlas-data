@@ -34,9 +34,7 @@ def test_rehearsal_workflow_is_dev_only_and_fixed_definition() -> None:
     text = (ROOT / ".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
     assert "- intelligence-cdc-mmwr-rehearsal" in text
     assert "rehearse_intelligence_cdc_mmwr_dev.py" in text
-    assert (
-        'test "$SOURCE_DEFINITION" = "config/sources/intelligence_cdc_mmwr.yml"' in text
-    )
+    assert 'test "$SOURCE_DEFINITION" = "config/sources/intelligence_cdc_mmwr.yml"' in text
     assert "inputs.operation == 'intelligence-cdc-mmwr-rehearsal' && 'dev'" in text
     block = text.rsplit(
         'elif [ "${{ inputs.operation }}" = "intelligence-cdc-mmwr-rehearsal" ]; then', 1
