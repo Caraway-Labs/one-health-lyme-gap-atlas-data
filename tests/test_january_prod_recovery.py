@@ -275,7 +275,7 @@ def test_existing_workflows_keep_mutually_exclusive_recovery_scope():
     assert "JANUARY_NORMALIZE_RECOVERY: ${{ inputs.january_normalize_recovery }}" in source
     promote = Path(".github/workflows/promote-prod.yml").read_text()
     assert "january_bulk_recovery_only != true" in promote
-    assert "!= true:true" in promote
+    assert "guard_ne january_climate_and_bulk_recovery true:true" in promote
 
 
 @pytest.mark.parametrize("versions", [[], ["V153"], ["V150", "V151", "V153"]])
@@ -434,7 +434,7 @@ def test_point_workflow_does_not_promote_images_or_other_migrations():
     assert "inputs.january_point_query_only != true" in workflow
     assert "JANUARY_POINT_QUERY_ONLY: ${{ inputs.january_point_query_only }}" in workflow
     assert "january_point_query_only }}' == true" in workflow
-    assert "= false:false" in workflow
+    assert "guard_eq january_point_query_scopes false:false" in workflow
     runner = Path("scripts/apply_january_prod_migrations.py").read_text()
     assert 'january_point_query_only=os.environ.get("JANUARY_POINT_QUERY_ONLY") == "true"' in runner
 

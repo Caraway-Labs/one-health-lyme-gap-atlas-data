@@ -56,6 +56,27 @@ workflows. `register-prod-eid.yml` requires the reviewed empty array `[]`.
 On `deploy-dev.yml` and `promote-prod.yml`, omitting the input is not the
 same as sending `[]`.
 
+## Reading a guard failure
+
+`promote-prod.yml`, `run-prod-intelligence-daily-once.yml`, and
+`register-prod-eid.yml` source `scripts/ci/guard.sh` for every preflight that
+used to be a bare `test`. A failing guard prints one line:
+
+```text
+::error title=<name>::expected=<expected> received=<received> remediation=<remediation>
+```
+
+GitHub shows that line as an error annotation on the step. The same line is
+appended to the job summary when `GITHUB_STEP_SUMMARY` is set. Read `title` as
+the guard name, then the expected value, the received value, and the
+remediation. A passing guard prints `ok <name>` and does not echo the compared
+value.
+
+Compared values are digests, SHAs, refs, counts, flags, or the pending
+migration JSON. The helper does not receive tokens or secret material. The
+`expected_pending_json` allow-list in `promote-prod.yml` is unchanged: a
+mismatch prints the received JSON and lists the allowed values.
+
 ## Environment boundary
 
 | Concern | DEV | PROD |

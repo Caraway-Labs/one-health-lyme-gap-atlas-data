@@ -235,7 +235,7 @@ def test_workflow_lane_cannot_reach_migration_deployment_or_secret_export():
     runs = "\n".join(step.get("run", "") for step in lane["steps"])
     for forbidden in ("apply-migrations", "doctl", "execute --", "upload-artifact", "gh secret"):
         assert forbidden not in runs
-    assert "check-runs" in runs and 'test "$GITHUB_REF" = refs/heads/main' in runs
+    assert "check-runs" in runs and 'guard_eq github_ref refs/heads/main "$GITHUB_REF"' in runs
     credential_steps = [step for step in lane["steps"] if "SNOWFLAKE_USER" in step.get("env", {})]
     assert len(credential_steps) == 1
     step = credential_steps[0]

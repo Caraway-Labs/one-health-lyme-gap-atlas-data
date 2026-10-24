@@ -13,8 +13,8 @@ def test_scope_uses_protected_promotion_and_cannot_run_other_mutation_modes():
     raw = (ROOT / ".github/workflows/promote-prod.yml").read_text()
     workflow = yaml.safe_load(raw)
     assert workflow["jobs"]["promote"]["environment"] == "production"
-    assert 'test "$dev_digest" = "$IMAGE_DIGEST"' in raw
-    assert 'test "$source_digest" = "$IMAGE_DIGEST"' in raw
+    assert 'guard_eq dev_image_digest "$IMAGE_DIGEST" "$dev_digest"' in raw
+    assert 'guard_eq release_integrity_source_digest "$IMAGE_DIGEST" "$source_digest"' in raw
     step = next(
         s
         for s in workflow["jobs"]["promote"]["steps"]
@@ -30,7 +30,7 @@ def test_scope_uses_protected_promotion_and_cannot_run_other_mutation_modes():
         "january_point_query_only",
         "protected_intelligence_prerequisite",
     ):
-        assert f"test '${{{{ inputs.{flag} }}}}' = false" in step["run"]
+        assert f"false '${{{{ inputs.{flag} }}}}'" in step["run"]
     assert "inputs.release_integrity_only != true" in workflow["jobs"]["january-climate"]["if"]
 
 

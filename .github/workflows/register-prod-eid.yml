@@ -82,13 +82,14 @@ jobs:
           ACCOUNTING_CONFIRMED: ${{ inputs.accounting_confirmed }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
+          source scripts/ci/guard.sh
+          guard_eq github_ref refs/heads/main "$GITHUB_REF" "Dispatch this workflow from main. Protected promotion does not run from another ref."
           [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
-          test "$EXPECTED_PENDING_JSON" = '[]'
-          test "$ACCOUNTING_CONFIRMED" = true
+          guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
+          guard_eq expected_pending_json '[]' "$EXPECTED_PENDING_JSON" "Registering an EID source requires expected_pending_json=[]. Redispatch with the reviewed empty array."
+          guard_true accounting_confirmed "$ACCOUNTING_CONFIRMED" "accounting_confirmed must be true for this single registry write. Redispatch with accounting_confirmed=true after confirming the bounded write."
           passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
-          test "$passed_checks" -gt 0
+          guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked --extra pipeline
       - name: Register only the reviewed EID version 1 under PROD migration owner

@@ -153,16 +153,18 @@ jobs:
       - name: Verify digest is currently deployed and approved in DEV
         if: ${{ inputs.intelligence_daily_validate_only != true && inputs.intelligence_daily_only != true && (inputs.release_integrity_only != true ) }}
         run: |
-          test -n "$IMAGE_DIGEST"
+          source scripts/ci/guard.sh
+          guard_nonempty image_digest "$IMAGE_DIGEST" "IMAGE_DIGEST is empty. Re-run with the digest from the latest successful deploy-dev run."
           dev_digest="$(doctl apps spec get "$DEV_APP_ID" --format json | jq -r '.jobs[0].image.digest')"
-          test "$dev_digest" = "$IMAGE_DIGEST"
+          guard_eq dev_image_digest "$IMAGE_DIGEST" "$dev_digest" "The DEV image digest does not match IMAGE_DIGEST. Re-run with the digest from the latest successful deploy-dev run."
           source_digest="$(doctl registry repository list-manifests pipeline --output json \
             | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
-          test "$source_digest" = "$IMAGE_DIGEST"
+          guard_eq registry_source_digest "$IMAGE_DIGEST" "$source_digest" "The registry manifest tagged sha-GITHUB_SHA does not match IMAGE_DIGEST. Re-run with the digest from the latest successful deploy-dev run for this commit."
       - name: Verify PROD target has been explicitly provisioned
         if: ${{ inputs.intelligence_daily_validate_only != true && inputs.intelligence_daily_only != true && (inputs.release_integrity_only != true ) }}
         run: |
-          test -n "$PROD_APP_ID"
+          source scripts/ci/guard.sh
+          guard_nonempty prod_app_id "$PROD_APP_ID" "PROD_APP_ID is empty. Set the PROD_APP_ID repository variable to the provisioned production app before dispatching."
           doctl apps get "$PROD_APP_ID" --format ID,Spec.Name
       - uses: astral-sh/setup-uv@v6
       - name: Install Snowflake CLI for the protected PROD migration step
@@ -177,9 +179,10 @@ jobs:
           FIXTURE_VALIDATION_RUN_ID: ${{ inputs.fixture_validation_run_id }}
         run: |
           set -euo pipefail
+          source scripts/ci/guard.sh
           uv run python scripts/verify_release_integrity_promotion.py
           source_digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "ri706-$FIXTURE_SOURCE_COMMIT" '[.[] | select((.tags // []) | index($tag)) | .digest] | if length == 1 then .[0] else empty end')"
-          test "$source_digest" = "$IMAGE_DIGEST"
+          guard_eq release_integrity_source_digest "$IMAGE_DIGEST" "$source_digest" "The registry manifest tagged ri706-FIXTURE_SOURCE_COMMIT does not match IMAGE_DIGEST. Re-run with the digest recorded for that fixture source commit."
       - name: Apply checksum-validated PROD migrations before image promotion
         if: ${{ inputs.intelligence_daily_validate_only != true && inputs.intelligence_daily_only != true && (inputs.cdc_admission_only != true && inputs.release_integrity_only != true ) }}
         env:
@@ -196,6 +199,7 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
+          source scripts/ci/guard.sh
           key_file="$RUNNER_TEMP/oh-lyme-prod-pipeline-key.p8"
           config_file="$RUNNER_TEMP/snowflake-connections.toml"
           trap 'rm -f "$key_file" "$config_file"' EXIT
@@ -224,15 +228,17 @@ jobs:
           uv run atlas-data pipeline migration-authority-preflight \
             --database "$SNOWFLAKE_DATABASE"
           if [ -n "$EXPECTED_PENDING_JSON" ]; then
-            test "$PROTECTED_INTELLIGENCE_PREREQUISITE" = "true"
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V162\",\"filename\":\"V162__prod_intelligence_proactive_cleanup.sql\",\"sha256\":\"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V163\",\"filename\":\"V163__prod_approved_metadata_feed_cleanup.sql\",\"sha256\":\"1d4470c4eac4939bf4fbda4f56f0c8a1b004d6e9190d5512ae9e220e5b99b741\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V164\",\"filename\":\"V164__prod_intelligence_daily_activation_view.sql\",\"sha256\":\"670dd90048d479b69bc2d032537333da785f85698ba71b64c75aed39b20043c9\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V165\",\"filename\":\"V165__prod_intelligence_daily_view_join_compatibility.sql\",\"sha256\":\"1c5bdcdaaed21a0e5b44a57b224d536f623ee7c8ec15d35052224eb3c321b41d\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V166\",\"filename\":\"V166__prod_nih_news_daily_activation_view.sql\",\"sha256\":\"6ebe428121436db840a357506003d654df82a159f02737d9ab10c52d7f41500c\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V167\",\"filename\":\"V167__prod_cdc_mmwr_daily_activation_view.sql\",\"sha256\":\"cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f\"}]" || \
-            test "$EXPECTED_PENDING_JSON" = "[{\"version\":\"V150\",\"filename\":\"V150__prod_intelligence_raw_cleanup_authority.sql\",\"sha256\":\"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb\"},{\"version\":\"V162\",\"filename\":\"V162__prod_intelligence_proactive_cleanup.sql\",\"sha256\":\"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557\"}]"
+            guard_true protected_intelligence_prerequisite "$PROTECTED_INTELLIGENCE_PREREQUISITE" "A reviewed pending set requires protected_intelligence_prerequisite=true. Redispatch with that flag, or omit expected_pending_json."
+            # Reviewed allow-list. These exact strings stay; computing the set is out of scope.
+            guard_one_of expected_pending_json "$EXPECTED_PENDING_JSON" "EXPECTED_PENDING_JSON is not one of the reviewed allow-list values. Redispatch with one exact allowed pending set." \
+              '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"}]' \
+              '[{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]' \
+              '[{"version":"V163","filename":"V163__prod_approved_metadata_feed_cleanup.sql","sha256":"1d4470c4eac4939bf4fbda4f56f0c8a1b004d6e9190d5512ae9e220e5b99b741"}]' \
+              '[{"version":"V164","filename":"V164__prod_intelligence_daily_activation_view.sql","sha256":"670dd90048d479b69bc2d032537333da785f85698ba71b64c75aed39b20043c9"}]' \
+              '[{"version":"V165","filename":"V165__prod_intelligence_daily_view_join_compatibility.sql","sha256":"1c5bdcdaaed21a0e5b44a57b224d536f623ee7c8ec15d35052224eb3c321b41d"}]' \
+              '[{"version":"V166","filename":"V166__prod_nih_news_daily_activation_view.sql","sha256":"6ebe428121436db840a357506003d654df82a159f02737d9ab10c52d7f41500c"}]' \
+              '[{"version":"V167","filename":"V167__prod_cdc_mmwr_daily_activation_view.sql","sha256":"cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f"}]' \
+              '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"},{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]'
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
@@ -241,7 +247,7 @@ jobs:
               --expected-pending-json "$EXPECTED_PENDING_JSON" \
               --protected-intelligence-prerequisite --confirm
           else
-            test "$PROTECTED_INTELLIGENCE_PREREQUISITE" != "true"
+            guard_ne protected_intelligence_prerequisite_absent true "$PROTECTED_INTELLIGENCE_PREREQUISITE" "protected_intelligence_prerequisite must not be true when expected_pending_json is empty. Redispatch with the flag false, or supply a reviewed pending set."
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
             SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="$SNOWFLAKE_PRIVATE_KEY_PASSPHRASE" \
@@ -266,7 +272,8 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
-          test '${{ inputs.protected_intelligence_prerequisite }}' = false
+          source scripts/ci/guard.sh
+          guard_eq cdc_excludes_intelligence_prerequisite false '${{ inputs.protected_intelligence_prerequisite }}' "CDC admission cannot run with protected_intelligence_prerequisite=true. Redispatch with that flag false."
           key_file="$RUNNER_TEMP/cdc-prod-key.p8"
           trap 'rm -f "$key_file"' EXIT
           umask 077
@@ -297,12 +304,13 @@ jobs:
           SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
-          test '${{ inputs.protected_intelligence_prerequisite }}' = false
-          test '${{ inputs.cdc_admission_only }}' = false
-          test '${{ inputs.county_context_only }}' = false
-          test '${{ inputs.january_climate_only }}' = false
-          test '${{ inputs.january_bulk_recovery_only }}' = false
-          test '${{ inputs.january_point_query_only }}' = false
+          source scripts/ci/guard.sh
+          guard_eq release_integrity_excludes_intelligence_prerequisite false '${{ inputs.protected_intelligence_prerequisite }}' "Release-integrity promotion requires protected_intelligence_prerequisite=false. Redispatch with the other scoped flags false."
+          guard_eq release_integrity_excludes_cdc_admission false '${{ inputs.cdc_admission_only }}' "Release-integrity promotion requires cdc_admission_only=false. Redispatch with the other scoped flags false."
+          guard_eq release_integrity_excludes_county_context false '${{ inputs.county_context_only }}' "Release-integrity promotion requires county_context_only=false. Redispatch with the other scoped flags false."
+          guard_eq release_integrity_excludes_january_climate false '${{ inputs.january_climate_only }}' "Release-integrity promotion requires january_climate_only=false. Redispatch with the other scoped flags false."
+          guard_eq release_integrity_excludes_january_bulk_recovery false '${{ inputs.january_bulk_recovery_only }}' "Release-integrity promotion requires january_bulk_recovery_only=false. Redispatch with the other scoped flags false."
+          guard_eq release_integrity_excludes_january_point_query false '${{ inputs.january_point_query_only }}' "Release-integrity promotion requires january_point_query_only=false. Redispatch with the other scoped flags false."
           key_file="$RUNNER_TEMP/integrity-prod-key.p8"
           trap 'rm -f "$key_file"' EXIT
           umask 077
@@ -329,7 +337,9 @@ jobs:
           # promotion may update its image digest; it must not silently add, remove,
           # or accept temporary jobs.
           doctl apps spec get "$PROD_APP_ID" --format json > "$prod_spec"
-          test "$(jq -r '.name' "$prod_spec")" = "oh-lyme-data-prod"
+          source scripts/ci/guard.sh
+          prod_app_name="$(jq -r '.name' "$prod_spec")"
+          guard_eq prod_app_name oh-lyme-data-prod "$prod_app_name" "The production app spec name is not oh-lyme-data-prod. Confirm PROD_APP_ID points at the governed production app."
 
           jq --arg image_digest "$IMAGE_DIGEST" '
             (.jobs[] | select(.name == "catalog-discovery")) as $registration_template
@@ -416,22 +426,24 @@ jobs:
           EXPECTED_PENDING_JSON: ${{ steps.expected_pending.outputs.normalized }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
-          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          source scripts/ci/guard.sh
+          guard_eq github_ref refs/heads/main "$GITHUB_REF" "Dispatch this workflow from main. Protected promotion does not run from another ref."
+          guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
+          head_sha="$(git rev-parse HEAD)"
+          guard_eq checked_out_commit "$REVIEWED_COMMIT" "$head_sha" "The checked-out commit does not match REVIEWED_COMMIT. Dispatch from main at the reviewed commit."
           if [[ "$COUNTY_CONTEXT_ONLY" == true ]]; then
-            test '${{ inputs.image_digest }}' = county-context-only
-            test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}' = false:false:false
+            guard_eq county_context_image_digest county-context-only '${{ inputs.image_digest }}' "County-context promotion requires image_digest=county-context-only. Redispatch with that exact digest sentinel."
+            guard_eq county_context_scopes false:false:false '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}' "County-context promotion requires january_climate_only, january_bulk_recovery_only, and january_point_query_only to be false."
           else
-            test '${{ inputs.image_digest }}' = january-climate-only
+            guard_eq january_image_digest january-climate-only '${{ inputs.image_digest }}' "This scoped migration requires image_digest=january-climate-only. Redispatch with that exact digest sentinel."
           fi
-          test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' != true:true
+          guard_ne january_climate_and_bulk_recovery true:true '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' "january_climate_only and january_bulk_recovery_only cannot both be true. Redispatch with only one of those scopes."
           if [[ '${{ inputs.january_point_query_only }}' == true ]]; then
-            test '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' = false:false
+            guard_eq january_point_query_scopes false:false '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' "january_point_query_only requires january_climate_only and january_bulk_recovery_only to be false."
           fi
-          test '${{ inputs.protected_intelligence_prerequisite }}' = false
+          guard_eq scoped_migration_excludes_intelligence_prerequisite false '${{ inputs.protected_intelligence_prerequisite }}' "Scoped January or county-context promotion requires protected_intelligence_prerequisite=false."
           passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
-          test "$passed" -gt 0
+          guard_gt quality_checks 0 "$passed" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
           key_file="$RUNNER_TEMP/january-prod-migrations.p8"
           trap 'rm -f "$key_file"' EXIT
           umask 077
@@ -493,18 +505,20 @@ jobs:
       - name: Verify exact green main and exclusive diagnostic scope
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
-          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
-          test '${{ inputs.release_integrity_only }}:${{ inputs.cdc_admission_only }}:${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}:${{ inputs.county_context_only }}:${{ inputs.protected_intelligence_prerequisite }}' = false:false:false:false:false:false:false
-          test '${{ inputs.retained_lineage_only }}:${{ inputs.retained_human_lineage_only }}' != true:true
+          source scripts/ci/guard.sh
+          guard_eq github_ref refs/heads/main "$GITHUB_REF" "Dispatch this workflow from main. Protected promotion does not run from another ref."
+          guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
+          head_sha="$(git rev-parse HEAD)"
+          guard_eq checked_out_commit "$REVIEWED_COMMIT" "$head_sha" "The checked-out commit does not match REVIEWED_COMMIT. Dispatch from main at the reviewed commit."
+          guard_eq retained_lineage_exclusive_scope false:false:false:false:false:false:false '${{ inputs.release_integrity_only }}:${{ inputs.cdc_admission_only }}:${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}:${{ inputs.january_point_query_only }}:${{ inputs.county_context_only }}:${{ inputs.protected_intelligence_prerequisite }}' "Retained-lineage installation requires release_integrity_only, cdc_admission_only, january_climate_only, january_bulk_recovery_only, january_point_query_only, county_context_only, and protected_intelligence_prerequisite to be false."
+          guard_ne retained_lineage_exclusive_flags true:true '${{ inputs.retained_lineage_only }}:${{ inputs.retained_human_lineage_only }}' "retained_lineage_only and retained_human_lineage_only cannot both be true. Choose one diagnostic scope."
           if [[ "$RETAINED_LINEAGE_HUMAN_ONLY" == true ]]; then
-            test "$DIAGNOSTIC_ARTIFACT" = retained-human-lineage-only
+            guard_eq diagnostic_artifact retained-human-lineage-only "$DIAGNOSTIC_ARTIFACT" "Human retained-lineage requires image_digest=retained-human-lineage-only."
           else
-            test "$DIAGNOSTIC_ARTIFACT" = retained-lineage-only
+            guard_eq diagnostic_artifact retained-lineage-only "$DIAGNOSTIC_ARTIFACT" "Retained-lineage requires image_digest=retained-lineage-only."
           fi
           passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
-          test "$passed" -gt 0
+          guard_gt quality_checks 0 "$passed" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
       - name: Install only exact authorized diagnostic migration and retain receipts
@@ -562,12 +576,14 @@ jobs:
           REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
+          source scripts/ci/guard.sh
+          guard_eq github_ref refs/heads/main "$GITHUB_REF" "Dispatch this workflow from main. Protected promotion does not run from another ref."
           [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
-          test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
+          guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
+          head_sha="$(git rev-parse HEAD)"
+          guard_eq checked_out_commit "$REVIEWED_COMMIT" "$head_sha" "The checked-out commit does not match REVIEWED_COMMIT. Dispatch from main at the reviewed commit."
           passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
-          test "$passed_checks" -gt 0
+          guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
       - name: Record only the exact reviewed EID plan using existing migration-service credentials
@@ -620,8 +636,9 @@ jobs:
           REQUEST: ${{ toJSON(inputs) }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
+          source scripts/ci/guard.sh
+          guard_eq github_ref refs/heads/main "$GITHUB_REF" "Dispatch this workflow from main. Protected promotion does not run from another ref."
+          guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
           python - <<'PY'
           import json,os
           request=json.loads(os.environ['REQUEST'])
@@ -631,13 +648,17 @@ jobs:
           placement=request.get('daily_credential_placement_approved') in (True,'true')
           assert placement != validate
           PY
-          test "$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')" -gt 0
+          quality_count="$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')"
+          guard_gt quality_checks 0 "$quality_count" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - name: Verify exact immutable digest is active in DEV
         if: inputs.intelligence_daily_validate_only != true
         run: |
           set -euo pipefail
-          test "$(doctl apps spec get b33dbae7-e243-4e27-b3ca-1018f5897f87 --format json | jq -r '.jobs[0].image.digest')" = "$IMAGE_DIGEST"
-          test "$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')" = "$IMAGE_DIGEST"
+          source scripts/ci/guard.sh
+          dev_digest="$(doctl apps spec get b33dbae7-e243-4e27-b3ca-1018f5897f87 --format json | jq -r '.jobs[0].image.digest')"
+          guard_eq dev_image_digest "$IMAGE_DIGEST" "$dev_digest" "The DEV image digest does not match IMAGE_DIGEST. Re-run with the digest from the latest successful deploy-dev run."
+          source_digest="$(doctl registry repository list-manifests pipeline --output json | jq -r --arg tag "sha-${GITHUB_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
+          guard_eq registry_source_digest "$IMAGE_DIGEST" "$source_digest" "The registry manifest tagged sha-GITHUB_SHA does not match IMAGE_DIGEST. Re-run with the digest from the latest successful deploy-dev run for this commit."
       - name: Detect whether the daily job is already active in PROD
         if: inputs.intelligence_daily_validate_only != true
         id: intelligence_daily_prod_state
