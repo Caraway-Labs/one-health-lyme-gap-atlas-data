@@ -23,6 +23,7 @@ PARSER = "rss-atom-native-v2"
 ATOM = "{http://www.w3.org/2005/Atom}"
 XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 MEDIA = "{http://search.yahoo.com/mrss/}"
+ENTRY_TAGS = frozenset({"item", ATOM + "entry"})
 
 
 @dataclass(frozen=True)
@@ -106,7 +107,7 @@ def _fields(parent: ET.Element, entries: list[ET.Element]) -> dict[str, list[str
     for name, value in sorted(parent.attrib.items()):
         fields.setdefault("feed/@" + name, []).append(value)
     for child in parent:
-        if child.tag not in {"item", ATOM + "entry"}:
+        if child.tag not in ENTRY_TAGS:
             _walk(child, "feed/" + child.tag, fields)
     for entry in entries:
         for name, value in sorted(entry.attrib.items()):
@@ -223,7 +224,7 @@ def parse_native_feed(
             "feed": [
                 _node(child, "feed/" + child.tag, policy)
                 for child in parent
-                if child not in entries
+                if child.tag not in ENTRY_TAGS
             ],
             "feed_attributes": [
                 {"name": name, **_value(value, "feed/@" + name, policy)}
