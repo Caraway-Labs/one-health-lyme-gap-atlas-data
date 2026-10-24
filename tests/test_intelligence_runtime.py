@@ -23,7 +23,8 @@ from lyme_gap_atlas_data.ingestion import Tier
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
 from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import IntelligenceFileCheckpoints
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
-from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse
+from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, IntelligenceFeedAdapter
+from lyme_gap_atlas_data.ingestion.adapters import NormalizeResult
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.ingestion.types import RunState
 from lyme_gap_atlas_data.intelligence_items import identity_hash
@@ -254,6 +255,21 @@ def test_replay_size_and_owned_query_deadline_precede_io() -> None:
     with pytest.raises(PermissionError, match="DEADLINE"):
         cursor.execute("SELECT 1")
     assert budget.queries == 0
+
+
+def test_pilot_normalized_limit_scales_with_reviewed_maximum_items(monkeypatch) -> None:
+    from test_intelligence_native_metadata import records
+
+    configured = definition(approved())
+    configured.extra["intelligence_registry"]["limits"]["maximum_items"] = 250
+    batch = records() * 250
+    adapter = runtime.PilotFeedAdapter()
+
+    def _return_batch(self: IntelligenceFeedAdapter, _: Any, __: Any) -> NormalizeResult:
+        return NormalizeResult(records=batch, transformation_version="x", detail={})
+
+    monkeypatch.setattr(IntelligenceFeedAdapter, "normalize", _return_batch)
+    adapter.normalize(configured, {})
 
 
 def test_checked_in_definitions_and_policy_receipts_are_not_registry_approvals() -> None:
