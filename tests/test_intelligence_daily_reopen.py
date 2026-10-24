@@ -245,6 +245,7 @@ def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch)
         "FAILED",
         "SUCCEEDED",
         "SUCCEEDED",
+        "SUCCEEDED",
     ]
     assert result["status"] == "FAILED"
     assert terminalized == [daily_run_id("cdc-eid-ahead-of-print", TODAY)]

@@ -453,7 +453,7 @@ def insert_version(con, sid, version, change=None, sha=None):
 
 
 def actual_activation_predicate():
-    sql = (ROOT / "migrations/V166__prod_nih_news_daily_activation_view.sql").read_text()
+    sql = (ROOT / "migrations/V167__prod_cdc_mmwr_daily_activation_view.sql").read_text()
     inner = sql.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
     gate = (
         "NOT EXISTS (SELECT 1 FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS newer "
@@ -506,7 +506,7 @@ def test_actual_view_sql_fails_closed_for_unreviewed_or_revoked_transitions(chan
 
 
 def test_actual_view_window_deduplicates_same_source_item_across_activation_versions():
-    sql = (ROOT / "migrations/V166__prod_nih_news_daily_activation_view.sql").read_text()
+    sql = (ROOT / "migrations/V167__prod_cdc_mmwr_daily_activation_view.sql").read_text()
     window = sql.split("QUALIFY ROW_NUMBER() OVER (", 1)[1].split(") = 1;", 1)[0]
     con = sqlite3.connect(":memory:")
     con.execute(

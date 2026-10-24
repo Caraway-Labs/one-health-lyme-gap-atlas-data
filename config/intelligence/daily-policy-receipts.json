@@ -175,6 +175,66 @@
         "required_paths": [],
         "source_sha256": "1542aa4d8f85a650ac216e574907ec19f65e1d17a26dd8c8b607bfdcd17faaa1"
       }
+    },
+    {
+      "source_id": "cdc-mmwr",
+      "decision_ref": "DATA-132-DAILY-CDC-2026-10-21",
+      "registry_version": 2,
+      "source_sha256": "9ee7ceca898a4419241d9706c7cbf0a795287c794cdeb74b0892a4f90ccda0e9",
+      "retention_policy_ref": "cdc-mmwr-metadata-raw-30d-v1",
+      "raw_policy_ref": "intelligence-raw-30d-v1",
+      "artifact_policy": "CDC_EID_RESTRICTED_RAW_30D_V1",
+      "native_policy": {
+        "policy_ref": "cdc-mmwr-native-metadata-v1",
+        "updated_path": null,
+        "updated_format": "iso8601",
+        "published_path": "item/pubDate",
+        "published_format": "rfc822",
+        "inventory": [
+          "feed/category",
+          "feed/copyright",
+          "feed/description",
+          "feed/language",
+          "feed/lastBuildDate",
+          "feed/link",
+          "feed/pubDate",
+          "feed/title",
+          "feed/webMaster",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}author",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}description",
+          "feed/{http://www.google.com/schemas/play-podcasts/1.0}email",
+          "feed/{http://www.w3.org/2005/Atom}link",
+          "feed/{http://www.w3.org/2005/Atom}link/@href",
+          "feed/{http://www.w3.org/2005/Atom}link/@rel",
+          "feed/{http://www.w3.org/2005/Atom}link/@type",
+          "item/category",
+          "item/description",
+          "item/enclosure",
+          "item/enclosure/@length",
+          "item/enclosure/@type",
+          "item/enclosure/@url",
+          "item/guid",
+          "item/guid/@isPermaLink",
+          "item/link",
+          "item/pubDate",
+          "item/title",
+          "item/{http://search.yahoo.com/mrss/}content",
+          "item/{http://search.yahoo.com/mrss/}content/@height",
+          "item/{http://search.yahoo.com/mrss/}content/@type",
+          "item/{http://search.yahoo.com/mrss/}content/@url",
+          "item/{http://search.yahoo.com/mrss/}content/@width"
+        ],
+        "permitted_paths": [
+          "feed/language",
+          "feed/link",
+          "feed/title",
+          "item/link",
+          "item/pubDate",
+          "item/title"
+        ],
+        "required_paths": [],
+        "source_sha256": "9ee7ceca898a4419241d9706c7cbf0a795287c794cdeb74b0892a4f90ccda0e9"
+      }
     }
   ]
 }

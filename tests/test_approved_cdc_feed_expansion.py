@@ -89,7 +89,6 @@ def test_exact_source_receipt_and_definition_preserve_metadata_bounds(source_id:
         "niaid-news",
         "who-disease-outbreaks",
         "cdc-vital-signs",
-        "cdc-mmwr",
         "cdc-newsroom",
         "pubmed-lyme-borrelia",
         "pubmed-tick-borne",
@@ -114,6 +113,23 @@ def test_nih_news_releases_daily_package_matches_pins() -> None:
     source, checksum = registration.reviewed_package("nih-news-releases", registry_version=2)
     assert checksum == identity_hash(source)
     assert source["source_id"] == "nih-news-releases"
+    assert source["registry_version"] == 2
+    assert source["state"] == "active"
+
+
+def test_cdc_mmwr_manual_package_matches_pins() -> None:
+    source, checksum = registration.reviewed_package("cdc-mmwr", registry_version=1)
+    assert checksum == identity_hash(source)
+    assert checksum == PROD_SOURCE_SHA256["cdc-mmwr"]
+    assert source["source_id"] == "cdc-mmwr"
+    assert source["registry_version"] == 1
+    assert source["state"] == "manual"
+
+
+def test_cdc_mmwr_daily_package_matches_pins() -> None:
+    source, checksum = registration.reviewed_package("cdc-mmwr", registry_version=2)
+    assert checksum == identity_hash(source)
+    assert source["source_id"] == "cdc-mmwr"
     assert source["registry_version"] == 2
     assert source["state"] == "active"
 

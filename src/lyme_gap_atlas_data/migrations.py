@@ -61,6 +61,11 @@ PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION = {
     "filename": "V166__prod_nih_news_daily_activation_view.sql",
     "sha256": "6ebe428121436db840a357506003d654df82a159f02737d9ab10c52d7f41500c",
 }
+PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION = {
+    "version": "V167",
+    "filename": "V167__prod_cdc_mmwr_daily_activation_view.sql",
+    "sha256": "cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f",
+}
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -70,6 +75,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_INTELLIGENCE_DAILY_VIEW_MIGRATION,
     PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION,
     PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
+    PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -168,6 +174,7 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V164",
     "V165",
     "V166",
+    "V167",
 }
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
@@ -1085,6 +1092,12 @@ def apply_migrations(
         and "V165" not in applied
     ):
         raise PermissionError("V166 requires recorded V165 before NIH daily activation view")
+    if (
+        database == PROD_DATABASE
+        and any(item.version == "V167" and item.version not in applied for item in plan)
+        and "V166" not in applied
+    ):
+        raise PermissionError("V167 requires recorded V166 before CDC MMWR daily activation view")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

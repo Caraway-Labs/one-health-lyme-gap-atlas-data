@@ -11,6 +11,7 @@ import pytest
 
 from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
+    PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
     PROD_DATABASE,
     PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION,
     PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
@@ -79,6 +80,37 @@ def test_nih_activation_extends_v165_predicate_without_projection_drift():
 
 def test_nih_activation_migration_is_append_only_pinned_and_prod_only():
     expected = PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION
+    path = ROOT / "migrations" / expected["filename"]
+    digest = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
+    assert digest == expected["sha256"]
+    assert expected in migration_plan(PROD_DATABASE)
+    assert expected not in migration_plan(DEV_DATABASE)
+
+
+def test_cdc_mmwr_activation_extends_v166_predicate_without_projection_drift():
+    prior_path = ROOT / "migrations" / PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION["filename"]
+    updated_path = ROOT / "migrations" / PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION["filename"]
+    prior = prior_path.read_text()
+    updated = updated_path.read_text()
+    prior_predicate = _daily_activation_predicate(prior)
+    updated_predicate = _daily_activation_predicate(updated)
+
+    def normalize(value):
+        return re.sub(r"\s+", "", value)
+
+    without_mmwr = re.sub(
+        r" WHEN 'cdc-mmwr' THEN '[0-9a-f]{64}'",
+        "",
+        updated_predicate,
+    )
+
+    assert normalize(without_mmwr) == normalize(prior_predicate)
+    assert updated_predicate.count("cdc-mmwr") == 2
+    assert prior.split("SELECT c.item_id", 1)[1] == updated.split("SELECT c.item_id", 1)[1]
+
+
+def test_cdc_mmwr_activation_migration_is_append_only_pinned_and_prod_only():
+    expected = PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION
     path = ROOT / "migrations" / expected["filename"]
     digest = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
     assert digest == expected["sha256"]

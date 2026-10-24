@@ -264,7 +264,11 @@ def test_fixed_registry_reads_distinguish_absent_denied_and_preserve_safe_progre
     cursor = RegistryCursor(None)
     report = {}
     module.inspect_sources(cursor, report, [])
-    assert [r["reason"] for r in report["sources"]] == ["ABSENT", "UNKNOWN_QUERY_FAILED"]
+    assert [r["reason"] for r in report["sources"]] == [
+        "ABSENT",
+        "UNKNOWN_QUERY_FAILED",
+        "ABSENT",
+    ]
     assert not report["source_prerequisites_passed"]
     assert "private-document-and-reviewer" not in capsys.readouterr().out
 
@@ -290,7 +294,7 @@ def test_registry_proof_precedes_object_describe_denial_with_nih_blocked(capsys)
             elif sql.startswith("SHOW"):
                 self.description = [("name",), ("owner",)]
             elif sql.startswith("DESCRIBE"):
-                assert len([s for s in self.sql if "AS source_document_json" in s]) == 2
+                assert len([s for s in self.sql if "AS source_document_json" in s]) == 3
                 raise PermissionError("private object detail")
 
         def fetchall(self):

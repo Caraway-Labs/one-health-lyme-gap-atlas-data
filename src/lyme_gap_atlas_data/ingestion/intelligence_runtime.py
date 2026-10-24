@@ -38,6 +38,7 @@ ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
     "cdc-eid-ahead-of-print": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
     "cdc-outbreaks": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
+    "cdc-mmwr": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
     "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
@@ -55,6 +56,7 @@ PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",
     "cdc-outbreaks": "d8bdcc90b16c98fe2b3661a9316ac78071bd355cbb46ee5d0299c15ca4f53b8f",
     "nih-news-releases": "1542aa4d8f85a650ac216e574907ec19f65e1d17a26dd8c8b607bfdcd17faaa1",
+    "cdc-mmwr": "9ee7ceca898a4419241d9706c7cbf0a795287c794cdeb74b0892a4f90ccda0e9",
 }
 PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
 PROD_SOURCE_SHA256 = {
@@ -62,18 +64,21 @@ PROD_SOURCE_SHA256 = {
     "cdc-eid-ahead-of-print": "b92e97c9e958c270645c9710118b3a3076228c6bcb2390b5c58cff9bacb2a7be",
     "cdc-outbreaks": "54793f2c4856602bf8901d09972a44d2a7479056e71eac75ddc88db060646172",
     "nih-news-releases": "38d7364d5ce7b730d16e07197d0bb1cf88403eae59defc66de05e3a3df825bea",
+    "cdc-mmwr": "875b0bc1b33f2c89ff4596532ccd8504dc6ce60086f8bba9146183da2b2d59a6",
 }
 PROD_SOURCE_DECISIONS = {
     "cdc-eid-expedited": "DATA-132-135-EID-ADMISSION-2026-10-09",
     "cdc-eid-ahead-of-print": "matthew-feed-selection-2026-10-03",
     "cdc-outbreaks": "matthew-feed-selection-2026-10-03",
     "nih-news-releases": "matthew-feed-selection-2026-10-03",
+    "cdc-mmwr": "matthew-feed-selection-2026-10-03",
 }
 PROD_SOURCE_DEFINITIONS = {
     "cdc-eid-expedited": "config/sources/intelligence_cdc_eid_expedited.yml",
     "cdc-eid-ahead-of-print": "config/sources/intelligence_cdc_eid_ahead_of_print.yml",
     "cdc-outbreaks": "config/sources/intelligence_cdc_outbreaks.yml",
     "nih-news-releases": "config/sources/intelligence_nih_news_releases.yml",
+    "cdc-mmwr": "config/sources/intelligence_cdc_mmwr.yml",
 }
 
 
