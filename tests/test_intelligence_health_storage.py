@@ -49,6 +49,95 @@ def events(journal):
         return connection.execute("SELECT history FROM health_events ORDER BY sequence").fetchall()
 
 
+@pytest.mark.parametrize("changed_key", ["source_id", "registry_version"])
+def test_journal_rejects_relabelled_history_before_reduction(tmp_path, changed_key):
+    source, state, checkpoints, service = fixture(tmp_path)
+    service.record_checkpoint(source, checkpoints, state.ingestion_run_id, observed_at=NOW)
+    replacement = "another-source" if changed_key == "source_id" else 2
+    column = "source_id" if changed_key == "source_id" else "version"
+    with closing(sqlite3.connect(service.journal.path)) as connection:
+        connection.execute(f"UPDATE health_events SET {column}=?", (replacement,))
+        connection.commit()
+    with pytest.raises(ValueError, match="JOURNAL_BINDING_MISMATCH"):
+        service.journal.transact(
+            replacement if changed_key == "source_id" else source["source_id"],
+            replacement if changed_key == "registry_version" else source["registry_version"],
+            lambda previous: pytest.fail("mismatched history reached reducer"),
+        )
+    assert len(events(service.journal)) == 1
+
+
+@pytest.mark.parametrize("changed_key", ["source_id", "registry_version"])
+def test_journal_rejects_wrong_source_result_without_append(tmp_path, changed_key):
+    from lyme_gap_atlas_data.intelligence_health import reduce_health
+
+    source = approved()
+    journal = SQLiteHealthJournal(tmp_path / "health.sqlite")
+    changed = dict(source)
+    changed[changed_key] = "another-source" if changed_key == "source_id" else 2
+    with pytest.raises(ValueError, match="JOURNAL_BINDING_MISMATCH"):
+        journal.transact(
+            source["source_id"],
+            source["registry_version"],
+            lambda previous: reduce_health(changed, observed_at=NOW),
+        )
+    assert events(journal) == []
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_warehouse_binding_mismatch_rolls_back_without_append(existing):
+    from lyme_gap_atlas_data.intelligence_health import reduce_health
+    from lyme_gap_atlas_data.intelligence_health_storage import _encode
+    from lyme_gap_atlas_data.intelligence_items import canonical_json, identity_hash
+
+    source = approved()
+    other = dict(source, source_id="another-source")
+    result = reduce_health(other, observed_at=NOW)
+    document = _encode(result.history)
+    calls = []
+
+    class Connection:
+        rowcount = 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def cursor(self):
+            return self
+
+        def execute(self, sql, params=()):
+            calls.append(sql)
+
+        def fetchall(self):
+            if "CURRENT_ROLE" in calls[-1]:
+                return [("OH_LYME_DEV_RUNTIME", "ONE_HEALTH_LYME_GAP_ATLAS_DEV", None)]
+            return [(canonical_json(document), identity_hash(document), 1)] if existing else []
+
+        def autocommit(self, value):
+            pass
+
+        def commit(self):
+            pytest.fail("mismatched health committed")
+
+        def rollback(self):
+            calls.append("ROLLBACK")
+
+    def transform(previous):
+        if existing:
+            pytest.fail("mismatched history reached reducer")
+        return result
+
+    with pytest.raises(ValueError, match="JOURNAL_BINDING_MISMATCH"):
+        SnowflakeHealthJournal(Connection, "DEV").transact(
+            source["source_id"], source["registry_version"], transform
+        )
+    assert calls[-1] == "ROLLBACK"
+    assert not any(sql.startswith("INSERT") for sql in calls)
+
+
 def test_actual_checkpoint_restart_replay_and_telemetry_outage_preserve_health(
     tmp_path, monkeypatch
 ):
