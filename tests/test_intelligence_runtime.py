@@ -21,10 +21,10 @@ from test_intelligence_recovery import (
 
 from lyme_gap_atlas_data.ingestion import Tier
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
+from lyme_gap_atlas_data.ingestion.adapters import NormalizeResult
 from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import IntelligenceFileCheckpoints
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, IntelligenceFeedAdapter
-from lyme_gap_atlas_data.ingestion.adapters import NormalizeResult
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.ingestion.types import RunState
 from lyme_gap_atlas_data.intelligence_items import identity_hash
