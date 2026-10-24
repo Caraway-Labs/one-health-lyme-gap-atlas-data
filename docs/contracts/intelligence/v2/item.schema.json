@@ -610,6 +610,94 @@
               ]
             }
           }
+        },
+        "description": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "state",
+            "format",
+            "origin"
+          ],
+          "properties": {
+            "text": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "pattern": "^[^<>\\u0000-\\u001f]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "state": {
+              "enum": [
+                "present",
+                "empty",
+                "not_provided"
+              ]
+            },
+            "format": {
+              "const": "plain_text"
+            },
+            "origin": {
+              "const": "publisher"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "not_provided"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "text": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "empty"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "text": {
+                    "const": ""
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "present"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },

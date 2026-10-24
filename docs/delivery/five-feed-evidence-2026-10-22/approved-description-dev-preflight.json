@@ -1,0 +1,31 @@
+{
+  "owner_decision_ref": "Sentinel_dafa6b0ae8108191b308b077e58b0f27",
+  "scope": ["cdc-mmwr", "cdc-newsroom"],
+  "approved_dev_allowance_usd": 5,
+  "maximum_sequential_capture_repoll_runs": 4,
+  "approved_capture_repoll_runs_consumed": 0,
+  "provider_requests_consumed_under_new_allowance": 0,
+  "actual_spend": "not yet reconciled; read-only Snowflake preflight may incur warehouse charges",
+  "read_identity": {
+    "user": "MATTHEWCARAWAY",
+    "role": "OH_LYME_DEV_READ",
+    "database": "ONE_HEALTH_LYME_GAP_ATLAS_DEV",
+    "warehouse": "OH_LYME_DEV_INGEST_XS_WH"
+  },
+  "read_inventory": {
+    "bounded_query": "GOVERNANCE object names matching budget/cost/intelligence or SCHEMA_MIGRATIONS/INGESTION_RUNS; LIMIT 30",
+    "visible_names": ["LLM_BUDGET_USAGE", "SCHEMA_MIGRATIONS"],
+    "visibility_limit": "Role-filtered metadata; omitted objects are UNKNOWN, not proved absent"
+  },
+  "governed_source_run_preflight": "UNKNOWN",
+  "remaining_prerequisites": [
+    "Actual existing DEV pipeline service identity and runtime capability receipt",
+    "Required migration-ledger verification under authorized visibility",
+    "Private accounting/headroom reconciliation including read-only preflight cost",
+    "Reviewed finalized source/version hashes and policy/runtime receipts",
+    "Existing source-scoped raw-retention capability for these additional source IDs",
+    "Deploy reviewed code through the existing DEV workflow before canonical live qualification"
+  ],
+  "live_description_value_semantics": "UNVERIFIED; no new feed acquisition",
+  "production_execution": "not authorized by this DEV decision"
+}

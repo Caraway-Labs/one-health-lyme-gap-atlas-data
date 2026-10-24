@@ -30,6 +30,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         native_policy_lookup: Callable[[str, int], NativeMetadataPolicy] | None = None,
         spaces_client: Any | None = None,
         feed_retention: FeedRawRetention | None = None,
+        maximum_write_bytes: int = 10_000_000,
     ) -> None:
         super().__init__(
             settings, connection_factory=connection_factory, spaces_client=spaces_client
@@ -39,6 +40,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
             retention_allowed=retention_allowed,
             native_policy_lookup=native_policy_lookup,
             settings=self.settings,
+            maximum_write_bytes=maximum_write_bytes,
         )
         self.artifact_policy_allowed = artifact_policy_allowed
         self.feed_retention = feed_retention

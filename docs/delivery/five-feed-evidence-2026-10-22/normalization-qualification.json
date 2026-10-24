@@ -1,0 +1,20 @@
+[
+  {
+    "source_id": "cdc-mmwr",
+    "source_sha256": "6a4d6a12918f1642a6be2e203be7173f9926abbcf005b93a96fe3d4f83f4714c",
+    "evidence_level": "diagnostic normalization; candidate not admitted; no database",
+    "raw_retained": false,
+    "status": 200,
+    "error_code": "INTELLIGENCE_ACQUISITION_SOURCE_NOT_APPROVED",
+    "wall_seconds": 0.629
+  },
+  {
+    "source_id": "cdc-newsroom",
+    "source_sha256": "d19b1ef9cadca36f45d5581f9fbbc3d33cb212c7e55d0058b4275729ccced0ac",
+    "evidence_level": "diagnostic normalization; candidate not admitted; no database",
+    "raw_retained": false,
+    "status": 200,
+    "error_code": "INTELLIGENCE_ACQUISITION_SOURCE_NOT_APPROVED",
+    "wall_seconds": 0.493
+  }
+]
