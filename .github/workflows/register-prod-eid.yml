@@ -62,11 +62,23 @@ jobs:
       SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate expected_pending_json
+        id: expected_pending
+        env:
+          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EXPECTED_PENDING_JSON}" ]; then
+            printf 'normalized=\n' >> "$GITHUB_OUTPUT"
+          else
+            normalized="$(bash scripts/validate_expected_pending_json.sh)"
+            printf 'normalized=%s\n' "$normalized" >> "$GITHUB_OUTPUT"
+          fi
       - name: Require exact green main and reviewed empty migration set
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
-          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          EXPECTED_PENDING_JSON: ${{ steps.expected_pending.outputs.normalized }}
           ACCOUNTING_CONFIRMED: ${{ inputs.accounting_confirmed }}
         run: |
           set -euo pipefail

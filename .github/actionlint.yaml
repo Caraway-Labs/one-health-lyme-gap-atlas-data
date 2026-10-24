@@ -1,0 +1,5 @@
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    # Existing run blocks are reviewed operational scripts; shellcheck style findings stay out of this syntax lint.
+    ignore:
+      - 'shellcheck reported issue in this script: .+'
