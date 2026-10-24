@@ -37,7 +37,7 @@ def _baseline() -> dict:
             "kind": "SCHEDULED",
             "image": {"digest": DIGEST},
             "run_command": COMMAND,
-            "schedule": {"cron": "0 7 * * *", "time_zone": "America/Denver"},
+            "schedule": {"cron": "15 18 * * *", "time_zone": "America/Denver"},
         }
     )
     return {"jobs": base_jobs}
