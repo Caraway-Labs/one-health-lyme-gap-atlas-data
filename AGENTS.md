@@ -103,6 +103,10 @@ pipeline code, Snowflake DDL, source configuration, or deployment files.
   never direct table access. For the PMC budget procedure, follow the V056/V057
   bootstrap in `docs/operations/deployment-promotion.md` and retain both API
   and pipeline procedure grants after `CREATE OR REPLACE`.
+- Cursor Cloud Agent dispatch: adding the `cursor:ready` label to a story
+  launches an agent through `.github/workflows/cursor-dispatch.yml`. See
+  `docs/operations/cursor-cloud-agent-dispatch.md` for labels, the shared
+  4-agent cap and the `CURSOR_API_KEY` prerequisite.
 - Run `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src`,
   `uv run pytest`, `dbt parse`, and the container build for material changes.
   Fast inner-loop ingestion tests: `uv run pytest tests/test_simplified_ingestion.py`.

@@ -72,6 +72,10 @@ def test_no_new_source_specific_workflow_without_exception_marker() -> None:
         # capture/ingest workflow and never mutates Snowflake or closes an
         # issue itself; closure stays a human decision.
         "flag-completed-story-comment",
+        # Label-driven Cursor Cloud Agent dispatch. It is not a capture or
+        # ingest workflow and never mutates Snowflake, environments, or
+        # branch protection.
+        "cursor-dispatch",
         # Story #169: manual DEV-only synthetic derived-result persistence
         # verification; it acquires no source and has no PROD path.
         "verify-infected-tick-result-dev",

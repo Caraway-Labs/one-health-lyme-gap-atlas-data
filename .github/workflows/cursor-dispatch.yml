@@ -1,0 +1,41 @@
+name: Cursor agent dispatch
+
+on:
+  issues:
+    types: [labeled]
+  schedule:
+    # Retry issues left on cursor:queued. The four-agent cap is enforced by
+    # listing ACTIVE Cloud Agents, not by this cron and not by concurrency.
+    # That count covers every agent visible to CURSOR_API_KEY, so it is shared
+    # with the web repository dispatcher when both use the same Cursor account.
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+# One dispatcher decision at a time so two ready labels cannot both pass the
+# ACTIVE count. Cancel is off so a waiting label event still runs. This group
+# does not limit how long a Cloud Agent stays ACTIVE. Concurrency groups are
+# per repository, so this does not serialize with the web repository.
+concurrency:
+  group: cursor-cloud-agent-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.event_name == 'schedule' || (github.event_name == 'issues' &&
+       github.event.label.name == 'cursor:ready' &&
+       github.event.issue.pull_request == null)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch eligible issues to Cursor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: bash .github/scripts/cursor-dispatch.sh
