@@ -84,7 +84,11 @@ def _envelope(
     root = ET.fromstring(raw)
     parent = root.find("channel") if source["transport"] == "rss" else root
     assert parent is not None
-    return parent, parent.findall("item" if source["transport"] == "rss" else ATOM + "entry")
+    entries = parent.findall("item" if source["transport"] == "rss" else ATOM + "entry")
+    maximum_items = source["limits"]["maximum_items"]
+    if len(entries) > maximum_items:
+        entries = entries[:maximum_items]
+    return parent, entries
 
 
 def _walk(node: ET.Element, path: str, output: dict[str, list[str | None]]) -> None:
