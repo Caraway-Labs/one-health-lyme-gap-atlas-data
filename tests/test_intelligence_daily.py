@@ -552,7 +552,9 @@ def test_daily_claim_transaction_is_durable_or_fails_closed(existing, guard, ins
 
         def execute(self, sql, params=None):
             events.append(sql)
-            if sql.startswith("UPDATE"):
+            if "INTELLIGENCE_DAILY_STALE_RUNNING" in sql:
+                self.rowcount = 0
+            elif sql.startswith("UPDATE"):
                 self.rowcount = guard
             elif sql.startswith("INSERT"):
                 self.rowcount = insert

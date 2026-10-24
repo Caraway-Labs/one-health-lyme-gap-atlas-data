@@ -15,6 +15,25 @@ from typing import Any
 import pytest
 from test_intelligence_feed import FIXTURES, approved, definition, fetch_adapter
 
+
+@pytest.fixture(autouse=True)
+def _fake_intelligence_bulk_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    def stage(cursor: Any, *, run_id: str, kind: str, rows: list[dict[str, Any]]) -> str:
+        reference = f"@GOVERNANCE.INGESTION_BULK_STAGE/{run_id}/{kind}/bulk-test.json.gz"
+        cursor.connection.ledger.bulk_rows = rows
+        cursor.connection.ledger.bulk_transport = reference
+        return reference
+
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.intelligence_bulk_write.stage_json_rows",
+        stage,
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.bulk_stage.remove_transport",
+        lambda _cursor, _source: None,
+    )
+
+
 from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, Tier
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, acquisition_context
@@ -46,6 +65,8 @@ class Ledger:
         self.lock = threading.Lock()
         self.events: list[str] = []
         self.fail_at: str | None = None
+        self.bulk_rows: list[dict[str, Any]] = []
+        self.bulk_transport = ""
 
     def pin(self, run_id: str, artifact_id: str, source: dict[str, Any], fetched_at: str) -> None:
         context = acquisition_context(
@@ -123,6 +144,9 @@ class Cursor:
     def fetchall(self) -> list[Any]:
         return self.rows
 
+    def fetchone(self) -> Any | None:
+        return self.rows[0] if self.rows else None
+
     def execute(self, statement: str, params: tuple[Any, ...] = ()) -> None:
         sql = " ".join(statement.split()).upper()
         database = self.connection.ledger
@@ -199,6 +223,34 @@ class Cursor:
             assert params[6] in database.runs
             assert database.artifacts[(params[7], params[6])] == params[8]
             self.connection.pending[1][params[0]] = (params[9], params[10])
+        elif "SELECT COUNT(*)" in sql and "INTELLIGENCE_ITEM" in sql:
+            self.rows = [(0,)]
+        elif sql.startswith("MERGE INTO CONFORMED.INTELLIGENCE_ITEM_REVISIONS"):
+            inserted = 0
+            for row in database.bulk_rows:
+                key = (row["item_id"], row["revision_id"])
+                if key not in self.connection.pending[0]:
+                    self.connection.pending[0][key] = (
+                        row["content_sha256"],
+                        row["content_document_json"],
+                    )
+                    inserted += 1
+            self.rowcount = inserted
+        elif sql.startswith("MERGE INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES"):
+            if database.fail_on_capture:
+                raise RuntimeError("private provider identifier")
+            inserted = 0
+            for row in database.bulk_rows:
+                key = row["capture_id"]
+                if key not in self.connection.pending[1]:
+                    self.connection.pending[1][key] = (
+                        row["item_sha256"],
+                        row["item_document_json"],
+                    )
+                    inserted += 1
+            self.rowcount = inserted
+        elif sql.startswith("REMOVE ") or sql.startswith("PUT "):
+            return
         else:
             pytest.fail(f"Unexpected operation: {sql.split()[0:3]}")
 
