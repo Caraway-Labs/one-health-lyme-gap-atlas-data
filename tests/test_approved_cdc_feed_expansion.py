@@ -101,6 +101,15 @@ def test_unadmitted_sources_cannot_use_the_fixed_registration(source_id: str) ->
     assert source_id not in PROD_SOURCE_DEFINITIONS
 
 
+def test_nih_news_releases_manual_package_matches_pins() -> None:
+    source, checksum = registration.reviewed_package("nih-news-releases", registry_version=1)
+    assert checksum == identity_hash(source)
+    assert checksum == PROD_SOURCE_SHA256["nih-news-releases"]
+    assert source["source_id"] == "nih-news-releases"
+    assert source["registry_version"] == 1
+    assert source["state"] == "manual"
+
+
 def test_nih_news_releases_daily_package_matches_pins() -> None:
     source, checksum = registration.reviewed_package("nih-news-releases", registry_version=2)
     assert checksum == identity_hash(source)
