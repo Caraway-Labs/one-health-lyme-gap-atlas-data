@@ -43,6 +43,24 @@ on:
         required: false
         type: boolean
         default: false
+      intelligence_register_source_id:
+        description: Exact reviewed intelligence source for bounded DEV registration
+        required: false
+        type: choice
+        default: cdc-eid-expedited
+        options:
+          - cdc-eid-expedited
+          - cdc-eid-ahead-of-print
+          - cdc-outbreaks
+          - nih-news-releases
+      intelligence_register_registry_version:
+        description: Exact reviewed immutable source version for bounded DEV registration
+        required: false
+        type: choice
+        default: "1"
+        options:
+          - "1"
+          - "2"
       feed_preflight_accounting_confirmed:
         description: Confirm forward-only US$8 allowance covers this bounded probe; historical charges remain separate
         required: false
@@ -229,8 +247,18 @@ jobs:
             passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" \
               --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
+            case "$INTELLIGENCE_REGISTER_SOURCE_ID" in
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases) ;;
+              *) echo "Unsupported intelligence registration source" >&2; exit 1 ;;
+            esac
+            case "$INTELLIGENCE_REGISTER_REGISTRY_VERSION" in
+              1|2) ;;
+              *) echo "Unsupported intelligence registration version" >&2; exit 1 ;;
+            esac
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
+            INTELLIGENCE_SOURCE_ID="$INTELLIGENCE_REGISTER_SOURCE_ID" \
+            INTELLIGENCE_SOURCE_REGISTRY_VERSION="$INTELLIGENCE_REGISTER_REGISTRY_VERSION" \
               timeout 125s uv run python scripts/register_eid_expedited_dev.py
             exit 0
           fi
@@ -536,6 +564,8 @@ jobs:
           EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
           REGISTER_EID_EXPEDITED_DEV: ${{ inputs.register_eid_expedited_dev }}
+          INTELLIGENCE_REGISTER_SOURCE_ID: ${{ inputs.intelligence_register_source_id }}
+          INTELLIGENCE_REGISTER_REGISTRY_VERSION: ${{ inputs.intelligence_register_registry_version }}
           FEED_PREFLIGHT_ACCOUNTING_CONFIRMED: ${{ inputs.feed_preflight_accounting_confirmed }}
           DIAGNOSE_QUERY_ID: ${{ inputs.diagnose_query_id }}
           DIAGNOSE_V103_STATE: ${{ inputs.diagnose_v103_state }}

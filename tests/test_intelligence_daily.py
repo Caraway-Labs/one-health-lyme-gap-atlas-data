@@ -108,7 +108,7 @@ def test_daily_claim_precedes_io_and_failure_does_not_retry_or_block_other_sourc
         ("run", s) for s in runtime.PROD_SOURCE_DEFINITIONS
     ]
     assert all(row["outcome"] == "ALREADY_CLAIMED" for row in second["sources"])
-    assert len([e for e in events if e[0] == "run"]) == 3
+    assert len([e for e in events if e[0] == "run"]) == len(runtime.PROD_SOURCE_DEFINITIONS)
 
 
 @pytest.mark.parametrize("state", ["manual", "paused"])
@@ -453,9 +453,13 @@ def insert_version(con, sid, version, change=None, sha=None):
 
 
 def actual_activation_predicate():
-    sql = (ROOT / "migrations/V164__prod_intelligence_daily_activation_view.sql").read_text()
-    gate = sql.split("  AND NOT EXISTS (", 1)[1].split("\nQUALIFY", 1)[0]
-    gate = "NOT EXISTS (" + gate
+    sql = (ROOT / "migrations/V166__prod_nih_news_daily_activation_view.sql").read_text()
+    inner = sql.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
+    gate = (
+        "NOT EXISTS (SELECT 1 FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS newer "
+        "WHERE newer.source_id = s.source_id AND newer.registry_version > s.registry_version "
+        "AND NOT COALESCE((" + inner + "),FALSE))"
+    )
     return re.sub(
         r"(newer|s)\.registry_document:(\w+)(?::(\w+))?::VARCHAR",
         lambda m: (
@@ -502,7 +506,7 @@ def test_actual_view_sql_fails_closed_for_unreviewed_or_revoked_transitions(chan
 
 
 def test_actual_view_window_deduplicates_same_source_item_across_activation_versions():
-    sql = (ROOT / "migrations/V164__prod_intelligence_daily_activation_view.sql").read_text()
+    sql = (ROOT / "migrations/V166__prod_nih_news_daily_activation_view.sql").read_text()
     window = sql.split("QUALIFY ROW_NUMBER() OVER (", 1)[1].split(") = 1;", 1)[0]
     con = sqlite3.connect(":memory:")
     con.execute(

@@ -80,8 +80,16 @@ def test_actual_source_inventory_mapping_and_drift(source_id: str) -> None:
 
 
 def test_unresolved_approved_sources_have_no_invented_capture() -> None:
-    for source_id in ("pubmed-lyme-borrelia", "pubmed-tick-borne", "nih-news-releases"):
+    for source_id in ("pubmed-lyme-borrelia", "pubmed-tick-borne"):
         assert not (ROOT / (source_id + ".json")).exists()
+
+
+def test_nih_live_sample_inventory_is_bounded() -> None:
+    sample = Path(__file__).parent / "fixtures/intelligence/nih-news-releases-live-sample.xml"
+    assert sample.stat().st_size < 2_097_152
+    text = sample.read_text(encoding="utf-8")
+    assert "<rss" in text.lower()
+    assert "AtlasIntelligence/1" not in text
 
 
 def test_eid_exact_conservative_candidate_withholds_unlicensed_values() -> None:

@@ -10,4 +10,9 @@ temporal_semantics: Publisher chronology; missing remains unknown
 destination: PRESENTATION.INTELLIGENCE_FEED_V2
 expected_refresh_cadence: daily
 artifact_policy: REVIEW_REQUIRED
+restrictions:
+  - Retain publisher title, dates, source links, and limited reviewed feed metadata only.
+  - Do not retain descriptions, article text, excerpts, image values or bytes, or logos.
+  - Attribute NIH and link to the free original without implying NIH endorsement.
+  - Require an exact approved source version and native-metadata policy before acquisition.
 maximum_rows: 250
