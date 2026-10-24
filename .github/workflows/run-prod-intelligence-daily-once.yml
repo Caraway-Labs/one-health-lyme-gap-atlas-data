@@ -61,15 +61,16 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "$PROD_APP_ID"
+          source scripts/ci/guard.sh
+          guard_nonempty prod_app_id "$PROD_APP_ID" "PROD_APP_ID is empty. Set the PROD_APP_ID repository variable to the provisioned production app before dispatching."
           CODE_SHA="$REVIEWED_COMMIT"
           [[ "$CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
-          test "$passed_checks" -gt 0
+          guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
           source_digest="$(doctl registry repository list-manifests pipeline --output json \
             | jq -r --arg tag "sha-${CODE_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
-          test "$source_digest" = "$IMAGE_DIGEST"
+          guard_eq registry_source_digest "$IMAGE_DIGEST" "$source_digest" "The registry manifest tagged sha-GITHUB_SHA does not match IMAGE_DIGEST. Re-run with the digest from the latest successful deploy-dev run for this commit."
 
           baseline_spec="$(mktemp)"
           operation_spec="$(mktemp)"
@@ -96,12 +97,17 @@ jobs:
           doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
           dev_deployment_id="$(doctl apps get "$DEV_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
           prod_deployment_id="$(doctl apps get "$PROD_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
-          test "$(doctl apps get-deployment "$DEV_APP_ID" "$dev_deployment_id" --output json | jq -r '.[0].phase')" = ACTIVE
-          test "$(doctl apps get-deployment "$PROD_APP_ID" "$prod_deployment_id" --output json | jq -r '.[0].phase')" = ACTIVE
+          dev_phase="$(doctl apps get-deployment "$DEV_APP_ID" "$dev_deployment_id" --output json | jq -r '.[0].phase')"
+          guard_eq dev_deployment_phase ACTIVE "$dev_phase" "The DEV deployment is not ACTIVE. Wait until the DEV deployment phase is ACTIVE before running the daily job."
+          prod_phase="$(doctl apps get-deployment "$PROD_APP_ID" "$prod_deployment_id" --output json | jq -r '.[0].phase')"
+          guard_eq prod_deployment_phase ACTIVE "$prod_phase" "The PROD deployment is not ACTIVE. Wait until the PROD deployment phase is ACTIVE before running the daily job."
           doctl apps spec get "$DEV_APP_ID" --deployment "$dev_deployment_id" --format json > "$dev_spec"
-          test "$(jq -r '[.jobs[].image.digest] | unique | .[0]' "$dev_spec")" = "$IMAGE_DIGEST"
-          test "$(jq -r '[.jobs[].image.digest] | unique | length' "$dev_spec")" = 1
-          test "$(jq -r '.jobs[] | select(.name == "intelligence-feed-daily") | .image.digest' "$baseline_spec")" = "$IMAGE_DIGEST"
+          dev_job_digest="$(jq -r '[.jobs[].image.digest] | unique | .[0]' "$dev_spec")"
+          guard_eq dev_job_digest "$IMAGE_DIGEST" "$dev_job_digest" "DEV job image digests are not the single IMAGE_DIGEST. Promote or deploy so every DEV job uses that digest."
+          dev_job_digest_count="$(jq -r '[.jobs[].image.digest] | unique | length' "$dev_spec")"
+          guard_eq dev_job_digest_count 1 "$dev_job_digest_count" "DEV jobs do not share one image digest. Promote or deploy so every DEV job uses the same digest."
+          daily_job_digest="$(jq -r '.jobs[] | select(.name == "intelligence-feed-daily") | .image.digest' "$baseline_spec")"
+          guard_eq intelligence_feed_daily_digest "$IMAGE_DIGEST" "$daily_job_digest" "The PROD intelligence-feed-daily image digest does not match IMAGE_DIGEST. Refresh that job to the reviewed digest before running it."
 
           preflight_flag=""
           if [ "$PREFLIGHT_ONLY" = true ]; then

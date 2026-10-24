@@ -61,4 +61,7 @@ def test_protected_hosted_route_pins_new_hash_without_accepting_mixed_sets():
     workflow = (ROOT / ".github/workflows/promote-prod.yml").read_text()
     pinned = migrations.PROD_PROACTIVE_INTELLIGENCE_CLEANUP_MIGRATION
     assert pinned["sha256"] in workflow and pinned["filename"] in workflow
-    assert 'test "$PROTECTED_INTELLIGENCE_PREREQUISITE" = "true"' in workflow
+    assert (
+        'guard_true protected_intelligence_prerequisite "$PROTECTED_INTELLIGENCE_PREREQUISITE"'
+        in workflow
+    )

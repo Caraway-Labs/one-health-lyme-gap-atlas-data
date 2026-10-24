@@ -107,8 +107,8 @@ def test_prod_workflows_pin_eid_and_keep_registry_write_separate() -> None:
         "environment: production" in ingestion
         and "environment: production" in registration_workflow
     )
-    assert 'test "$GITHUB_SHA" = "$REVIEWED_COMMIT"' in registration_workflow
-    assert "test \"$EXPECTED_PENDING_JSON\" = '[]'" in registration_workflow
+    assert 'guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA"' in registration_workflow
+    assert "guard_eq expected_pending_json '[]' \"$EXPECTED_PENDING_JSON\"" in registration_workflow
     assert "scripts/register_eid_expedited_prod.py" in registration_workflow
     assert "apply-migrations" not in registration_workflow
     assert "--query" not in registration_workflow
