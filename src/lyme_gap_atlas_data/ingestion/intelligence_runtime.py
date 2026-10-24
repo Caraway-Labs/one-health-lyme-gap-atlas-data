@@ -330,7 +330,8 @@ def compose_pilot(
     if settings.topx_env not in {"dev", "prod"}:
         raise PermissionError("INTELLIGENCE_PILOT_ENVIRONMENT_REQUIRED")
     environment: Literal["DEV", "PROD"] = "PROD" if settings.topx_env == "prod" else "DEV"
-    if registry_version not in ({1, 2} if environment == "PROD" else {1}):
+    dev_versions = {1, 2} if definition.source_id == "cdc-mmwr" else {1}
+    if registry_version not in ({1, 2} if environment == "PROD" else dev_versions):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
     if environment == "PROD":
         endpoint = urlsplit(settings.spaces_endpoint)

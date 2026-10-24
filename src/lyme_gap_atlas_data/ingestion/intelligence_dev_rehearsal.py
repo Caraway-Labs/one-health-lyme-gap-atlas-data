@@ -8,9 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lyme_gap_atlas_shared.settings import SnowflakeSettings
+from lyme_gap_atlas_shared.snowflake import connect
+
+from ..settings import PipelineSettings
 from .intelligence_runtime import (
+    DAILY_RECEIPTS,
     DAILY_SOURCE_WATCHDOG_SECONDS,
-    canonical_pilot,
+    RECEIPTS,
+    PilotBudget,
+    _Connection,
+    compose_pilot,
     pilot_watchdog,
 )
 from .source_definition import load_source_definition
@@ -101,13 +109,43 @@ def _checkpoint_detail(state: Any, stage: Stage) -> dict[str, Any]:
     return {}
 
 
+def _rehearsal_pilot(
+    definition: Any, *, budget_seconds: int
+) -> tuple[Any, Any]:
+    """Compose the MMWR pilot using the highest registered DEV source version."""
+    settings = PipelineSettings()
+    budget = PilotBudget(seconds=budget_seconds)
+    receipts = json.loads(RECEIPTS.read_text(encoding="utf-8"))["receipts"]
+    version = 1
+    with connect(SnowflakeSettings()) as raw, _Connection(raw, budget).cursor() as cursor:
+        cursor.execute("ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=30")
+        cursor.execute(
+            "SELECT registry_version FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS "
+            "WHERE source_id=%s ORDER BY registry_version DESC LIMIT 1",
+            (CDC_MMWR_SOURCE_ID,),
+        )
+        rows = cursor.fetchall()
+        if len(rows) == 1 and rows[0][0] in {1, 2}:
+            version = rows[0][0]
+    if version == 2:
+        receipts = receipts + json.loads(DAILY_RECEIPTS.read_text(encoding="utf-8"))["receipts"]
+    return compose_pilot(
+        definition,
+        receipts=receipts,
+        settings=settings,
+        connection_factory=lambda: connect(SnowflakeSettings()),
+        budget=budget,
+        registry_version=version,
+    )
+
+
 def run_rehearsal_pass(attempt: int) -> RehearsalPass:
     """Run one full ACQUIRE→PUBLISH intelligence pilot against DEV Snowflake."""
     loaded = load_source_definition(CDC_MMWR_DEFINITION)
     if loaded.source_id != CDC_MMWR_SOURCE_ID:
         raise ValueError("INTELLIGENCE_REHEARSAL_DEFINITION_MISMATCH")
     with pilot_watchdog(seconds=DAILY_SOURCE_WATCHDOG_SECONDS):
-        orchestrator, definition = canonical_pilot(loaded, budget_seconds=900)
+        orchestrator, definition = _rehearsal_pilot(loaded, budget_seconds=900)
         state = orchestrator.run(definition, tier=Tier.B, dry_run=False)
     budget = orchestrator.pilot_budget
     if budget is None:
