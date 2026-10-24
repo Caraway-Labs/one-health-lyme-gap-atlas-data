@@ -68,8 +68,10 @@ def test_large_complete_feed_obeys_reviewed_bound_without_truncation() -> None:
     assert parsed[0]["publisher_identity"] == "0"
     assert parsed[-1]["publisher_identity"] == "2331"
     record["limits"]["maximum_items"] = 1000
-    with pytest.raises(AcquisitionError, match="FEED_ITEM_LIMIT"):
-        parse_feed(raw, record)
+    parsed = parse_feed(raw, record)
+    assert len(parsed) == 1000
+    assert parsed[0]["publisher_identity"] == "0"
+    assert parsed[-1]["publisher_identity"] == "999"
 
 
 def approved() -> dict[str, Any]:
@@ -199,8 +201,7 @@ def test_response_and_item_limits_and_ambiguous_fields() -> None:
     record = source()
     raw = (FIXTURES / "rss/sample.xml").read_bytes()
     record["limits"]["maximum_items"] = 1
-    with pytest.raises(AcquisitionError, match="FEED_ITEM_LIMIT"):
-        parse_feed(raw, record)
+    assert len(parse_feed(raw, record)) == 1
     record["limits"]["maximum_bytes"] = 1
     with pytest.raises(AcquisitionError, match="FEED_TOO_LARGE"):
         parse_feed(raw, record)

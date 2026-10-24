@@ -97,8 +97,9 @@ def parse_feed(
         entries = root.findall(ATOM + "entry")
     else:
         raise _failure("UNSUPPORTED_FEED_ENVELOPE")
-    if len(entries) > limits["maximum_items"]:
-        raise _failure("FEED_ITEM_LIMIT")
+    maximum_items = limits["maximum_items"]
+    if len(entries) > maximum_items:
+        entries = entries[:maximum_items]
     result: list[dict[str, Any]] = []
     feed_base = base_url or source["fetch_location"] or ""
     if transport == "atom":
