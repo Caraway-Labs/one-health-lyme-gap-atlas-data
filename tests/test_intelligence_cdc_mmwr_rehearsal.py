@@ -43,3 +43,26 @@ def test_rehearsal_workflow_is_dev_only_and_fixed_definition() -> None:
     block = block.split(pilot_branch, 1)[0]
     assert "atlas-data source run" not in block
     assert "apply-migrations" not in block
+
+
+def test_checkpoint_detail_reads_real_run_state_stages() -> None:
+    from lyme_gap_atlas_data.ingestion.intelligence_dev_rehearsal import _checkpoint_detail
+    from lyme_gap_atlas_data.ingestion.types import (
+        RunState,
+        RunStatus,
+        Stage,
+        StageCheckpoint,
+        StageStatus,
+        Tier,
+    )
+
+    state = RunState(
+        ingestion_run_id="r",
+        resource_key="cdc-mmwr",
+        source_definition_version=1,
+        tier=Tier.B,
+        status=RunStatus.RUNNING,
+        stages=[StageCheckpoint(stage=Stage.LOAD, status=StageStatus.COMPLETED, detail={"a": 1})],
+    )
+    assert _checkpoint_detail(state, Stage.LOAD) == {"a": 1}
+    assert _checkpoint_detail(state, Stage.PUBLISH_STAGE) == {}
