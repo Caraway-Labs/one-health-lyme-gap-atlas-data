@@ -15,6 +15,17 @@ from typing import Any
 import pytest
 from test_intelligence_feed import FIXTURES, approved, definition, fetch_adapter
 
+from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, Tier
+from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
+from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, acquisition_context
+from lyme_gap_atlas_data.intelligence_items import identity_hash, normalize_item
+from lyme_gap_atlas_data.intelligence_storage import (
+    IntelligenceStorageError,
+    IntelligenceStore,
+    WriteReceipt,
+    capture_id,
+)
+
 
 @pytest.fixture(autouse=True)
 def _fake_intelligence_bulk_transport(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,18 +43,6 @@ def _fake_intelligence_bulk_transport(monkeypatch: pytest.MonkeyPatch) -> None:
         "lyme_gap_atlas_data.ingestion.bulk_stage.remove_transport",
         lambda _cursor, _source: None,
     )
-
-
-from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, Tier
-from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
-from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, acquisition_context
-from lyme_gap_atlas_data.intelligence_items import identity_hash, normalize_item
-from lyme_gap_atlas_data.intelligence_storage import (
-    IntelligenceStorageError,
-    IntelligenceStore,
-    WriteReceipt,
-    capture_id,
-)
 
 
 class Ledger:
