@@ -35,6 +35,31 @@ RAW = b"""<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"
  </item></channel></rss>"""
 
 
+def test_native_mapping_ignores_unreviewed_sibling_items_when_feed_is_item_capped() -> None:
+    """Trailing RSS items must not inflate each retained item's native tree."""
+    source = approved()
+    source["limits"] = {**source["limits"], "maximum_items": 2}
+    head = (
+        "<item><guid>1</guid><title>One</title><link>https://example.org/1</link>"
+        "<pubDate>Wed, 30 Sep 2026 10:00:00 -0400</pubDate></item>"
+    )
+    tail = (
+        "<item><guid>2</guid><title>Two</title><link>https://example.org/2</link>"
+        "<pubDate>Wed, 30 Sep 2026 11:00:00 -0400</pubDate>"
+        f"<description>{'x' * 80_000}</description></item>"
+    )
+    raw = (
+        b'<rss version="2.0"><channel><title>Test publisher</title><language>en-US</language>'
+        + head.encode()
+        + tail.encode()
+        + b"</channel></rss>"
+    )
+    receipt = policy(raw, source)
+    mapped = parse_native_feed(raw, source, receipt)
+    assert len(mapped) == 2
+    assert all("x" * 100 not in json.dumps(row["native_metadata"]) for row in mapped)
+
+
 def test_sanitizer_flushes_real_cdc_query_links_without_losing_buffered_text() -> None:
     url = "https://tools.cdc.gov/api/embed/downloader/download.asp?m=342778&c=766563"
     assert permitted_text(url, 4096) == url
