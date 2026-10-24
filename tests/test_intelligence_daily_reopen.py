@@ -240,7 +240,12 @@ def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch)
     seen: list[str] = []
     _compose_recording(monkeypatch, seen, failing="cdc-eid-ahead-of-print")
     result = polling.run_production_daily()
-    assert [row["outcome"] for row in result["sources"]] == ["SUCCEEDED", "FAILED", "SUCCEEDED"]
+    assert [row["outcome"] for row in result["sources"]] == [
+        "SUCCEEDED",
+        "FAILED",
+        "SUCCEEDED",
+        "SUCCEEDED",
+    ]
     assert result["status"] == "FAILED"
     assert terminalized == [daily_run_id("cdc-eid-ahead-of-print", TODAY)]
     assert all("stage_timings" in row for row in result["sources"])

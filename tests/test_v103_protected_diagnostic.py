@@ -260,6 +260,8 @@ def test_workflow_diagnostic_exits_before_migration_commands() -> None:
         "diagnose_climate_views",
         "diagnose_intelligence_dev",
         "register_eid_expedited_dev",
+        "intelligence_register_source_id",
+        "intelligence_register_registry_version",
         "feed_preflight_accounting_confirmed",
         "diagnose_january_pair",
         "diagnose_january_runtime_init",
