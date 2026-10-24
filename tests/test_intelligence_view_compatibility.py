@@ -51,11 +51,17 @@ def test_repair_is_append_only_pinned_and_prod_only():
     assert expected not in migration_plan(DEV_DATABASE)
 
 
+def _daily_activation_predicate(sql: str) -> str:
+    return sql.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
+
+
 def test_nih_activation_extends_v165_predicate_without_projection_drift():
-    prior = (ROOT / "migrations" / PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION["filename"]).read_text()
-    updated = (ROOT / "migrations" / PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION["filename"]).read_text()
-    prior_predicate = prior.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
-    updated_predicate = updated.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
+    prior_path = ROOT / "migrations" / PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION["filename"]
+    updated_path = ROOT / "migrations" / PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION["filename"]
+    prior = prior_path.read_text()
+    updated = updated_path.read_text()
+    prior_predicate = _daily_activation_predicate(prior)
+    updated_predicate = _daily_activation_predicate(updated)
 
     def normalize(value):
         return re.sub(r"\s+", "", value)
