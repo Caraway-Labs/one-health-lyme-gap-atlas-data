@@ -19,6 +19,7 @@ from lyme_gap_atlas_data.intelligence_metadata import NativeMetadataPolicy
 SOURCE_ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
+    "cdc-mmwr": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
 }
 MAX_SOURCE_BYTES = 65536
 RECEIPTS = Path(__file__).parents[1] / "config/intelligence/pilot-policy-receipts.json"

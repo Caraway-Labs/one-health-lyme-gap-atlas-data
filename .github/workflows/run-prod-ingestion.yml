@@ -105,7 +105,7 @@ jobs:
       - name: Validate definition
         run: uv run atlas-data source validate --definition "${{ inputs.source_definition }}"
       - name: Require exact reviewed EID-only production request
-        if: (inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_outbreaks.yml' || inputs.source_definition == 'config/sources/intelligence_nih_news_releases.yml')
+        if: (inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_outbreaks.yml' || inputs.source_definition == 'config/sources/intelligence_nih_news_releases.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_mmwr.yml')
         env:
           GH_TOKEN: ${{ github.token }}
           REQUEST_OPERATION: ${{ inputs.operation }}
@@ -132,7 +132,7 @@ jobs:
         timeout-minutes: 4
         run: timeout --signal=INT --kill-after=15s 180s uv run python scripts/verify_january_bulk_repair_receipt.py
       - name: Verify protected PROD runtime identity and approved source decision
-        if: inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_outbreaks.yml' && inputs.source_definition != 'config/sources/intelligence_nih_news_releases.yml'
+        if: inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_outbreaks.yml' && inputs.source_definition != 'config/sources/intelligence_nih_news_releases.yml' && inputs.source_definition != 'config/sources/intelligence_cdc_mmwr.yml'
         timeout-minutes: ${{ (inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml') && 3 || 360 }}
         run: |
           set -euo pipefail
@@ -214,7 +214,7 @@ jobs:
               )
           PY
       - name: Execute canonical Tier C run or resume
-        timeout-minutes: ${{ inputs.january_normalize_recovery && 31 || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || (inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_outbreaks.yml' || inputs.source_definition == 'config/sources/intelligence_nih_news_releases.yml') && 6 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
+        timeout-minutes: ${{ inputs.january_normalize_recovery && 31 || inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' && 301 || (inputs.source_definition == 'config/sources/intelligence_cdc_eid_expedited.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_eid_ahead_of_print.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_outbreaks.yml' || inputs.source_definition == 'config/sources/intelligence_nih_news_releases.yml' || inputs.source_definition == 'config/sources/intelligence_cdc_mmwr.yml') && 6 || inputs.source_definition == 'config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml' && 5 || 360 }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.source_definition }}" = "config/sources/noaa_nclimgrid_daily_202501_prod.yml" ]; then

@@ -23,6 +23,7 @@ PROD_METADATA_FEED_IDS = frozenset(
         "cdc-eid-ahead-of-print",
         "cdc-outbreaks",
         "nih-news-releases",
+        "cdc-mmwr",
     }
 )
 
