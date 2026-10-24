@@ -131,6 +131,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Pinned-history regression tests require historical source commits.
+      - name: Validate expected_pending_json
+        id: expected_pending
+        env:
+          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EXPECTED_PENDING_JSON}" ]; then
+            printf 'normalized=\n' >> "$GITHUB_OUTPUT"
+          else
+            normalized="$(bash scripts/validate_expected_pending_json.sh)"
+            printf 'normalized=%s\n' "$normalized" >> "$GITHUB_OUTPUT"
+          fi
       - uses: astral-sh/setup-uv@v6
       - name: Install Snowflake CLI
         run: python -m pip install snowflake-cli-labs==3.25.0
@@ -562,7 +574,7 @@ jobs:
         env:
           METADATA_PREFLIGHT_ONLY: ${{ inputs.metadata_preflight_only }}
           LEDGER_DIAGNOSTIC_ONLY: ${{ inputs.ledger_diagnostic_only }}
-          EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}
+          EXPECTED_PENDING_JSON: ${{ steps.expected_pending.outputs.normalized }}
           DIAGNOSE_INTELLIGENCE_DEV: ${{ inputs.diagnose_intelligence_dev }}
           REGISTER_EID_EXPEDITED_DEV: ${{ inputs.register_eid_expedited_dev }}
           INTELLIGENCE_REGISTER_SOURCE_ID: ${{ inputs.intelligence_register_source_id }}

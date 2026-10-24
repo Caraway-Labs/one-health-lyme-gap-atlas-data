@@ -21,6 +21,41 @@ of scope.
    missing append-only migrations, then points the PROD scheduled job at the
    exact same digest.
 
+## Dispatching expected_pending_json
+
+`deploy-dev.yml`, `promote-prod.yml`, and `register-prod-eid.yml` take
+`expected_pending_json` as a string. The reviewed value is a JSON array of
+`version`, `filename`, and `sha256` objects, or `[]` when that empty set was
+explicitly reviewed. PowerShell and `gh workflow run -f` strip the inner quote
+marks, so `[{"version":"V155",...}]` can arrive as `[{version:V155,...}]`.
+Each of those workflows runs `scripts/validate_expected_pending_json.sh`
+before using the value and, on failure, prints the expected shape, the raw
+value, and the dispatch command below.
+
+Write the inputs to a UTF-8 payload file without a BOM, then dispatch from
+that file. `Set-Content -Encoding utf8NoBOM` needs PowerShell 7. Windows
+PowerShell 5.1 writes a BOM with `-Encoding utf8`, and that BOM must not be
+in the file the API call reads. In PowerShell 7:
+
+```powershell
+@'
+{
+  "ref": "main",
+  "inputs": {
+    "reviewed_commit": "<green-main-sha>",
+    "image_digest": "<dev-tested-digest>",
+    "expected_pending_json": "[{\"version\":\"V155\",\"filename\":\"V155__example.sql\",\"sha256\":\"<64-hex>\"}]"
+  }
+}
+'@ | Set-Content -Encoding utf8NoBOM -Path payload.json
+gh api repos/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/workflows/promote-prod.yml/dispatches --input payload.json
+```
+
+Use `deploy-dev.yml` or `register-prod-eid.yml` in that URL for those
+workflows. `register-prod-eid.yml` requires the reviewed empty array `[]`.
+On `deploy-dev.yml` and `promote-prod.yml`, omitting the input is not the
+same as sending `[]`.
+
 ## Environment boundary
 
 | Concern | DEV | PROD |

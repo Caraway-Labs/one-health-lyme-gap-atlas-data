@@ -23,6 +23,21 @@ jobs:
         with:
           # Secret scanning must inspect history, not just the triggering commit.
           fetch-depth: 0
+      - name: Lint GitHub Actions workflows
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          archive="actionlint_${version}_linux_amd64.tar.gz"
+          checksum="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          work="${RUNNER_TEMP}/actionlint"
+          mkdir -p "$work"
+          curl -fsSL -o "${work}/${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${version}/${archive}"
+          echo "${checksum}  ${work}/${archive}" | sha256sum -c -
+          tar -xzf "${work}/${archive}" -C "$work" actionlint
+          "${work}/actionlint"
+      - name: Check workflow script paths exist
+        run: python3 scripts/check_workflow_script_paths.py
       - uses: astral-sh/setup-uv@v6
         with: { enable-cache: true }
       - run: uv sync --extra dev --extra pipeline --locked
