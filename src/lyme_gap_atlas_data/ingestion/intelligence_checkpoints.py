@@ -22,6 +22,22 @@ from .checkpoints import FileCheckpointStore, InMemoryCheckpointStore, Snowflake
 from .intelligence_daily_run_ids import prior_daily_run_id, reopen_attempt_for_run_id
 from .types import RunState
 
+STALE_DAILY_RUN_MINUTES = 30
+
+
+def _terminalize_stale_running(cursor: Any, run_id: str) -> int:
+    cursor.execute(
+        """UPDATE GOVERNANCE.INGESTION_RUNS
+        SET status='FAILED', completed_at=CURRENT_TIMESTAMP(),
+            error_classification='INTELLIGENCE_DAILY_STALE_RUNNING',
+            redacted_error='Daily run exceeded stale activity window before completion.'
+        WHERE ingestion_run_id=%s AND status='RUNNING'
+          AND code_version='intelligence-daily-v1'
+          AND started_at < DATEADD(minute, -%s, CURRENT_TIMESTAMP())""",
+        (run_id, STALE_DAILY_RUN_MINUTES),
+    )
+    return int(cursor.rowcount or 0)
+
 
 class IntelligenceMemoryCheckpoints(InMemoryCheckpointStore):
     def __init__(self, retention: FeedRawRetention) -> None:
@@ -214,6 +230,7 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
                     raise PermissionError("INTELLIGENCE_RAW_WRITE_GUARD_REQUIRED")
                 if attempt >= 2:
                     prior_id = prior_daily_run_id(source_id, day, attempt)
+                    _terminalize_stale_running(cursor, prior_id)
                     # The prior attempt row is immutable evidence: read it, never change it.
                     cursor.execute(
                         "SELECT status, resource_key, code_version, config_sha256 "
@@ -233,8 +250,12 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
                     "WHERE ingestion_run_id=%s",
                     (run_id,),
                 )
-                if cursor.fetchall():
-                    connection.rollback()
+                existing = cursor.fetchall()
+                if existing:
+                    if _terminalize_stale_running(cursor, run_id):
+                        connection.commit()
+                    else:
+                        connection.rollback()
                     return False
                 cursor.execute(
                     "INSERT INTO GOVERNANCE.INGESTION_RUNS "

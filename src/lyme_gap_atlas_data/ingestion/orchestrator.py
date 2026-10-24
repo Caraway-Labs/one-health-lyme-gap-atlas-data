@@ -106,6 +106,28 @@ class IngestionOrchestrator:
         self.store.save(state)
         return state
 
+    def _pilot_failure(self, state: RunState, error: PermissionError) -> RunState:
+        state.status = RunStatus.FAILED
+        state.next_action = "new-approved-feed-run"
+        checkpoint = next(
+            (
+                stage
+                for stage in state.stages
+                if stage.status not in {StageStatus.COMPLETED, StageStatus.SKIPPED}
+            ),
+            None,
+        )
+        if checkpoint is not None:
+            checkpoint.status = StageStatus.FAILED
+            checkpoint.failure_category = FailureCategory.DEADLINE
+            code = str(error)
+            checkpoint.redacted_diagnostic_code = (
+                code if code.startswith("INTELLIGENCE_PILOT_") else "INTELLIGENCE_PILOT_DEADLINE"
+            )
+            checkpoint.next_action = state.next_action
+        self.store.save(state)
+        return state
+
     def validate(self, definition: SourceDefinition) -> ValidationResult:
         return validate_source_definition(definition)
 
@@ -229,6 +251,8 @@ class IngestionOrchestrator:
         except PermissionError as error:
             if str(error).startswith("INTELLIGENCE_RAW_"):
                 return self._raw_failure(state, error)
+            if str(error).startswith("INTELLIGENCE_PILOT_"):
+                return self._pilot_failure(state, error)
             raise
         finally:
             retention = getattr(self._adapter(definition), "feed_retention", None)
@@ -607,6 +631,10 @@ class IngestionOrchestrator:
                     "INTELLIGENCE_RAW_"
                 ):
                     return self._raw_failure(state, error)
+                if isinstance(error, PermissionError) and str(error).startswith(
+                    "INTELLIGENCE_PILOT_"
+                ):
+                    return self._pilot_failure(state, error)
                 checkpoint.status = StageStatus.FAILED
                 checkpoint.failure_category = _failure_category(error)
                 checkpoint.redacted_diagnostic_code = _diagnostic_code(error)

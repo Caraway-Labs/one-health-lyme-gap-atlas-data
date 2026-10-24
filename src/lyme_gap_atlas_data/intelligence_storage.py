@@ -7,6 +7,7 @@ Factories must provide a fresh owned connection, never a shared caller transacti
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, suppress
@@ -22,7 +23,6 @@ from .intelligence_items import (
     identity_hash,
     item_identities,
     permitted_text,
-    revision_content,
     validate_acquisition_context,
     validate_record,
 )
@@ -54,6 +54,8 @@ SAFE_ERRORS = {
     "INTELLIGENCE_ACQUISITION_REFERENCE_INVALID",
     "INTELLIGENCE_ACQUISITION_REPLAY_CONFLICT",
 }
+logger = logging.getLogger(__name__)
+
 SAFE_PERMISSIONS = {
     "INTELLIGENCE_WRITER_CONTEXT_REQUIRED",
     "INTELLIGENCE_CURRENT_SOURCE_REQUIRED",
@@ -365,16 +367,19 @@ class IntelligenceStore:
                 )
                 if run is None or run[0] != resource_key or resource_key != source_id:
                     raise IntelligenceStorageError("INTELLIGENCE_RUN_REFERENCE_INVALID")
-                revisions = captures = replays = 0
-                seen: dict[str, str] = {}
+                validated: list[dict[str, Any]] = []
+                native_policy = None
                 for item in frozen:
                     self._validate(item, source, run_id)
                     if item["contract_version"] == "2.0.0":
                         if self.native_policy_lookup is None:
                             raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
-                        policy = self.native_policy_lookup(source_id, registry_version)
-                        verify_native_item(item, policy, source)
-                    provenance = item["provenance"]
+                        if native_policy is None:
+                            native_policy = self.native_policy_lookup(source_id, registry_version)
+                        verify_native_item(item, native_policy, source)
+                    validated.append(item)
+                if validated:
+                    provenance = validated[0]["provenance"]
                     artifact = _one(
                         cursor,
                         """SELECT sha256 FROM GOVERNANCE.RAW_ARTIFACTS
@@ -395,83 +400,55 @@ class IntelligenceStore:
                         raise IntelligenceStorageError(
                             "INTELLIGENCE_ACQUISITION_REFERENCE_INVALID"
                         ) from None
-                    if (
-                        receipt[0] != identity_hash(context)
-                        or context["artifact_sha256"] != provenance["artifact_sha256"]
-                        or context["fetched_at"] != item["fetched_at"]
-                    ):
+                    if receipt[0] != identity_hash(context):
                         raise IntelligenceStorageError("INTELLIGENCE_ACQUISITION_REFERENCE_INVALID")
                     self._references(
                         cursor, resource_key, run_id, provenance["artifact_id"], context
                     )
-                    key = capture_id(item)
-                    item_hash = identity_hash(item)
-                    if key in seen:
-                        if seen[key] != item_hash:
-                            raise IntelligenceStorageError("INTELLIGENCE_CAPTURE_REPLAY_CONFLICT")
-                        replays += 1
-                        continue
-                    seen[key] = item_hash
-                    content = revision_content(item)
-                    row = _one(
-                        cursor,
-                        """SELECT content_sha256, TO_JSON(content_document)
-                        FROM CONFORMED.INTELLIGENCE_ITEM_REVISIONS
-                        WHERE item_id=%s AND revision_id=%s LIMIT 2""",
-                        (item["item_id"], item["revision_id"]),
-                    )
-                    if row is None:
-                        cursor.execute(
-                            """INSERT INTO CONFORMED.INTELLIGENCE_ITEM_REVISIONS
-                            (item_id,revision_id,content_sha256,content_document)
-                            SELECT %s,%s,%s,PARSE_JSON(%s)""",
-                            (
-                                item["item_id"],
-                                item["revision_id"],
-                                item["content_sha256"],
-                                canonical_json(content),
-                            ),
-                        )
-                        revisions += 1
-                    elif row[0] != item["content_sha256"] or json.loads(row[1]) != content:
-                        raise IntelligenceStorageError("INTELLIGENCE_REVISION_REPLAY_CONFLICT")
-                    row = _one(
-                        cursor,
-                        """SELECT item_sha256, TO_JSON(item_document)
-                        FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
-                        WHERE capture_id=%s LIMIT 2""",
-                        (key,),
-                    )
-                    if row is None:
-                        cursor.execute(
-                            """INSERT INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
-                            (capture_id,item_id,revision_id,source_id,registry_version,transport,
-                             ingestion_run_id,artifact_id,artifact_sha256,item_sha256,
-                             item_document,retrieved_at)
-                            SELECT %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                   PARSE_JSON(%s),%s::TIMESTAMP_LTZ""",
-                            (
-                                key,
-                                item["item_id"],
-                                item["revision_id"],
-                                source_id,
-                                registry_version,
-                                item["transport"],
-                                run_id,
-                                provenance["artifact_id"],
-                                provenance["artifact_sha256"],
-                                item_hash,
-                                canonical_json(item),
-                                item["fetched_at"],
-                            ),
-                        )
-                        captures += 1
-                    elif row[0] == item_hash and json.loads(row[1]) == item:
-                        replays += 1
-                    else:
-                        raise IntelligenceStorageError("INTELLIGENCE_CAPTURE_REPLAY_CONFLICT")
+                    for item in validated:
+                        provenance = item["provenance"]
+                        if (
+                            provenance["artifact_id"] != validated[0]["provenance"]["artifact_id"]
+                            or provenance["artifact_sha256"]
+                            != validated[0]["provenance"]["artifact_sha256"]
+                            or context["artifact_sha256"] != provenance["artifact_sha256"]
+                            or context["fetched_at"] != item["fetched_at"]
+                        ):
+                            raise IntelligenceStorageError(
+                                "INTELLIGENCE_ACQUISITION_REFERENCE_INVALID"
+                            )
+                from .ingestion.bulk_stage import remove_transport
+                from .intelligence_bulk_write import bulk_write_items
+
+                logger.info(
+                    "intelligence_load step=write run_id=%s items=%s",
+                    run_id,
+                    len(validated),
+                )
+                receipt, transport = bulk_write_items(
+                    cursor,
+                    run_id=run_id,
+                    source_id=source_id,
+                    registry_version=registry_version,
+                    rows=validated,
+                )
                 connection.commit()
-                return WriteReceipt(revisions, captures, replays)
+                logger.info(
+                    "intelligence_load step=write_complete run_id=%s "
+                    "revisions=%s captures=%s replays=%s",
+                    run_id,
+                    receipt.revisions_inserted,
+                    receipt.captures_inserted,
+                    receipt.captures_replayed,
+                )
+                if transport is not None:
+                    with connection.cursor() as cleanup:
+                        remove_transport(cleanup, transport)
+                return WriteReceipt(
+                    receipt.revisions_inserted,
+                    receipt.captures_inserted,
+                    receipt.captures_replayed,
+                )
             except BaseException:
                 with suppress(Exception):
                     connection.rollback()

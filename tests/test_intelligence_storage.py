@@ -46,6 +46,8 @@ class Ledger:
         self.lock = threading.Lock()
         self.events: list[str] = []
         self.fail_at: str | None = None
+        self.bulk_rows: list[dict[str, Any]] = []
+        self.bulk_transport = ""
 
     def pin(self, run_id: str, artifact_id: str, source: dict[str, Any], fetched_at: str) -> None:
         context = acquisition_context(
@@ -123,6 +125,9 @@ class Cursor:
     def fetchall(self) -> list[Any]:
         return self.rows
 
+    def fetchone(self) -> Any | None:
+        return self.rows[0] if self.rows else None
+
     def execute(self, statement: str, params: tuple[Any, ...] = ()) -> None:
         sql = " ".join(statement.split()).upper()
         database = self.connection.ledger
@@ -199,6 +204,34 @@ class Cursor:
             assert params[6] in database.runs
             assert database.artifacts[(params[7], params[6])] == params[8]
             self.connection.pending[1][params[0]] = (params[9], params[10])
+        elif "SELECT COUNT(*)" in sql and "INTELLIGENCE_ITEM" in sql:
+            self.rows = [(0,)]
+        elif sql.startswith("MERGE INTO CONFORMED.INTELLIGENCE_ITEM_REVISIONS"):
+            inserted = 0
+            for row in database.bulk_rows:
+                key = (row["item_id"], row["revision_id"])
+                if key not in self.connection.pending[0]:
+                    self.connection.pending[0][key] = (
+                        row["content_sha256"],
+                        row["content_document_json"],
+                    )
+                    inserted += 1
+            self.rowcount = inserted
+        elif sql.startswith("MERGE INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES"):
+            if database.fail_on_capture:
+                raise RuntimeError("private provider identifier")
+            inserted = 0
+            for row in database.bulk_rows:
+                key = row["capture_id"]
+                if key not in self.connection.pending[1]:
+                    self.connection.pending[1][key] = (
+                        row["item_sha256"],
+                        row["item_document_json"],
+                    )
+                    inserted += 1
+            self.rowcount = inserted
+        elif sql.startswith("REMOVE ") or sql.startswith("PUT "):
+            return
         else:
             pytest.fail(f"Unexpected operation: {sql.split()[0:3]}")
 

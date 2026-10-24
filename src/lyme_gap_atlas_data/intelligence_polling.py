@@ -21,6 +21,15 @@ from .intelligence_items import canonical_url, identity_hash, validate_record
 DAILY_POLL_SECONDS = 86_400
 
 
+def _terminalize_claimed_daily_run(run_id: str) -> None:
+    from .intelligence_daily_run_recovery import terminalize_stuck_daily_run
+
+    try:
+        terminalize_stuck_daily_run(run_id)
+    except Exception:
+        return
+
+
 def _stage_timings(budget: Any) -> list[dict[str, Any]]:
     """Redacted per-stage seconds and query counts: no payloads, URLs or error text."""
     report = getattr(budget, "timing_report", None)
@@ -89,11 +98,23 @@ def run_production_daily(
                 try:
                     state = orchestrator.run(definition, tier=Tier.C, run_id=run_id)
                 except PermissionError as error:
-                    if str(error) != "INTELLIGENCE_PILOT_DEADLINE":
-                        raise
-                    # Budget expiry blocks the run's own writes; record FAILED on a
-                    # fresh short connection so the claim is never left RUNNING.
-                    terminalize_daily_pilot_deadline(run_id)
+                    if str(error) == "INTELLIGENCE_PILOT_DEADLINE":
+                        # Budget expiry blocks the run's own writes; record FAILED on a
+                        # fresh short connection so the claim is never left RUNNING.
+                        terminalize_daily_pilot_deadline(run_id)
+                    else:
+                        _terminalize_claimed_daily_run(run_id)
+                    results.append(
+                        {
+                            "source_id": source_id,
+                            "run_id": run_id,
+                            "outcome": "FAILED",
+                            "stage_timings": _stage_timings(budget),
+                        }
+                    )
+                    continue
+                except Exception:
+                    _terminalize_claimed_daily_run(run_id)
                     results.append(
                         {
                             "source_id": source_id,
