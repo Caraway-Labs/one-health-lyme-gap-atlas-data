@@ -304,9 +304,15 @@ class PilotFeedAdapter(IntelligenceFeedAdapter):
 
     def normalize(self, definition: SourceDefinition, payload: Any) -> NormalizeResult:
         normalized = super().normalize(definition, payload)
-        if len(normalized.records) > 250:
+        source = definition.extra.get("intelligence_registry")
+        if not isinstance(source, dict):
+            raise PermissionError("INTELLIGENCE_PILOT_DEFINITION_REQUIRED")
+        maximum_items = source["limits"]["maximum_items"]
+        if len(normalized.records) > maximum_items:
             raise PermissionError("INTELLIGENCE_PILOT_ITEM_LIMIT")
-        if len(json.dumps(normalized.records).encode()) > 1024 * 1024:
+        # Native v2 envelopes scale with reviewed maximum_items, not the legacy 1 MiB pilot cap.
+        normalized_limit = max(1_048_576, maximum_items * 8_192)
+        if len(json.dumps(normalized.records).encode()) > normalized_limit:
             raise PermissionError("INTELLIGENCE_PILOT_NORMALIZED_LIMIT")
         return normalized
 
