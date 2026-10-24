@@ -219,6 +219,8 @@ def main() -> None:
             source, checksum = reviewed_package(source_id, registry_version)
             with connect(SnowflakeSettings()) as connection:
                 result = register(connection, source, checksum)
+        except PermissionError as error:
+            raise SystemExit(str(error) or "EID_FIXED_REGISTRATION_FAILED") from None
         except Exception:
             raise SystemExit("EID_FIXED_REGISTRATION_FAILED") from None
         print(

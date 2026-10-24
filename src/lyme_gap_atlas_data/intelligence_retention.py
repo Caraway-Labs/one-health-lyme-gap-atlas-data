@@ -17,7 +17,14 @@ from .intelligence_items import TOKEN, canonical_timestamp, identity_hash
 
 POLICY_VERSION = "intelligence-raw-30d-v1"
 PROD_CLEANUP_LEAD = timedelta(hours=48)
-PROD_METADATA_FEED_IDS = frozenset({"cdc-eid-expedited", "cdc-eid-ahead-of-print", "cdc-outbreaks"})
+PROD_METADATA_FEED_IDS = frozenset(
+    {
+        "cdc-eid-expedited",
+        "cdc-eid-ahead-of-print",
+        "cdc-outbreaks",
+        "nih-news-releases",
+    }
+)
 
 
 def cleanup_due_at(lease: RawLease, environment: str) -> datetime:
