@@ -7,6 +7,7 @@ grant. Reviewed receipts are pinned to a real registry checksum.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -30,6 +31,13 @@ from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from ..intelligence_retention import PROD_METADATA_FEED_IDS
+from ..intelligence_topics import (
+    VOCABULARY_VERSION_V1,
+    load_vocabulary,
+    merge_topic_rows,
+    topic_rows_for_items,
+    topics_table_exists,
+)
 from ..settings import PipelineSettings
 from ..sql_sessions import connect
 from .adapters import AcquireResult, NormalizeResult
@@ -39,6 +47,77 @@ from .intelligence_feed import FeedResponse, IntelligenceFeedAdapter, _request, 
 from .orchestrator import IngestionOrchestrator
 from .step_deadline import active_step_deadline, note_step_deadline
 from .types import AdapterKind, SourceDefinition
+
+logger = logging.getLogger(__name__)
+TOPICS_FLAG = "ATLAS_INTELLIGENCE_TOPICS"
+
+
+def record_topics_after_merge(
+    cursor: Any,
+    items: list[dict[str, Any]],
+    *,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Assign vocabulary topics after the item MERGE.
+
+    The hook does nothing when the topic table is absent and the explicit flag
+    is off, so a daily run can promote before the table migration. An oversized
+    field, a badly typed field, or a bad vocabulary leaves that item without
+    topics and counts a warning. The hook does not raise.
+    """
+    flag = enabled if enabled is not None else os.environ.get(TOPICS_FLAG, "").lower() == "on"
+    if not items:
+        return {"status": "inert", "reason": "no_items", "rows": 0, "warnings": 0}
+    try:
+        table_present = topics_table_exists(cursor)
+    except Exception:
+        logger.warning("intelligence_topics step=table_probe_failed warnings=1")
+        return {"status": "skipped", "reason": "topics_probe_failed", "rows": 0, "warnings": 1}
+    if not table_present and not flag:
+        return {"status": "inert", "reason": "topics_table_absent", "rows": 0, "warnings": 0}
+    try:
+        vocabulary = load_vocabulary(VOCABULARY_VERSION_V1)
+    except Exception:
+        logger.warning("intelligence_topics step=vocabulary_invalid warnings=%s", len(items))
+        return {
+            "status": "skipped",
+            "reason": "topics_vocabulary_invalid",
+            "rows": 0,
+            "warnings": len(items),
+        }
+    rows: list[dict[str, str]] = []
+    warnings = 0
+    for item in items:
+        try:
+            rows.extend(topic_rows_for_items([item], vocabulary))
+        except Exception:
+            warnings += 1
+    if warnings:
+        logger.warning("intelligence_topics step=item_skipped warnings=%s", warnings)
+    if not rows:
+        return {
+            "status": "skipped",
+            "reason": "topics_not_recorded",
+            "rows": 0,
+            "warnings": warnings,
+        }
+    try:
+        recorded = merge_topic_rows(cursor, rows)
+    except Exception:
+        logger.warning("intelligence_topics step=merge_failed warnings=%s", warnings + 1)
+        return {
+            "status": "skipped",
+            "reason": "topics_merge_failed",
+            "rows": 0,
+            "warnings": warnings + 1,
+        }
+    return {
+        "status": "recorded",
+        "reason": "topics_recorded",
+        "rows": recorded,
+        "warnings": warnings,
+    }
+
 
 ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
@@ -620,6 +699,7 @@ def compose_pilot(
         policy_lookup=lambda selected_source: receipt["raw_policy_ref"],
     )
     effects.feed_retention = retention
+    effects.store.after_merge = record_topics_after_merge
     adapter = PilotFeedAdapter(
         registry_lookup=effects.store.lookup_source,
         retention_allowed=lambda ref: ref == policy_ref,

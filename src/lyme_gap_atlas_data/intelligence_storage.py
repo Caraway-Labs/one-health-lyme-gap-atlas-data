@@ -156,6 +156,13 @@ class IntelligenceStore:
         self.retention_allowed = retention_allowed
         self.native_policy_lookup = native_policy_lookup
         self.settings = settings or PipelineSettings()
+        self.after_merge: Callable[[Any, list[dict[str, Any]]], Any] | None = None
+        self.topic_report: dict[str, Any] = {
+            "status": "inert",
+            "reason": "no_hook",
+            "rows": 0,
+            "warnings": 0,
+        }
 
     @contextmanager
     def _session(self) -> Iterator[tuple[Any, Any]]:
@@ -370,6 +377,42 @@ class IntelligenceStore:
                     connection.rollback()
                 raise
 
+    def _topics_after_commit(
+        self,
+        connection: Any,
+        cursor: Any,
+        items: list[dict[str, Any]],
+        run_id: str,
+    ) -> dict[str, Any]:
+        """Run the topic hook in a later transaction so an error cannot undo items."""
+        skipped = {
+            "status": "skipped",
+            "reason": "topics_hook_error",
+            "rows": 0,
+            "warnings": 1,
+        }
+        try:
+            self._begin(cursor)
+            report = self.after_merge(cursor, items) if self.after_merge is not None else skipped
+            connection.commit()
+        except Exception:
+            logger.warning("intelligence_load step=topics_skipped run_id=%s warnings=1", run_id)
+            with suppress(Exception):
+                connection.rollback()
+            return skipped
+        if not isinstance(report, dict):
+            return {"status": "recorded", "reason": "topics_recorded", "rows": 0, "warnings": 0}
+        warnings = report.get("warnings", 0)
+        if not isinstance(warnings, int) or warnings < 0:
+            warnings = 1
+        if warnings:
+            logger.warning(
+                "intelligence_load step=topics_skipped run_id=%s warnings=%s",
+                run_id,
+                warnings,
+            )
+        return {**report, "warnings": warnings}
+
     @_redacted("INTELLIGENCE_TRANSACTION_FAILED")
     def write(
         self,
@@ -472,6 +515,16 @@ class IntelligenceStore:
                     rows=validated,
                 )
                 connection.commit()
+                self.topic_report = {
+                    "status": "inert",
+                    "reason": "no_hook",
+                    "rows": 0,
+                    "warnings": 0,
+                }
+                if self.after_merge is not None and validated:
+                    self.topic_report = self._topics_after_commit(
+                        connection, cursor, validated, run_id
+                    )
                 logger.info(
                     "intelligence_load step=write_complete run_id=%s "
                     "revisions=%s captures=%s replays=%s "

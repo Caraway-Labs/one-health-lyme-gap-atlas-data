@@ -71,8 +71,16 @@ INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
     "filename": "V170__intelligence_source_activations.sql",
     "sha256": "bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f",
 }
+INTELLIGENCE_ITEM_TOPICS_MIGRATION = {
+    "version": "V170",
+    "filename": "V170__intelligence_item_topics.sql",
+    "sha256": "32ccb0f110f124e0b79c64aa66f75115bd74b106c04fb2ca580897ab1afd2079",
+}
 # V170 replaces the feed view in both databases. The protected path is required
 # on DEV and PROD; the historical feed-view migrations stay PROD-only.
+# V170 creates the topic table in both databases. The protected path is required
+# on DEV and PROD. The routine migration path cannot apply this version.
+# V169 stays reserved for the source-activation migration.
 BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
@@ -85,6 +93,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
     PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
     INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
+    INTELLIGENCE_ITEM_TOPICS_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
