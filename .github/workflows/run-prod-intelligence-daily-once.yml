@@ -22,10 +22,15 @@ on:
         default: ""
         type: string
       reopen_attempt:
-        description: Governed same-UTC-day reopen attempt (2 or higher); requires manual job env
+        description: Governed same-UTC-day reopen attempt (2 or higher); requires manual job env and source_id
         required: false
         default: 1
         type: number
+      source_id:
+        description: Approved daily source id. Required when reopen_attempt is 2 or higher and when recovering a stuck run. Empty or all is rejected in those modes. A normal run ignores this and runs every approved source.
+        required: false
+        default: ""
+        type: string
       reason:
         description: Why this run is dispatched (required, 200 characters maximum)
         required: true
@@ -56,6 +61,7 @@ jobs:
       PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
       RECOVER_INGESTION_RUN_ID: ${{ inputs.recover_ingestion_run_id }}
       REOPEN_ATTEMPT: ${{ inputs.reopen_attempt }}
+      SOURCE_ID: ${{ inputs.source_id }}
       DISPATCH_REASON: ${{ inputs.reason }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -122,10 +128,18 @@ jobs:
             build_args+=(--preflight-only)
           fi
           if [[ -n "$RECOVER_INGESTION_RUN_ID" ]]; then
-            build_args+=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID")
+            if [[ -z "${SOURCE_ID}" || "$SOURCE_ID" == "all" ]]; then
+              echo "::error::INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED"
+              exit 1
+            fi
+            build_args+=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID" --source "$SOURCE_ID")
           fi
           if [[ "${REOPEN_ATTEMPT:-1}" -ge 2 ]] 2>/dev/null; then
-            build_args+=(--reopen-attempt "$REOPEN_ATTEMPT")
+            if [[ -z "${SOURCE_ID}" || "$SOURCE_ID" == "all" ]]; then
+              echo "::error::INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED"
+              exit 1
+            fi
+            build_args+=(--reopen-attempt "$REOPEN_ATTEMPT" --source "$SOURCE_ID")
           fi
           python scripts/prod_intelligence_daily_job_spec.py "${build_args[@]}"
           chmod 600 "$operation_spec"

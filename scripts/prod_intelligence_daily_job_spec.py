@@ -40,7 +40,14 @@ MAX_LOG_BYTES = 2_000_000
 MAX_LOG_LINES = 2_000
 MAX_OUTCOME_JSON_CHARS = 8_192
 _LOG_STATUSES = frozenset(
-    {"COMPLETED", "FAILED", "ALREADY_CLAIMED", "SCHEDULE_SUPPRESSED", "READY"}
+    {
+        "COMPLETED",
+        "FAILED",
+        "ALREADY_CLAIMED",
+        "SCHEDULE_SUPPRESSED",
+        "READY",
+        "SKIPPED_NOT_SELECTED",
+    }
 )
 _STATUS_FOR_OUTCOME = {
     "SUCCEEDED": "COMPLETED",
@@ -49,7 +56,10 @@ _STATUS_FOR_OUTCOME = {
     "SCHEDULE_SUPPRESSED": "SCHEDULE_SUPPRESSED",
     "READY": "READY",
     "PREFLIGHT_OR_RUNTIME_FAILED": "FAILED",
+    "SKIPPED_NOT_SELECTED": "SKIPPED_NOT_SELECTED",
 }
+MAX_SELECTED_SOURCES = 5
+_SOURCE_TOKEN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ALLOWLISTED_ERROR_CODE = re.compile(
     r"^(?:INTELLIGENCE_[A-Z0-9_]{3,80}|FEED_[A-Z0-9_]{1,80}|MALFORMED_FEED|"
     r"UNSUPPORTED_FEED_ENVELOPE|AMBIGUOUS_FEED_FIELD|XML_[A-Z0-9_]{3,80})$"
@@ -63,12 +73,38 @@ _LABELED_DEPLOYMENT_ID = re.compile(
 _DECODER = json.JSONDecoder()
 
 
+def _validated_sources(
+    source_ids: tuple[str, ...],
+    *,
+    required: bool,
+    exact_one: bool,
+) -> tuple[str, ...]:
+    """Reject empty, ``all``, duplicates, and more than five source ids."""
+    invalid = any(
+        source_id == "all" or not _SOURCE_TOKEN.fullmatch(source_id) for source_id in source_ids
+    )
+    if invalid:
+        raise PermissionError("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID")
+    if len(source_ids) != len(set(source_ids)) or len(source_ids) > MAX_SELECTED_SOURCES:
+        raise PermissionError("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID")
+    if required and not source_ids:
+        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED")
+    if exact_one and len(source_ids) != 1:
+        raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED")
+    return source_ids
+
+
+def _source_flags(source_ids: tuple[str, ...]) -> str:
+    return "".join(f" --source {source_id}" for source_id in source_ids)
+
+
 def build_operation_spec(
     baseline: dict[str, Any],
     *,
     preflight_only: bool,
     recover_ingestion_run_id: str = "",
     reopen_attempt: int = 1,
+    source_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     jobs = baseline.get("jobs", [])
     job_names = {job.get("name") for job in jobs if isinstance(job, dict)}
@@ -96,11 +132,21 @@ def build_operation_spec(
             recover_ingestion_run_id,
         ):
             raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_RUN_ID_REQUIRED")
-        run_command = RECOVER_PREFIX + recover_ingestion_run_id
+        sources = _validated_sources(tuple(source_ids), required=False, exact_one=True)
+        run_command = RECOVER_PREFIX + recover_ingestion_run_id + _source_flags(sources)
     else:
+        sources = tuple(source_ids)
+        if reopen_attempt >= 2 or sources:
+            sources = _validated_sources(
+                sources,
+                required=reopen_attempt >= 2,
+                exact_one=False,
+            )
         run_command = COMMAND + (" --preflight-only" if preflight_only else "")
         if reopen_attempt >= 2:
-            run_command = f"{COMMAND} --reopen-attempt {reopen_attempt}"
+            run_command = f"{COMMAND} --reopen-attempt {reopen_attempt}{_source_flags(sources)}"
+        elif sources:
+            run_command = f"{run_command}{_source_flags(sources)}"
     manual = copy.deepcopy(template)
     manual.update(
         name=MANUAL_JOB,
@@ -370,6 +416,8 @@ def failure_codes(operation_status: int, rows: list[dict[str, Any]]) -> list[str
             codes.append(code)
     if codes:
         return codes
+    if operation_status != 0 and any(row["status"] == "ALREADY_CLAIMED" for row in rows):
+        return ["ALREADY_CLAIMED"]
     if operation_status != 0:
         return [OUTCOME_LOG_UNAVAILABLE]
     return []
@@ -437,6 +485,7 @@ def _build(args: argparse.Namespace) -> int:
                 preflight_only=args.preflight_only,
                 recover_ingestion_run_id=args.recover_ingestion_run_id,
                 reopen_attempt=args.reopen_attempt,
+                source_ids=tuple(args.source or ()),
             )
         ),
         encoding="utf-8",
@@ -523,6 +572,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--recover-ingestion-run-id", default="")
     parser.add_argument("--reopen-attempt", type=int, default=1)
+    parser.add_argument("--source", action="append", default=None)
     parser.add_argument("--reason", default="")
     parser.add_argument("--deployment-output", type=Path)
     parser.add_argument("--logs", type=Path)

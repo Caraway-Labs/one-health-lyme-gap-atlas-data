@@ -94,7 +94,7 @@ def test_terminalize_stuck_daily_run(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(recovery, "connect", lambda _settings: _Connection())
-    result = recovery.terminalize_stuck_daily_run(RUN_ID)
+    result = recovery.terminalize_stuck_daily_run(RUN_ID, source_id=SOURCE)
     assert result["status"] == "SUCCEEDED"
     assert result["resource_key"] == SOURCE
     assert result["terminalized_stages"] == ["NORMALIZE"]
@@ -122,7 +122,7 @@ def test_terminalize_rejects_non_running(monkeypatch) -> None:
 
     monkeypatch.setattr(recovery, "connect", lambda _settings: _BadConnection())
     with pytest.raises(PermissionError, match="RECOVERY_SCOPE"):
-        recovery.terminalize_stuck_daily_run(RUN_ID)
+        recovery.terminalize_stuck_daily_run(RUN_ID, source_id=SOURCE)
 
 
 def test_terminalize_run_without_running_checkpoint(monkeypatch) -> None:
@@ -146,6 +146,50 @@ def test_terminalize_run_without_running_checkpoint(monkeypatch) -> None:
             return _NoRunningCursor()
 
     monkeypatch.setattr(recovery, "connect", lambda _settings: _NoRunningConnection())
-    result = recovery.terminalize_stuck_daily_run(RUN_ID)
+    result = recovery.terminalize_stuck_daily_run(RUN_ID, source_id=SOURCE)
     assert result["status"] == "SUCCEEDED"
     assert result["terminalized_stages"] == []
+
+
+def test_terminalize_rejects_unknown_source_before_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(recovery, "connect", lambda *_args, **_kwargs: pytest.fail("snowflake"))
+    with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+        recovery.terminalize_stuck_daily_run(RUN_ID, source_id="all")
+
+
+def test_terminalize_rejects_resource_key_mismatch_before_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.intelligence_daily_run_recovery.PipelineSettings",
+        lambda: PipelineSettings(
+            topx_env="prod",
+            enable_production_execution=True,
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        ),
+    )
+    statements: list[str] = []
+
+    class _MismatchCursor(_Cursor):
+        def execute(self, sql: str, params=None) -> None:
+            statements.append(sql)
+            super().execute(sql, params)
+            if "FROM GOVERNANCE.INGESTION_RUNS" in sql and "SELECT" in sql:
+                self._queue[-1] = [
+                    (
+                        "cdc-mmwr",
+                        "RUNNING",
+                        recovery.DAILY_CODE_VERSION,
+                        PROD_DAILY_SOURCE_SHA256["cdc-mmwr"],
+                    )
+                ]
+
+    class _MismatchConnection(_Connection):
+        def cursor(self) -> _MismatchCursor:
+            return _MismatchCursor()
+
+    monkeypatch.setattr(recovery, "connect", lambda _settings: _MismatchConnection())
+    with pytest.raises(PermissionError, match="RECOVERY_SOURCE_MISMATCH"):
+        recovery.terminalize_stuck_daily_run(RUN_ID, source_id=SOURCE)
+    assert statements
+    assert not any("UPDATE" in sql for sql in statements)
