@@ -724,12 +724,11 @@ def apply_reviewed_dev_migrations_command(
         actual = pending_migration_plan(settings, database)
         actionable, held_back = split_held_back_dev_migrations(actual)
         typer.echo(json.dumps({"pending_migrations": actual, "held_back_migrations": held_back}))
-        if feed_batch:
-            require_reviewed_pending_set(actual, reviewed)
-        else:
-            if any(item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in reviewed):
-                raise PermissionError("Held-back DEV migrations require their own protected paths")
-            require_reviewed_pending_set(actionable, reviewed)
+        # Routine and exact protected feed batches both leave held-back versions
+        # pending; the feed batch itself is already exact and alone.
+        if any(item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in reviewed):
+            raise PermissionError("Held-back DEV migrations require their own protected paths")
+        require_reviewed_pending_set(actionable, reviewed)
         reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
         applied = apply_migrations(
             settings,
