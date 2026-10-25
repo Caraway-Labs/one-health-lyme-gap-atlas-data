@@ -8,12 +8,12 @@
   "geographies": [],
   "topics": [],
   "trust_review": {
-    "status": "pending",
-    "decision_ref": null,
-    "reviewed_at": null,
+    "status": "approved",
+    "decision_ref": "matthew-feed-selection-2026-10-03",
+    "reviewed_at": "2026-10-24T18:00:00Z",
     "owner": "intelligence-steward"
   },
-  "trust_classification": "unreviewed",
+  "trust_classification": "research_index",
   "transport": "entrez",
   "canonical_location": "https://pubmed.ncbi.nlm.nih.gov/",
   "fetch_location": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
@@ -41,9 +41,9 @@
     "public_excerpt_permitted": false
   },
   "approval": {
-    "status": "pending",
-    "decision_ref": null,
-    "reviewed_at": null,
+    "status": "approved",
+    "decision_ref": "matthew-feed-selection-2026-10-03",
+    "reviewed_at": "2026-10-24T18:00:00Z",
     "owner": "intelligence-steward"
   },
   "change_review_policy": "new_version_requires_review",

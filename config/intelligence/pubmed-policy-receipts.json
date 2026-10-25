@@ -4,7 +4,7 @@
       "source_id": "pubmed-tick-borne",
       "decision_ref": "matthew-feed-selection-2026-10-03",
       "registry_version": 1,
-      "source_sha256": "30ce56b2f7fe8553b3af0db85f3f2938a3f3947b04ce73726bfa9a0dd0b5760b",
+      "source_sha256": "41148e879bb8af6e0a534eac408cb508310983c11b6216a042458ea5b309aaf5",
       "retention_policy_ref": "pubmed-tick-borne-metadata-raw-30d-v1",
       "raw_policy_ref": "intelligence-raw-30d-v1",
       "artifact_policy": "PUBMED_DRAFT_RAW_30D_V1",
@@ -48,14 +48,14 @@
           "PubmedArticle/MedlineCitation/PMID",
           "PubmedArticle/MedlineCitation/Article/ArticleTitle"
         ],
-        "source_sha256": "30ce56b2f7fe8553b3af0db85f3f2938a3f3947b04ce73726bfa9a0dd0b5760b"
+        "source_sha256": "41148e879bb8af6e0a534eac408cb508310983c11b6216a042458ea5b309aaf5"
       }
     },
     {
       "source_id": "pubmed-lyme-borrelia",
       "decision_ref": "matthew-feed-selection-2026-10-03",
       "registry_version": 1,
-      "source_sha256": "976ba6fd1cd28dce426397077425c6debcbb5b007232fd79d1b3d9db7872c251",
+      "source_sha256": "2326d55202016177af4976e59aa73312f51ab853e8c25658a20e3f6989d6a3f9",
       "retention_policy_ref": "pubmed-lyme-borrelia-metadata-raw-30d-v1",
       "raw_policy_ref": "intelligence-raw-30d-v1",
       "artifact_policy": "PUBMED_DRAFT_RAW_30D_V1",
@@ -99,7 +99,7 @@
           "PubmedArticle/MedlineCitation/PMID",
           "PubmedArticle/MedlineCitation/Article/ArticleTitle"
         ],
-        "source_sha256": "976ba6fd1cd28dce426397077425c6debcbb5b007232fd79d1b3d9db7872c251"
+        "source_sha256": "2326d55202016177af4976e59aa73312f51ab853e8c25658a20e3f6989d6a3f9"
       }
     }
   ]

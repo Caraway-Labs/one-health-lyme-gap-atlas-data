@@ -606,8 +606,8 @@ def _load_sources() -> dict[str, dict[str, Any]]:
             source["source_id"] != source_id
             or source["registry_version"] != 1
             or source["state"] != "candidate"
-            or source["approval"]["status"] != "pending"
-            or source["trust_review"]["status"] != "pending"
+            or source["approval"]["status"] not in {"pending", "approved"}
+            or source["trust_review"]["status"] not in {"pending", "approved"}
             or source["transport"] != "entrez"
             or source["family"] != "pubmed"
             or source["fetch_location"] != ESEARCH_URL
