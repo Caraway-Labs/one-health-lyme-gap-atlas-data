@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from semantic_contracts import load_workflow, trigger_map, workflow_runs
 
 import lyme_gap_atlas_data.semantic_release as semantic_release
 from lyme_gap_atlas_data.semantic_release import (
@@ -643,20 +644,29 @@ def test_migrations_and_contract_do_not_reference_alpha_database() -> None:
 
 
 def test_semantic_release_workflow_is_protected_and_runs_post_operation_proof() -> None:
-    workflow = (REPO / ".github" / "workflows" / "publish-semantic-release.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "environment: ${{ inputs.environment_name }}" in workflow
-    assert "release_commit" in workflow
-    assert "git merge-base --is-ancestor" in workflow
-    assert "--confirm" in workflow
-    assert "SEMANTIC_RELEASE_STATUS_V" in workflow
-    assert "CURRENT_RELEASE_V" in workflow
-    assert "SNOWFLAKE_RUNTIME_ROLE" not in workflow
+    document = load_workflow(REPO / ".github" / "workflows" / "publish-semantic-release.yml")
+    assert document["jobs"]["semantic-release"]["environment"] == "${{ inputs.environment_name }}"
+    inputs = trigger_map(document)["workflow_dispatch"]["inputs"]
+    assert inputs["release_commit"]["required"] is True
+    assert "production" in inputs["environment_name"]["options"]
+    runs = "\n".join(workflow_runs(document))
+    assert "git merge-base --is-ancestor" in runs
+    assert "--confirm" in runs
+    assert "SEMANTIC_RELEASE_STATUS_V" in runs
+    assert "CURRENT_RELEASE_V" in runs
+    assert "SNOWFLAKE_RUNTIME_ROLE" not in runs
 
 
 def test_quality_secret_scan_reports_only_non_secret_finding_metadata() -> None:
-    workflow = (REPO / ".github" / "workflows" / "quality.yml").read_text(encoding="utf-8")
-    assert "--report-format json" in workflow
-    assert ".RuleID, .File, .StartLine, .Commit, .Description" in workflow
-    assert "Secret" not in workflow.split("- name: Scan Git history for secrets", 1)[1]
+    document = load_workflow(REPO / ".github" / "workflows" / "quality.yml")
+    step = next(
+        step
+        for job in document["jobs"].values()
+        for step in job.get("steps") or []
+        if isinstance(step, dict) and step.get("name") == "Scan Git history for secrets"
+    )
+    run = step["run"]
+    assert "ghcr.io/gitleaks/gitleaks@sha256:" in run
+    assert "--report-format json" in run
+    assert ".RuleID, .File, .StartLine, .Commit, .Description" in run
+    assert "Secret" not in run

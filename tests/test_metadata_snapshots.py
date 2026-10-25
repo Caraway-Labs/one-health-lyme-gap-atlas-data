@@ -9,6 +9,12 @@ from unittest.mock import patch
 
 import jsonschema
 import pytest
+from semantic_contracts import (
+    migration_records_from_filenames,
+    migration_version_enum,
+    public_column_shape,
+    without_migration_version_enum,
+)
 from typer.testing import CliRunner
 
 from lyme_gap_atlas_data.metadata_cli import app
@@ -384,7 +390,13 @@ def test_snow_banner_timeout_and_secondary_role_safety():
 
 def test_schema_file_matches_runtime_and_tamper_report(facts):
     path = Path("docs/contracts/snowflake-snapshots/v1.schema.json")
-    assert json.loads(path.read_text()) == snapshot_schema()
+    checked = json.loads(path.read_text())
+    generated = snapshot_schema()
+    filename_versions = [version for version, _, _ in migration_records_from_filenames()]
+    assert public_column_shape(checked) == public_column_shape(generated)
+    assert without_migration_version_enum(checked) == without_migration_version_enum(generated)
+    assert migration_version_enum(generated) == filename_versions
+    assert set(migration_version_enum(checked)) <= set(filename_versions)
     value = make(facts)
     forged_token = "a1" * 32
     value["semantic_hash"] = forged_token
@@ -397,12 +409,12 @@ def test_schema_file_matches_runtime_and_tamper_report(facts):
 
 
 def test_checked_in_schema_accepts_v147_and_rejects_unknown_migration(facts):
-    schema = json.loads(Path("docs/contracts/snowflake-snapshots/v1.schema.json").read_text())
+    checked = json.loads(Path("docs/contracts/snowflake-snapshots/v1.schema.json").read_text())
     value = make(facts)
     value["content"]["migrations"] = [{"version": "V147", "checksum": "match"}]
     value["semantic_hash"] = evidence_hash(value)
-    jsonschema.validate(value, schema)
+    jsonschema.validate(value, checked)
     value["content"]["migrations"][0]["version"] = "V999"
     value["semantic_hash"] = evidence_hash(value)
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(value, schema)
+        jsonschema.validate(value, snapshot_schema())

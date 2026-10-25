@@ -7,6 +7,14 @@ from pathlib import Path
 
 import pytest
 import yaml
+from semantic_contracts import (
+    compared_definition_paths,
+    definition_paths_by_source_id,
+    registry_source_ids,
+    selection_source_ids,
+)
+
+from lyme_gap_atlas_data.ingestion.intelligence_runtime import PROD_SOURCE_DEFINITIONS
 
 WORKFLOW = Path(".github/workflows/run-prod-ingestion.yml")
 
@@ -81,16 +89,16 @@ def test_shared_production_boundaries_remain_present():
     assert job["environment"] == "production"
     steps = {step["name"]: step for step in job["steps"] if "name" in step}
     generic = steps["Verify protected PROD runtime identity and approved source decision"]
-    assert generic["if"] == " && ".join(
-        "inputs.source_definition != " + repr(path)
-        for path in (
-            "config/sources/intelligence_cdc_eid_expedited.yml",
-            "config/sources/intelligence_cdc_eid_ahead_of_print.yml",
-            "config/sources/intelligence_cdc_outbreaks.yml",
-            "config/sources/intelligence_nih_news_releases.yml",
-            "config/sources/intelligence_cdc_mmwr.yml",
-        )
-    )
+    fixed = steps["Require exact reviewed EID-only production request"]
+    definitions = definition_paths_by_source_id()
+    admitted = {
+        definitions[source_id]
+        for source_id in PROD_SOURCE_DEFINITIONS
+        if source_id in registry_source_ids() and source_id in selection_source_ids()
+    }
+    assert admitted == set(PROD_SOURCE_DEFINITIONS.values())
+    assert compared_definition_paths(generic["if"], "!=") == admitted
+    assert compared_definition_paths(fixed["if"], "==") == admitted
     assert 'uuid.UUID(os.environ["SOURCE_VERSION_ID"])' in generic["run"]
     assert 'uuid.UUID(os.environ["SOURCE_DECISION_ID"])' in generic["run"]
     assert "approval[2] != source_decision_id" in generic["run"]
