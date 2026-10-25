@@ -17,7 +17,7 @@ from uuid import uuid4
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = "V173__intelligence_feed_v2_description.sql"
+MIGRATION = "V175__intelligence_abstract_suppressions_feed_v2.sql"
 DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 LIVE_SOURCES = (
     "cdc-eid-expedited",
@@ -111,11 +111,15 @@ def fixture_query(source_id: str, change: str) -> str:
     query = query.replace("GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES", "fixture_captures")
     query = query.replace("CONFORMED.INTELLIGENCE_ITEM_REVISIONS", "fixture_revisions")
     query = query.replace("GOVERNANCE.INTELLIGENCE_SOURCE_ACTIVATIONS", "fixture_activations")
+    query = query.replace("GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS", "fixture_suppressions")
     return (
         f"WITH fixture_sources AS ({registry}),fixture_captures AS ({captures}),"
         "fixture_revisions AS (SELECT 'item' item_id,'revision' revision_id "
         "UNION ALL SELECT 'v2-item','revision'),"
-        f"fixture_activations AS ({activations}) {query}"
+        f"fixture_activations AS ({activations}),"
+        "fixture_suppressions AS (SELECT NULL::VARCHAR scope,NULL::VARCHAR pmid,"
+        "NULL::VARCHAR publisher WHERE FALSE) "
+        f"{query}"
     )
 
 

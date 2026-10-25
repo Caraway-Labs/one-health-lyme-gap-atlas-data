@@ -507,7 +507,9 @@ def test_workflow_public_safe_input_and_exit_before_migration():
 
 def test_definition_comparison_detects_version_and_private_projection_changes():
     source = (
-        Path(__file__).parents[1] / "migrations" / "V173__intelligence_feed_v2_description.sql"
+        Path(__file__).parents[1]
+        / "migrations"
+        / "V175__intelligence_abstract_suppressions_feed_v2.sql"
     ).read_text()
     start = source.index("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2")
     ddl = source[start:].split(";", 1)[0]

@@ -30,6 +30,7 @@ _ALLOWED_PENDING = (
     '[{"version":"V169","filename":"V169__paper_policy_approval.sql","sha256":"1a70bbcf348f3f2daeaa6fde6522d86e26aee558235a5a6ca04a22023c4ea136"}]',
     '[{"version":"V170","filename":"V170__intelligence_source_activations.sql","sha256":"ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d"}]',
     '[{"version":"V173","filename":"V173__intelligence_feed_v2_description.sql","sha256":"fd0ab5e5351ebe453cd4cf941ffaa1326634baa1495450113e231deeff7b8156"}]',
+    '[{"version":"V175","filename":"V175__intelligence_abstract_suppressions_feed_v2.sql","sha256":"b7d7dd0d152f2c039e6af45ae6ee91cd92df949bb41fd8b34d6664764ed39279"}]',
     '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"},{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]',
 )
 

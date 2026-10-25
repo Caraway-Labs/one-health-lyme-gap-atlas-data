@@ -320,7 +320,9 @@ def privileges_match(name: str, grants: list[dict[str, Any]]) -> dict[str, bool]
 def view_matches(name: str, actual: str) -> bool:
     if name == "INTELLIGENCE_FEED_V2":
         source = (
-            Path(__file__).parents[1] / "migrations" / "V173__intelligence_feed_v2_description.sql"
+            Path(__file__).parents[1]
+            / "migrations"
+            / "V175__intelligence_abstract_suppressions_feed_v2.sql"
         ).read_text()
         proposal = source.split("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2", 1)[1]
         proposal = "CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2" + proposal
