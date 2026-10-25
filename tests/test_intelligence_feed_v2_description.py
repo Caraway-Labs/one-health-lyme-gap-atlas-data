@@ -28,8 +28,12 @@ V170 = ROOT / "migrations" / "V170__intelligence_source_activations.sql"
 V173 = ROOT / "migrations" / "V173__intelligence_feed_v2_description.sql"
 PROJECTION = ROOT / "docs/contracts/intelligence/v2/presentation-projection.sql"
 DESCRIPTION_ARGUMENT = (
-    "           ),\n           'description', c.item_document:publisher_metadata:description\n"
+    "           ),\n"
+    "           'description', c.item_document:publisher_metadata:description,\n"
+    "           'abstract', c.item_document:publisher_metadata:abstract,\n"
+    "           'abstract_suppressed', c.item_document:publisher_metadata:abstract_suppressed\n"
 )
+ADDED_PUBLISHER_KEYS = ("description", "abstract", "abstract_suppressed")
 KEPT_KEYS = (
     "publisher",
     "source_family",
@@ -45,6 +49,17 @@ KEPT_KEYS = (
 def _view(path: Path) -> str:
     source = path.read_text(encoding="utf-8")
     return source[source.index("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2") :]
+
+
+def _outer_publisher_keys(view: str) -> tuple[str, ...]:
+    construct = view.split("OBJECT_CONSTRUCT_KEEP_NULL(", 1)[1].split(") AS publisher_metadata", 1)[
+        0
+    ]
+    keys: list[str] = []
+    for line in construct.splitlines():
+        if len(line) > 11 and line[:11] == "           " and line[11] == "'":
+            keys.append(line.split("'", 2)[1])
+    return tuple(keys)
 
 
 def _project(document: dict[str, Any], *, description: bool) -> dict[str, Any]:
@@ -141,8 +156,17 @@ def test_description_migration_is_one_protected_step_for_both_databases() -> Non
     for key in KEPT_KEYS:
         assert f"'{key}'" in view
     assert view.index("'description'") > view.index("'date_states'")
-    assert "abstract" not in view.lower()
-    assert view.split("WHERE", 1)[1].count("description") == 0
+    assert _outer_publisher_keys(view) == (
+        *_outer_publisher_keys(_view(V170)),
+        *ADDED_PUBLISHER_KEYS,
+    )
+    for key in ("abstract", "abstract_suppressed"):
+        assert f"'{key}', c.item_document:publisher_metadata:{key}" in view
+    where = view.split("WHERE", 1)[1]
+    assert where.count("description") == 0
+    assert where.count("abstract") == 0
+    for forbidden in ("QUERY_TEXT", "ERROR_MESSAGE", "query_text", "error_message"):
+        assert forbidden not in view
 
 
 def test_v173_view_matches_v170_except_the_description_argument() -> None:
@@ -157,7 +181,14 @@ def test_v173_view_matches_v170_except_the_description_argument() -> None:
     contract_construct = contract.split("OBJECT_CONSTRUCT_KEEP_NULL(", 1)[1].split(
         ") AS publisher_metadata", 1
     )[0]
-    assert contract_construct == updated_construct
+    abstract_arguments = (
+        ",\n"
+        "           'abstract', c.item_document:publisher_metadata:abstract,\n"
+        "           'abstract_suppressed', "
+        "c.item_document:publisher_metadata:abstract_suppressed"
+    )
+    assert updated_construct.replace(abstract_arguments, "", 1) == contract_construct
+    assert updated_construct.count(abstract_arguments) == 1
 
 
 def test_description_is_visible_for_v3_and_null_for_v2_without_changing_row_count() -> None:
@@ -306,5 +337,7 @@ def test_v173_requires_recorded_v170_and_the_protected_path(
     assert executed_versions == ["V173"]
     executed = connection.execute_string.call_args.args[0]
     assert "c.item_document:publisher_metadata:description" in executed
+    assert "c.item_document:publisher_metadata:abstract" in executed
+    assert "c.item_document:publisher_metadata:abstract_suppressed" in executed
     assert "GRANT SELECT" not in executed
     assert "JOIN GOVERNANCE.INTELLIGENCE_SOURCE_ACTIVATIONS" in executed
