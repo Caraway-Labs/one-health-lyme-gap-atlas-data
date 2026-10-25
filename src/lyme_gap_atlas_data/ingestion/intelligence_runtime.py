@@ -49,7 +49,9 @@ DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
 DAILY_SOURCE_BUDGET_SECONDS = 900
 # After the budget expires, a fresh short connection records the FAILED terminal state.
 DEADLINE_GRACE_SECONDS = 30
-# The process watchdog must outlive the budget plus the terminalization grace window.
+# Per-source process watchdog. It must outlive the budget plus the grace window
+# used when a budget expiry records FAILED. The daily runner's hard-kill path
+# records FAILED on a fresh connection before exiting (intelligence_daily_hard_kill).
 DAILY_SOURCE_WATCHDOG_SECONDS = DAILY_SOURCE_BUDGET_SECONDS + 2 * DEADLINE_GRACE_SECONDS
 PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",

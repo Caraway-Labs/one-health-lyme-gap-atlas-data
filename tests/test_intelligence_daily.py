@@ -161,7 +161,7 @@ def test_daily_uses_per_source_watchdog_not_pilot_default(monkeypatch):
     daily_settings(monkeypatch)
     seen: list[int] = []
 
-    def capture_watchdog(*, seconds: int):
+    def capture_watchdog(state, *, seconds: int):
         seen.append(seconds)
 
         class _Ctx:
@@ -173,7 +173,7 @@ def test_daily_uses_per_source_watchdog_not_pilot_default(monkeypatch):
 
         return _Ctx()
 
-    monkeypatch.setattr(runtime, "pilot_watchdog", capture_watchdog)
+    monkeypatch.setattr(polling, "daily_hard_kill_watchdog", capture_watchdog)
     composed_sources(monkeypatch)
     polling.run_production_daily()
     assert seen == [runtime.DAILY_SOURCE_WATCHDOG_SECONDS] * len(runtime.PROD_SOURCE_DEFINITIONS)
