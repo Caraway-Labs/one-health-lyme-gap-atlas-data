@@ -43,6 +43,10 @@ class RehearsalPass:
     revisions_inserted: int
     captures_inserted: int
     captures_replayed: int
+    items_seen: int
+    items_new: int
+    items_changed: int
+    items_unchanged: int
     publish_status: str | None
 
     def as_dict(self) -> dict[str, Any]:
@@ -56,6 +60,10 @@ class RehearsalPass:
             "revisions_inserted": self.revisions_inserted,
             "captures_inserted": self.captures_inserted,
             "captures_replayed": self.captures_replayed,
+            "items_seen": self.items_seen,
+            "items_new": self.items_new,
+            "items_changed": self.items_changed,
+            "items_unchanged": self.items_unchanged,
             "publish_status": self.publish_status,
         }
 
@@ -157,6 +165,10 @@ def run_rehearsal_pass(attempt: int) -> RehearsalPass:
         revisions_inserted=int(load_detail.get("revisions_inserted", 0)),
         captures_inserted=int(load_detail.get("captures_inserted", 0)),
         captures_replayed=int(load_detail.get("captures_replayed", 0)),
+        items_seen=int(load_detail.get("items_seen", 0)),
+        items_new=int(load_detail.get("items_new", 0)),
+        items_changed=int(load_detail.get("items_changed", 0)),
+        items_unchanged=int(load_detail.get("items_unchanged", 0)),
         publish_status=publish_detail.get("status") if publish_detail else None,
     )
 
@@ -186,7 +198,11 @@ def rehearse_cdc_mmwr_dev() -> dict[str, Any]:
         return payload
 
     second = passes[1]
-    zero_new_rows = second.revisions_inserted == 0 and second.captures_inserted == 0
+    zero_new_rows = (
+        second.revisions_inserted == 0
+        and second.captures_inserted == 0
+        and second.items_new + second.items_changed == 0
+    )
     succeeded = second.status == RunStatus.SUCCEEDED.value and zero_new_rows
     return {
         "source_id": CDC_MMWR_SOURCE_ID,
@@ -209,7 +225,11 @@ def emit_rehearsal_report(payload: dict[str, Any]) -> None:
             f"items_loaded={row['record_count']} "
             f"revisions_inserted={row['revisions_inserted']} "
             f"captures_inserted={row['captures_inserted']} "
-            f"captures_replayed={row['captures_replayed']}"
+            f"captures_replayed={row['captures_replayed']} "
+            f"items_seen={row['items_seen']} "
+            f"items_new={row['items_new']} "
+            f"items_changed={row['items_changed']} "
+            f"items_unchanged={row['items_unchanged']}"
         )
     if payload.get("snowflake_error"):
         print(f"SNOWFLAKE_ERROR {payload['snowflake_error']}")

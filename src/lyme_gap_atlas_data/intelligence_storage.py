@@ -51,6 +51,7 @@ SAFE_ERRORS = {
     "INTELLIGENCE_ARTIFACT_REFERENCE_INVALID",
     "INTELLIGENCE_CAPTURE_REPLAY_CONFLICT",
     "INTELLIGENCE_REVISION_REPLAY_CONFLICT",
+    "INTELLIGENCE_CAPTURE_ACCOUNTING_MISMATCH",
     "INTELLIGENCE_ACQUISITION_REFERENCE_INVALID",
     "INTELLIGENCE_ACQUISITION_REPLAY_CONFLICT",
 }
@@ -97,6 +98,26 @@ class WriteReceipt:
     revisions_inserted: int
     captures_inserted: int
     captures_replayed: int
+    items_seen: int = 0
+    items_new: int = 0
+    items_changed: int = 0
+    items_unchanged: int = 0
+
+
+# One stored observation of an item revision for a source version and transport.
+# A later run inserts a capture only when this key is absent. capture_id stays
+# run-scoped because item_document carries fetched_at and provenance: a run-free
+# id would raise INTELLIGENCE_CAPTURE_REPLAY_CONFLICT on an exact replay.
+# Repeat polls do not store another fetch/run/artifact row for unchanged content.
+# The existing capture remains that evidence. Removing an item from a later feed
+# does not delete the capture.
+CAPTURE_NATURAL_KEY = (
+    "source_id",
+    "registry_version",
+    "transport",
+    "item_id",
+    "revision_id",
+)
 
 
 def capture_id(item: dict[str, Any]) -> str:
@@ -425,7 +446,7 @@ class IntelligenceStore:
                     run_id,
                     len(validated),
                 )
-                receipt, transport = bulk_write_items(
+                written, transport = bulk_write_items(
                     cursor,
                     run_id=run_id,
                     source_id=source_id,
@@ -435,20 +456,21 @@ class IntelligenceStore:
                 connection.commit()
                 logger.info(
                     "intelligence_load step=write_complete run_id=%s "
-                    "revisions=%s captures=%s replays=%s",
+                    "revisions=%s captures=%s replays=%s "
+                    "items_seen=%s items_new=%s items_changed=%s items_unchanged=%s",
                     run_id,
-                    receipt.revisions_inserted,
-                    receipt.captures_inserted,
-                    receipt.captures_replayed,
+                    written.revisions_inserted,
+                    written.captures_inserted,
+                    written.captures_replayed,
+                    written.items_seen,
+                    written.items_new,
+                    written.items_changed,
+                    written.items_unchanged,
                 )
                 if transport is not None:
                     with connection.cursor() as cleanup:
                         remove_transport(cleanup, transport)
-                return WriteReceipt(
-                    receipt.revisions_inserted,
-                    receipt.captures_inserted,
-                    receipt.captures_replayed,
-                )
+                return written
             except BaseException:
                 with suppress(Exception):
                     connection.rollback()

@@ -19,6 +19,22 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
 IDENTITY_VERSION = "intelligence-identity-v1"
+# Scalar fields, then the contract 2.0.0 objects, that enter content_sha256 and
+# revision_id. Add a stored field to this tuple only. Description and categories
+# (NewsFeed richer-data plan R2) land inside publisher_metadata, which this hash
+# already covers whole for contract 2.0.0. native_metadata is the filtered item
+# subset, not the raw feed tree.
+REVISION_CONTENT_FIELDS = (
+    "title",
+    "excerpt",
+    "published_at",
+    "updated_at",
+    "event_at",
+    "contract_version",
+    "publisher_metadata",
+    "native_metadata",
+)
+_REVISION_TIMESTAMP_FIELDS = frozenset({"published_at", "updated_at", "event_at"})
 TOKEN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$")
 TIMESTAMP = re.compile(
     r"^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})"
@@ -193,25 +209,30 @@ def item_identities(item: dict[str, Any]) -> tuple[str, str, str]:
 
 def revision_content(item: dict[str, Any]) -> dict[str, Any]:
     """One versioned content basis shared by identity and immutable storage."""
-    content = {
-        field: item[field]
-        for field in ("title", "excerpt", "published_at", "updated_at", "event_at")
-    }
-    for field in ("published_at", "updated_at", "event_at"):
-        if content[field] is not None:
+    contract_2 = item.get("contract_version") == "2.0.0"
+    content: dict[str, Any] = {}
+    for field in REVISION_CONTENT_FIELDS:
+        if field == "contract_version":
+            if contract_2:
+                content[field] = "2.0.0"
+            continue
+        if field == "publisher_metadata":
+            if contract_2:
+                content[field] = item[field]
+            continue
+        if field == "native_metadata":
+            if contract_2:
+                native = item["native_metadata"]
+                content[field] = {
+                    "inventory": [path for path in native["inventory"] if path.startswith("item/")],
+                    "item": native["item"],
+                    "item_attributes": native["item_attributes"],
+                    "publisher_dates": native["publisher_dates"],
+                }
+            continue
+        content[field] = item[field]
+        if field in _REVISION_TIMESTAMP_FIELDS and content[field] is not None:
             content[field] = canonical_timestamp(content[field])
-    if item.get("contract_version") == "2.0.0":
-        native = item["native_metadata"]
-        content.update(
-            contract_version="2.0.0",
-            publisher_metadata=item["publisher_metadata"],
-            native_metadata={
-                "inventory": [path for path in native["inventory"] if path.startswith("item/")],
-                "item": native["item"],
-                "item_attributes": native["item_attributes"],
-                "publisher_dates": native["publisher_dates"],
-            },
-        )
     return content
 
 

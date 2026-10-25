@@ -31,7 +31,7 @@ from .ingestion.intelligence_runtime import (
     DailyStageClock,
 )
 from .ingestion.source_definition import load_source_definition
-from .ingestion.types import AdapterKind, RunStatus, SourceDefinition, Tier
+from .ingestion.types import AdapterKind, RunStatus, SourceDefinition, Stage, Tier
 from .intelligence_daily_deadline import terminalize_daily_pilot_deadline
 from .intelligence_daily_hard_kill import (
     HARD_KILL_EXIT_CODE,
@@ -45,6 +45,8 @@ from .intelligence_items import canonical_url, identity_hash, validate_record
 
 DAILY_POLL_SECONDS = 86_400
 DAILY_OUTCOME_LOG_PREFIX = "ATLAS_INTEL_DAILY_OUTCOME "
+_ITEM_COUNT_FIELDS = ("items_seen", "items_new", "items_changed", "items_unchanged")
+_MAX_ITEM_COUNT = 5000
 _MAX_OUTCOME_LOG_BYTES = 4096
 # Exception text is emitted only when the whole message is one of these codes.
 _ALLOWLISTED_ERROR_CODE = re.compile(
@@ -203,6 +205,41 @@ def _log_token(value: object, *, allowed: frozenset[str]) -> str | None:
     return None
 
 
+def _nonnegative_count(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 0 or value > _MAX_ITEM_COUNT:
+        return None
+    return value
+
+
+def _validated_item_counts(payload: dict[str, Any]) -> dict[str, int]:
+    """Allowlisted per-source change counts. Any non-integer drops the whole set."""
+    counts: dict[str, int] = {}
+    for field in _ITEM_COUNT_FIELDS:
+        if field not in payload:
+            return {}
+        parsed = _nonnegative_count(payload.get(field))
+        if parsed is None:
+            return {}
+        counts[field] = parsed
+    total = counts["items_new"] + counts["items_changed"] + counts["items_unchanged"]
+    if total != counts["items_seen"]:
+        return {}
+    return counts
+
+
+def _item_counts_from_state(state: Any) -> dict[str, int]:
+    checkpoint = getattr(state, "checkpoint", None)
+    if not callable(checkpoint):
+        return {}
+    load = checkpoint(Stage.LOAD)
+    detail = getattr(load, "detail", None)
+    if not isinstance(detail, dict):
+        return {}
+    return _validated_item_counts(detail)
+
+
 def _log_daily_outcome(result: dict[str, Any]) -> None:
     """One grep-able line. Fields are allowlisted so exception text cannot land here."""
     source_id = result.get("source_id")
@@ -232,6 +269,7 @@ def _log_daily_outcome(result: dict[str, Any]) -> None:
     exit_code = result.get("exit_code")
     if isinstance(exit_code, int) and not isinstance(exit_code, bool):
         safe["exit_code"] = exit_code
+    safe.update(_validated_item_counts(result))
     line = DAILY_OUTCOME_LOG_PREFIX + json.dumps(safe, separators=(",", ":"), sort_keys=True)
     if len(line.encode("utf-8")) > _MAX_OUTCOME_LOG_BYTES:
         safe["stage_timings_ms"] = {}
@@ -250,6 +288,7 @@ def _source_outcome(
     stage_timings_ms: dict[str, int] | None = None,
     stage_timings: list[dict[str, Any]] | None = None,
     exit_code: int | None = None,
+    item_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     published = published_error_code(error_code)
     if error_code is not None and published is None:
@@ -269,6 +308,8 @@ def _source_outcome(
         result["stage_timings"] = stage_timings
     if exit_code is not None:
         result["exit_code"] = exit_code
+    if item_counts:
+        result.update(item_counts)
     return result
 
 
@@ -405,6 +446,7 @@ def _accept_child_result(source_id: str, payload: Any) -> dict[str, Any]:
         stage_timings_ms=_bounded_timings(payload.get("stage_timings_ms")),
         stage_timings=timings if isinstance(timings, list) else None,
         exit_code=safe_exit,
+        item_counts=_validated_item_counts(payload),
     )
 
 
@@ -573,6 +615,7 @@ def execute_daily_source_in_process(
                     run_id=run_id,
                     stage_timings_ms=timings_ms,
                     stage_timings=stage_rows,
+                    item_counts=_item_counts_from_state(state),
                 )
             error_code, failed_stage = _failure_from_state(state, budget)
             return _source_outcome(
