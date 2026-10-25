@@ -7,7 +7,6 @@ fixtures, provider requests, credentials, grants or production access.
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import re
 import subprocess
@@ -15,9 +14,18 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from lyme_gap_atlas_data.intelligence_items import identity_hash
+
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = "V166__prod_nih_news_daily_activation_view.sql"
+MIGRATION = "V170__intelligence_source_activations.sql"
 DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+LIVE_SOURCES = (
+    "cdc-eid-expedited",
+    "cdc-eid-ahead-of-print",
+    "cdc-outbreaks",
+    "nih-news-releases",
+    "cdc-mmwr",
+)
 
 
 def literal(value: object) -> str:
@@ -25,13 +33,19 @@ def literal(value: object) -> str:
 
 
 def fixture_query(source_id: str, change: str) -> str:
-    old = json.loads((ROOT / f"config/intelligence/{source_id}-source-v1.json").read_text())
-    new = json.loads((ROOT / f"config/intelligence/{source_id}-source-v2.json").read_text())
-    from lyme_gap_atlas_data.intelligence_items import identity_hash
+    template = source_id if source_id in LIVE_SOURCES else "cdc-eid-ahead-of-print"
+    if change == "new_source":
+        source_id = "example-new-feed"
+    elif change == "blocked_v1":
+        source_id = "example-blocked-feed"
+    old = json.loads((ROOT / f"config/intelligence/{template}-source-v1.json").read_text())
+    new = json.loads((ROOT / f"config/intelligence/{template}-source-v2.json").read_text())
 
-    old_hash, new_hash = identity_hash(old), identity_hash(new)
+    def retarget(document: dict) -> dict:
+        return json.loads(json.dumps(document).replace(template, source_id))
+
+    old, new = retarget(old), retarget(new)
     if change in {"paused", "revoked", "untrusted", "null_state"}:
-        new = copy.deepcopy(new)
         if change == "paused":
             new["state"] = "paused"
         elif change == "revoked":
@@ -41,6 +55,8 @@ def fixture_query(source_id: str, change: str) -> str:
         else:
             new["state"] = None
     version = 3 if change == "future" else 2
+    new["registry_version"] = version
+    old_hash, new_hash = identity_hash(old), identity_hash(new)
     if change == "wrong_hash":
         new_hash = "0" * 64
     docs = [(1, old_hash, old), (version, new_hash, new)]
@@ -49,14 +65,31 @@ def fixture_query(source_id: str, change: str) -> str:
         f"{literal(sha)} registry_sha256,PARSE_JSON({literal(json.dumps(doc))}) registry_document"
         for v, sha, doc in docs
     )
+
+    def activation_select(registry_version: int, sha: str, state: str) -> str:
+        return (
+            f"SELECT {literal(source_id)} source_id,{registry_version} registry_version,"
+            f"{literal(sha)} registry_sha256,{literal(state)} state,'reviewed' decision_id,"
+            "'2026-10-21T00:00:00Z'::TIMESTAMP_LTZ activated_at"
+        )
+
+    activation_parts = [activation_select(version, new_hash, "ACTIVE")]
+    if change in {"active", "dedup"}:
+        activation_parts.append(activation_select(1, old_hash, "ACTIVE"))
+    elif change == "blocked_v1":
+        activation_parts.append(activation_select(1, old_hash, "BLOCKED"))
+    activations = " UNION ALL ".join(activation_parts)
     item = {
         "contract_version": "2.0.0",
         "title": "DEV inline fixture",
         "provenance": {"run_id": "dev-fixture-run", "artifact_sha256": "a" * 64},
     }
+    later = dict(item)
+    later["title"] = "DEV inline fixture v2"
+    capture_version = version if change in {"new_source"} else 1
     captures = (
         "SELECT 'item' item_id,'revision' revision_id,"
-        f"{literal(source_id)} source_id,1 registry_version,'rss' transport,"
+        f"{literal(source_id)} source_id,{capture_version} registry_version,'rss' transport,"
         f"PARSE_JSON({literal(json.dumps(item))}) item_document,"
         "'2026-10-21T00:00:00Z'::TIMESTAMP_NTZ retrieved_at,'old' capture_id"
     )
@@ -66,24 +99,30 @@ def fixture_query(source_id: str, change: str) -> str:
             f"{literal(source_id)},2,'rss',PARSE_JSON({literal(json.dumps(item))}),"
             "'2026-10-21T01:00:00Z'::TIMESTAMP_NTZ,'new'"
         )
+    if change == "blocked_v1":
+        captures += (
+            " UNION ALL SELECT 'v2-item','revision',"
+            f"{literal(source_id)},2,'rss',PARSE_JSON({literal(json.dumps(later))}),"
+            "'2026-10-21T01:00:00Z'::TIMESTAMP_NTZ,'v2'"
+        )
     query = (ROOT / "migrations" / MIGRATION).read_text().split("COPY GRANTS AS", 1)[1]
     query = query.strip().removesuffix(";")
     query = query.replace("GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS", "fixture_sources")
     query = query.replace("GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES", "fixture_captures")
     query = query.replace("CONFORMED.INTELLIGENCE_ITEM_REVISIONS", "fixture_revisions")
-    return query.replace(
-        "WITH blocked_source_versions AS (",
+    query = query.replace("GOVERNANCE.INTELLIGENCE_SOURCE_ACTIVATIONS", "fixture_activations")
+    return (
         f"WITH fixture_sources AS ({registry}),fixture_captures AS ({captures}),"
-        "fixture_revisions AS (SELECT 'item' item_id,'revision' revision_id),"
-        "blocked_source_versions AS (",
-        1,
+        "fixture_revisions AS (SELECT 'item' item_id,'revision' revision_id "
+        "UNION ALL SELECT 'v2-item','revision'),"
+        f"fixture_activations AS ({activations}) {query}"
     )
 
 
 def acceptance_sql() -> tuple[str, dict[str, tuple[int, int | None]]]:
     expected = {}
     selects = []
-    for source in ("cdc-eid-expedited", "cdc-eid-ahead-of-print", "cdc-outbreaks"):
+    for source in LIVE_SOURCES:
         for change in (
             "active",
             "dedup",
@@ -102,6 +141,20 @@ def acceptance_sql() -> tuple[str, dict[str, tuple[int, int | None]]]:
                 f"SELECT {literal(name)} AS SCENARIO,COUNT(*) AS ENTRY_COUNT,"
                 f"MAX(REGISTRY_VERSION) AS VERSION FROM ({fixture_query(source, change)})"
             )
+    expected["example-blocked-feed:blocked_v1"] = (1, 2)
+    selects.append(
+        "SELECT 'example-blocked-feed:blocked_v1' AS SCENARIO,COUNT(*) AS ENTRY_COUNT,"
+        "MAX(REGISTRY_VERSION) AS VERSION FROM ("
+        + fixture_query("cdc-eid-ahead-of-print", "blocked_v1")
+        + ")"
+    )
+    expected["example-new-feed:new_source"] = (1, 2)
+    selects.append(
+        "SELECT 'example-new-feed:new_source' AS SCENARIO,COUNT(*) AS ENTRY_COUNT,"
+        "MAX(REGISTRY_VERSION) AS VERSION FROM ("
+        + fixture_query("cdc-eid-ahead-of-print", "new_source")
+        + ")"
+    )
     return " UNION ALL ".join(selects), expected
 
 

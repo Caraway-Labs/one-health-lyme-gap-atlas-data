@@ -507,9 +507,9 @@ def test_workflow_public_safe_input_and_exit_before_migration():
 
 def test_definition_comparison_detects_version_and_private_projection_changes():
     source = (
-        Path(__file__).parents[1] / "docs/contracts/intelligence/v2/presentation-projection.sql"
+        Path(__file__).parents[1] / "migrations" / "V170__intelligence_source_activations.sql"
     ).read_text()
-    start = source.index("CREATE VIEW IF NOT EXISTS PRESENTATION.INTELLIGENCE_FEED_V2")
+    start = source.index("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2")
     ddl = source[start:].split(";", 1)[0]
     assert module.view_matches("INTELLIGENCE_FEED_V2", ddl)
     assert not module.view_matches("INTELLIGENCE_FEED_V2", ddl.replace("'2.0.0'", "'1.0.0'"))

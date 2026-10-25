@@ -21,6 +21,11 @@ from urllib.parse import urlsplit
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
+from ..intelligence_activations import (
+    fetch_activations,
+    load_registry_documents,
+    source_is_active,
+)
 from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
@@ -548,6 +553,11 @@ def compose_pilot(
         and (source["state"] != "active" or source["cadence"]["poll_seconds"] != 86400)
     ):
         raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
+    if environment == "PROD":
+        with factory() as connection, connection.cursor() as cursor:
+            activations = fetch_activations(cursor)
+        if not source_is_active(source, load_registry_documents(), activations):
+            raise PermissionError("INTELLIGENCE_ACTIVE_SOURCE_REQUIRED")
     native.validate(source)
     definition = replace(
         definition,

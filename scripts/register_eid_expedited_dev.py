@@ -18,6 +18,10 @@ from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
     PROD_SOURCE_SHA256,
     pilot_watchdog,
 )
+from lyme_gap_atlas_data.intelligence_activations import (
+    activation_merge_statement,
+    rows_for_reviewed_registration,
+)
 from lyme_gap_atlas_data.intelligence_items import canonical_json, identity_hash, validate_record
 from lyme_gap_atlas_data.intelligence_metadata import NativeMetadataPolicy
 from lyme_gap_atlas_data.sql_sessions import connect
@@ -203,6 +207,13 @@ def register(
             )
             if cursor.rowcount != 1:
                 raise PermissionError("EID_INSERT_CARDINALITY_MISMATCH")
+            previous = None
+            if version == 2:
+                previous, _previous_hash = reviewed_package(source_id, 1)
+            merge_sql, merge_params = activation_merge_statement(
+                rows_for_reviewed_registration(source, previous, database=expected_identity[2])
+            )
+            cursor.execute(merge_sql, merge_params)
             connection.commit()
             return "RECORDED"
         except Exception:

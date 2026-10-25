@@ -124,10 +124,19 @@ def test_real_dev_acceptance_uses_actual_full_query_and_inline_selects_only():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     query, expected = module.acceptance_sql()
-    assert len(expected) == 24
+    assert expected["cdc-eid-ahead-of-print:active"] == (1, 1)
+    assert expected["example-blocked-feed:blocked_v1"] == (1, 2)
+    assert expected["example-new-feed:new_source"] == (1, 2)
+    assert "example-blocked-feed" not in (ROOT / "migrations" / module.MIGRATION).read_text()
+    assert "example-new-feed" not in (ROOT / "migrations" / module.MIGRATION).read_text()
     assert "GOVERNANCE." not in query and "CONFORMED." not in query
     assert "CREATE" not in query and "INSERT" not in query
-    assert query.count("LEFT JOIN blocked_source_versions blocked") == 24
+    assert "blocked_source_versions" not in query and "CASE" not in query
+    assert query.count("JOIN fixture_activations") == len(expected)
+    assert query.count("a.state = 'ACTIVE'") == len(expected)
+    blocked = module.fixture_query("cdc-eid-ahead-of-print", "blocked_v1")
+    assert "'BLOCKED'" in blocked and "example-blocked-feed" in blocked
+    assert "cdc-eid-ahead-of-print" not in blocked
     assert "ATLAS_DEV_READ" in path.read_text()
     assert " AS ROWS" not in query
 
