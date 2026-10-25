@@ -11,12 +11,13 @@ from urllib.parse import urlsplit
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
-    DAILY_DECISION,
     ENDPOINTS,
-    PROD_DAILY_SOURCE_SHA256,
+    PROD_NATIVE_PATH_SUPERSET,
     PROD_SOURCE_DECISIONS,
     PROD_SOURCE_SHA256,
     pilot_watchdog,
+    reviewed_prod_decision_ref,
+    reviewed_prod_source_sha256,
 )
 from lyme_gap_atlas_data.intelligence_activations import (
     activation_merge_statement,
@@ -43,9 +44,7 @@ ARTIFACT_POLICY = "CDC_EID_RESTRICTED_RAW_30D_V1"
 def reviewed_package(
     source_id: str = SOURCE_ID, registry_version: int = 1
 ) -> tuple[dict[str, Any], str]:
-    if source_id not in PROD_SOURCE_SHA256:
-        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
-    if registry_version not in {1, 2}:
+    if source_id not in PROD_SOURCE_SHA256 or registry_version not in {1, 2, 3}:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     path = (
         SOURCE
@@ -61,7 +60,11 @@ def reviewed_package(
     receipts = json.loads(receipt_path.read_text(encoding="utf-8"))["receipts"]
     validate_record("source", source)
     checksum = identity_hash(source)
-    selected = [row for row in receipts if row.get("source_id") == source_id]
+    selected = [
+        row
+        for row in receipts
+        if row.get("source_id") == source_id and row.get("registry_version") == registry_version
+    ]
     if len(selected) != 1:
         raise PermissionError("EID_EXACT_RECEIPT_REQUIRED")
     receipt = selected[0]
@@ -77,10 +80,11 @@ def reviewed_package(
     native.validate(source)
     if (
         source["source_id"] != source_id
-        or checksum
-        != (PROD_SOURCE_SHA256 if registry_version == 1 else PROD_DAILY_SOURCE_SHA256)[source_id]
+        or checksum != reviewed_prod_source_sha256(source_id, registry_version)
         or source["registry_version"] != registry_version
-        or source["fetch_location"] != ENDPOINTS[source_id]
+        or source["fetch_location"]
+        != ENDPOINTS[source_id]
+        + ("?max=250" if registry_version == 3 and source_id == "cdc-mmwr" else "")
         or source["approved_hosts"] != [urlsplit(ENDPOINTS[source_id]).hostname]
         or source["state"] != ("manual" if registry_version == 1 else "active")
         or source["cadence"]["poll_seconds"] != 86400
@@ -94,30 +98,43 @@ def reviewed_package(
         }
         or any(source[key]["status"] != "approved" for key in ("approval", "trust_review"))
         or source["approval"]["decision_ref"]
-        != (PROD_SOURCE_DECISIONS[source_id] if registry_version == 1 else DAILY_DECISION)
+        != reviewed_prod_decision_ref(source_id, registry_version)
         or source["trust_review"]["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
         or source["access_use"]["public_excerpt_permitted"]
         or source["access_use"]["excerpt_max_chars"] != 0
         or source["access_use"]["content_retention_policy_ref"]
         != source_id + "-metadata-raw-30d-v1"
-        or receipt["decision_ref"]
-        != (PROD_SOURCE_DECISIONS[source_id] if registry_version == 1 else DAILY_DECISION)
+        or receipt["decision_ref"] != reviewed_prod_decision_ref(source_id, registry_version)
         or receipt["registry_version"] != registry_version
         or receipt["source_sha256"] != checksum
         or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
         or receipt["retention_policy_ref"] != source["access_use"]["content_retention_policy_ref"]
         or receipt["artifact_policy"] != ARTIFACT_POLICY
         or native.policy_ref != source_id + "-native-metadata-v1"
-        or native.permitted_paths
-        != frozenset(
-            {
-                "feed/language",
-                "feed/link",
-                "feed/title",
-                "item/link",
-                "item/pubDate",
-                "item/title",
-            }
+        or (
+            registry_version < 3
+            and native.permitted_paths
+            != frozenset(
+                {
+                    "feed/language",
+                    "feed/link",
+                    "feed/title",
+                    "item/link",
+                    "item/pubDate",
+                    "item/title",
+                }
+            )
+        )
+        or (
+            registry_version == 3
+            and (
+                "item/description" not in native.permitted_paths
+                or not native.permitted_paths <= PROD_NATIVE_PATH_SUPERSET
+                or any(
+                    "enclosure" in path or "mrss" in path or "copyright" in path
+                    for path in native.permitted_paths
+                )
+            )
         )
         or native.updated_path is not None
         or native.published_path != "item/pubDate"
@@ -137,12 +154,11 @@ def register(
     """Guarded single-source insert; exact existing row is an idempotent retry."""
     source_id = source["source_id"]
     version = source["registry_version"]
-    expected_hashes = PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256
-    if (
-        version not in {1, 2}
-        or source_id not in expected_hashes
-        or checksum != expected_hashes[source_id]
-    ):
+    try:
+        expected_hash = reviewed_prod_source_sha256(source_id, version)
+    except PermissionError:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH") from None
+    if checksum != expected_hash:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     if identity_hash(source) != checksum:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
@@ -175,25 +191,32 @@ def register(
             expected = (version, checksum, canonical_json(source))
             if existing:
                 if existing[0][:2] == expected[:2] and json.loads(existing[0][2]) == source:
-                    if len(existing) != version or (
-                        version == 2
-                        and (
-                            existing[1][:2] != (1, PROD_SOURCE_SHA256[source_id])
-                            or json.loads(existing[1][2]) != reviewed_package(source_id, 1)[0]
+                    if version == 1:
+                        unchanged = len(existing) == 1
+                    else:
+                        prior_version = version - 1
+                        prior_document, prior_hash = reviewed_package(source_id, prior_version)
+                        unchanged = (
+                            len(existing) == 2
+                            and existing[1][:2] == (prior_version, prior_hash)
+                            and json.loads(existing[1][2]) == prior_document
                         )
-                    ):
+                    if not unchanged:
                         raise PermissionError("EID_REGISTRY_STATE_CHANGED")
                     connection.rollback()
                     return "ALREADY_RECORDED"
-                if (
-                    version != 2
-                    or len(existing) != 1
-                    or existing[0][:2] != (1, PROD_SOURCE_SHA256[source_id])
-                ):
+                if version == 2:
+                    prior_version = 1
+                    if len(existing) != 1:
+                        raise PermissionError("EID_REGISTRY_STATE_CHANGED")
+                elif version == 3:
+                    prior_version = 2
+                else:
                     raise PermissionError("EID_REGISTRY_STATE_CHANGED")
-                previous, previous_hash = reviewed_package(source_id, 1)
+                previous, previous_hash = reviewed_package(source_id, prior_version)
                 if (
-                    json.loads(existing[0][2]) != previous
+                    existing[0][:2] != (prior_version, previous_hash)
+                    or json.loads(existing[0][2]) != previous
                     or identity_hash(previous) != previous_hash
                 ):
                     raise PermissionError("EID_REGISTRY_STATE_CHANGED")
@@ -208,8 +231,8 @@ def register(
             if cursor.rowcount != 1:
                 raise PermissionError("EID_INSERT_CARDINALITY_MISMATCH")
             previous = None
-            if version == 2:
-                previous, _previous_hash = reviewed_package(source_id, 1)
+            if version in {2, 3}:
+                previous, _previous_hash = reviewed_package(source_id, version - 1)
             merge_sql, merge_params = activation_merge_statement(
                 rows_for_reviewed_registration(source, previous, database=expected_identity[2])
             )

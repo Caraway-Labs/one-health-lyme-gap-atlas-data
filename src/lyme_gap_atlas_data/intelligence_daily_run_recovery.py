@@ -6,7 +6,10 @@ from typing import Any
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
-from .ingestion.intelligence_runtime import PROD_DAILY_SOURCE_SHA256, PROD_SOURCE_DEFINITIONS
+from .ingestion.intelligence_runtime import (
+    PROD_SOURCE_DEFINITIONS,
+    prod_daily_config_sha256_allowed,
+)
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -60,7 +63,7 @@ def terminalize_stuck_daily_run(ingestion_run_id: str, *, source_id: str) -> dic
             status != "RUNNING"
             or code_version != DAILY_CODE_VERSION
             or resource_key not in PROD_SOURCE_DEFINITIONS
-            or config_sha256 != PROD_DAILY_SOURCE_SHA256[resource_key]
+            or not prod_daily_config_sha256_allowed(resource_key, config_sha256)
         ):
             raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_SCOPE_REQUIRED")
         cursor.execute(

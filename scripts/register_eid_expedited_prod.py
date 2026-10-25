@@ -11,9 +11,8 @@ from typing import Any
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
-    PROD_DAILY_SOURCE_SHA256,
-    PROD_SOURCE_SHA256,
     pilot_watchdog,
+    reviewed_prod_source_sha256,
 )
 from lyme_gap_atlas_data.migrations import (
     PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
@@ -91,9 +90,7 @@ def main() -> None:
             source_id = os.environ.get("INTELLIGENCE_SOURCE_ID", "cdc-eid-expedited")
             version = int(os.environ.get("INTELLIGENCE_SOURCE_REGISTRY_VERSION", "1"))
             source, checksum = reviewed_package(source_id, version)
-            if checksum != (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(
-                source_id
-            ):
+            if checksum != reviewed_prod_source_sha256(source_id, version):
                 raise PermissionError("EID_PROD_SOURCE_HASH_CHANGED")
             with connect(SnowflakeSettings()) as connection:
                 verify_schema(connection, source_id, version)
