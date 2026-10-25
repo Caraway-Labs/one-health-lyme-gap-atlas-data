@@ -72,7 +72,7 @@ AUTHOR_LIMIT = 20
 MESH_LIMIT = 50
 KEYWORD_LIMIT = 50
 REQUEST_TIMEOUT_SECONDS = 30.0
-PMID_RE = re.compile(r"^[0-9]{1,12}$")
+PMID_RE = re.compile(r"^[1-9][0-9]{0,9}$")
 MESH_UI_RE = re.compile(r"^[A-Z][0-9]{6}$")
 MONTHS = {
     "jan": 1,
@@ -202,6 +202,11 @@ def entry_window(last_entry_date: date | None, today: date) -> tuple[date, date]
     return last_entry_date - timedelta(days=OVERLAP_DAYS), today
 
 
+def accepted_pmid(value: object) -> bool:
+    """True when value is the API PMID shape: 1 to 10 digits and no leading zero."""
+    return isinstance(value, str) and PMID_RE.fullmatch(value) is not None
+
+
 def ncbi_day(day: date) -> str:
     return day.strftime("%Y/%m/%d")
 
@@ -293,7 +298,7 @@ def load_suppressions(
         set(document) != {"pmids", "publishers"}
         or not isinstance(pmids, list)
         or not isinstance(publishers, list)
-        or any(not isinstance(value, str) or not PMID_RE.fullmatch(value) for value in pmids)
+        or any(not accepted_pmid(value) for value in pmids)
         or any(not isinstance(value, str) or not value for value in publishers)
     ):
         raise PermissionError("INTELLIGENCE_PUBMED_SUPPRESSION_INVALID")
@@ -345,8 +350,7 @@ def verify_entrez_item(
     pmid = publisher.get("source_item_id")
     expected_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
     if (
-        not isinstance(pmid, str)
-        or PMID_RE.fullmatch(pmid) is None
+        not accepted_pmid(pmid)
         or item.get("canonical_url") != expected_url
         or canonical_url(expected_url) != expected_url
     ):
@@ -461,8 +465,8 @@ def refresh_pubmed_mesh(
     """Weekly MeSH refresh. At most 200 PMIDs and 3 efetch requests, on its own budget."""
     chosen = []
     for pmid in pmids:
-        if PMID_RE.fullmatch(pmid) is None:
-            raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
+        if not accepted_pmid(pmid):
+            continue
         if pmid not in chosen:
             chosen.append(pmid)
         if len(chosen) == MAX_ITEMS:
@@ -556,15 +560,7 @@ class _EntrezSession:
             or _has_control(email)
         ):
             raise PermissionError("NCBI_CONTACT_REQUIRED")
-        params = {"tool": ENTREZ_TOOL, "email": email}
-        secret = self._settings.ncbi_api_key
-        if secret is not None:
-            value = secret.get_secret_value()
-            if value:
-                if len(value) > 128 or _has_control(value):
-                    raise PermissionError("NCBI_CONTACT_REQUIRED")
-                params["api_key"] = value
-        return params
+        return {"tool": ENTREZ_TOOL, "email": email}
 
     def _pace(self) -> None:
         now = self._clock()
@@ -609,12 +605,16 @@ def _load_sources() -> dict[str, dict[str, Any]]:
         path = Path(f"config/intelligence/{source_id}-source-v1.json")
         source = json.loads(path.read_text(encoding="utf-8"))
         validate_record("source", source)
+        draft = (
+            source["state"] == "candidate"
+            and source["approval"]["status"] == "pending"
+            and source["trust_review"]["status"] == "pending"
+        )
         if (
             source["source_id"] != source_id
             or source["registry_version"] != 1
-            or source["state"] != "candidate"
-            or source["approval"]["status"] != "pending"
-            or source["trust_review"]["status"] != "pending"
+            or source["state"] not in {"candidate", "active"}
+            or (source["state"] == "candidate" and not draft)
             or source["transport"] != "entrez"
             or source["family"] != "pubmed"
             or source["fetch_location"] != ESEARCH_URL
@@ -747,8 +747,8 @@ def _parse_esearch(body: bytes) -> tuple[list[str], int]:
         raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
     pmids: list[str] = []
     for pmid in raw_ids:
-        if not isinstance(pmid, str) or PMID_RE.fullmatch(pmid) is None:
-            raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
+        if not accepted_pmid(pmid):
+            continue
         if pmid not in pmids:
             pmids.append(pmid)
     return pmids, count
@@ -778,7 +778,7 @@ def _record_from_article(article: ET.Element) -> _Record | None:
         return None
     pmid = _plain(citation.find("PMID"))
     title = permitted_text(_plain(paper.find("ArticleTitle")), 1000)
-    if PMID_RE.fullmatch(pmid) is None or not title:
+    if not accepted_pmid(pmid) or not title:
         return None
     published, _raw = _complete_date(paper.find("Journal/JournalIssue/PubDate"))
     entry, _entry_raw = _entry_date(article)

@@ -14,6 +14,7 @@ import pytest
 from pydantic import SecretStr
 
 from lyme_gap_atlas_data import intelligence_polling as polling
+from lyme_gap_atlas_data.ingestion import intelligence_entrez as entrez
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
 from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
 from lyme_gap_atlas_data.ingestion.checkpoints import InMemoryCheckpointStore
@@ -31,6 +32,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     entry_window,
     execute_registered_entrez_daily,
     live_entrez_get,
+    load_suppressions,
     mesh_refresh_candidates,
     read_bounded,
     refresh_pubmed_mesh,
@@ -96,25 +98,22 @@ class FixtureTransport:
         overlap_xml: bytes | None = None,
         status: int | None = None,
         oversized: bool = False,
-        expect_api_key: bool = True,
     ) -> None:
         self.searches = searches
         self.overlap_xml = overlap_xml
         self.status = status
         self.oversized = oversized
-        self.expect_api_key = expect_api_key
         self.calls: list[dict[str, str]] = []
+        self.params: list[dict[str, str]] = []
         self.urls: list[str] = []
         self.contacts: list[bool] = []
 
     def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
         assert timeout <= 30
         self.urls.append(url)
-        self.contacts.append(
-            params.get("tool") == ENTREZ_TOOL
-            and params.get("email") == EMAIL
-            and ("api_key" in params) is self.expect_api_key
-        )
+        self.params.append(dict(params))
+        assert "api_key" not in params
+        self.contacts.append(params.get("tool") == ENTREZ_TOOL and params.get("email") == EMAIL)
         hidden = {"tool", "email", "api_key"}
         self.calls.append({key: value for key, value in params.items() if key not in hidden})
         if self.status is not None and len(self.calls) == 1:
@@ -369,7 +368,7 @@ def test_no_mesh_is_selected_by_the_later_refresh_pass() -> None:
         def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
             self.calls += 1
             assert url.endswith("efetch.fcgi")
-            assert "api_key" not in params or params["api_key"] != ""
+            assert "api_key" not in params
             xml = _article("23456789", date(2026, 10, 23)).encode()
             return EntrezResponse(200, b"<PubmedArticleSet>" + xml + b"</PubmedArticleSet>")
 
@@ -597,7 +596,8 @@ def test_transport_error_hides_the_contact(caplog: pytest.LogCaptureFixture) -> 
 
     class Boom:
         def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
-            raise httpx.ConnectError(f"{url}?email={params['email']}&api_key={params['api_key']}")
+            assert "api_key" not in params
+            raise httpx.ConnectError(f"{url}?email={params['email']}")
 
     with pytest.raises(Exception, match="FEED_HTTP_FAILED") as caught:
         _run(
@@ -805,3 +805,101 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
     assert seen["store"] == "store"
     assert seen["checkpoints"] == "ledger"
     assert seen["sender"] is live_entrez_get
+
+
+def test_invalid_pmids_are_skipped() -> None:
+    body = json.dumps(
+        {
+            "esearchresult": {
+                "count": "4",
+                "idlist": ["01234567", "12345678901", "", "34567890"],
+            }
+        }
+    ).encode()
+    pmids, count = entrez._parse_esearch(body)
+    assert count == 4
+    assert pmids == ["34567890"]
+    xml = (
+        "<PubmedArticleSet>"
+        + _article("01234567", TODAY)
+        + _article("12345678901", TODAY)
+        + _article("", TODAY)
+        + _article("34567890", TODAY)
+        + "</PubmedArticleSet>"
+    )
+    records = entrez._parse_efetch(xml.encode())
+    assert [record.pmid for record in records] == ["34567890"]
+
+    fetched: list[str] = []
+
+    class Refresh:
+        def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
+            assert "api_key" not in params
+            fetched.extend(params["id"].split(","))
+            article = _article("34567890", TODAY).encode()
+            return EntrezResponse(200, b"<PubmedArticleSet>" + article + b"</PubmedArticleSet>")
+
+    _now, clock, sleep = _clock()
+    found = refresh_pubmed_mesh(
+        ["01234567", "12345678901", "", "34567890"],
+        sender=Refresh(),
+        settings=_settings(),
+        budget=runtime.PilotBudget(clock, seconds=30, request_limit=3),
+        clock=clock,
+        sleep=sleep,
+    )
+    assert fetched == ["34567890"]
+    assert set(found) == {"34567890"}
+
+
+def test_suppression_file_rejects_an_invalid_pmid(tmp_path: Path) -> None:
+    path = tmp_path / "suppress.json"
+    path.write_text(json.dumps({"pmids": ["0123"], "publishers": []}), encoding="utf-8")
+    with pytest.raises(PermissionError, match="INTELLIGENCE_PUBMED_SUPPRESSION_INVALID"):
+        load_suppressions(path)
+    path.write_text(json.dumps({"pmids": ["12345678901"], "publishers": []}), encoding="utf-8")
+    with pytest.raises(PermissionError, match="INTELLIGENCE_PUBMED_SUPPRESSION_INVALID"):
+        load_suppressions(path)
+    path.write_text(json.dumps({"pmids": [""], "publishers": []}), encoding="utf-8")
+    with pytest.raises(PermissionError, match="INTELLIGENCE_PUBMED_SUPPRESSION_INVALID"):
+        load_suppressions(path)
+
+
+def test_requests_never_include_an_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NCBI_API_KEY", "env-secret-key")
+    settings = PipelineSettings(ncbi_email=EMAIL)
+    assert settings.ncbi_api_key is not None
+    assert settings.ncbi_api_key.get_secret_value() == "env-secret-key"
+    transport = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+    _run(transport, settings=settings)
+    assert transport.params
+    rendered = json.dumps(transport.params)
+    assert "api_key" not in rendered
+    assert "env-secret-key" not in rendered
+
+
+def test_load_sources_accepts_an_active_form(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = entrez.json.loads
+
+    def loads(text: str | bytes, *args: object, **kwargs: object) -> object:
+        document = original(text, *args, **kwargs)
+        if (
+            isinstance(document, dict)
+            and document.get("transport") == "entrez"
+            and document.get("source_id") in SOURCE_ORDER
+        ):
+            document["state"] = "active"
+            document["approval"]["status"] = "approved"
+            document["approval"]["decision_ref"] = "matthew-feed-selection-2026-10-03"
+            document["approval"]["reviewed_at"] = "2026-10-03T00:00:00Z"
+            document["trust_review"]["status"] = "approved"
+            document["trust_review"]["decision_ref"] = "matthew-feed-selection-2026-10-03"
+            document["trust_review"]["reviewed_at"] = "2026-10-03T00:00:00Z"
+            document["trust_classification"] = "research_index"
+            document["cadence"]["poll_seconds"] = 86400
+        return document
+
+    monkeypatch.setattr(entrez.json, "loads", loads)
+    loaded = entrez._load_sources()
+    assert set(loaded) == set(SOURCE_ORDER)
+    assert {source["state"] for source in loaded.values()} == {"active"}
