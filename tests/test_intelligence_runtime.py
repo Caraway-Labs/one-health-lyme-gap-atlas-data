@@ -83,6 +83,18 @@ class PilotCursor(AcquisitionCursor):
                 if s["source_id"] == params[0]
             ]
             self.rows = [(max(versions),)] if versions else []
+        elif "INTELLIGENCE_SOURCE_ACTIVATIONS" in sql:
+            source = self.connection.ledger.sources[0]
+            state = getattr(self.connection.ledger, "activation_state", "ACTIVE")
+            self.rows = [
+                (
+                    source["source_id"],
+                    source["registry_version"],
+                    identity_hash(source),
+                    state,
+                    source["approval"]["decision_ref"],
+                )
+            ]
         else:
             super().execute(statement, params)
 
@@ -171,6 +183,15 @@ def test_prod_eid_composition_requires_exact_storage_identity_and_receipt() -> N
     assert loaded.extra["intelligence_registry"] == source
     assert checksum == runtime.PROD_EID_SHA256
     assert not ledger.requests and not ledger.captures
+    ledger.activation_state = "BLOCKED"
+    with pytest.raises(PermissionError, match="INTELLIGENCE_ACTIVE_SOURCE_REQUIRED"):
+        runtime.compose_pilot(
+            configured,
+            receipts=receipts,
+            connection_factory=lambda: PilotConnection(ledger),
+            settings=settings,
+        )
+    ledger.activation_state = "ACTIVE"
     with pytest.raises(PermissionError, match="STORAGE_SCOPE_REQUIRED"):
         runtime.compose_pilot(
             configured,

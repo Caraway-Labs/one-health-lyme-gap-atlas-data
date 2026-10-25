@@ -66,6 +66,14 @@ PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION = {
     "filename": "V167__prod_cdc_mmwr_daily_activation_view.sql",
     "sha256": "cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f",
 }
+INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
+    "version": "V170",
+    "filename": "V170__intelligence_source_activations.sql",
+    "sha256": "ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d",
+}
+# V170 replaces the feed view in both databases. The protected path is required
+# on DEV and PROD; the historical feed-view migrations stay PROD-only.
+BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -76,6 +84,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_INTELLIGENCE_VIEW_COMPATIBILITY_MIGRATION,
     PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
     PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
+    INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -1059,11 +1068,14 @@ def apply_migrations(
             # V150 is deliberately retained as pending, never executed in this scope.
             continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
-        protected_database = (
-            DEV_DATABASE if pinned["version"] in {"V142", "V143"} else PROD_DATABASE
-        )
+        if pinned["version"] in {"V142", "V143"}:
+            protected_databases = {DEV_DATABASE}
+        elif pinned["version"] in BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS:
+            protected_databases = {DEV_DATABASE, PROD_DATABASE}
+        else:
+            protected_databases = {PROD_DATABASE}
         if (
-            database == protected_database
+            database in protected_databases
             and prerequisite is not None
             and prerequisite.version not in applied
             and (
@@ -1119,6 +1131,11 @@ def apply_migrations(
         and "V166" not in applied
     ):
         raise PermissionError("V167 requires recorded V166 before CDC MMWR daily activation view")
+    if any(item.version == "V170" and item.version not in applied for item in plan) and (
+        (database == DEV_DATABASE and "V142" not in applied)
+        or (database == PROD_DATABASE and "V167" not in applied)
+    ):
+        raise PermissionError("V170 requires the recorded feed view before source activations")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
