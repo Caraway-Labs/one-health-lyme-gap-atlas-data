@@ -30,6 +30,7 @@ from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from ..intelligence_retention import PROD_METADATA_FEED_IDS
+from ..intelligence_storage import IntelligenceStore
 from ..settings import PipelineSettings
 from ..sql_sessions import connect
 from .adapters import AcquireResult, NormalizeResult
@@ -650,3 +651,55 @@ def canonical_pilot(
         budget=budget,
         registry_version=version,
     )
+
+
+def open_entrez_daily_io(
+    settings: PipelineSettings,
+) -> tuple[Any, Any, PilotBudget]:
+    """PROD store and Snowflake checkpoint ledger for a registered Entrez daily run.
+
+    Draft sources never reach this function. The store's write method is the same
+    MERGE path the RSS load stage uses. The raw-artifact lease still accepts only
+    RSS parser versions, so this opener does not bind Entrez response bytes there.
+    """
+    if settings.topx_env != "prod" or not settings.intelligence_daily_enabled:
+        raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
+    budget = PilotBudget(seconds=DAILY_SOURCE_BUDGET_SECONDS, request_limit=5)
+
+    @contextmanager
+    def factory() -> Iterator[Any]:
+        budget.remaining()
+        with connect(SnowflakeSettings()) as raw:
+            yield _Connection(raw, budget)
+
+    document = json.loads(
+        Path("config/intelligence/pubmed-policy-receipts.json").read_text(encoding="utf-8")
+    )
+    policies: dict[str, NativeMetadataPolicy] = {}
+    for receipt in document["receipts"]:
+        native = receipt["native_policy"]
+        policies[receipt["source_id"]] = NativeMetadataPolicy(
+            policy_ref=native["policy_ref"],
+            source_sha256=native["source_sha256"],
+            inventory=frozenset(native["inventory"]),
+            permitted_paths=frozenset(native["permitted_paths"]),
+            required_paths=frozenset(native["required_paths"]),
+            published_path=native["published_path"],
+            published_format=native["published_format"],
+            updated_path=native.get("updated_path"),
+            updated_format=native.get("updated_format", "iso8601"),
+        )
+    store = IntelligenceStore(
+        connection_factory=factory,
+        retention_allowed=lambda ref: str(ref).endswith("metadata-raw-30d-v1"),
+        native_policy_lookup=lambda sid, version: policies[sid],
+        settings=settings,
+    )
+    retention = FeedRawRetention(
+        SnowflakeRawLedger(factory, "PROD"),
+        environment="PROD",
+        source_lookup=store.lookup_source,
+        policy_lookup=lambda source: source["access_use"]["content_retention_policy_ref"],
+    )
+    checkpoints = IntelligenceSnowflakeCheckpoints(retention, connection_factory=factory)
+    return store, checkpoints, budget

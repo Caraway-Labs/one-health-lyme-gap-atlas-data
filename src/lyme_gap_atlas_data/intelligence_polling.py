@@ -10,6 +10,7 @@ import multiprocessing
 import os
 import re
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,6 +22,11 @@ from . import settings as pipeline_settings
 from .ingestion import intelligence_runtime
 from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .ingestion.intelligence_daily_run_ids import daily_run_id
+from .ingestion.intelligence_entrez import (
+    execute_registered_entrez_daily,
+    live_entrez_get,
+    registered_entrez_sources,
+)
 from .ingestion.intelligence_runtime import (
     DAILY_OPERATOR_STAGE_NAMES,
     DAILY_SOURCE_BUDGET_SECONDS,
@@ -642,6 +648,32 @@ def execute_daily_source_in_process(
         )
 
 
+def _walk_registered_entrez_daily(settings: Any, day: str, *, preflight_only: bool) -> None:
+    """Run PubMed when both sources are active and pinned. Drafts do not fetch or write.
+
+    The five CDC/NIH sources keep their own walk. This adds the Entrez path beside
+    them and returns before any session when the PubMed files are still unregistered.
+    """
+    if not registered_entrez_sources(PROD_DAILY_SOURCE_SHA256):
+        return
+    if preflight_only:
+        return
+    store, checkpoints, budget = intelligence_runtime.open_entrez_daily_io(settings)
+    execute_registered_entrez_daily(
+        pinned=PROD_DAILY_SOURCE_SHA256,
+        sender=live_entrez_get,
+        settings=settings,
+        budget=budget,
+        checkpoints=checkpoints,
+        store=store,
+        today=datetime.fromisoformat(day).date(),
+        run_id=f"pubmed-entrez-{day}",
+        fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        clock=time.monotonic,
+        sleep=time.sleep,
+    )
+
+
 def daily_source_selection(
     source_ids: tuple[str, ...] | list[str] | None,
     *,
@@ -709,6 +741,7 @@ def run_production_daily(
         )
     for row in results:
         _log_daily_outcome(row)
+    _walk_registered_entrez_daily(settings, day, preflight_only=preflight_only)
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
     if preflight_only and any(
         row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results
