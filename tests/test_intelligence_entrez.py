@@ -464,9 +464,13 @@ def test_author_limit_and_overlong_abstract() -> None:
         _queries()["pubmed-tick-borne"]: {"count": 1, "idlist": ["30000002"]},
         _queries()["pubmed-lyme-borrelia"]: {"count": 0, "idlist": []},
     }
-    refused, _sleeps = _run(LongTransport(long_searches))
-    assert refused.items == []
-    assert refused.refused_abstracts == 1
+    kept, _sleeps = _run(LongTransport(long_searches))
+    assert len(kept.items) == 1
+    abstract = kept.items[0]["publisher_metadata"]["abstract"]
+    assert abstract["state"] == "withheld"
+    assert abstract["text"] is None
+    assert "a" * 6001 not in json.dumps(kept.items)
+    assert kept.withheld_abstracts == 1
 
 
 def test_entrez_request_budget_stops_at_five() -> None:

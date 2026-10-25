@@ -182,12 +182,17 @@ class PubmedOutcome:
     remaining: int
     revisions_inserted: int
     watermarks: dict[str, str]
-    refused_abstracts: int
+    withheld_abstracts: int
     windows: dict[str, tuple[str, str]]
 
 
-class AbstractRefused(ValueError):
-    """An abstract is longer than the plain-text limit and is not stored."""
+def withhold_overlong_pubmed_abstract(text: str) -> bool:
+    """Whether a sanitized abstract is longer than ABSTRACT_LIMIT.
+
+    The paper is still stored. Its abstract state is withheld and its text is
+    null. The characters are not truncated, and the 6000-character cap stays.
+    """
+    return len(text) > ABSTRACT_LIMIT
 
 
 def entry_window(last_entry_date: date | None, today: date) -> tuple[date, date]:
@@ -330,7 +335,10 @@ def verify_entrez_item(
         or len(publisher.get("publication_types", [])) > MESH_LIMIT
     ):
         raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
-    if abstract.get("state") in {"suppressed", "not_provided"} and abstract.get("text") is not None:
+    if (
+        abstract.get("state") in {"suppressed", "not_provided", "withheld"}
+        and abstract.get("text") is not None
+    ):
         raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
     if abstract.get("text") and item["excerpt"] == abstract["text"]:
         raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
@@ -398,7 +406,7 @@ def run_pubmed_daily(
     remaining = len(ranked) + hidden - len(selected)
     by_query = {pmid: queries_for for pmid, queries_for in selected}
     records: dict[str, _Record] = {}
-    refused = 0
+    withheld = 0
     for batch in _chunks([pmid for pmid, _queries in selected], BATCH_SIZE):
         for record in _parse_efetch(session.efetch(batch)):
             if record.pmid in by_query and record.pmid not in records:
@@ -409,9 +417,8 @@ def run_pubmed_daily(
         stored = records.get(pmid)
         if stored is None:
             continue
-        if stored.abstract_refused:
-            refused += 1
-            continue
+        if stored.abstract_withheld:
+            withheld += 1
         items.append(
             _build_item(
                 stored,
@@ -434,7 +441,7 @@ def run_pubmed_daily(
         remaining=remaining,
         revisions_inserted=inserted,
         watermarks=watermarks,
-        refused_abstracts=refused,
+        withheld_abstracts=withheld,
         windows={
             source_id: (ncbi_day(start), ncbi_day(end))
             for source_id, (start, end) in windows.items()
@@ -490,7 +497,7 @@ class _Record:
     publication_types: list[str]
     abstract_text: str | None
     copyright_line: str | None
-    abstract_refused: bool = False
+    abstract_withheld: bool = False
 
 
 class _EntrezSession:
@@ -775,11 +782,7 @@ def _record_from_article(article: ET.Element) -> _Record | None:
         return None
     published, _raw = _complete_date(paper.find("Journal/JournalIssue/PubDate"))
     entry, _entry_raw = _entry_date(article)
-    try:
-        abstract_text, copyright = _abstract(paper)
-        abstract_refused = False
-    except AbstractRefused:
-        abstract_text, copyright, abstract_refused = None, None, True
+    abstract_text, copyright, abstract_withheld = _abstract(paper)
     return _Record(
         pmid=pmid,
         title=title,
@@ -794,11 +797,11 @@ def _record_from_article(article: ET.Element) -> _Record | None:
         publication_types=_publication_types(paper),
         abstract_text=abstract_text,
         copyright_line=copyright,
-        abstract_refused=abstract_refused,
+        abstract_withheld=abstract_withheld,
     )
 
 
-def _abstract(paper: ET.Element) -> tuple[str | None, str | None]:
+def _abstract(paper: ET.Element) -> tuple[str | None, str | None, bool]:
     parts: list[str] = []
     for node in paper.findall("Abstract/AbstractText"):
         label = node.attrib.get("Label") or ""
@@ -814,9 +817,9 @@ def _abstract(paper: ET.Element) -> tuple[str | None, str | None]:
     if not copyright or len(copyright) > 1000:
         copyright = None
     if not raw.strip():
-        return None, copyright
-    sanitized = _sanitize_abstract(raw)
-    return (sanitized or None), copyright
+        return None, copyright, False
+    sanitized, withheld = _sanitize_abstract(raw)
+    return sanitized, copyright, withheld
 
 
 def sanitize_abstract_text(value: str) -> str:
@@ -833,11 +836,11 @@ def sanitize_abstract_text(value: str) -> str:
     return " ".join(text.split())
 
 
-def _sanitize_abstract(value: str) -> str:
+def _sanitize_abstract(value: str) -> tuple[str | None, bool]:
     sanitized = sanitize_abstract_text(value)
-    if len(sanitized) > ABSTRACT_LIMIT:
-        raise AbstractRefused
-    return sanitized
+    if withhold_overlong_pubmed_abstract(sanitized):
+        return None, True
+    return (sanitized or None), False
 
 
 def _local_name(tag: str) -> str:
@@ -974,6 +977,14 @@ def _build_item(
         abstract: dict[str, Any] = {
             "text": None,
             "state": "suppressed",
+            "copyright_line": record.copyright_line,
+            "attribution": NLM_ATTRIBUTION,
+            "policy_url": NLM_POLICY_URL,
+        }
+    elif record.abstract_withheld:
+        abstract = {
+            "text": None,
+            "state": "withheld",
             "copyright_line": record.copyright_line,
             "attribution": NLM_ATTRIBUTION,
             "policy_url": NLM_POLICY_URL,
