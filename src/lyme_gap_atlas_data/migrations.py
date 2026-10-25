@@ -71,9 +71,14 @@ INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
     "filename": "V170__intelligence_source_activations.sql",
     "sha256": "ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d",
 }
-# V170 replaces the feed view in both databases. The protected path is required
-# on DEV and PROD; the historical feed-view migrations stay PROD-only.
-BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170"})
+INTELLIGENCE_FEED_DESCRIPTION_MIGRATION = {
+    "version": "V173",
+    "filename": "V173__intelligence_feed_v2_description.sql",
+    "sha256": "fd0ab5e5351ebe453cd4cf941ffaa1326634baa1495450113e231deeff7b8156",
+}
+# V170 and V173 replace the feed view in both databases. The protected path is
+# required on DEV and PROD; the historical feed-view migrations stay PROD-only.
+BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V173"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -85,6 +90,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
     PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
     INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
+    INTELLIGENCE_FEED_DESCRIPTION_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -1136,6 +1142,12 @@ def apply_migrations(
         or (database == PROD_DATABASE and "V167" not in applied)
     ):
         raise PermissionError("V170 requires the recorded feed view before source activations")
+    if any(item.version == "V173" and item.version not in applied for item in plan) and (
+        "V170" not in applied
+    ):
+        raise PermissionError(
+            "V173 requires recorded V170 before the publisher description projection"
+        )
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
