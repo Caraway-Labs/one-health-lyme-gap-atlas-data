@@ -69,7 +69,7 @@ PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION = {
 INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
     "version": "V170",
     "filename": "V170__intelligence_source_activations.sql",
-    "sha256": "ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d",
+    "sha256": "bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f",
 }
 # V170 replaces the feed view in both databases. The protected path is required
 # on DEV and PROD; the historical feed-view migrations stay PROD-only.
