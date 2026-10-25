@@ -8,21 +8,21 @@
   "geographies": [],
   "topics": [],
   "trust_review": {
-    "status": "pending",
-    "decision_ref": null,
-    "reviewed_at": null,
-    "owner": "intelligence-steward"
+    "status": "approved",
+    "decision_ref": "matthew-feed-selection-2026-10-03",
+    "reviewed_at": "2026-10-03T00:00:00Z",
+    "owner": "MATTHEWCARAWAY"
   },
-  "trust_classification": "unreviewed",
+  "trust_classification": "research_index",
   "transport": "entrez",
   "canonical_location": "https://pubmed.ncbi.nlm.nih.gov/",
   "fetch_location": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
   "approved_hosts": [
     "eutils.ncbi.nlm.nih.gov"
   ],
-  "state": "candidate",
+  "state": "active",
   "cadence": {
-    "poll_seconds": null,
+    "poll_seconds": 86400,
     "expected_item_seconds": null,
     "basis": "unknown"
   },
@@ -41,10 +41,10 @@
     "public_excerpt_permitted": false
   },
   "approval": {
-    "status": "pending",
-    "decision_ref": null,
-    "reviewed_at": null,
-    "owner": "intelligence-steward"
+    "status": "approved",
+    "decision_ref": "matthew-feed-selection-2026-10-03",
+    "reviewed_at": "2026-10-03T00:00:00Z",
+    "owner": "MATTHEWCARAWAY"
   },
   "change_review_policy": "new_version_requires_review",
   "fallback_reason": null,

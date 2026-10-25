@@ -11,6 +11,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
@@ -43,6 +44,11 @@ from .ingestion.intelligence_runtime import (
     DailyStageClock,
 )
 from .ingestion.source_definition import load_source_definition
+from .ingestion.step_deadline import (
+    bind_step_deadline,
+    note_step_deadline,
+    reset_step_deadline,
+)
 from .ingestion.types import (
     AdapterKind,
     FailureCategory,
@@ -104,6 +110,10 @@ _STATUS_FOR_OUTCOME = {
 MAX_DAILY_SOURCE_SELECTION = 5
 # Five Entrez requests at the 30 second cap, plus pacing. Independent of the RSS budget.
 PUBMED_WALK_DEADLINE_SECONDS = 180
+# Fresh FAILED save after the walk process is killed. It must not run unbounded.
+PUBMED_FAIL_SAVE_SECONDS = 30
+# Production walks in a child so a swallowed SIGALRM cannot keep the parent going.
+PUBMED_WALK_ISOLATE = True
 _LOG_STATUSES = frozenset(_STATUS_FOR_OUTCOME.values())
 _LOG_OUTCOMES = frozenset(_STATUS_FOR_OUTCOME)
 
@@ -680,15 +690,19 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
     if settings.topx_env != "prod" or not settings.intelligence_daily_enabled:
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
     budget = intelligence_runtime.PilotBudget(
-        seconds=intelligence_runtime.DAILY_SOURCE_BUDGET_SECONDS,
+        seconds=PUBMED_WALK_DEADLINE_SECONDS,
         request_limit=5,
     )
 
     @contextmanager
     def factory() -> Iterator[Any]:
+        note_step_deadline()
         budget.remaining()
         with connect(SnowflakeSettings()) as raw:
-            yield intelligence_runtime._Connection(raw, budget)
+            try:
+                yield intelligence_runtime._Connection(raw, budget)
+            finally:
+                note_step_deadline()
 
     document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
     policies: dict[str, NativeMetadataPolicy] = {}
@@ -721,24 +735,101 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
     return store, checkpoints, budget
 
 
+def _pubmed_alarm(_signum: int, _frame: object) -> None:
+    raise TimeoutError
+
+
+class _PubMedDeadline:
+    """Wall clock for one PubMed walk.
+
+    The one-shot alarm is re-armed from the main thread around each step. A
+    helper thread arms it again after the deadline so a connector that cleared
+    the timer cannot leave the next blocking call unbounded. A handler the
+    connector replaces for the duration of one query is not restored from this
+    thread; the parent process kill is that bound.
+    """
+
+    def __init__(self, seconds: float) -> None:
+        self.deadline = time.monotonic() + seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Start only after the caller has installed the SIGALRM handler."""
+        self._thread = threading.Thread(
+            target=self._enforce, name="pubmed-walk-deadline", daemon=True
+        )
+        self._thread.start()
+
+    def remaining(self) -> float:
+        return self.deadline - time.monotonic()
+
+    def checkpoint(self) -> None:
+        if self.remaining() <= 0:
+            raise TimeoutError
+        alarm = getattr(signal, "setitimer", None)
+        if alarm is None:
+            return
+        signal.signal(signal.SIGALRM, _pubmed_alarm)
+        signal.setitimer(signal.ITIMER_REAL, max(self.remaining(), 0.001))
+
+    def _enforce(self) -> None:
+        if self._stop.wait(max(0.0, self.remaining())):
+            return
+        while not self._stop.is_set():
+            if hasattr(signal, "setitimer"):
+                try:
+                    signal.setitimer(signal.ITIMER_REAL, 0.01)
+                except Exception:
+                    return
+            if self._stop.wait(0.05):
+                return
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(0.2)
+        if hasattr(signal, "setitimer"):
+            signal.setitimer(signal.ITIMER_REAL, 0)
+
+
 @contextmanager
 def _pubmed_walk_deadline(seconds: float) -> Iterator[None]:
     """Interrupt a hung PubMed walk so the daily job can return the RSS payload."""
+    deadline = _PubMedDeadline(seconds)
+    token = bind_step_deadline(deadline)
     alarm = getattr(signal, "SIGALRM", None)
-    if alarm is None:
-        yield
-        return
-
-    def handler(_signum: int, _frame: object) -> None:
-        raise TimeoutError
-
-    previous = signal.signal(alarm, handler)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
+    previous = signal.signal(alarm, _pubmed_alarm) if alarm is not None else None
+    deadline.start()
     try:
+        deadline.checkpoint()
         yield
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(alarm, previous)
+        reset_step_deadline(token)
+        deadline.close()
+        if alarm is not None and previous is not None:
+            signal.signal(alarm, previous)
+
+
+def _wait_bounded(fn: Callable[..., None], *args: Any, seconds: float) -> None:
+    """Run ``fn`` and return when it finishes or ``seconds`` elapses."""
+    finished = threading.Event()
+
+    def attempt() -> None:
+        try:
+            fn(*args)
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=attempt, name="pubmed-bounded-step", daemon=True)
+    worker.start()
+    finished.wait(seconds)
+
+
+def _save_claimed_pubmed_failures(checkpoints: Any, claimed: list[tuple[str, str]]) -> None:
+    for run_id, source_id in claimed:
+        with suppress(Exception):
+            fail_claimed_pubmed_run(checkpoints, run_id, source_id)
 
 
 def fail_claimed_pubmed_run(checkpoints: Any, run_id: str, source_id: str) -> None:
@@ -834,10 +925,13 @@ def _walk_registered_entrez_daily(
             return []
     except Exception as error:
         error_class = _pubmed_error_class(error)
-        if checkpoints is not None:
-            for run_id, source_id in claimed:
-                with suppress(Exception):
-                    fail_claimed_pubmed_run(checkpoints, run_id, source_id)
+        if checkpoints is not None and claimed:
+            _wait_bounded(
+                _save_claimed_pubmed_failures,
+                checkpoints,
+                claimed,
+                seconds=PUBMED_FAIL_SAVE_SECONDS,
+            )
         source_ids = [source_id for _run_id, source_id in claimed] or list(SOURCE_ORDER)
         rows = [
             {"source_id": source_id, "status": "FAILED", "error_class": error_class}
@@ -846,6 +940,125 @@ def _walk_registered_entrez_daily(
         for row in rows:
             _log_pubmed_failure(row["source_id"], row["error_class"])
         return rows
+
+
+def _pubmed_walk_process(spec: dict[str, Any], queue: Any) -> None:
+    """Child entry. A test hang ignores SIGALRM so only the parent kill stops it."""
+    if os.environ.get("ATLAS_PUBMED_WALK_HANG") == "swallow-alarm":
+        alarm = getattr(signal, "SIGALRM", None)
+        if alarm is not None:
+            signal.signal(alarm, signal.SIG_IGN)
+        time.sleep(3600)
+        return
+    try:
+        rows = _walk_registered_entrez_daily(
+            pipeline_settings.PipelineSettings(),
+            str(spec["day"]),
+            preflight_only=bool(spec["preflight_only"]),
+            reopen_attempt=int(spec["reopen_attempt"]),
+        )
+        queue.put({"ok": True, "rows": rows})
+    except Exception as error:
+        queue.put({"ok": False, "error_class": _pubmed_error_class(error)})
+
+
+def _record_isolated_pubmed_failure(day: str, reopen_attempt: int) -> None:
+    """FAILED save on a new session after the walk process is killed.
+
+    The parent does not know which runs the child claimed or finished, so it
+    fails only rows still RUNNING and never inserts one.
+    """
+    settings = pipeline_settings.PipelineSettings()
+    _store, checkpoints, _budget = open_entrez_daily_io(settings)
+    for source_id in SOURCE_ORDER:
+        run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+        with suppress(Exception):
+            checkpoints.fail_running_daily_run(run_id, "PUBMED_DAILY_FAILED")
+
+
+def _pubmed_timeout_rows(day: str, reopen_attempt: int) -> list[dict[str, str]]:
+    _wait_bounded(
+        _record_isolated_pubmed_failure,
+        day,
+        reopen_attempt,
+        seconds=PUBMED_FAIL_SAVE_SECONDS,
+    )
+    rows = [
+        {"source_id": source_id, "status": "FAILED", "error_class": "TimeoutError"}
+        for source_id in SOURCE_ORDER
+    ]
+    for row in rows:
+        _log_pubmed_failure(row["source_id"], row["error_class"])
+    return rows
+
+
+def _isolate_pubmed_walk(
+    settings: Any,
+    day: str,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int = 1,
+) -> list[dict[str, str]]:
+    """Run the PubMed walk in a child. Kill it when the wall clock expires.
+
+    ``settings`` is unused in the child; the child loads process settings. The
+    argument keeps the same signature as the in-process walk.
+    """
+    del settings
+    sources = registered_entrez_sources(intelligence_runtime.PROD_DAILY_SOURCE_SHA256)
+    if not sources or preflight_only:
+        return []
+    ctx = multiprocessing.get_context("spawn")
+    result_queue: Any = ctx.Queue()
+    process = ctx.Process(
+        target=_pubmed_walk_process,
+        args=(
+            {
+                "day": day,
+                "preflight_only": preflight_only,
+                "reopen_attempt": reopen_attempt,
+            },
+            result_queue,
+        ),
+        daemon=False,
+    )
+    process.start()
+    try:
+        process.join(PUBMED_WALK_DEADLINE_SECONDS)
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+            return _pubmed_timeout_rows(day, reopen_attempt)
+        if process.exitcode != 0:
+            return _pubmed_timeout_rows(day, reopen_attempt)
+        try:
+            payload = result_queue.get(timeout=5)
+        except Empty:
+            return _pubmed_timeout_rows(day, reopen_attempt)
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            error_class = "TimeoutError"
+            if isinstance(payload, dict):
+                reported = payload.get("error_class")
+                if isinstance(reported, str):
+                    error_class = reported
+            rows = [
+                {"source_id": source_id, "status": "FAILED", "error_class": error_class}
+                for source_id in SOURCE_ORDER
+            ]
+            for row in rows:
+                _log_pubmed_failure(row["source_id"], row["error_class"])
+            return rows
+        found = payload.get("rows")
+        if isinstance(found, list):
+            return found
+        return []
+    finally:
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+        result_queue.close()
+        result_queue.cancel_join_thread()
+        process.close()
 
 
 def daily_source_selection(
@@ -917,9 +1130,8 @@ def run_production_daily(
         _log_daily_outcome(row)
     pubmed: list[dict[str, str]] = []
     if selection is None:
-        pubmed = _walk_registered_entrez_daily(
-            settings, day, preflight_only=preflight_only, reopen_attempt=reopen_attempt
-        )
+        walker = _isolate_pubmed_walk if PUBMED_WALK_ISOLATE else _walk_registered_entrez_daily
+        pubmed = walker(settings, day, preflight_only=preflight_only, reopen_attempt=reopen_attempt)
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
     if preflight_only and any(
         row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results

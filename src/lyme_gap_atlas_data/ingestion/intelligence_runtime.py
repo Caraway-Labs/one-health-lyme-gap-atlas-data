@@ -37,6 +37,7 @@ from .intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .intelligence_effects import IntelligenceStageEffects
 from .intelligence_feed import FeedResponse, IntelligenceFeedAdapter, _request, _resolve
 from .orchestrator import IngestionOrchestrator
+from .step_deadline import active_step_deadline, note_step_deadline
 from .types import AdapterKind, SourceDefinition
 
 ENDPOINTS = {
@@ -47,8 +48,11 @@ ENDPOINTS = {
     "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
-# Draft Entrez searches. They are not RSS endpoints and are not PROD registrations.
-PUBMED_DRAFT_SOURCE_IDS = frozenset({"pubmed-lyme-borrelia", "pubmed-tick-borne"})
+# Entrez searches. They are not RSS endpoints and never enter the RSS composer.
+PUBMED_SOURCE_IDS = frozenset({"pubmed-lyme-borrelia", "pubmed-tick-borne"})
+PUBMED_DRAFT_SOURCE_IDS = PUBMED_SOURCE_IDS
+PUBMED_DECISION = "matthew-feed-selection-2026-10-03"
+PUBMED_ARTIFACT_POLICY = "PUBMED_METADATA_RAW_30D_V1"
 PUBMED_ESEARCH_ENDPOINT = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
@@ -67,6 +71,10 @@ PROD_DAILY_SOURCE_SHA256 = {
     "cdc-outbreaks": "d8bdcc90b16c98fe2b3661a9316ac78071bd355cbb46ee5d0299c15ca4f53b8f",
     "nih-news-releases": "1542aa4d8f85a650ac216e574907ec19f65e1d17a26dd8c8b607bfdcd17faaa1",
     "cdc-mmwr": "9ee7ceca898a4419241d9706c7cbf0a795287c794cdeb74b0892a4f90ccda0e9",
+    # PubMed documents are registry version 1 and daily-only. The same digest is
+    # pinned here so the Entrez walk admits them. They are not RSS definitions.
+    "pubmed-tick-borne": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244",
+    "pubmed-lyme-borrelia": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6",
 }
 PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
 PROD_SOURCE_SHA256 = {
@@ -75,6 +83,9 @@ PROD_SOURCE_SHA256 = {
     "cdc-outbreaks": "54793f2c4856602bf8901d09972a44d2a7479056e71eac75ddc88db060646172",
     "nih-news-releases": "38d7364d5ce7b730d16e07197d0bb1cf88403eae59defc66de05e3a3df825bea",
     "cdc-mmwr": "875b0bc1b33f2c89ff4596532ccd8504dc6ce60086f8bba9146183da2b2d59a6",
+    # Same digest as the daily pin. reviewed_package gates membership on this map.
+    "pubmed-tick-borne": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244",
+    "pubmed-lyme-borrelia": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6",
 }
 PROD_SOURCE_DECISIONS = {
     "cdc-eid-expedited": "DATA-132-135-EID-ADMISSION-2026-10-09",
@@ -82,6 +93,8 @@ PROD_SOURCE_DECISIONS = {
     "cdc-outbreaks": "matthew-feed-selection-2026-10-03",
     "nih-news-releases": "matthew-feed-selection-2026-10-03",
     "cdc-mmwr": "matthew-feed-selection-2026-10-03",
+    "pubmed-tick-borne": PUBMED_DECISION,
+    "pubmed-lyme-borrelia": PUBMED_DECISION,
 }
 PROD_SOURCE_DEFINITIONS = {
     "cdc-eid-expedited": "config/sources/intelligence_cdc_eid_expedited.yml",
@@ -342,7 +355,11 @@ class _Cursor:
         return self.raw.__exit__(*args)
 
     def execute(self, statement: str, *args: Any, **kwargs: Any) -> Any:
+        note_step_deadline()
         remaining = self.budget.remaining()
+        deadline = active_step_deadline()
+        if deadline is not None:
+            remaining = min(remaining, deadline.remaining())
         if self.budget.queries >= 2500:
             raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
         self.budget.queries += 1
@@ -356,7 +373,11 @@ class _Cursor:
         )
         # Connector cancellation is for this owned query, never the warehouse.
         kwargs["timeout"] = min(kwargs.get("timeout", 30), 30, math.ceil(remaining))
-        result = self.raw.execute(statement, *args, **kwargs)
+        try:
+            result = self.raw.execute(statement, *args, **kwargs)
+        finally:
+            # The connector disarms SIGALRM before returning, including on retry.
+            note_step_deadline()
         self.budget.remaining()
         return result
 
@@ -369,6 +390,7 @@ class _Connection:
         return getattr(self.raw, name)
 
     def cursor(self, *args: Any, **kwargs: Any) -> _Cursor:
+        note_step_deadline()
         self.budget.remaining()
         return _Cursor(self.raw.cursor(*args, **kwargs), self.budget)
 
@@ -382,11 +404,15 @@ class _Connection:
         return self._transaction("autocommit", value)
 
     def _transaction(self, operation: str, *args: Any) -> Any:
+        note_step_deadline()
         self.budget.remaining()
         if self.budget.queries >= 2500:
             raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
         self.budget.queries += 1
-        result = getattr(self.raw, operation)(*args)
+        try:
+            result = getattr(self.raw, operation)(*args)
+        finally:
+            note_step_deadline()
         self.budget.remaining()
         return result
 

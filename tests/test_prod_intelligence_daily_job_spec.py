@@ -17,6 +17,23 @@ COMMAND = _MODULE["COMMAND"]
 DIGEST = "sha256:" + "a" * 64
 
 
+def test_pubmed_failed_class_name_is_reported() -> None:
+    prefix = _MODULE["OUTCOME_LOG_PREFIX"]
+    text = "\n".join(
+        (
+            prefix
+            + '{"error_class":"TimeoutError","source_id":"pubmed-tick-borne","status":"FAILED"}',
+            prefix + '{"source_id":"cdc-mmwr","status":"FAILED"}',
+            prefix
+            + '{"error_class":"not a class","source_id":"pubmed-lyme-borrelia","status":"FAILED"}',
+        )
+    )
+    rows = {row["source"]: row["error_code"] for row in _MODULE["parse_daily_outcomes"](text)}
+    assert rows["pubmed-tick-borne"] == "TimeoutError"
+    assert rows["cdc-mmwr"] == "UNCLASSIFIED_EXCEPTION"
+    assert rows["pubmed-lyme-borrelia"] == "UNCLASSIFIED_EXCEPTION"
+
+
 def _baseline() -> dict:
     base_jobs = [
         {"name": n, "kind": "SCHEDULED", "image": {"digest": DIGEST}, "run_command": "x"}

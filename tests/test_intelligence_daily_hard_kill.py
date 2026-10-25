@@ -23,6 +23,13 @@ from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 ROOT = Path(__file__).parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _rss_daily_does_not_open_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *args, **kwargs: [])
+
+
 RUN_ID = "76e241c4-815f-5c27-b97f-882be9c53903"
 SOURCE = "cdc-mmwr"
 _PRODUCTION_EXECUTE = polling.execute_daily_source
