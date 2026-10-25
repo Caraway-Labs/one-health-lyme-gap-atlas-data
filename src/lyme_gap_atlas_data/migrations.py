@@ -79,7 +79,7 @@ INTELLIGENCE_FEED_DESCRIPTION_MIGRATION = {
 INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION = {
     "version": "V175",
     "filename": "V175__intelligence_abstract_suppressions_feed_v2.sql",
-    "sha256": "b7d7dd0d152f2c039e6af45ae6ee91cd92df949bb41fd8b34d6664764ed39279",
+    "sha256": "5eb3b00effa0eae89c48ca0bd4c3ff7d2497929257cb077ee103b760c606f2e5",
 }
 # V170, V173, and V175 replace the feed view in both databases. The protected
 # path is required on DEV and PROD; the historical feed-view migrations stay

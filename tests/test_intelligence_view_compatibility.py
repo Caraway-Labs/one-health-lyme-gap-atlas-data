@@ -138,11 +138,9 @@ _SUPPRESSION_JOINS = """LEFT JOIN (
       AND pmid IS NOT NULL
     GROUP BY pmid
 ) pmid_suppression
-  ON pmid_suppression.pmid = IFF(
-      IS_NULL_VALUE(c.item_document:publisher_metadata:source_item_id),
-      NULL,
-      c.item_document:publisher_metadata:source_item_id::VARCHAR
-  )
+  ON pmid_suppression.pmid = c.item_document:publisher_metadata:source_item_id::VARCHAR
+ AND c.item_document:publisher_metadata:source_family::VARCHAR = 'pubmed'
+ AND c.item_document:publisher_metadata:source_item_id::VARCHAR RLIKE '^[1-9][0-9]{0,9}$'
 LEFT JOIN (
     SELECT publisher
     FROM GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS
@@ -150,11 +148,8 @@ LEFT JOIN (
       AND publisher IS NOT NULL
     GROUP BY publisher
 ) publisher_suppression
-  ON publisher_suppression.publisher = IFF(
-      IS_NULL_VALUE(c.item_document:publisher_metadata:publisher),
-      NULL,
-      c.item_document:publisher_metadata:publisher::VARCHAR
-  )
+  ON publisher_suppression.publisher = c.item_document:publisher_metadata:journal::VARCHAR
+ AND c.item_document:publisher_metadata:source_family::VARCHAR = 'pubmed'
 """
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
@@ -36,20 +37,30 @@ LIVE_SOURCES = (
 )
 SUPPRESSED_ABSTRACT = {"text": None, "state": "suppressed", "copyright_line": None}
 COPYRIGHT = "Copyright National Library of Medicine."
+PUBMED_ORGANIZATION = "U.S. National Library of Medicine"
+_PMID = re.compile(r"^[1-9][0-9]{0,9}$")
 
 
 def _is_suppressed(publisher: dict[str, Any], rows: list[dict[str, Any]]) -> bool:
+    if publisher.get("source_family") != "pubmed":
+        return False
     source_item_id = publisher.get("source_item_id")
-    publisher_name = publisher.get("publisher")
+    journal = publisher.get("journal")
     pmid_hits = {
         row["pmid"] for row in rows if row.get("scope") == "PMID" and row.get("pmid") is not None
     }
-    publisher_hits = {
+    journal_hits = {
         row["publisher"]
         for row in rows
         if row.get("scope") == "PUBLISHER" and row.get("publisher") is not None
     }
-    return source_item_id in pmid_hits or publisher_name in publisher_hits
+    pmid_match = (
+        isinstance(source_item_id, str)
+        and _PMID.fullmatch(source_item_id) is not None
+        and source_item_id in pmid_hits
+    )
+    journal_match = isinstance(journal, str) and journal in journal_hits
+    return pmid_match or journal_match
 
 
 def _project(document: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -272,34 +283,40 @@ def test_suppressed_pmid_hides_captured_abstract_without_dropping_the_row() -> N
     assert "format" not in row["publisher_metadata"]["abstract"]
 
 
-def test_suppressed_publisher_hides_every_item_from_that_publisher() -> None:
-    captured = {"text": "Visible until the publisher is suppressed.", "state": "present"}
-    publisher = "National Library of Medicine"
+def test_suppressed_journal_hides_every_pubmed_item_from_that_journal() -> None:
+    captured = {"text": "Visible until the journal is suppressed.", "state": "present"}
+    journal = "Emerging Infectious Diseases"
     captures = [
         _capture(
             "pubmed",
-            _publisher("pubmed", "12345678", publisher, captured),
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal=journal),
             item_id="pmid-one",
         ),
         _capture(
             "pubmed",
-            _publisher("pubmed", "87654321", publisher, dict(captured)),
+            _publisher("pubmed", "87654321", PUBMED_ORGANIZATION, dict(captured), journal=journal),
             item_id="pmid-two",
         ),
         _capture(
             "pubmed",
-            _publisher("pubmed", "11111111", "Other Publisher", dict(captured)),
-            item_id="other-publisher",
+            _publisher(
+                "pubmed",
+                "11111111",
+                PUBMED_ORGANIZATION,
+                dict(captured),
+                journal="Other Journal",
+            ),
+            item_id="other-journal",
         ),
     ]
-    rows = [{"scope": "PUBLISHER", "pmid": None, "publisher": publisher}]
+    rows = [{"scope": "PUBLISHER", "pmid": None, "publisher": journal}]
     feed = _feed(captures, rows)
     assert len(feed) == 3
-    hidden = [row for row in feed if row["item_id"] != "other-publisher"]
+    hidden = [row for row in feed if row["item_id"] != "other-journal"]
     assert len(hidden) == 2
     assert all(row["abstract_suppressed"] is True for row in hidden)
     assert all(row["publisher_metadata"]["abstract"] == SUPPRESSED_ABSTRACT for row in hidden)
-    kept = next(row for row in feed if row["item_id"] == "other-publisher")
+    kept = next(row for row in feed if row["item_id"] == "other-journal")
     assert kept["abstract_suppressed"] is False
     assert kept["publisher_metadata"]["abstract"]["text"] == captured["text"]
 
@@ -365,14 +382,17 @@ def test_captured_abstract_states_pass_through_without_invented_text(
     assert feed[0]["publisher_metadata"]["abstract"]["text"] == captured["text"]
 
 
-def test_pmid_and_publisher_matches_still_project_one_row() -> None:
+def test_pmid_and_journal_matches_still_project_one_row() -> None:
     captured = {"text": "Captured text.", "state": "present", "copyright_line": COPYRIGHT}
-    publisher = "National Library of Medicine"
+    journal = "Emerging Infectious Diseases"
     captures = [
-        _capture("pubmed", _publisher("pubmed", "12345678", publisher, captured)),
         _capture(
             "pubmed",
-            _publisher("pubmed", "12345678", publisher, captured),
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal=journal),
+        ),
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal=journal),
             retrieved_at="2026-10-24T00:00:00Z",
             capture_id="older",
         ),
@@ -380,7 +400,7 @@ def test_pmid_and_publisher_matches_still_project_one_row() -> None:
     rows = [
         {"scope": "PMID", "pmid": "12345678", "publisher": None},
         {"scope": "PMID", "pmid": "12345678", "publisher": None},
-        {"scope": "PUBLISHER", "pmid": None, "publisher": publisher},
+        {"scope": "PUBLISHER", "pmid": None, "publisher": journal},
     ]
     feed = _feed(captures, rows)
     assert len(feed) == 1
@@ -424,6 +444,74 @@ def test_existing_source_row_counts_stay_identical_and_non_pubmed_abstracts_stay
     pubmed = next(row for row in after if row["source_id"] == "pubmed")
     assert pubmed["abstract_suppressed"] is True
     assert _counts(before)[pubmed["source_id"]] == 1
+
+
+def test_organization_or_rss_publisher_does_not_suppress_an_rss_row() -> None:
+    captured = {"text": "Feed item text.", "state": "present", "copyright_line": COPYRIGHT}
+    captures = [
+        _capture(
+            "nih-news-releases",
+            _publisher(
+                "nih_niaid",
+                "nih-release",
+                "National Institutes of Health",
+                captured,
+            ),
+            item_id="nih-rss",
+        ),
+        _capture(
+            "cdc-mmwr",
+            _publisher(
+                "cdc_mmwr",
+                "mmwr-guid",
+                "Centers for Disease Control and Prevention",
+                dict(captured),
+            ),
+            item_id="cdc-rss",
+        ),
+        _capture(
+            "pubmed",
+            _publisher(
+                "pubmed",
+                "12345678",
+                PUBMED_ORGANIZATION,
+                dict(captured),
+                journal="The Lancet",
+            ),
+            item_id="pubmed-item",
+        ),
+    ]
+    rows = [
+        {"scope": "PUBLISHER", "pmid": None, "publisher": PUBMED_ORGANIZATION},
+        {"scope": "PUBLISHER", "pmid": None, "publisher": "National Institutes of Health"},
+        {
+            "scope": "PUBLISHER",
+            "pmid": None,
+            "publisher": "Centers for Disease Control and Prevention",
+        },
+    ]
+    feed = _feed(captures, rows)
+    by_id = {row["item_id"]: row for row in feed}
+    assert by_id["nih-rss"]["abstract_suppressed"] is False
+    assert by_id["nih-rss"]["publisher_metadata"]["abstract"] == captured
+    assert by_id["cdc-rss"]["abstract_suppressed"] is False
+    assert by_id["cdc-rss"]["publisher_metadata"]["abstract"]["text"] == captured["text"]
+    assert by_id["pubmed-item"]["abstract_suppressed"] is False
+    assert by_id["pubmed-item"]["publisher_metadata"]["abstract"]["text"] == captured["text"]
+
+
+def test_non_pmid_source_item_id_is_not_suppressed_as_a_pmid() -> None:
+    captured = {"text": "Still visible.", "state": "present"}
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "01234567", PUBMED_ORGANIZATION, captured, journal="The Lancet"),
+        )
+    ]
+    rows = [{"scope": "PMID", "pmid": "01234567", "publisher": None}]
+    feed = _feed(captures, rows)
+    assert feed[0]["abstract_suppressed"] is False
+    assert feed[0]["publisher_metadata"]["abstract"] == captured
 
 
 def test_blocked_activation_stays_out_of_the_feed() -> None:
@@ -501,6 +589,13 @@ def test_v175_is_one_protected_step_for_both_databases() -> None:
     ):
         assert f"'{key}'" in view
     assert "c.item_document:publisher_metadata:abstract" in view
+    assert "publisher_metadata:journal::VARCHAR" in view
+    assert view.count("publisher_metadata:publisher") == 1
+    assert view.count("source_family::VARCHAR = 'pubmed'") == 2
+    assert "RLIKE '^[1-9][0-9]{0,9}$'" in view
+    assert "CASE" not in view
+    assert sql.count("{{ ENV }}") == 2
+    assert "{{ ENV }}" not in view
     preflight = (ROOT / "scripts/verify_intelligence_dev_preflight.py").read_text(encoding="utf-8")
     daily = (ROOT / "scripts/verify_intelligence_daily_view_dev.py").read_text(encoding="utf-8")
     assert pinned["filename"] in preflight

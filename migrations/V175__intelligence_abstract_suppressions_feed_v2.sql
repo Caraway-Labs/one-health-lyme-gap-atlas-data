@@ -1,8 +1,11 @@
 -- DATA #844: FEED_V2 passes captured abstracts through and flags suppressions.
--- GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS records a PMID or a publisher.
+-- GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS records a PMID or a journal title.
+-- Publisher scope matches publisher_metadata.journal, not the source organization.
+-- Both lookups apply only when source_family is pubmed. A PMID match also
+-- requires source_item_id to be 1 to 10 digits with no leading zero.
 -- A match replaces that item's abstract with text null, state suppressed, and
 -- copyright_line null. Any other captured abstract is projected unchanged.
--- Grouped lookups keep one feed row when both a PMID and a publisher match.
+-- Grouped lookups keep one feed row when both a PMID and a journal match.
 -- The row stays in the feed. Runtime and reader roles can select the table.
 -- They cannot insert, update, or delete it.
 USE DATABASE {{ DATABASE }};
@@ -112,11 +115,9 @@ LEFT JOIN (
       AND pmid IS NOT NULL
     GROUP BY pmid
 ) pmid_suppression
-  ON pmid_suppression.pmid = IFF(
-      IS_NULL_VALUE(c.item_document:publisher_metadata:source_item_id),
-      NULL,
-      c.item_document:publisher_metadata:source_item_id::VARCHAR
-  )
+  ON pmid_suppression.pmid = c.item_document:publisher_metadata:source_item_id::VARCHAR
+ AND c.item_document:publisher_metadata:source_family::VARCHAR = 'pubmed'
+ AND c.item_document:publisher_metadata:source_item_id::VARCHAR RLIKE '^[1-9][0-9]{0,9}$'
 LEFT JOIN (
     SELECT publisher
     FROM GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS
@@ -124,11 +125,8 @@ LEFT JOIN (
       AND publisher IS NOT NULL
     GROUP BY publisher
 ) publisher_suppression
-  ON publisher_suppression.publisher = IFF(
-      IS_NULL_VALUE(c.item_document:publisher_metadata:publisher),
-      NULL,
-      c.item_document:publisher_metadata:publisher::VARCHAR
-  )
+  ON publisher_suppression.publisher = c.item_document:publisher_metadata:journal::VARCHAR
+ AND c.item_document:publisher_metadata:source_family::VARCHAR = 'pubmed'
 WHERE c.item_document:contract_version::VARCHAR = '2.0.0'
   AND s.registry_document:approval:status::VARCHAR = 'approved'
   AND s.registry_document:trust_review:status::VARCHAR = 'approved'
