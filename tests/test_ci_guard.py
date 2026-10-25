@@ -26,6 +26,7 @@ _ALLOWED_PENDING = (
     '[{"version":"V165","filename":"V165__prod_intelligence_daily_view_join_compatibility.sql","sha256":"1c5bdcdaaed21a0e5b44a57b224d536f623ee7c8ec15d35052224eb3c321b41d"}]',
     '[{"version":"V166","filename":"V166__prod_nih_news_daily_activation_view.sql","sha256":"6ebe428121436db840a357506003d654df82a159f02737d9ab10c52d7f41500c"}]',
     '[{"version":"V167","filename":"V167__prod_cdc_mmwr_daily_activation_view.sql","sha256":"cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f"}]',
+    '[{"version":"V168","filename":"V168__api_diagnostics_history_views.sql","sha256":"18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6"}]',
     '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"},{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]',
 )
 

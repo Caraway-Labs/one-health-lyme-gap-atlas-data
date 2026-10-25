@@ -157,6 +157,8 @@ def test_docs_keep_the_read_role_and_name_the_privacy_boundary() -> None:
     assert "SECURITY_VIEWER" not in adr
     assert "45 minutes" in adr
     assert "45 minutes" in runbook
+    assert "held_back_migrations" in runbook
+    assert "18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6" in runbook
     assert API_USER in runbook
     assert "API_LOGIN_HISTORY_V" not in runbook
     sql_blocks = re.findall(r"```sql\n(.*?)```", runbook, re.DOTALL)

@@ -19,6 +19,14 @@ The view keeps statements for `OH_LYME_API_SVC` whose session database is the da
 
 Login history is not in this view. `LOGIN_HISTORY` has no database, role, or warehouse column. The shared API user records a login before a database is selected, so those rows cannot be limited to one environment without mixing them. Do not query login history with `OH_LYME_{ENV}_READ`.
 
+## Deployment
+
+The account-owner grant in [ADR 0048](../adr/0048-api-diagnostics-history-views.md) comes before V168. DEV dispatch of `deploy-dev.yml` names only this migration in `expected_pending_json`. Pending V155 and V157–V161 are emitted as `held_back_migrations` and stay unapplied. PROD dispatch of `promote-prod.yml` uses `protected_intelligence_prerequisite=true` and the single allow-listed V168 object. Its source checksum is `18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6`.
+
+```json
+[{"version":"V168","filename":"V168__api_diagnostics_history_views.sql","sha256":"18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6"}]
+```
+
 ## Accepted lag
 
 `SNOWFLAKE.ACCOUNT_USAGE` can lag by up to about 45 minutes. A statement that just finished can be absent. That lag is accepted. Wait for the lag window before treating an empty result as evidence that no statement ran. Elapsed-time columns are milliseconds.

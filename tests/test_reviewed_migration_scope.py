@@ -279,6 +279,176 @@ def test_pending_plan_filters_environment_and_applied_versions(
     assert migrations.pending_migration_plan(Mock(), migrations.DEV_DATABASE) == [metadata("V135")]
 
 
+def _migration(version: str) -> migrations.Migration:
+    source = f"SELECT '{version}';\n"
+    return migrations.Migration(
+        version,
+        f"{version}__fixture.sql",
+        source,
+        hashlib.sha256(source.encode()).hexdigest(),
+    )
+
+
+def _install_plan(monkeypatch: pytest.MonkeyPatch, plan: list[migrations.Migration]) -> Mock:
+    monkeypatch.setattr(migrations, "load_migrations", lambda: plan)
+    cursor = Mock()
+    cursor.fetchall.return_value = []
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *_, **__: nullcontext(connection))
+    return connection
+
+
+def test_dev_routine_applies_v168_and_leaves_held_back_versions_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = ["V155", "V157", "V158", "V159"]
+    plan = [_migration(version) for version in [*held, "V168"]]
+    connection = _install_plan(monkeypatch, plan)
+    reviewed = [migrations._migration_metadata(plan[-1])]
+    assert migrations.apply_migrations(
+        Mock(), migrations.DEV_DATABASE, expected_pending=reviewed
+    ) == ["V168"]
+    assert connection.execute_string.call_count == 1
+    assert "V168" in connection.execute_string.call_args.args[0]
+
+
+def test_dev_routine_rejects_a_review_that_names_a_held_back_migration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = [_migration("V155"), _migration("V168")]
+    connection = _install_plan(monkeypatch, plan)
+    reviewed = [migrations._migration_metadata(item) for item in plan]
+    with pytest.raises(PermissionError, match="protected paths"):
+        migrations.apply_migrations(Mock(), migrations.DEV_DATABASE, expected_pending=reviewed)
+    connection.execute_string.assert_not_called()
+
+
+def test_prod_pending_comparison_still_includes_held_back_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = [_migration("V155"), _migration("V168")]
+    connection = _install_plan(monkeypatch, plan)
+    with pytest.raises(ValueError, match="reviewed pending set"):
+        migrations.apply_migrations(
+            Mock(),
+            migrations.PROD_DATABASE,
+            expected_pending=[migrations._migration_metadata(plan[1])],
+        )
+    connection.execute_string.assert_not_called()
+
+
+def test_reviewed_dev_command_lists_held_back_and_applies_only_v168(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = [metadata(version) for version in ("V155", "V157", "V158", "V159")]
+    reviewed = [metadata("V168")]
+    settings = object()
+    monkeypatch.setattr(cli, "_settings", lambda: settings)
+    monkeypatch.setattr(cli, "pending_migration_plan", lambda *_: [*held, *reviewed])
+    reconcile = Mock(return_value=[])
+    apply = Mock(return_value=["V168"])
+    monkeypatch.setattr(cli, "reconcile_legacy_dev_migrations", reconcile)
+    monkeypatch.setattr(cli, "apply_migrations", apply)
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "pipeline",
+            "apply-reviewed-dev-migrations",
+            "--database",
+            migrations.DEV_DATABASE,
+            "--expected-pending-json",
+            json.dumps(reviewed),
+            "--confirm",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert lines[0] == {"pending_migrations": [*held, *reviewed], "held_back_migrations": held}
+    assert lines[1]["applied"] == ["V168"]
+    assert lines[1]["held_back_migrations"] == held
+    apply.assert_called_once_with(
+        settings,
+        migrations.DEV_DATABASE,
+        None,
+        expected_pending=reviewed,
+        protected_intelligence_prerequisite=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "pending,reviewed",
+    [
+        ([metadata("V155"), metadata("V168"), metadata("V169")], [metadata("V168")]),
+        ([metadata("V155"), metadata("V168")], [metadata("V155"), metadata("V168")]),
+    ],
+)
+def test_other_pending_or_named_held_back_versions_stop_before_application(
+    monkeypatch: pytest.MonkeyPatch,
+    pending: list[dict[str, str]],
+    reviewed: list[dict[str, str]],
+) -> None:
+    monkeypatch.setattr(cli, "_settings", Mock())
+    monkeypatch.setattr(cli, "pending_migration_plan", lambda *_: pending)
+    apply = Mock()
+    monkeypatch.setattr(cli, "reconcile_legacy_dev_migrations", Mock())
+    monkeypatch.setattr(cli, "apply_migrations", apply)
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "pipeline",
+            "apply-reviewed-dev-migrations",
+            "--database",
+            migrations.DEV_DATABASE,
+            "--expected-pending-json",
+            json.dumps(reviewed),
+            "--confirm",
+        ],
+    )
+    assert result.exit_code != 0
+    echoed = json.loads(result.stdout)
+    assert echoed["held_back_migrations"] == [metadata("V155")]
+    assert echoed["pending_migrations"] == pending
+    apply.assert_not_called()
+
+
+def test_intelligence_prerequisite_batch_still_includes_held_back_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reviewed = [migrations.INTELLIGENCE_PREREQUISITE_MIGRATION]
+    pending = [*reviewed, metadata("V155")]
+    monkeypatch.setattr(cli, "_settings", Mock())
+    monkeypatch.setattr(cli, "pending_migration_plan", lambda *_: pending)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.intelligence_runtime.verify_prerequisite_identity",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.ingestion.intelligence_runtime.prerequisite_batch_deadline",
+        lambda: nullcontext(),
+    )
+    apply = Mock()
+    monkeypatch.setattr(cli, "reconcile_legacy_dev_migrations", Mock())
+    monkeypatch.setattr(cli, "apply_migrations", apply)
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "pipeline",
+            "apply-reviewed-dev-migrations",
+            "--database",
+            migrations.DEV_DATABASE,
+            "--expected-pending-json",
+            json.dumps(reviewed),
+            "--feed-preflight-accounting-confirmed",
+            "--confirm",
+        ],
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, ValueError)
+    assert "reviewed pending set" in str(result.exception)
+    apply.assert_not_called()
+
+
 def test_workflow_uses_reviewed_input_without_expression_interpolation() -> None:
     workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
     assert "EXPECTED_PENDING_JSON: ${{ inputs.expected_pending_json }}" in workflow

@@ -176,6 +176,12 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V166",
     "V167",
 }
+# Scoped PROD operators still review the complete pending metadata, and they
+# exclude these versions so a narrower operator cannot execute them. Routine
+# DEV deployment uses the same exclusion, plus county-context V155, lists those
+# versions as held back, and leaves them unapplied.
+SCOPED_PENDING_EXCLUDED_VERSIONS = frozenset({"V157", "V158", "V159", "V160", "V161"})
+HELD_BACK_DEV_MIGRATION_VERSIONS = SCOPED_PENDING_EXCLUDED_VERSIONS | frozenset({"V155"})
 # V041 creates bounded GOVERNANCE views over RAW and CONFORMED. Its owner
 # needs those exact reads, but the normal migration role and Streamlit owner
 # must not inherit them.
@@ -779,7 +785,7 @@ def apply_migrations(
     scoped_review = [
         item
         for item in expected_pending or []
-        if item["version"] not in integrity_versions | {"V160", "V161"}
+        if item["version"] not in SCOPED_PENDING_EXCLUDED_VERSIONS
     ]
     if cdc_admission_only and (
         database != PROD_DATABASE
@@ -967,21 +973,6 @@ def apply_migrations(
                     expected_pending = [
                         m for m in expected_pending or [] if m["version"] != target.version
                     ]
-    if expected_pending is not None:
-        require_reviewed_pending_set(
-            [_migration_metadata(item) for item in plan if item.version not in applied],
-            expected_pending,
-        )
-    if cdc_admission_only and not {"V149", "V155"} <= set(applied):
-        raise PermissionError("CDC predecessor authority and current context must already exist")
-    if not cdc_admission_only and any(
-        item.version == "V156" and item.version not in applied for item in plan
-    ):
-        raise PermissionError("V156 requires the protected CDC admission path")
-    if release_integrity_only and not {"V141", "V149", "V151", "V152", "V155", "V156"} <= set(
-        applied
-    ):
-        raise PermissionError("Integrity publication prerequisites must already be installed")
     scoped_operation = any(
         (
             lineage_scope,
@@ -993,6 +984,36 @@ def apply_migrations(
             january_point_query_only,
         )
     )
+    if expected_pending is not None:
+        actual_pending = [_migration_metadata(item) for item in plan if item.version not in applied]
+        # DEV routine review matches every other pending migration. The held-back
+        # versions stay in the ledger gap, are reported by the caller, and are
+        # skipped below. PROD keeps the full exact-set comparison.
+        if (
+            database == DEV_DATABASE
+            and not scoped_operation
+            and not protected_intelligence_prerequisite
+        ):
+            if any(
+                item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in expected_pending
+            ):
+                raise PermissionError("Held-back DEV migrations require their own protected paths")
+            actual_pending = [
+                item
+                for item in actual_pending
+                if item["version"] not in HELD_BACK_DEV_MIGRATION_VERSIONS
+            ]
+        require_reviewed_pending_set(actual_pending, expected_pending)
+    if cdc_admission_only and not {"V149", "V155"} <= set(applied):
+        raise PermissionError("CDC predecessor authority and current context must already exist")
+    if not cdc_admission_only and any(
+        item.version == "V156" and item.version not in applied for item in plan
+    ):
+        raise PermissionError("V156 requires the protected CDC admission path")
+    if release_integrity_only and not {"V141", "V149", "V151", "V152", "V155", "V156"} <= set(
+        applied
+    ):
+        raise PermissionError("Integrity publication prerequisites must already be installed")
     if (
         database == PROD_DATABASE
         and not scoped_operation
@@ -1130,6 +1151,14 @@ def apply_migrations(
             continue
         if january_climate_only and migration.version not in {"V151", "V152"}:
             continue
+        if (
+            database == DEV_DATABASE
+            and not scoped_operation
+            and not protected_intelligence_prerequisite
+            and expected_pending is not None
+            and migration.version in HELD_BACK_DEV_MIGRATION_VERSIONS
+        ):
+            continue
         with connect(
             _migration_settings(settings, migration, database), include_database=False
         ) as connection:
@@ -1150,6 +1179,17 @@ def apply_migrations(
             connection.commit()
         executed.append(migration.version)
     return executed
+
+
+def split_held_back_dev_migrations(
+    pending: list[dict[str, str]],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Separate protected-path versions from the routine DEV review set."""
+    actionable = [
+        item for item in pending if item["version"] not in HELD_BACK_DEV_MIGRATION_VERSIONS
+    ]
+    held_back = [item for item in pending if item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS]
+    return actionable, held_back
 
 
 def _migration_metadata(migration: Migration) -> dict[str, str]:
