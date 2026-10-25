@@ -24,10 +24,12 @@ from .intelligence_retention import (
     execute_cleanup,
 )
 from .migrations import (
-    INTELLIGENCE_CLEANUP_MIGRATION,
+    DEV_FEED_EXPANSION_CLEANUP_MIGRATION,
     PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
     load_migrations,
 )
+
+DEV_CLEANUP_SOURCE_IDS = frozenset({"cdc-eid-expedited", "cdc-mmwr", "cdc-newsroom"})
 
 
 class FileRawDelete:
@@ -250,6 +252,8 @@ def approved_plan(factory: Callable[[], Any], plan: CleanupPlan, environment: st
 
 
 def approved_dev_plan(factory: Callable[[], Any], plan: CleanupPlan) -> bool:
+    if len(plan.source_ids) != 1 or plan.source_ids[0] not in DEV_CLEANUP_SOURCE_IDS:
+        raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
     return approved_plan(factory, plan, "DEV")
 
 
@@ -257,9 +261,9 @@ def verify_cleanup_handoff(factory: Callable[[], Any], environment: str) -> None
     """Fail closed on absent/partial ownership handoff before any raw mutation."""
     if environment not in {"DEV", "PROD"}:
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
-    version = "V143" if environment == "DEV" else "V163"
+    version = "V172" if environment == "DEV" else "V163"
     expected_migration = (
-        INTELLIGENCE_CLEANUP_MIGRATION
+        DEV_FEED_EXPANSION_CLEANUP_MIGRATION
         if environment == "DEV"
         else PROD_FEED_EXPANSION_CLEANUP_MIGRATION
     )
@@ -383,7 +387,7 @@ def load_exact_plan(path: Path, checksum: str, *, environment: str = "DEV") -> C
         plan.environment != environment
         or environment not in {"DEV", "PROD"}
         or (
-            plan.source_ids != ("cdc-eid-expedited",)
+            (len(plan.source_ids) != 1 or plan.source_ids[0] not in DEV_CLEANUP_SOURCE_IDS)
             if environment == "DEV"
             else len(plan.source_ids) != 1 or plan.source_ids[0] not in PROD_METADATA_FEED_IDS
         )
@@ -413,8 +417,8 @@ def execute_reviewed_dev_plan(
         or gate.environment != "DEV"
         or not isinstance(gate.ledger, SnowflakeRawLedger)
         or gate.ledger.expected_role != "OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP"
-        or not plan.source_ids
-        or set(plan.source_ids) != {"cdc-eid-expedited"}
+        or len(plan.source_ids) != 1
+        or plan.source_ids[0] not in DEV_CLEANUP_SOURCE_IDS
         or len(plan.copies) > 1000
     ):
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
@@ -485,8 +489,8 @@ def execute_reviewed_prod_plan(
 
 
 def dev_cleanup_scope(copy: RawCopy, object_delete: ObjectRawDelete) -> bool:
-    """Allow only persistence surfaces composed by the DEV EID pilot."""
-    if copy.environment != "DEV" or copy.source_id != "cdc-eid-expedited":
+    """Only the three reviewed DEV sources on existing raw persistence surfaces."""
+    if copy.environment != "DEV" or copy.source_id not in DEV_CLEANUP_SOURCE_IDS:
         return False
     if copy.kind == "raw_object":
         try:

@@ -218,7 +218,7 @@ class HandoffConnection(Connection):
         migration_sha256: str | None = None,
     ) -> None:
         super().__init__([], IDENTITY)
-        migration = next(item for item in load_migrations() if item.version == "V143")
+        migration = next(item for item in load_migrations() if item.version == "V172")
         expected_body = migration.source.split("AS\n$$\n", 1)[1].split("\n$$;", 1)[0]
         body_hash = hashlib.sha256(expected_body.strip().encode()).hexdigest()
         self.attestations = (
