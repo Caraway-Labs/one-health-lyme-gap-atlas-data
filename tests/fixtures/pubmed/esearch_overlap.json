@@ -1,0 +1,15 @@
+{
+  "pubmed-tick-borne": {
+    "count": 2,
+    "idlist": [
+      "23456789",
+      "12345678"
+    ]
+  },
+  "pubmed-lyme-borrelia": {
+    "count": 1,
+    "idlist": [
+      "12345678"
+    ]
+  }
+}

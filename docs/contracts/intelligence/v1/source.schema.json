@@ -164,7 +164,8 @@
         "rss",
         "atom",
         "email",
-        "web"
+        "web",
+        "entrez"
       ]
     },
     "canonical_location": {
@@ -529,7 +530,8 @@
             "enum": [
               "rss",
               "atom",
-              "web"
+              "web",
+              "entrez"
             ]
           },
           "state": {

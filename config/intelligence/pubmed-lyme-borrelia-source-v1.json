@@ -1,0 +1,58 @@
+{
+  "contract_version": "1.0.0",
+  "source_id": "pubmed-lyme-borrelia",
+  "registry_version": 1,
+  "organization": "U.S. National Library of Medicine",
+  "family": "pubmed",
+  "source_type": "research_search",
+  "geographies": [],
+  "topics": [],
+  "trust_review": {
+    "status": "pending",
+    "decision_ref": null,
+    "reviewed_at": null,
+    "owner": "intelligence-steward"
+  },
+  "trust_classification": "unreviewed",
+  "transport": "entrez",
+  "canonical_location": "https://pubmed.ncbi.nlm.nih.gov/",
+  "fetch_location": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+  "approved_hosts": [
+    "eutils.ncbi.nlm.nih.gov"
+  ],
+  "state": "candidate",
+  "cadence": {
+    "poll_seconds": null,
+    "expected_item_seconds": null,
+    "basis": "unknown"
+  },
+  "access_use": {
+    "terms_location": "https://www.ncbi.nlm.nih.gov/home/about/policies/",
+    "conditions": [
+      "Abstracts are stored as plain text with the publisher copyright line.",
+      "Each PubMed abstract is shown with Courtesy of the U.S. National Library of Medicine, the PubMed record link, and https://www.ncbi.nlm.nih.gov/home/about/policies/.",
+      "A suppression flag for a PMID or journal stores abstract.state as suppressed and omits the abstract text.",
+      "Raw Entrez responses expire 30 days after capture under intelligence-raw-30d-v1.",
+      "The approved search is pubmed-lyme-borrelia-v1."
+    ],
+    "availability_verified_at": "2026-10-24T18:00:00Z",
+    "excerpt_max_chars": 0,
+    "content_retention_policy_ref": "pubmed-lyme-borrelia-metadata-raw-30d-v1",
+    "public_excerpt_permitted": false
+  },
+  "approval": {
+    "status": "pending",
+    "decision_ref": null,
+    "reviewed_at": null,
+    "owner": "intelligence-steward"
+  },
+  "change_review_policy": "new_version_requires_review",
+  "fallback_reason": null,
+  "limits": {
+    "maximum_bytes": 2097152,
+    "timeout_seconds": 30,
+    "maximum_items": 200,
+    "maximum_redirects": 0,
+    "maximum_attempts": 1
+  }
+}

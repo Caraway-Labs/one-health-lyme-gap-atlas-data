@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
+from .ingestion.intelligence_entrez import verify_entrez_item
 from .intelligence_items import (
     IDENTITY_VERSION,
     canonical_json,
@@ -397,7 +398,10 @@ class IntelligenceStore:
                             raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
                         if native_policy is None:
                             native_policy = self.native_policy_lookup(source_id, registry_version)
-                        verify_native_item(item, native_policy, source)
+                        if source["transport"] == "entrez":
+                            verify_entrez_item(item, native_policy, source)
+                        else:
+                            verify_native_item(item, native_policy, source)
                     validated.append(item)
                 if validated:
                     provenance = validated[0]["provenance"]

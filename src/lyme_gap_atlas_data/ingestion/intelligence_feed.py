@@ -54,6 +54,16 @@ def _failure(code: str) -> AcquisitionError:
     return AcquisitionError(code, code=code)
 
 
+def adapter_for_source(source: dict[str, Any]) -> str:
+    """Dispatch RSS/Atom parsing and the Entrez adapter. Entrez is not an RSS feed."""
+    transport = source.get("transport")
+    if transport == "entrez":
+        return "entrez"
+    if transport in {"rss", "atom"}:
+        return "rss_atom"
+    raise _failure("INTELLIGENCE_SOURCE_MISMATCH")
+
+
 def parse_feed(
     raw: bytes, source: dict[str, Any], *, base_url: str | None = None
 ) -> list[dict[str, Any]]:
