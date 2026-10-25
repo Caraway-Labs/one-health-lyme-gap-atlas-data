@@ -15,7 +15,7 @@ import pytest
 @pytest.mark.parametrize("seconds", [-1, 0, 1, 47 * 3600, 48 * 3600, 49 * 3600])
 def test_dev_expiry_and_shared_live_claim_predicates_use_actual_expiry(seconds):
     sql = (
-        Path(__file__).parents[1] / "migrations/V166__dev_additional_cdc_feed_cleanup.sql"
+        Path(__file__).parents[1] / "migrations/V172__dev_additional_cdc_feed_cleanup.sql"
     ).read_text()
     expressions = re.findall(
         r"((?:TRY_)?TO_TIMESTAMP_TZ\(l\.DOCUMENT:expires_at::VARCHAR\)(?:<=|>).+?);", sql

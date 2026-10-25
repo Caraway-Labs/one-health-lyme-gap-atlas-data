@@ -99,8 +99,8 @@ def test_each_dev_source_preserves_expiry_exact_approval_audit_and_live_claims(s
     assert not scope(replace(copy, environment="PROD"))
 
 
-def test_v166_is_pinned_dev_only_and_rejects_bundling():
-    migration = next(row for row in load_migrations() if row.version == "V166")
+def test_v172_is_pinned_dev_only_and_rejects_bundling():
+    migration = next(row for row in load_migrations() if row.version == "V172")
     assert migration.sha256 == DEV_FEED_EXPANSION_CLEANUP_MIGRATION["sha256"]
     assert is_intelligence_prerequisite_batch([DEV_FEED_EXPANSION_CLEANUP_MIGRATION])
     with pytest.raises(ValueError):

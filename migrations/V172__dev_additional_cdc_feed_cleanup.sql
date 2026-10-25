@@ -6,15 +6,15 @@
 -- deployer with REVOKE CURRENT GRANTS, and verify exact object identities.
 -- Do not grant a normal migrator the purge-owner role or broader privileges.
 -- CREATE OR REPLACE deliberately omits COPY GRANTS: execution stays closed
--- until a new separately approved V166 ownership/attestation handoff completes.
+-- until a new separately approved V172 ownership/attestation handoff completes.
 USE DATABASE {{ DATABASE }};
 
 CREATE OR REPLACE VIEW GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_EXPECTED_HANDOFF_V AS
 SELECT SHA256 AS MIGRATION_SHA256,
        '0bb15e8c6e0baa89f66dd24d260534a20aa26a7e6870a3abb023d1c48087a097' AS PROCEDURE_BODY_SHA256
 FROM GOVERNANCE.SCHEMA_MIGRATIONS
-WHERE VERSION='V166'
-  AND FILENAME='V166__dev_additional_cdc_feed_cleanup.sql';
+WHERE VERSION='V172'
+  AND FILENAME='V172__dev_additional_cdc_feed_cleanup.sql';
 
 CREATE OR REPLACE PROCEDURE GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(
     P_PLAN_SHA256 VARCHAR, P_RUN_ID VARCHAR, P_LEASE_SHA256 VARCHAR,

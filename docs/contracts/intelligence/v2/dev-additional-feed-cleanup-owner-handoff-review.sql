@@ -1,14 +1,14 @@
--- DATA #132/#135: post-V166 DEV security-owner handoff, review only.
+-- DATA #132/#135: post-V172 DEV security-owner handoff, review only.
 -- NOT a migration and NOT authorized for execution by this PR.
--- Run only after V166 is recorded with the reviewed checksum. SECURITYADMIN
+-- Run only after V172 is recorded with the reviewed checksum. SECURITYADMIN
 -- must have its existing MANAGE GRANTS authority; do not change the migration
 -- service role or assign the purge-owner role to any user/service.
 
 USE ROLE SECURITYADMIN;
 -- STOP unless a separate migration-service owner readback has verified the
--- V166 ledger row, four-argument SQL EXECUTE AS OWNER definition, current
+-- V172 ledger row, four-argument SQL EXECUTE AS OWNER definition, current
 -- migration-deployer ownership, and exact procedure body SHA256 against the
--- reviewed V166 source. SECURITYADMIN does not need ledger SELECT or owner-
+-- reviewed V172 source. SECURITYADMIN does not need ledger SELECT or owner-
 -- only definition access; it receives narrow DEV container USAGE and SELECT,
 -- INSERT on only the handoff-attestation table.
 -- Under SECURITYADMIN, verify no outbound procedure grants and the exact
@@ -23,8 +23,8 @@ SHOW GRANTS TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP;
 
 -- Phase 1: with zero outbound procedure grants, transfer only this procedure.
 -- REVOKE CURRENT GRANTS is explicit; it never silently carries an early grant
--- forward. If this statement fails, V166 remains recorded and executor USAGE
--- is still absent. Inspect and retry this phase; do not rerun V166 DDL.
+-- forward. If this statement fails, V172 remains recorded and executor USAGE
+-- is still absent. Inspect and retry this phase; do not rerun V172 DDL.
 GRANT OWNERSHIP ON PROCEDURE
   ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(VARCHAR,VARCHAR,VARCHAR,VARCHAR)
   TO ROLE OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER REVOKE CURRENT GRANTS;
@@ -57,7 +57,7 @@ SHOW PROCEDURES LIKE 'PURGE_INTELLIGENCE_RAW_CHECKPOINT'
 INSERT INTO ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS
   (MIGRATION_SHA256,PROCEDURE_BODY_SHA256,PROCEDURE_CREATED_ON,OWNER_ROLE,
    HANDOFF_REF,ATTESTED_BY)
-SELECT 'a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a',
+SELECT '8fc2c2a3d0c5ef980bd9f7f16f49d95ad4e71162bc914277b069ada9cc93fd45',
        '0bb15e8c6e0baa89f66dd24d260534a20aa26a7e6870a3abb023d1c48087a097',
        "created_on"::TIMESTAMP_LTZ,
        'OH_LYME_DEV_INTELLIGENCE_RAW_PURGE_OWNER',
@@ -69,7 +69,7 @@ WHERE "name"='PURGE_INTELLIGENCE_RAW_CHECKPOINT'
   AND "min_num_arguments"=4 AND "max_num_arguments"=4
   AND NOT EXISTS (
     SELECT 1 FROM ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS
-    WHERE MIGRATION_SHA256='a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a'
+    WHERE MIGRATION_SHA256='8fc2c2a3d0c5ef980bd9f7f16f49d95ad4e71162bc914277b069ada9cc93fd45'
   )
 QUALIFY COUNT(*) OVER ()=1;
 

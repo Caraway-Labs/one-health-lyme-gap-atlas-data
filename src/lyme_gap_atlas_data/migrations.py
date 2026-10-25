@@ -67,9 +67,9 @@ PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION = {
     "sha256": "cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f",
 }
 DEV_FEED_EXPANSION_CLEANUP_MIGRATION = {
-    "version": "V166",
-    "filename": "V166__dev_additional_cdc_feed_cleanup.sql",
-    "sha256": "a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a",
+    "version": "V172",
+    "filename": "V172__dev_additional_cdc_feed_cleanup.sql",
+    "sha256": "8fc2c2a3d0c5ef980bd9f7f16f49d95ad4e71162bc914277b069ada9cc93fd45",
 }
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     DEV_FEED_EXPANSION_CLEANUP_MIGRATION,
@@ -84,7 +84,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
-    "V166",
+    "V172",
     "V034",
     "V037",
     "V038",
@@ -1067,7 +1067,7 @@ def apply_migrations(
             continue
         prerequisite = next((item for item in plan if item.version == pinned["version"]), None)
         protected_database = (
-            DEV_DATABASE if pinned["version"] in {"V142", "V143", "V166"} else PROD_DATABASE
+            DEV_DATABASE if pinned["version"] in {"V142", "V143", "V172"} else PROD_DATABASE
         )
         if (
             database == protected_database

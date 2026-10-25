@@ -1,4 +1,4 @@
-# V166 DEV cleanup extension: exact approval packet
+# V172 DEV cleanup extension: exact approval packet
 
 Preparation only. Reservation: DATA #727. Companion ingestion: #724.
 Matthew's 2026-10-22 01:17 decision approves the two source policies, publisher
@@ -8,7 +8,7 @@ approval; it does not request that source or budget decision again.
 
 ## Prepared change
 
-V166__dev_additional_cdc_feed_cleanup.sql replaces only DEV's existing
+V172__dev_additional_cdc_feed_cleanup.sql replaces only DEV's existing
 GOVERNANCE.PURGE_INTELLIGENCE_RAW_CHECKPOINT(VARCHAR,VARCHAR,VARCHAR,VARCHAR)
 and INTELLIGENCE_RAW_CLEANUP_EXPECTED_HANDOFF_V. It follows the existing V163
 single-source exact-plan implementation, adapted to DEV and exactly
@@ -29,10 +29,17 @@ before CURRENT_TIMESTAMP and blocks any shared claim expiring after now. The
 old migration/body hashes are superseded; no early DEV cleanup is authorized.
 
 Migration SHA256:
-`a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a`
+`8fc2c2a3d0c5ef980bd9f7f16f49d95ad4e71162bc914277b069ada9cc93fd45`
 
 Procedure body SHA256:
 `0bb15e8c6e0baa89f66dd24d260534a20aa26a7e6870a3abb023d1c48087a097`
+
+Draft preparation used V166. Main already records a different V166 through V169,
+and open pull requests reserve V170 and V171, so this DEV cleanup is V172.
+Renumbering changes the migration SHA256 from
+`a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a` to the value
+above. The procedure body SHA256 is unchanged: the body does not contain the
+version or filename. Expiry behavior is unchanged.
 
 ## Exact approvals before execution
 
@@ -50,13 +57,13 @@ REVOKE CURRENT GRANTS removes executor procedure USAGE during preparation;
 CREATE OR REPLACE does not copy grants. Final procedure grants must be exactly
 OWNERSHIP to the purge-owner and USAGE to
 OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP, with no executor grant option or other
-grantee. V166 restores SELECT on the expected-handoff view to the existing
+grantee. V172 restores SELECT on the expected-handoff view to the existing
 purge-owner. The handoff appends one independently approved row to
 ONE_HEALTH_LYME_GAP_ATLAS_DEV.GOVERNANCE.INTELLIGENCE_RAW_CLEANUP_HANDOFF_ATTESTATIONS;
 that table's owner/grants do not change.
 
 Pause duration has not been measured: it is the staffed window from preparation
-through V166, verified handoff/attestation and compatible runtime deployment.
+through V172, verified handoff/attestation and compatible runtime deployment.
 The bounded migration invocation does not bound human handoff or recovery time.
 Throughout that window all DEV raw cleanup, including EID, remains unavailable.
 No PROD job, published/normalized article or API read is changed by these steps.
@@ -82,7 +89,7 @@ Restoring the same executor USAGE does not make that scope expansion temporary.
    SHA, environment dev, with only the following expected pending array:
 
    ```json
-   [{"version":"V166","filename":"V166__dev_additional_cdc_feed_cleanup.sql","sha256":"a7f4a88238b631283d5a1db3dc2dc3bd6f234d1ce8e17d7a6277b94494dac91a"}]
+   [{"version":"V172","filename":"V172__dev_additional_cdc_feed_cleanup.sql","sha256":"8fc2c2a3d0c5ef980bd9f7f16f49d95ad4e71162bc914277b069ada9cc93fd45"}]
    ```
 
    All diagnostic/registration/fixture modes stay false. The protected batch is
@@ -98,13 +105,13 @@ Restoring the same executor USAGE does not make that scope expansion temporary.
    USAGE to OH_LYME_DEV_INTELLIGENCE_RAW_CLEANUP, and insert exactly one reviewed
    immutable attestation binding the above hashes to the physical created_on.
    A real HANDOFF_REF is required; the template placeholder is not approval.
-   V166 restores only the existing expected-view SELECT dependency for the
+   V172 restores only the existing expected-view SELECT dependency for the
    purge-owner. Any missing underlying grant is a separate exact request,
    never permission to replay the original security bootstrap.
 5. **DEV image deployment:** coordinate existing app
    b33dbae7-e243-4e27-b3ca-1018f5897f87 via quality.yml deploy_dev=true after the
    reviewed immutable image is built and the attestation exists. The new Python
-   gate requires V166 and cannot run against a stale V143 handoff. Verify with
+   gate requires V172 and cannot run against a stale V143 handoff. Verify with
    the actual cleanup service; no READ-role substitute. Check other sessions
    before changing this shared DEV app. No production app/job is in scope.
 6. **Any future purge:** each source still needs its separate exact private
@@ -115,9 +122,9 @@ Restoring the same executor USAGE does not make that scope expansion temporary.
 
 ## Recovery and consequences
 
-Snowflake DDL is nontransactional. If preparation or V166 fails, cleanup remains
+Snowflake DDL is nontransactional. If preparation or V172 fails, cleanup remains
 closed; inventory owner, grants, physical body/created_on and ledger before any
-retry. Do not rerun V143 or rewrite applied history. If V166 is recorded but
+retry. Do not rerun V143 or rewrite applied history. If V172 is recorded but
 handoff fails, retry only the missing reviewed transfer/grant/attestation phase
 after readback. Never insert a duplicate attestation. Any code rollback that
 expects V143 must keep cleanup disabled; a restored SQL definition requires a
@@ -146,4 +153,4 @@ passed; 100 migration-scope/warehouse cleanup/PROD dry-run/owner-diagnostic test
 passed. Ruff and mypy (149 source files), repository context and dbt parse passed.
 Docker build is blocked because Docker Desktop's Linux engine pipe is absent.
 Current hosted quality and independent review remain required. No live SQL was
-executed to test V166 and no real deletion or source acquisition occurred.
+executed to test V172 and no real deletion or source acquisition occurred.

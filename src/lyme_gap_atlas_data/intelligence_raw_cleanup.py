@@ -261,7 +261,7 @@ def verify_cleanup_handoff(factory: Callable[[], Any], environment: str) -> None
     """Fail closed on absent/partial ownership handoff before any raw mutation."""
     if environment not in {"DEV", "PROD"}:
         raise PermissionError("INTELLIGENCE_RAW_DELETE_SCOPE_INVALID")
-    version = "V166" if environment == "DEV" else "V163"
+    version = "V172" if environment == "DEV" else "V163"
     expected_migration = (
         DEV_FEED_EXPANSION_CLEANUP_MIGRATION
         if environment == "DEV"
