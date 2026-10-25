@@ -8,7 +8,10 @@ No runtime composition, source activation, scheduler, migration or grant is appl
 
 The existing canonical fields remain, with `publisher_metadata` for publisher,
 source family, readable source item ID, authors, unrestricted-category strings,
-language, optional public media references and date states. Publisher category
+language, optional public media references, date states, and an optional
+sanitized plain-text publisher description. The description is present only when
+the reviewed receipt permits that path. Its text is complete plain text with
+state `present`, `empty`, or `not_provided`. Publisher category
 strings remain separate from reviewed taxonomy tokens. Images are references
 only; no image or article fetch occurs. `derived_metadata` is strictly empty.
 There is no model call, relevance score, urgency claim or inferred disease/geography.

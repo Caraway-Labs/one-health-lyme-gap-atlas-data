@@ -1,0 +1,49 @@
+{
+  "captured_on": "2026-10-25",
+  "user_agent": "AtlasIntelligence/1",
+  "maximum_items": 20,
+  "sources": [
+    {
+      "source_id": "cdc-mmwr",
+      "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/342778.rss",
+      "http_status": 200,
+      "feed_item_count": 2345,
+      "retained_items": 20
+    },
+    {
+      "source_id": "cdc-eid-ahead-of-print",
+      "fetch_location": "https://wwwnc.cdc.gov/eid/rss/ahead-of-print.xml",
+      "http_status": 200,
+      "feed_item_count": 5,
+      "retained_items": 5
+    },
+    {
+      "source_id": "cdc-eid-expedited",
+      "fetch_location": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
+      "http_status": 200,
+      "feed_item_count": 1,
+      "retained_items": 1
+    },
+    {
+      "source_id": "cdc-outbreaks",
+      "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/281321.rss",
+      "http_status": 200,
+      "feed_item_count": 11,
+      "retained_items": 11
+    },
+    {
+      "source_id": "cdc-newsroom",
+      "fetch_location": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
+      "http_status": 200,
+      "feed_item_count": 1844,
+      "retained_items": 20
+    },
+    {
+      "source_id": "nih-news-releases",
+      "fetch_location": "https://www.nih.gov/news-releases/feed.xml",
+      "http_status": 200,
+      "feed_item_count": 10,
+      "retained_items": 10
+    }
+  ]
+}
