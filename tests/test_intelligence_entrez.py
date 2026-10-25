@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -935,30 +936,41 @@ def test_registry_files_load_outside_the_working_directory(
     assert registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256) == []
 
 
-def test_pubmed_failure_leaves_the_rss_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = PipelineSettings(
+def _prod_daily_settings() -> PipelineSettings:
+    return PipelineSettings(
         topx_env="prod",
         enable_production_execution=True,
         snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
         intelligence_daily_enabled=True,
     )
-    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", lambda: settings)
 
-    def execute_source(source_id: str, _path: str, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "source_id": source_id,
-            "outcome": "SUCCEEDED",
-            "status": "COMPLETED",
-            "failed_stage": None,
-            "stage_timings_ms": {},
-        }
 
-    class Ledger:
-        def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
-            return True
+def _succeeded_source(source_id: str, _path: str, **_kwargs: Any) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "outcome": "SUCCEEDED",
+        "status": "COMPLETED",
+        "failed_stage": None,
+        "stage_timings_ms": {},
+    }
 
-    terminal: list[tuple[str, str]] = []
-    monkeypatch.setattr(polling, "execute_daily_source", execute_source)
+
+class _ClaimLedger:
+    def __init__(self) -> None:
+        self.claims: list[tuple[str, str]] = []
+        self.saved: list[Any] = []
+
+    def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+        self.claims.append((run_id, source_id))
+        return True
+
+    def save(self, state: Any) -> None:
+        self.saved.append(state)
+
+
+def _patch_registered_pubmed(monkeypatch: pytest.MonkeyPatch, ledger: _ClaimLedger) -> None:
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _prod_daily_settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded_source)
     monkeypatch.setattr(
         polling,
         "registered_entrez_sources",
@@ -968,21 +980,73 @@ def test_pubmed_failure_leaves_the_rss_payload(monkeypatch: pytest.MonkeyPatch) 
         ],
     )
     monkeypatch.setattr(
-        polling, "open_entrez_daily_io", lambda _settings: ("store", Ledger(), "budget")
+        polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, "budget")
     )
+
+
+def test_pubmed_failure_leaves_the_rss_payload(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "hidden-query user@example.test"
+    ledger = _ClaimLedger()
+    _patch_registered_pubmed(monkeypatch, ledger)
 
     def boom(**_kwargs: Any) -> None:
-        raise PermissionError("INTELLIGENCE_RUN_REFERENCE_INVALID")
+        raise PermissionError(secret)
 
     monkeypatch.setattr(polling, "execute_registered_entrez_daily", boom)
-    monkeypatch.setattr(
-        polling,
-        "_terminalize_claimed_daily_run",
-        lambda run_id, source_id: terminal.append((run_id, source_id)),
-    )
     payload = polling.run_production_daily()
+    rendered = json.dumps(payload)
+    logged = capsys.readouterr().out
     assert payload["status"] == "SUCCEEDED"
     assert [row["source_id"] for row in payload["sources"]] == list(runtime.PROD_SOURCE_DEFINITIONS)
     assert all(row["outcome"] == "SUCCEEDED" for row in payload["sources"])
-    assert len(terminal) == 2
-    assert terminal[0][0] != terminal[1][0]
+    assert secret not in rendered
+    assert secret not in logged
+    assert [row["source_id"] for row in payload["pubmed"]] == list(SOURCE_ORDER)
+    assert {row["status"] for row in payload["pubmed"]} == {"FAILED"}
+    assert {row["error_class"] for row in payload["pubmed"]} == {"PermissionError"}
+    assert "pubmed-tick-borne" not in runtime.PROD_SOURCE_DEFINITIONS
+    assert len(ledger.saved) == 2
+    assert {state.status.value for state in ledger.saved} == {"FAILED"}
+    assert {state.resource_key for state in ledger.saved} == set(SOURCE_ORDER)
+    assert ledger.saved[0].ingestion_run_id != ledger.saved[1].ingestion_run_id
+    assert "PermissionError" in logged
+    assert "error_class" in logged
+
+
+def test_rss_only_selection_does_not_claim_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    ledger = _ClaimLedger()
+    _patch_registered_pubmed(monkeypatch, ledger)
+    monkeypatch.setattr(
+        polling,
+        "execute_registered_entrez_daily",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("pubmed walk")),
+    )
+    source_id = next(iter(runtime.PROD_SOURCE_DEFINITIONS))
+    payload = polling.run_production_daily(source_ids=(source_id,))
+    assert ledger.claims == []
+    assert "pubmed" not in payload
+    assert payload["status"] == "SUCCEEDED"
+
+
+def test_pubmed_walk_deadline_returns_the_rss_payload(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = _ClaimLedger()
+    _patch_registered_pubmed(monkeypatch, ledger)
+    monkeypatch.setattr(polling, "PUBMED_WALK_DEADLINE_SECONDS", 0.5)
+
+    def hang(**_kwargs: Any) -> None:
+        time.sleep(30)
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", hang)
+    started = time.monotonic()
+    payload = polling.run_production_daily()
+    elapsed = time.monotonic() - started
+    capsys.readouterr()
+    assert elapsed < 5
+    assert payload["status"] == "SUCCEEDED"
+    assert all(row["outcome"] == "SUCCEEDED" for row in payload["sources"])
+    assert {row["error_class"] for row in payload["pubmed"]} == {"TimeoutError"}
+    assert {state.status.value for state in ledger.saved} == {"FAILED"}
