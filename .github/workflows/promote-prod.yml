@@ -445,7 +445,7 @@ jobs:
             guard_eq january_point_query_scopes false:false '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' "january_point_query_only requires january_climate_only and january_bulk_recovery_only to be false."
           fi
           guard_eq scoped_migration_excludes_intelligence_prerequisite false '${{ inputs.protected_intelligence_prerequisite }}' "Scoped January or county-context promotion requires protected_intelligence_prerequisite=false."
-          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
           key_file="$RUNNER_TEMP/january-prod-migrations.p8"
           trap 'rm -f "$key_file"' EXIT
@@ -520,7 +520,7 @@ jobs:
           else
             guard_eq diagnostic_artifact retained-lineage-only "$DIAGNOSTIC_ARTIFACT" "Retained-lineage requires image_digest=retained-lineage-only."
           fi
-          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
@@ -585,7 +585,7 @@ jobs:
           guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
           head_sha="$(git rev-parse HEAD)"
           guard_eq checked_out_commit "$REVIEWED_COMMIT" "$head_sha" "The checked-out commit does not match REVIEWED_COMMIT. Dispatch from main at the reviewed commit."
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
@@ -651,7 +651,7 @@ jobs:
           placement=request.get('daily_credential_placement_approved') in (True,'true')
           assert placement != validate
           PY
-          quality_count="$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')"
+          quality_count="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')"
           guard_gt quality_checks 0 "$quality_count" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - name: Verify exact immutable digest is active in DEV
         if: inputs.intelligence_daily_validate_only != true

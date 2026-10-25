@@ -91,7 +91,7 @@ jobs:
           CODE_SHA="$REVIEWED_COMMIT"
           [[ "$CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
           source_digest="$(doctl registry repository list-manifests pipeline --output json \
             | jq -r --arg tag "sha-${CODE_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
