@@ -62,6 +62,7 @@ on:
         options:
           - "1"
           - "2"
+          - "3"
       feed_preflight_accounting_confirmed:
         description: Confirm forward-only US$8 allowance covers this bounded probe; historical charges remain separate
         required: false
@@ -265,7 +266,7 @@ jobs:
               *) echo "Unsupported intelligence registration source" >&2; exit 1 ;;
             esac
             case "$INTELLIGENCE_REGISTER_REGISTRY_VERSION" in
-              1|2) ;;
+              1|2|3) ;;
               *) echo "Unsupported intelligence registration version" >&2; exit 1 ;;
             esac
             SNOWFLAKE_AUTH_METHOD=key_pair \
