@@ -8,13 +8,19 @@ from typing import Any
 
 import pytest
 import typer
+from semantic_contracts import (
+    compared_definition_paths,
+    definition_paths_by_source_id,
+    load_workflow,
+    workflow_runs,
+)
 
 from lyme_gap_atlas_data import cli
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
 from lyme_gap_atlas_data.migrations import load_migrations
 
 ROOT = Path(__file__).parents[1]
-EID_PATH = "config/sources/intelligence_cdc_eid_expedited.yml"
+EID_PATH = definition_paths_by_source_id()["cdc-eid-expedited"]
 spec = importlib.util.spec_from_file_location(
     "eid_prod_registration", ROOT / "scripts/register_eid_expedited_prod.py"
 )
@@ -101,22 +107,24 @@ def test_cli_rejects_generic_tier_c_rss_and_alternate_eid_path(
 
 
 def test_prod_workflows_pin_eid_and_keep_registry_write_separate() -> None:
-    ingestion = (ROOT / ".github/workflows/run-prod-ingestion.yml").read_text()
-    registration_workflow = (ROOT / ".github/workflows/register-prod-eid.yml").read_text()
-    assert (
-        "environment: production" in ingestion
-        and "environment: production" in registration_workflow
+    ingestion = load_workflow(ROOT / ".github/workflows/run-prod-ingestion.yml")
+    registration = load_workflow(ROOT / ".github/workflows/register-prod-eid.yml")
+    assert ingestion["jobs"]["ingest"]["environment"] == "production"
+    assert registration["jobs"]["register"]["environment"] == "production"
+    registration_runs = "\n".join(workflow_runs(registration))
+    ingestion_runs = "\n".join(workflow_runs(ingestion))
+    assert 'guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA"' in registration_runs
+    assert "guard_eq expected_pending_json '[]' \"$EXPECTED_PENDING_JSON\"" in registration_runs
+    assert "scripts/register_eid_expedited_prod.py" in registration_runs
+    assert "apply-migrations" not in registration_runs
+    assert "--query" not in registration_runs
+    generic = next(
+        step
+        for step in ingestion["jobs"]["ingest"]["steps"]
+        if step.get("name") == "Verify protected PROD runtime identity and approved source decision"
     )
-    assert 'guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA"' in registration_workflow
-    assert "guard_eq expected_pending_json '[]' \"$EXPECTED_PENDING_JSON\"" in registration_workflow
-    assert "scripts/register_eid_expedited_prod.py" in registration_workflow
-    assert "apply-migrations" not in registration_workflow
-    assert "--query" not in registration_workflow
-    assert (
-        "inputs.source_definition != 'config/sources/intelligence_cdc_eid_expedited.yml'"
-        in ingestion
-    )
-    assert 'test "$REQUEST_OPERATION" = run' in ingestion
-    assert 'test -z "$REQUEST_SOURCE_VERSION_ID"' in ingestion
-    assert "GOVERNANCE.DATA_SOURCE_VERSIONS" in ingestion  # unchanged generic route
-    assert "--tier C" in ingestion
+    assert EID_PATH in compared_definition_paths(generic["if"], "!=")
+    assert 'test "$REQUEST_OPERATION" = run' in ingestion_runs
+    assert 'test -z "$REQUEST_SOURCE_VERSION_ID"' in ingestion_runs
+    assert "GOVERNANCE.DATA_SOURCE_VERSIONS" in ingestion_runs  # unchanged generic route
+    assert "--tier C" in ingestion_runs

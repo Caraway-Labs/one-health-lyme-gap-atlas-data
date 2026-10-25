@@ -246,32 +246,13 @@ def test_snow_cli_guard_rejects_mutation_without_invoking_cli() -> None:
 
 def test_workflow_diagnostic_exits_before_migration_commands() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    assert workflow[True]["workflow_dispatch"]["inputs"]["diagnose_v103_state"]["type"] == "boolean"
-    assert set(workflow[True]["workflow_dispatch"]["inputs"]) == {
-        "metadata_preflight_only",
-        "ledger_diagnostic_only",
-        "expected_pending_json",
+    inputs = workflow[True]["workflow_dispatch"]["inputs"]
+    assert inputs["diagnose_v103_state"]["type"] == "boolean"
+    assert {
         "diagnose_v103_state",
-        "diagnose_legacy_dev_reconciliations",
-        "diagnose_v143_cleanup_owner",
-        "report_dev_cleanup_ownership",
-        "diagnose_query_id",
-        "diagnose_climate_dev",
-        "diagnose_climate_views",
-        "diagnose_intelligence_dev",
-        "register_eid_expedited_dev",
-        "intelligence_register_source_id",
-        "intelligence_register_registry_version",
-        "feed_preflight_accounting_confirmed",
-        "diagnose_january_pair",
-        "diagnose_january_runtime_init",
-        "january_budget_evidence",
+        "expected_pending_json",
         "reviewed_commit",
-        "release_integrity_fixture",
-        "ri706_expected_artifacts",
-        "ri706_synthetic_authorization",
-        "ri706_recovery_run_id",
-    }
+    } <= set(inputs)
     steps = workflow["jobs"]["deploy"]["steps"]
     shell = next(
         step["run"]

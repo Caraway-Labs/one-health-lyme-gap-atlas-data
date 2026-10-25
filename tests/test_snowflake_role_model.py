@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from semantic_contracts import (
+    WORKFLOWS,
+    assert_retired_source_workflow,
+    assert_workflow_security,
+    load_workflow,
+    trigger_map,
+    workflow_runs,
+)
+
 REPO = Path(__file__).resolve().parents[1]
-WORKFLOWS = REPO / ".github" / "workflows"
 # Epic #294 / ADR 0030 consolidated model: PIPELINE_RUNTIME was renamed to
 # RUNTIME; STREAMLIT_OWNER, GOVERNED_VIEW_OWNER, KG_PAPER_REVIEW_OWNER, and
 # KG_LLM_BUDGET_OWNER merged into OWNER; PMC_AUDITOR and the reserved
@@ -23,81 +31,23 @@ STABLE_ROLES = {
 
 
 def test_generic_run_ingestion_workflow_exists() -> None:
-    path = WORKFLOWS / "run-ingestion.yml"
-    assert path.exists()
-    text = path.read_text(encoding="utf-8")
-    assert "atlas-data source" in text
-    assert "source business logic" in text.lower() or "must not encode source" in text.lower()
+    document = load_workflow(WORKFLOWS / "run-ingestion.yml")
+    inputs = trigger_map(document)["workflow_dispatch"]["inputs"]
+    assert inputs["source_definition"]["required"] is True
+    assert inputs["operation"]["type"] == "choice"
+    assert "run" in inputs["operation"]["options"]
+    assert "atlas-data source" in "\n".join(workflow_runs(document))
 
 
 def test_x5j9_specific_workflows_are_deprecated() -> None:
-    capture = (WORKFLOWS / "capture-prod-cdc-evidence.yml").read_text(encoding="utf-8")
-    ingest = (WORKFLOWS / "run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
-    assert "DEPRECATED" in capture
-    assert "DEPRECATED" in ingest
-    assert "run-ingestion.yml" in capture
-    assert "run-ingestion.yml" in ingest
+    assert_retired_source_workflow(WORKFLOWS / "capture-prod-cdc-evidence.yml")
+    assert_retired_source_workflow(WORKFLOWS / "run-prod-approved-ingestion.yml")
 
 
-def test_no_new_source_specific_workflow_without_exception_marker() -> None:
-    """New capture/ingest YAML files must be generic or explicitly excepted."""
-    allowed_prefixes = (
-        "run-ingestion",
-        "quality",
-        "deploy-dev",
-        "promote-prod",
-        "monitor-cdc-operations",
-        "capture-dev-cdc-historical",
-        "capture-prod-cdc-historical",
-        "capture-dev-cdc-tick-surveillance-operator",
-        # Epic #252: protected one-shot production envelope for the two
-        # requestor-restricted CDC workbooks. It restores topology and
-        # removes its private image tag on every exit path.
-        "capture-prod-cdc-restricted-operator",
-        "ingest-dev-cdc-historical",
-        "ingest-prod-cdc-historical",
-        "rollback-prod-cdc-historical",
-        "run-dev-cdc-dbt-recovery",
-        "run-prod-cdc-dbt-recovery",
-        "capture-prod-cdc-evidence",
-        # Epic #252: one generic, protected metadata/evidence candidate
-        # path for the two committed routine-public contextual definitions.
-        # It cannot create a source version or ingest source rows.
-        "capture-prod-routine-public-evidence",
-        "run-prod-approved-ingestion",
-        "run-prod-ingestion",
-        "publish-semantic-release",
-        # Story #299 (Epic #294): flags the repo's existing "Story #<N>
-        # complete." comment convention via a label/ping. It is not a
-        # capture/ingest workflow and never mutates Snowflake or closes an
-        # issue itself; closure stays a human decision.
-        "flag-completed-story-comment",
-        # Label-driven Cursor Cloud Agent dispatch. It is not a capture or
-        # ingest workflow and never mutates Snowflake, environments, or
-        # branch protection.
-        "cursor-dispatch",
-        # Story #169: manual DEV-only synthetic derived-result persistence
-        # verification; it acquires no source and has no PROD path.
-        "verify-infected-tick-result-dev",
-        # Story #171: manual DEV-only categorical fixture persistence check.
-        "verify-surveillance-coverage-dev",
-        # Story #172: manual DEV-only unordered triage fixture persistence check.
-        "verify-surveillance-priority-dev",
-        # DATA #497: protected, temporary literature PRE_DEPLOY operation.
-        # It preserves the six-job PROD baseline and requires a human steward
-        # decision between discovery and approved-paper extraction.
-        "run-prod-literature-once",
-        # DATA #132: protected, temporary intelligence-daily PRE_DEPLOY operation.
-        # It preserves the seven-job PROD baseline and restores it after one run.
-        "run-prod-intelligence-daily-once",
-        # DATA #132/#135: one fixed, checksum-bound EID registry version under
-        # the protected PROD migration identity; no feed fetch or SQL input.
-        "register-prod-eid",
-    )
-    for path in WORKFLOWS.glob("*.yml"):
-        assert path.stem in allowed_prefixes or path.stem.startswith("run-ingestion"), (
-            f"Unexpected workflow {path.name}; add an explicit exception if required"
-        )
+def test_workflows_declare_minimal_permissions_and_protected_prod_environments() -> None:
+    """A new workflow is allowed when its parsed properties stay inside these bounds."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        assert_workflow_security(path)
 
 
 def test_stable_role_model_document_lists_minimal_roles() -> None:

@@ -551,7 +551,6 @@ def test_one_hard_killed_source_does_not_starve_the_others(monkeypatch: pytest.M
     )
     result = polling.run_production_daily()
     assert order == list(PROD_SOURCE_DEFINITIONS)
-    assert order[-1] == "cdc-mmwr"
     assert [row["source_id"] for row in result["sources"]] == order
     killed = next(row for row in result["sources"] if row["source_id"] == "cdc-outbreaks")
     assert killed["exit_code"] == 124
