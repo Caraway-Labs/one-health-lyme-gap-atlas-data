@@ -467,7 +467,13 @@ def test_isolated_process_hard_exit_is_failed_and_logs_exit_code(
     capfd: pytest.CaptureFixture[str],
 ) -> None:
     result = polling._run_isolated(_probe_exit, {"source_id": SOURCE, "code": 124}, timeout=30)
-    assert result == {"source_id": SOURCE, "outcome": "FAILED", "exit_code": 124}
+    assert result["source_id"] == SOURCE
+    assert result["outcome"] == "FAILED"
+    assert result["status"] == "FAILED"
+    assert result["exit_code"] == 124
+    assert result["error_code"] == "INTELLIGENCE_DAILY_HARD_KILL"
+    assert result["failed_stage"] is None
+    assert result["stage_timings_ms"] == {}
     captured = capfd.readouterr()
     expected = f"intelligence_daily_source_process_exit source_id={SOURCE} exit_code=124"
     assert expected in captured.err
