@@ -6,7 +6,7 @@ Routine semantic-lineage validation uses `ATLAS_DEV_READ` in DEV and `ATLAS_PROD
 
 ## DATA #787 API diagnostics connection
 
-Atlas API statement and login latency investigation uses the same read connections. In DEV, `ATLAS_DEV_READ` queries `API_DIAGNOSTICS.API_QUERY_HISTORY_V` and `API_DIAGNOSTICS.API_LOGIN_HISTORY_V` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV`. In PROD, `ATLAS_PROD_READ` queries those views in `ONE_HEALTH_LYME_GAP_ATLAS_PROD` with `COMPUTE_WH` selected explicitly. The views are proposed in [ADR 0048](../adr/0048-api-diagnostics-history-views.md). Queries and the accepted 45-minute `ACCOUNT_USAGE` lag are in the [API diagnostics runbook](api-diagnostics-history.md). Do not use the migration, owner, or runtime connections for this read.
+Atlas API statement-latency investigation uses the same read connections. In DEV, `ATLAS_DEV_READ` queries `API_DIAGNOSTICS.API_QUERY_HISTORY_V` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV`. In PROD, `ATLAS_PROD_READ` queries that view in `ONE_HEALTH_LYME_GAP_ATLAS_PROD` with `COMPUTE_WH` selected explicitly. Each view is limited to statements whose session database is that environment database. The view is proposed in [ADR 0048](../adr/0048-api-diagnostics-history-views.md). Queries and the accepted 45-minute `ACCOUNT_USAGE` lag are in the [API diagnostics runbook](api-diagnostics-history.md). Do not use the migration, owner, or runtime connections for this read.
 
 Story #295 captured the pre-consolidation inventory on 2026-09-16 (12 named
 connections). Story #300 reconciled the client-side `snow` connection surface
@@ -40,9 +40,9 @@ The table below is the Story #300 historical reconciliation. DATA #604 subsequen
 | Task | Connection |
 |---|---|
 | Routine DEV read/inspection (PMC audit, migration-ledger check, general `SELECT`) | `ATLAS_DEV_READ` |
-| DEV API statement and login latency investigation | `ATLAS_DEV_READ`; query `API_DIAGNOSTICS.API_QUERY_HISTORY_V` and `API_DIAGNOSTICS.API_LOGIN_HISTORY_V` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV` |
+| DEV API statement latency investigation | `ATLAS_DEV_READ`; query `API_DIAGNOSTICS.API_QUERY_HISTORY_V` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV` |
 | Routine PROD semantic-lineage validation | `ATLAS_PROD_READ` with `--database ONE_HEALTH_LYME_GAP_ATLAS_PROD --warehouse COMPUTE_WH`; query `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V` |
-| PROD API statement and login latency investigation | `ATLAS_PROD_READ` with `--database ONE_HEALTH_LYME_GAP_ATLAS_PROD --warehouse COMPUTE_WH`; query `API_DIAGNOSTICS.API_QUERY_HISTORY_V` and `API_DIAGNOSTICS.API_LOGIN_HISTORY_V` |
+| PROD API statement latency investigation | `ATLAS_PROD_READ` with `--database ONE_HEALTH_LYME_GAP_ATLAS_PROD --warehouse COMPUTE_WH`; query `API_DIAGNOSTICS.API_QUERY_HISTORY_V` |
 | DEV Streamlit app deploy, governed-view/budget-procedure owner action, literature/paper-review decision | `ATLAS_DEV_OWNER` |
 | DEV schema migration | Protected `deploy-dev.yml` workflow (service credential, not a personal `snow` connection) |
 | PROD schema migration | `ATLAS_PROD_MIGRATOR` |

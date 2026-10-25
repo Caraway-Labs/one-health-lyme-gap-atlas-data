@@ -1,17 +1,19 @@
--- DATA #787: timings and shapes for the Atlas API service user.
--- The migration identity owns the schema and the two secure views.
--- OH_LYME_{ENV}_READ receives schema USAGE and SELECT on these views only.
--- The API user name is OH_LYME_API_SVC in both DEV and PROD.
+-- DATA #787: timings and shapes for one environment's Atlas API statements.
+-- The migration identity owns the schema and the secure view.
+-- OH_LYME_{ENV}_READ receives schema USAGE and SELECT on this view only.
+-- The API user name is OH_LYME_API_SVC in both DEV and PROD. The session
+-- database differs, so each deployment keeps only its own database name.
 USE DATABASE {{ DATABASE }};
 
--- The deployer has CREATE SCHEMA on each isolated database. These views
--- project account-usage timings for one user. They do not copy statement
--- text, error text, client addresses, or session identifiers.
+-- The deployer has CREATE SCHEMA on each isolated database. This view
+-- projects account-usage timings for one user and one database. It does
+-- not copy statement text, error text, application tags, client addresses,
+-- or session identifiers. Login events have no database attribute, so they
+-- are not projected here.
 CREATE SCHEMA IF NOT EXISTS API_DIAGNOSTICS;
 
 CREATE SECURE VIEW IF NOT EXISTS API_DIAGNOSTICS.API_QUERY_HISTORY_V AS
 SELECT query_id,
-       query_tag,
        query_parameterized_hash,
        query_type,
        user_name,
@@ -30,21 +32,9 @@ SELECT query_id,
        execution_status,
        error_code
 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-WHERE user_name = 'OH_LYME_API_SVC';
-
-CREATE SECURE VIEW IF NOT EXISTS API_DIAGNOSTICS.API_LOGIN_HISTORY_V AS
-SELECT event_timestamp,
-       event_type,
-       user_name,
-       reported_client_type,
-       first_authentication_factor,
-       is_success,
-       error_code
-FROM SNOWFLAKE.ACCOUNT_USAGE.LOGIN_HISTORY
-WHERE user_name = 'OH_LYME_API_SVC';
+WHERE user_name = 'OH_LYME_API_SVC'
+  AND database_name = '{{ DATABASE }}';
 
 GRANT USAGE ON SCHEMA API_DIAGNOSTICS TO ROLE OH_LYME_{{ ENV }}_READ;
 GRANT SELECT ON VIEW API_DIAGNOSTICS.API_QUERY_HISTORY_V
-  TO ROLE OH_LYME_{{ ENV }}_READ;
-GRANT SELECT ON VIEW API_DIAGNOSTICS.API_LOGIN_HISTORY_V
   TO ROLE OH_LYME_{{ ENV }}_READ;

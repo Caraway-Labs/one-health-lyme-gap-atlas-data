@@ -23,7 +23,6 @@ SOURCE = SOURCE_PATH.read_text(encoding="utf-8")
 API_USER = "OH_LYME_API_SVC"
 QUERY_COLUMNS = (
     "QUERY_ID",
-    "QUERY_TAG",
     "QUERY_PARAMETERIZED_HASH",
     "QUERY_TYPE",
     "USER_NAME",
@@ -42,20 +41,13 @@ QUERY_COLUMNS = (
     "EXECUTION_STATUS",
     "ERROR_CODE",
 )
-LOGIN_COLUMNS = (
-    "EVENT_TIMESTAMP",
-    "EVENT_TYPE",
-    "USER_NAME",
-    "REPORTED_CLIENT_TYPE",
-    "FIRST_AUTHENTICATION_FACTOR",
-    "IS_SUCCESS",
-    "ERROR_CODE",
-)
 FORBIDDEN_TEXT = (
     "QUERY_TEXT",
     "ERROR_MESSAGE",
+    "QUERY_TAG",
     "CLIENT_IP",
     "SESSION_ID",
+    "LOGIN_HISTORY",
 )
 
 
@@ -75,16 +67,15 @@ def _grants(sql: str) -> list[str]:
     return re.findall(r"GRANT .*?;", re.sub(r"\s+", " ", sql))
 
 
-def test_secure_views_project_only_allowed_columns_for_the_api_user() -> None:
+def test_secure_view_projects_only_allowed_columns_for_one_database() -> None:
     upper = SOURCE.upper()
-    assert upper.count("CREATE SECURE VIEW IF NOT EXISTS ") == 2
+    assert upper.count("CREATE SECURE VIEW IF NOT EXISTS ") == 1
     assert "CREATE VIEW " not in upper.replace("CREATE SECURE VIEW ", "")
     assert _projection("API_DIAGNOSTICS.API_QUERY_HISTORY_V") == list(QUERY_COLUMNS)
-    assert _projection("API_DIAGNOSTICS.API_LOGIN_HISTORY_V") == list(LOGIN_COLUMNS)
-    assert SOURCE.count(f"WHERE user_name = '{API_USER}'") == 2
+    assert "DATABASE_NAME" not in _projection("API_DIAGNOSTICS.API_QUERY_HISTORY_V")
+    assert f"WHERE user_name = '{API_USER}'\n  AND database_name = '{{{{ DATABASE }}}}'" in SOURCE
     assert re.findall(r"^FROM \S+", SOURCE, re.MULTILINE) == [
         "FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY",
-        "FROM SNOWFLAKE.ACCOUNT_USAGE.LOGIN_HISTORY",
     ]
     for forbidden in FORBIDDEN_TEXT:
         assert forbidden not in upper
@@ -93,11 +84,10 @@ def test_secure_views_project_only_allowed_columns_for_the_api_user() -> None:
     assert "CREATE USER" not in upper
 
 
-def test_grants_are_select_on_the_two_views_for_the_read_role_only() -> None:
+def test_grants_are_select_on_the_query_view_for_the_read_role_only() -> None:
     assert _grants(SOURCE) == [
         "GRANT USAGE ON SCHEMA API_DIAGNOSTICS TO ROLE OH_LYME_{{ ENV }}_READ;",
         "GRANT SELECT ON VIEW API_DIAGNOSTICS.API_QUERY_HISTORY_V TO ROLE OH_LYME_{{ ENV }}_READ;",
-        "GRANT SELECT ON VIEW API_DIAGNOSTICS.API_LOGIN_HISTORY_V TO ROLE OH_LYME_{{ ENV }}_READ;",
     ]
     assert set(re.findall(r"TO ROLE (.+?);", re.sub(r"\s+", " ", SOURCE))) == {
         "OH_LYME_{{ ENV }}_READ"
@@ -115,7 +105,7 @@ def test_grants_are_select_on_the_two_views_for_the_read_role_only() -> None:
         assert forbidden not in SOURCE.upper()
 
 
-def test_migration_is_checksummed_and_environment_neutral() -> None:
+def test_rendered_view_keeps_the_other_environment_out() -> None:
     migration = next(item for item in load_migrations() if item.version == "V168")
     versions = [item.version for item in load_migrations()]
     assert versions[-1] == "V168"
@@ -126,14 +116,16 @@ def test_migration_is_checksummed_and_environment_neutral() -> None:
     assert "V168" not in DEV_ONLY_MIGRATION_VERSIONS
     assert "V168" not in PROD_ONLY_MIGRATION_VERSIONS
     assert "V168" not in {item["version"] for item in PROTECTED_INTELLIGENCE_MIGRATIONS}
-    for database, environment in (
-        (DEV_DATABASE, "DEV"),
-        (PROD_DATABASE, "PROD"),
+    for database, environment, other in (
+        (DEV_DATABASE, "DEV", PROD_DATABASE),
+        (PROD_DATABASE, "PROD", DEV_DATABASE),
     ):
         rendered = render_migration(migration, database)
         assert f"USE DATABASE {database};" in rendered
         assert f"TO ROLE OH_LYME_{environment}_READ;" in rendered
         assert f"WHERE user_name = '{API_USER}'" in rendered
+        assert f"database_name = '{database}'" in rendered
+        assert other not in rendered
         assert "{{" not in rendered
         for forbidden in FORBIDDEN_TEXT:
             assert forbidden not in rendered.upper()
@@ -149,19 +141,27 @@ def test_docs_keep_the_read_role_and_name_the_privacy_boundary() -> None:
     adr = (ROOT / "docs/adr/0048-api-diagnostics-history-views.md").read_text(encoding="utf-8")
     runbook = (ROOT / "docs/operations/api-diagnostics-history.md").read_text(encoding="utf-8")
     assert "API_DIAGNOSTICS.API_QUERY_HISTORY_V" in inventory
-    assert "API_DIAGNOSTICS.API_LOGIN_HISTORY_V" in inventory
+    assert "API_LOGIN_HISTORY_V" not in inventory
     assert "`ATLAS_DEV_READ`" in inventory
     assert "`ATLAS_PROD_READ`" in inventory
     assert "API_DIAGNOSTICS.API_QUERY_HISTORY_V" in role_model
+    assert "API_LOGIN_HISTORY_V" not in role_model
     assert "API_DIAGNOSTICS_READER" not in role_model
     assert "Status: Proposed" in adr
     assert "SNOWFLAKE.GOVERNANCE_VIEWER" in adr
-    assert "SNOWFLAKE.SECURITY_VIEWER" in adr
     assert "IMPORTED PRIVILEGES" in adr
+    assert "database_name = '{{ DATABASE }}'" in adr
     assert "QUERY_TEXT" in adr
+    assert "QUERY_TAG" in adr
+    assert "LOGIN_HISTORY" in adr
+    assert "SECURITY_VIEWER" not in adr
     assert "45 minutes" in adr
     assert "45 minutes" in runbook
     assert API_USER in runbook
-    assert runbook.count("```sql") == 6
+    assert "API_LOGIN_HISTORY_V" not in runbook
+    sql_blocks = re.findall(r"```sql\n(.*?)```", runbook, re.DOTALL)
+    assert len(sql_blocks) == 4
+    assert all("query_tag" not in block.lower() for block in sql_blocks)
+    assert "QUERY_TAG" in runbook
     for forbidden in ("QUERY_TEXT", "ERROR_MESSAGE", "CLIENT_IP", "SESSION_ID"):
         assert forbidden not in runbook

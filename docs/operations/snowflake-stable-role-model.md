@@ -8,7 +8,7 @@ V137 creates one secure internal view, `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V`,
 
 ## DATA #787 API diagnostics history (proposed)
 
-V168 creates `API_DIAGNOSTICS.API_QUERY_HISTORY_V` and `API_DIAGNOSTICS.API_LOGIN_HISTORY_V` for `OH_LYME_{ENV}_READ`. The grants are schema `USAGE` and `SELECT` on those two views. No new role is created, and the views omit statement text, error text, client addresses, and session identifiers. Use `ATLAS_DEV_READ` in DEV and `ATLAS_PROD_READ` in PROD. See [ADR 0048](../adr/0048-api-diagnostics-history-views.md) and the [runbook](api-diagnostics-history.md). `ACCOUNT_USAGE` can lag by up to about 45 minutes.
+V168 creates `API_DIAGNOSTICS.API_QUERY_HISTORY_V` for `OH_LYME_{ENV}_READ`. The grants are schema `USAGE` and `SELECT` on that view. The view keeps `OH_LYME_API_SVC` rows whose session database is the environment database, so a DEV reader does not see PROD statements. No new role is created. The view omits statement text, the application query tag, error text, client addresses, and session identifiers. Login history is not projected: it has no database attribute. Use `ATLAS_DEV_READ` in DEV and `ATLAS_PROD_READ` in PROD. See [ADR 0048](../adr/0048-api-diagnostics-history-views.md) and the [runbook](api-diagnostics-history.md). `ACCOUNT_USAGE` can lag by up to about 45 minutes.
 
 ## Current model (as of Story #297, DEV; Story #298 mirrors this to PROD)
 
@@ -22,7 +22,7 @@ the drifted 11-DEV/9-PROD role inventory documented in
 | `OH_LYME_{ENV}_RUNTIME` | Ingestion + dbt transform runtime | Renamed from `PIPELINE_RUNTIME`; grants unchanged. Never holds an owner-rights grant beyond `USAGE`. |
 | `OH_LYME_{ENV}_OWNER` | Owner-rights: Tier D source and literature steward decisions, governed/explorer views, budget procedures | Merges `GOVERNED_VIEW_OWNER`, `KG_PAPER_REVIEW_OWNER`, and (DEV only) `KG_LLM_BUDGET_OWNER`. Holds `OH_LYME_{ENV}_STREAMLIT_OWNER` via role membership (see below) rather than owning Streamlit objects directly. |
 | `OH_LYME_{ENV}_STREAMLIT_OWNER` | Owns the 2 Streamlit apps and their internal stages | **Retained as its own role**, not merged, because Snowflake does not support `GRANT`/`REVOKE OWNERSHIP ON STREAMLIT`. `OH_LYME_{ENV}_OWNER` is granted this role (role-hierarchy nesting) so a session using `OWNER` still has full effective access; the object's registered owner in `SHOW GRANTS`/Streamlit metadata remains this role. |
-| `OH_LYME_{ENV}_READ` | Read-only: PMC/KG recovery audit, reserved API-read boundary, API statement and login timings | Merges `PMC_AUDITOR` and the (dormant, zero-holder) `API_RUNTIME` grants. Both were already read-only. V168 adds `SELECT` on the two `API_DIAGNOSTICS` views only. |
+| `OH_LYME_{ENV}_READ` | Read-only: PMC/KG recovery audit, reserved API-read boundary, API statement timings | Merges `PMC_AUDITOR` and the (dormant, zero-holder) `API_RUNTIME` grants. Both were already read-only. V168 adds `SELECT` on `API_DIAGNOSTICS.API_QUERY_HISTORY_V` only. |
 | `OH_LYME_{ENV}_MIGRATION_DEPLOYER` | Schema DDL / one-time deploy identity | Unchanged. Now also holds `OH_LYME_{ENV}_OWNER` directly (replacing the removed `SECURITY_ADMIN` indirection role, whose only purpose was `USAGE ON ROLE {ENV}_STREAMLIT_OWNER`). |
 
 Removed entirely (no successor object, zero functional loss):
