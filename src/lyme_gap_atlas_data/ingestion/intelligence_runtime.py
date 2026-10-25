@@ -49,7 +49,9 @@ DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
 DAILY_SOURCE_BUDGET_SECONDS = 900
 # After the budget expires, a fresh short connection records the FAILED terminal state.
 DEADLINE_GRACE_SECONDS = 30
-# The process watchdog must outlive the budget plus the terminalization grace window.
+# Per-source process watchdog. It must outlive the budget plus the grace window
+# used when a budget expiry records FAILED. The daily runner's hard-kill path
+# records FAILED on a fresh connection before exiting (intelligence_daily_hard_kill).
 DAILY_SOURCE_WATCHDOG_SECONDS = DAILY_SOURCE_BUDGET_SECONDS + 2 * DEADLINE_GRACE_SECONDS
 PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
@@ -79,6 +81,26 @@ PROD_SOURCE_DEFINITIONS = {
     "cdc-outbreaks": "config/sources/intelligence_cdc_outbreaks.yml",
     "nih-news-releases": "config/sources/intelligence_nih_news_releases.yml",
     "cdc-mmwr": "config/sources/intelligence_cdc_mmwr.yml",
+}
+# Operator stages for one daily source. Checkpoint names stay on the orchestrator;
+# these are the boundaries a daily outcome is allowed to name.
+DAILY_OPERATOR_STAGES = (
+    "CLAIM",
+    "FETCH",
+    "PARSE",
+    "NORMALIZE",
+    "WRITE",
+    "RETENTION",
+    "PUBLISH",
+)
+DAILY_OPERATOR_STAGE_NAMES = frozenset(DAILY_OPERATOR_STAGES)
+ORCHESTRATOR_STAGE_TO_DAILY = {
+    "ACQUIRE": "FETCH",
+    "VALIDATE": "PARSE",
+    "NORMALIZE": "NORMALIZE",
+    "LOAD": "WRITE",
+    "QUALITY": "WRITE",
+    "PUBLISH_STAGE": "PUBLISH",
 }
 
 
@@ -182,6 +204,36 @@ class PilotBudget:
         ]
         return [*self.stage_timings, *open_rows]
 
+    def open_daily_stage(self) -> str | None:
+        """Operator stage for the checkpoint that is still running, if it maps."""
+        if not self._open_stages:
+            return None
+        latest = next(reversed(self._open_stages))
+        return ORCHESTRATOR_STAGE_TO_DAILY.get(latest)
+
+    def operator_timings_ms(self) -> dict[str, int]:
+        """Milliseconds per operator stage that this budget has actually entered.
+
+        Derived from the redacted timing report. Stages that share an operator
+        name (LOAD and QUALITY are both WRITE) are summed. No payloads or errors.
+        """
+        totals: dict[str, int] = {}
+        for row in self.timing_report():
+            stage = row.get("stage")
+            seconds = row.get("seconds")
+            operator = ORCHESTRATOR_STAGE_TO_DAILY.get(stage) if isinstance(stage, str) else None
+            if (
+                operator is None
+                or isinstance(seconds, bool)
+                or not isinstance(seconds, int | float)
+            ):
+                continue
+            elapsed = float(seconds)
+            if elapsed < 0:
+                continue
+            totals[operator] = totals.get(operator, 0) + int(round(elapsed * 1000))
+        return totals
+
     def remaining(self) -> float:
         seconds = self.deadline - self.clock()
         if seconds <= 0:
@@ -213,6 +265,41 @@ class PilotBudget:
             # No redirects, retries, conditional bodies, or partial acceptance.
             raise PermissionError("INTELLIGENCE_PILOT_RESPONSE_REQUIRED")
         return response
+
+
+class DailyStageClock:
+    """Milliseconds spent between explicit operator-stage boundaries.
+
+    Callers pass a stage name from ``DAILY_OPERATOR_STAGES``. The clock stores
+    durations only.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.perf_counter) -> None:
+        self.clock = clock
+        self.timings_ms: dict[str, int] = {}
+        self._open: dict[str, float] = {}
+
+    def begin(self, stage: str) -> None:
+        if stage not in DAILY_OPERATOR_STAGE_NAMES or stage in self._open:
+            return
+        self._open[stage] = self.clock()
+
+    def end(self, stage: str) -> None:
+        started = self._open.pop(stage, None)
+        if started is None:
+            return
+        elapsed = self.clock() - started
+        milliseconds = 0 if elapsed <= 0 else int(round(elapsed * 1000))
+        self.timings_ms[stage] = self.timings_ms.get(stage, 0) + milliseconds
+
+    def snapshot_ms(self) -> dict[str, int]:
+        totals = dict(self.timings_ms)
+        now = self.clock()
+        for stage, started in self._open.items():
+            elapsed = now - started
+            milliseconds = 0 if elapsed <= 0 else int(round(elapsed * 1000))
+            totals[stage] = totals.get(stage, 0) + milliseconds
+        return totals
 
 
 class _Cursor:

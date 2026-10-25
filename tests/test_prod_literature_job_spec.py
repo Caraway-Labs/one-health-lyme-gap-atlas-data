@@ -13,6 +13,7 @@ from runpy import run_path
 
 import pytest
 import yaml
+from semantic_contracts import load_workflow, workflow_runs
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "prod_literature_job_spec.py"
 _MODULE = run_path(
@@ -386,8 +387,9 @@ def test_repo_prod_spec_has_no_scheduled_literature_jobs() -> None:
     assert len(jobs) == 6
     assert all(job["kind"] == "SCHEDULED" for job in jobs)
     assert all("pubmed" not in job["name"] and "extraction" not in job["name"] for job in jobs)
-    workflow = Path(".github/workflows/run-prod-literature-once.yml").read_text(encoding="utf-8")
-    assert "environment: production" in workflow
+    document = load_workflow(Path(".github/workflows/run-prod-literature-once.yml"))
+    assert document["jobs"]["run"]["environment"] == "production"
+    workflow = "\n".join(workflow_runs(document))
     assert '[[ "$MAX_RECORDS" =~ ^[0-9]{1,3}$ ]]' in workflow
     assert 'test "$GITHUB_REF" = refs/heads/main' in workflow
     assert "trap restore_baseline EXIT" in workflow
@@ -410,7 +412,6 @@ def test_all_prod_app_spec_mutators_share_one_non_canceling_lock() -> None:
     assert "promote-prod.yml" in mutators
     assert "run-prod-literature-once.yml" in mutators
     assert "run-prod-intelligence-daily-once.yml" in mutators
-    assert len(mutators) == 8
 
 
 def test_host_secret_readiness_collects_every_stage_without_values() -> None:

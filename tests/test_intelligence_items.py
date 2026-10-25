@@ -5,10 +5,13 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from lyme_gap_atlas_data.intelligence_items import (
+    REVISION_CONTENT_FIELDS,
     canonical_timestamp,
     canonical_url,
+    identity_hash,
     item_identities,
     normalize_item,
+    revision_content,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +69,63 @@ def test_independent_accepted_contract_identity_vector() -> None:
         fixture["content_sha256"],
         fixture["revision_id"],
     )
+
+
+def test_revision_content_fields_keep_golden_hashes() -> None:
+    """Moving the hash basis into one constant must not change fixture digests."""
+    assert REVISION_CONTENT_FIELDS == (
+        "title",
+        "excerpt",
+        "published_at",
+        "updated_at",
+        "event_at",
+        "contract_version",
+        "publisher_metadata",
+        "native_metadata",
+    )
+    golden = (
+        "1394a4e1c0bf2a6d258e57a05268114a6251f69983549366fdda5fa3c57239ea",
+        "10512ab0027ff5194f0b068f6b82263b9b030f89f87dee63a949236aa0571f3d",
+        "65bd8e397012ea11086b55589339e8c3086bed4788f5e81eb9429e2e0ec4bab9",
+    )
+    for name in ("rss-item.json", "atom-item.json", "email-item.json", "web-item.json"):
+        fixture = json.loads((ROOT / "tests/fixtures/intelligence/v1" / name).read_text())
+        assert item_identities(fixture) == golden
+        assert (fixture["item_id"], fixture["content_sha256"], fixture["revision_id"]) == golden
+        assert set(revision_content(fixture)) == {
+            "title",
+            "excerpt",
+            "published_at",
+            "updated_at",
+            "event_at",
+        }
+
+
+def test_contract_2_hash_covers_publisher_metadata_whole() -> None:
+    native = {
+        "inventory": ["item/title", "feed/title"],
+        "item": {"title": "t"},
+        "item_attributes": {},
+        "publisher_dates": {},
+    }
+    base = {
+        "contract_version": "2.0.0",
+        "title": "t",
+        "excerpt": None,
+        "published_at": None,
+        "updated_at": None,
+        "event_at": None,
+        "publisher_metadata": {"description": "one", "categories": ["a"]},
+        "native_metadata": native,
+    }
+    changed = {
+        **base,
+        "publisher_metadata": {"description": "two", "categories": ["a"]},
+    }
+    assert identity_hash(revision_content(base)) != identity_hash(revision_content(changed))
+    stored = revision_content(base)
+    assert stored["native_metadata"]["inventory"] == ["item/title"]
+    assert "feed/title" not in stored["native_metadata"]["inventory"]
 
 
 @pytest.mark.parametrize("value", ["20260929T080000Z", "2026-02-30T08:00:00Z", "2026-09-29"])

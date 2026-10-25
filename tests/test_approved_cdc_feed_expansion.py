@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from semantic_contracts import selection_source_ids
 
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
     ENDPOINTS,
@@ -85,14 +86,7 @@ def test_exact_source_receipt_and_definition_preserve_metadata_bounds(source_id:
 
 @pytest.mark.parametrize(
     "source_id",
-    [
-        "niaid-news",
-        "who-disease-outbreaks",
-        "cdc-vital-signs",
-        "cdc-newsroom",
-        "pubmed-lyme-borrelia",
-        "pubmed-tick-borne",
-    ],
+    sorted(selection_source_ids() - set(PROD_SOURCE_SHA256)),
 )
 def test_unadmitted_sources_cannot_use_the_fixed_registration(source_id: str) -> None:
     with pytest.raises(PermissionError, match="REVIEWED_PACKAGE"):

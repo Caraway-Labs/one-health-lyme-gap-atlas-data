@@ -9,7 +9,7 @@ from contextlib import nullcontext, suppress
 from functools import wraps
 from pathlib import Path
 from time import monotonic
-from typing import ParamSpec, TypeVar
+from typing import Annotated, ParamSpec, TypeVar
 
 import typer
 from lyme_gap_atlas_shared.observability import configure_logging, configure_tracing
@@ -1047,15 +1047,40 @@ def run_production_schedule_command() -> None:
     typer.echo(json.dumps(run_production_schedule(), default=str))
 
 
+_DAILY_SELECTOR_USAGE_CODES = frozenset(
+    {
+        "INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED",
+        "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID",
+    }
+)
+
+
 @pipeline_app.command("run-intelligence-daily")
 def run_intelligence_daily_command(
     preflight_only: bool = typer.Option(False, "--preflight-only"),
     reopen_attempt: int = typer.Option(1, "--reopen-attempt", min=1),
+    source: Annotated[list[str] | None, typer.Option("--source")] = None,
 ) -> None:
-    """Run the fixed daily RSS set on the existing production job platform."""
+    """Run the fixed daily RSS set on the existing production job platform.
+
+    ``--source`` is repeatable, must be an approved daily source, and is
+    required when ``--reopen-attempt`` is 2 or higher. Unselected sources are
+    skipped and do not fail the run.
+    """
     from .intelligence_polling import run_production_daily
 
-    result = run_production_daily(preflight_only=preflight_only, reopen_attempt=reopen_attempt)
+    try:
+        result = run_production_daily(
+            preflight_only=preflight_only,
+            reopen_attempt=reopen_attempt,
+            source_ids=tuple(source or ()),
+        )
+    except PermissionError as error:
+        code = str(error)
+        if code in _DAILY_SELECTOR_USAGE_CODES:
+            typer.echo(code)
+            raise typer.Exit(code=2) from error
+        raise
     typer.echo(json.dumps(result))
     if result["status"] == "FAILED":
         raise typer.Exit(code=1)
@@ -1064,11 +1089,15 @@ def run_intelligence_daily_command(
 @pipeline_app.command("recover-intelligence-daily-stuck-run")
 def recover_intelligence_daily_stuck_run_command(
     ingestion_run_id: str = typer.Option(..., "--ingestion-run-id"),
+    source: str = typer.Option(..., "--source"),
 ) -> None:
-    """Terminalize one RUNNING intelligence-daily admission after a process watchdog exit."""
+    """Terminalize one RUNNING intelligence-daily admission after a process watchdog exit.
+
+    ``--source`` must equal that run's resource_key.
+    """
     from .intelligence_daily_run_recovery import terminalize_stuck_daily_run
 
-    typer.echo(json.dumps(terminalize_stuck_daily_run(ingestion_run_id)))
+    typer.echo(json.dumps(terminalize_stuck_daily_run(ingestion_run_id, source_id=source)))
 
 
 @pipeline_app.command("run-production-cdc-dbt-recovery")

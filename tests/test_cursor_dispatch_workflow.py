@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from semantic_contracts import load_workflow, trigger_map, workflow_runs
 
 _ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOW = _ROOT / ".github" / "workflows" / "cursor-dispatch.yml"
@@ -30,15 +31,21 @@ def test_dispatcher_files_exist() -> None:
 
 
 def test_workflow_runs_the_committed_script() -> None:
-    workflow = _WORKFLOW.read_text(encoding="utf-8")
-    assert "run: bash .github/scripts/cursor-dispatch.sh" in workflow
-    assert "group: cursor-cloud-agent-dispatch" in workflow
-    assert "cancel-in-progress: false" in workflow
-    assert "github.event.label.name == 'cursor:ready'" in workflow
+    document = load_workflow(_WORKFLOW)
+    assert document["concurrency"] == {
+        "group": "cursor-cloud-agent-dispatch",
+        "cancel-in-progress": False,
+    }
+    assert "github.event.label.name == 'cursor:ready'" in document["jobs"]["dispatch"]["if"]
+    assert "pull_request_target" not in trigger_map(document)
+    assert any(
+        run.strip() == "bash .github/scripts/cursor-dispatch.sh" for run in workflow_runs(document)
+    )
 
 
 def test_dispatcher_never_merges_or_dispatches_workflows() -> None:
-    text = _SCRIPT.read_text(encoding="utf-8") + _WORKFLOW.read_text(encoding="utf-8")
+    document = load_workflow(_WORKFLOW)
+    text = _SCRIPT.read_text(encoding="utf-8") + "\n".join(workflow_runs(document))
     for forbidden in ("gh pr merge", "/merge", "gh workflow run", "/dispatches", "gh run rerun"):
         assert forbidden not in text
 

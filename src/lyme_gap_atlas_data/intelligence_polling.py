@@ -6,26 +6,85 @@ No scheduler deployment, source approval, policy creation or warehouse writes.
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
+import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from queue import Empty
 from typing import Any, cast
 
+from . import settings as pipeline_settings
+from .ingestion import intelligence_runtime
+from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .ingestion.intelligence_daily_run_ids import daily_run_id
-from .ingestion.types import AdapterKind, SourceDefinition
+from .ingestion.intelligence_runtime import (
+    DAILY_OPERATOR_STAGE_NAMES,
+    DAILY_SOURCE_BUDGET_SECONDS,
+    DAILY_SOURCE_WATCHDOG_SECONDS,
+    ORCHESTRATOR_STAGE_TO_DAILY,
+    PROD_DAILY_SOURCE_SHA256,
+    PROD_SOURCE_DEFINITIONS,
+    DailyStageClock,
+)
+from .ingestion.source_definition import load_source_definition
+from .ingestion.types import AdapterKind, RunStatus, SourceDefinition, Stage, Tier
 from .intelligence_daily_deadline import terminalize_daily_pilot_deadline
+from .intelligence_daily_hard_kill import (
+    HARD_KILL_EXIT_CODE,
+    HardKillState,
+    daily_hard_kill_watchdog,
+    install_stage_memory,
+    log_source_process_exit,
+    source_process_timeout,
+)
 from .intelligence_items import canonical_url, identity_hash, validate_record
 
 DAILY_POLL_SECONDS = 86_400
+DAILY_OUTCOME_LOG_PREFIX = "ATLAS_INTEL_DAILY_OUTCOME "
+_ITEM_COUNT_FIELDS = ("items_seen", "items_new", "items_changed", "items_unchanged")
+_MAX_ITEM_COUNT = 5000
+_MAX_OUTCOME_LOG_BYTES = 4096
+# Exception text is emitted only when the whole message is one of these codes.
+_ALLOWLISTED_ERROR_CODE = re.compile(
+    r"^(?:INTELLIGENCE_[A-Z0-9_]{3,80}|FEED_[A-Z0-9_]{1,80}|MALFORMED_FEED|"
+    r"UNSUPPORTED_FEED_ENVELOPE|AMBIGUOUS_FEED_FIELD|XML_[A-Z0-9_]{3,80})$"
+)
+_EXCEPTION_CLASS_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,80}$")
+_PARSE_FAILURE_CODES = frozenset(
+    {
+        "MALFORMED_FEED",
+        "UNSUPPORTED_FEED_ENVELOPE",
+        "AMBIGUOUS_FEED_FIELD",
+        "XML_COMPLEXITY_LIMIT",
+        "XML_DTD_FORBIDDEN",
+        "XML_BASE_INVALID",
+        "FEED_TOPIC_LIMIT",
+    }
+)
+_STATUS_FOR_OUTCOME = {
+    "SUCCEEDED": "COMPLETED",
+    "FAILED": "FAILED",
+    "ALREADY_CLAIMED": "ALREADY_CLAIMED",
+    "SCHEDULE_SUPPRESSED": "SCHEDULE_SUPPRESSED",
+    "READY": "READY",
+    "PREFLIGHT_OR_RUNTIME_FAILED": "FAILED",
+    "SKIPPED_NOT_SELECTED": "SKIPPED_NOT_SELECTED",
+}
+# One reopen names one source. Five is the whole approved daily set.
+MAX_DAILY_SOURCE_SELECTION = 5
+_LOG_STATUSES = frozenset(_STATUS_FOR_OUTCOME.values())
+_LOG_OUTCOMES = frozenset(_STATUS_FOR_OUTCOME)
 
 
-def _terminalize_claimed_daily_run(run_id: str) -> None:
+def _terminalize_claimed_daily_run(run_id: str, source_id: str) -> None:
     from .intelligence_daily_run_recovery import terminalize_stuck_daily_run
 
     try:
-        terminalize_stuck_daily_run(run_id)
+        terminalize_stuck_daily_run(run_id, source_id=source_id)
     except Exception:
         return
 
@@ -36,108 +95,627 @@ def _stage_timings(budget: Any) -> list[dict[str, Any]]:
     return report() if callable(report) else []
 
 
+def allowlisted_error_code(error: BaseException) -> str:
+    """Return a code safe to print. Free-text exception messages are never returned."""
+    message = str(error)
+    if _ALLOWLISTED_ERROR_CODE.fullmatch(message):
+        return message
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and _ALLOWLISTED_ERROR_CODE.fullmatch(code):
+        return code
+    name = type(error).__name__
+    if _EXCEPTION_CLASS_NAME.fullmatch(name):
+        return f"UNCLASSIFIED_{name}"
+    return "UNCLASSIFIED_EXCEPTION"
+
+
+def published_error_code(code: object) -> str | None:
+    """Keep an error code that is allowlisted or an UNCLASSIFIED class token."""
+    if not isinstance(code, str):
+        return None
+    if _ALLOWLISTED_ERROR_CODE.fullmatch(code):
+        return code
+    prefix = "UNCLASSIFIED_"
+    class_name = code.removeprefix(prefix)
+    if code.startswith(prefix) and _EXCEPTION_CLASS_NAME.fullmatch(class_name):
+        return code
+    return None
+
+
+def _diagnostic_error_code(code: object) -> str:
+    published = published_error_code(code)
+    if published is not None:
+        return published
+    if isinstance(code, str) and _EXCEPTION_CLASS_NAME.fullmatch(code):
+        return f"UNCLASSIFIED_{code}"
+    return "UNCLASSIFIED_EXCEPTION"
+
+
+def _retention_failure(code: str | None) -> bool:
+    if code is None:
+        return False
+    return (
+        code.startswith("INTELLIGENCE_RAW_")
+        or code.startswith("INTELLIGENCE_ARTIFACT_RETENTION")
+        or code == "INTELLIGENCE_RETENTION_NOT_APPROVED"
+    )
+
+
+def daily_failed_stage(
+    *,
+    explicit: str | None,
+    orchestrator_stage: str | None,
+    code: str | None,
+) -> str | None:
+    """Map a failure onto one operator stage. An explicit CLAIM stays CLAIM."""
+    if explicit == "CLAIM":
+        return "CLAIM"
+    if code in _PARSE_FAILURE_CODES or (code is not None and code.startswith("XML_")):
+        return "PARSE"
+    mapped = ORCHESTRATOR_STAGE_TO_DAILY.get(orchestrator_stage or "")
+    stage = explicit if explicit in DAILY_OPERATOR_STAGE_NAMES else mapped
+    if _retention_failure(code) and stage in {None, "FETCH", "WRITE", "PARSE"}:
+        return "RETENTION"
+    if stage in DAILY_OPERATOR_STAGE_NAMES:
+        return stage
+    if code is not None and code.startswith("FEED_"):
+        return "FETCH"
+    return None
+
+
+def _bounded_timings(raw: object) -> dict[str, int]:
+    if not isinstance(raw, dict):
+        return {}
+    clean: dict[str, int] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or key not in DAILY_OPERATOR_STAGE_NAMES:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        if value < 0 or value > 10**12:
+            continue
+        clean[key] = value
+    return clean
+
+
+def _budget_daily_stage(budget: Any) -> str | None:
+    opener = getattr(budget, "open_daily_stage", None)
+    if not callable(opener):
+        return None
+    stage = opener()
+    if isinstance(stage, str) and stage in DAILY_OPERATOR_STAGE_NAMES:
+        return stage
+    return None
+
+
+def _budget_timings_ms(budget: Any) -> dict[str, int]:
+    reporter = getattr(budget, "operator_timings_ms", None)
+    if not callable(reporter):
+        return {}
+    return _bounded_timings(reporter())
+
+
+def _merged_timings(clock: DailyStageClock, budget: Any) -> dict[str, int]:
+    merged = dict(clock.snapshot_ms())
+    for stage, milliseconds in _budget_timings_ms(budget).items():
+        merged[stage] = merged.get(stage, 0) + milliseconds
+    return _bounded_timings(merged)
+
+
+def _log_token(value: object, *, allowed: frozenset[str]) -> str | None:
+    if isinstance(value, str) and value in allowed:
+        return value
+    return None
+
+
+def _nonnegative_count(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 0 or value > _MAX_ITEM_COUNT:
+        return None
+    return value
+
+
+def _validated_item_counts(payload: dict[str, Any]) -> dict[str, int]:
+    """Allowlisted per-source change counts. Any non-integer drops the whole set."""
+    counts: dict[str, int] = {}
+    for field in _ITEM_COUNT_FIELDS:
+        if field not in payload:
+            return {}
+        parsed = _nonnegative_count(payload.get(field))
+        if parsed is None:
+            return {}
+        counts[field] = parsed
+    total = counts["items_new"] + counts["items_changed"] + counts["items_unchanged"]
+    if total != counts["items_seen"]:
+        return {}
+    return counts
+
+
+def _item_counts_from_state(state: Any) -> dict[str, int]:
+    checkpoint = getattr(state, "checkpoint", None)
+    if not callable(checkpoint):
+        return {}
+    load = checkpoint(Stage.LOAD)
+    detail = getattr(load, "detail", None)
+    if not isinstance(detail, dict):
+        return {}
+    return _validated_item_counts(detail)
+
+
+def _log_daily_outcome(result: dict[str, Any]) -> None:
+    """One grep-able line. Fields are allowlisted so exception text cannot land here."""
+    source_id = result.get("source_id")
+    safe_source = (
+        source_id
+        if isinstance(source_id, str)
+        and source_id.isascii()
+        and 1 <= len(source_id) <= 80
+        and all(char.isalnum() or char in "-_" for char in source_id)
+        else "unknown"
+    )
+    safe: dict[str, Any] = {
+        "failed_stage": result.get("failed_stage")
+        if result.get("failed_stage") in DAILY_OPERATOR_STAGE_NAMES
+        else None,
+        "outcome": _log_token(result.get("outcome"), allowed=_LOG_OUTCOMES),
+        "source_id": safe_source,
+        "stage_timings_ms": _bounded_timings(result.get("stage_timings_ms")),
+        "status": _log_token(result.get("status"), allowed=_LOG_STATUSES),
+    }
+    error_code = published_error_code(result.get("error_code"))
+    if error_code is not None:
+        safe["error_code"] = error_code
+    run_id = result.get("run_id")
+    if isinstance(run_id, str) and len(run_id) == 36 and run_id.strip() == run_id:
+        safe["run_id"] = run_id
+    exit_code = result.get("exit_code")
+    if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        safe["exit_code"] = exit_code
+    safe.update(_validated_item_counts(result))
+    line = DAILY_OUTCOME_LOG_PREFIX + json.dumps(safe, separators=(",", ":"), sort_keys=True)
+    if len(line.encode("utf-8")) > _MAX_OUTCOME_LOG_BYTES:
+        safe["stage_timings_ms"] = {}
+        line = DAILY_OUTCOME_LOG_PREFIX + json.dumps(safe, separators=(",", ":"), sort_keys=True)
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+def _source_outcome(
+    source_id: str,
+    outcome: str,
+    *,
+    run_id: str | None = None,
+    error_code: str | None = None,
+    failed_stage: str | None = None,
+    stage_timings_ms: dict[str, int] | None = None,
+    stage_timings: list[dict[str, Any]] | None = None,
+    exit_code: int | None = None,
+    item_counts: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    published = published_error_code(error_code)
+    if error_code is not None and published is None:
+        published = "UNCLASSIFIED_EXCEPTION"
+    result: dict[str, Any] = {
+        "source_id": source_id,
+        "outcome": outcome,
+        "status": _STATUS_FOR_OUTCOME.get(outcome, "FAILED"),
+        "failed_stage": failed_stage if failed_stage in DAILY_OPERATOR_STAGE_NAMES else None,
+        "stage_timings_ms": _bounded_timings(stage_timings_ms or {}),
+    }
+    if published is not None:
+        result["error_code"] = published
+    if run_id is not None:
+        result["run_id"] = run_id
+    if stage_timings is not None:
+        result["stage_timings"] = stage_timings
+    if exit_code is not None:
+        result["exit_code"] = exit_code
+    if item_counts:
+        result.update(item_counts)
+    return result
+
+
+def _failure_from_state(state: Any, budget: Any) -> tuple[str, str | None]:
+    failed_checkpoint = None
+    stages = getattr(state, "stages", None)
+    if isinstance(stages, list):
+        for checkpoint in stages:
+            status = getattr(checkpoint, "status", None)
+            value = getattr(status, "value", status)
+            if value == "FAILED":
+                failed_checkpoint = checkpoint
+    explicit = _budget_daily_stage(budget)
+    if failed_checkpoint is None:
+        return (
+            "UNCLASSIFIED_EXCEPTION",
+            daily_failed_stage(explicit=explicit, orchestrator_stage=None, code=None),
+        )
+    raw_code = getattr(failed_checkpoint, "redacted_diagnostic_code", None)
+    code = raw_code if isinstance(raw_code, str) else None
+    stage_obj = getattr(failed_checkpoint, "stage", None)
+    stage_value = getattr(stage_obj, "value", stage_obj)
+    orchestrator_stage = stage_value if isinstance(stage_value, str) else None
+    return (
+        _diagnostic_error_code(code),
+        daily_failed_stage(
+            explicit=None if orchestrator_stage else explicit,
+            orchestrator_stage=orchestrator_stage,
+            code=code,
+        ),
+    )
+
+
+def _failed_from_exception(
+    source_id: str,
+    error: BaseException,
+    *,
+    run_id: str | None,
+    budget: Any,
+    claim_clock: DailyStageClock,
+    explicit_stage: str | None,
+) -> dict[str, Any]:
+    code = allowlisted_error_code(error)
+    stage_code = None if explicit_stage == "CLAIM" else code
+    return _source_outcome(
+        source_id,
+        "FAILED",
+        run_id=run_id,
+        error_code=code,
+        failed_stage=daily_failed_stage(
+            explicit=explicit_stage,
+            orchestrator_stage=None,
+            code=stage_code,
+        ),
+        stage_timings_ms=_merged_timings(claim_clock, budget),
+        stage_timings=_stage_timings(budget) if budget is not None else None,
+    )
+
+
+_CHILD_OUTCOMES = frozenset(
+    {
+        "SUCCEEDED",
+        "FAILED",
+        "ALREADY_CLAIMED",
+        "SCHEDULE_SUPPRESSED",
+        "READY",
+        "PREFLIGHT_OR_RUNTIME_FAILED",
+    }
+)
+
+
+def _daily_source_child(spec: dict[str, Any], result_queue: Any) -> None:
+    """Child entry. A hard kill in this process leaves the parent and siblings alive."""
+    source_id = spec.get("source_id")
+    safe_source = source_id if isinstance(source_id, str) else "unknown"
+    try:
+        result_queue.put(
+            execute_daily_source_in_process(
+                safe_source,
+                str(spec["path"]),
+                preflight_only=bool(spec["preflight_only"]),
+                reopen_attempt=int(spec["reopen_attempt"]),
+                day=str(spec["day"]),
+            )
+        )
+    except Exception as error:
+        result_queue.put(
+            _failed_from_exception(
+                safe_source,
+                error,
+                run_id=None,
+                budget=None,
+                claim_clock=DailyStageClock(),
+                explicit_stage="CLAIM",
+            )
+        )
+
+
+def _accept_child_result(source_id: str, payload: Any) -> dict[str, Any]:
+    """Keep the child summary. Drop free-text fields the parent must not republish."""
+    if not isinstance(payload, dict):
+        return _source_outcome(
+            source_id,
+            "FAILED",
+            error_code="UNCLASSIFIED_EXCEPTION",
+            stage_timings_ms={},
+        )
+    outcome = payload.get("outcome")
+    if outcome not in _CHILD_OUTCOMES:
+        outcome = "FAILED"
+    run_id = payload.get("run_id")
+    safe_run_id = (
+        run_id
+        if isinstance(run_id, str) and len(run_id) == 36 and run_id.strip() == run_id
+        else None
+    )
+    timings = payload.get("stage_timings")
+    exit_code = payload.get("exit_code")
+    safe_exit = (
+        exit_code if isinstance(exit_code, int) and not isinstance(exit_code, bool) else None
+    )
+    failed_stage = payload.get("failed_stage")
+    error_code = published_error_code(payload.get("error_code"))
+    if outcome == "FAILED" and error_code is None:
+        error_code = "UNCLASSIFIED_EXCEPTION"
+    if outcome == "PREFLIGHT_OR_RUNTIME_FAILED" and error_code is None:
+        error_code = "UNCLASSIFIED_EXCEPTION"
+    return _source_outcome(
+        source_id,
+        outcome,
+        run_id=safe_run_id,
+        error_code=error_code,
+        failed_stage=failed_stage if isinstance(failed_stage, str) else None,
+        stage_timings_ms=_bounded_timings(payload.get("stage_timings_ms")),
+        stage_timings=timings if isinstance(timings, list) else None,
+        exit_code=safe_exit,
+        item_counts=_validated_item_counts(payload),
+    )
+
+
+def _run_isolated(
+    target: Callable[[dict[str, Any], Any], None],
+    spec: dict[str, Any],
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    """Run ``target`` in a spawned process so ``os._exit`` cannot stop later sources."""
+    source_value = spec.get("source_id")
+    source_id = source_value if isinstance(source_value, str) else "unknown"
+    ctx = multiprocessing.get_context("spawn")
+    result_queue: Any = ctx.Queue()
+    process = ctx.Process(target=target, args=(spec, result_queue), daemon=False)
+    process.start()
+    try:
+        process.join(timeout)
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+            log_source_process_exit(source_id, process.exitcode)
+            code = process.exitcode if isinstance(process.exitcode, int) else HARD_KILL_EXIT_CODE
+            return _source_outcome(
+                source_id,
+                "FAILED",
+                error_code="INTELLIGENCE_DAILY_HARD_KILL",
+                stage_timings_ms={},
+                exit_code=code,
+            )
+        exit_code = process.exitcode
+        if exit_code == 0:
+            try:
+                payload = result_queue.get(timeout=5)
+            except Empty:
+                return _source_outcome(
+                    source_id,
+                    "FAILED",
+                    error_code="UNCLASSIFIED_EXCEPTION",
+                    stage_timings_ms={},
+                    exit_code=0,
+                )
+            return _accept_child_result(source_id, payload)
+        log_source_process_exit(source_id, exit_code)
+        code = exit_code if isinstance(exit_code, int) else HARD_KILL_EXIT_CODE
+        error_code = (
+            "INTELLIGENCE_DAILY_HARD_KILL"
+            if code == HARD_KILL_EXIT_CODE
+            else "INTELLIGENCE_DAILY_SOURCE_PROCESS_FAILED"
+        )
+        return _source_outcome(
+            source_id,
+            "FAILED",
+            error_code=error_code,
+            stage_timings_ms={},
+            exit_code=code,
+        )
+    finally:
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+        result_queue.close()
+        result_queue.cancel_join_thread()
+        process.close()
+
+
+def execute_daily_source(
+    source_id: str,
+    path: str,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int,
+    day: str,
+) -> dict[str, Any]:
+    """Run one source in a child process so a hard kill stops only that source."""
+    return _run_isolated(
+        _daily_source_child,
+        {
+            "source_id": source_id,
+            "path": path,
+            "preflight_only": preflight_only,
+            "reopen_attempt": reopen_attempt,
+            "day": day,
+        },
+        timeout=source_process_timeout(DAILY_SOURCE_WATCHDOG_SECONDS),
+    )
+
+
+def execute_daily_source_in_process(
+    source_id: str,
+    path: str,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int,
+    day: str,
+) -> dict[str, Any]:
+    """Run one daily source in the current process. Tests use this seam."""
+    kill_state = HardKillState()
+    claim_clock = DailyStageClock()
+    budget: Any = None
+    run_id: str | None = None
+    try:
+        with daily_hard_kill_watchdog(kill_state, seconds=DAILY_SOURCE_WATCHDOG_SECONDS):
+            orchestrator, definition = intelligence_runtime.canonical_pilot(
+                load_source_definition(Path(path)),
+                budget_seconds=DAILY_SOURCE_BUDGET_SECONDS,
+            )
+            install_stage_memory(orchestrator.store, kill_state)
+            budget = getattr(orchestrator, "pilot_budget", None)
+            kill_state.budget = budget
+            source = definition.extra["intelligence_registry"]
+            if source["state"] != "active":
+                return _source_outcome(source_id, "SCHEDULE_SUPPRESSED")
+            if (
+                source["registry_version"] != 2
+                or source["cadence"]["poll_seconds"] != DAILY_POLL_SECONDS
+                or identity_hash(source) != PROD_DAILY_SOURCE_SHA256[source_id]
+            ):
+                raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
+            if preflight_only:
+                return _source_outcome(source_id, "READY")
+            run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+            # Set before claim so a hang after the RUNNING insert can still be recorded.
+            kill_state.run_id = run_id
+            claim_clock.begin("CLAIM")
+            try:
+                claimed = cast(
+                    IntelligenceSnowflakeCheckpoints, orchestrator.store
+                ).claim_daily_run(run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id])
+            finally:
+                claim_clock.end("CLAIM")
+            timings_ms = _merged_timings(claim_clock, budget)
+            if not claimed:
+                kill_state.run_id = None
+                return _source_outcome(
+                    source_id,
+                    "ALREADY_CLAIMED",
+                    stage_timings_ms=timings_ms,
+                )
+            try:
+                state = orchestrator.run(definition, tier=Tier.C, run_id=run_id)
+            except Exception as error:
+                if (
+                    isinstance(error, PermissionError)
+                    and str(error) == "INTELLIGENCE_PILOT_DEADLINE"
+                ):
+                    # Budget expiry blocks the run's own writes; record FAILED on a
+                    # fresh short connection so the claim is never left RUNNING.
+                    terminalize_daily_pilot_deadline(run_id)
+                else:
+                    _terminalize_claimed_daily_run(run_id, source_id)
+                return _failed_from_exception(
+                    source_id,
+                    error,
+                    run_id=run_id,
+                    budget=budget,
+                    claim_clock=claim_clock,
+                    explicit_stage=_budget_daily_stage(budget),
+                )
+            timings_ms = _merged_timings(claim_clock, budget)
+            stage_rows = _stage_timings(budget)
+            if state.status is RunStatus.SUCCEEDED:
+                return _source_outcome(
+                    source_id,
+                    "SUCCEEDED",
+                    run_id=run_id,
+                    stage_timings_ms=timings_ms,
+                    stage_timings=stage_rows,
+                    item_counts=_item_counts_from_state(state),
+                )
+            error_code, failed_stage = _failure_from_state(state, budget)
+            return _source_outcome(
+                source_id,
+                "FAILED",
+                run_id=run_id,
+                error_code=error_code,
+                failed_stage=failed_stage,
+                stage_timings_ms=timings_ms,
+                stage_timings=stage_rows,
+            )
+    except Exception as error:
+        # Codes stay allowlisted. Never copy free-text exception messages into the outcome.
+        return _failed_from_exception(
+            source_id,
+            error,
+            run_id=run_id,
+            budget=budget,
+            claim_clock=claim_clock,
+            explicit_stage="CLAIM",
+        )
+
+
+def daily_source_selection(
+    source_ids: tuple[str, ...] | list[str] | None,
+    *,
+    reopen_attempt: int,
+) -> frozenset[str] | None:
+    """Return approved sources to run, or None when every approved source runs.
+
+    A reopen (attempt >= 2) must name 1 to 5 approved daily sources before any
+    warehouse connection. ``all`` and unknown ids are rejected. Omitted sources
+    are not claimed.
+    """
+    if reopen_attempt < 1:
+        raise ValueError("reopen_attempt must be at least 1")
+    selected = tuple(source_ids or ())
+    if not selected:
+        if reopen_attempt >= 2:
+            raise PermissionError("INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED")
+        return None
+    if (
+        len(selected) > MAX_DAILY_SOURCE_SELECTION
+        or len(set(selected)) != len(selected)
+        or any(source_id not in PROD_SOURCE_DEFINITIONS for source_id in selected)
+    ):
+        raise PermissionError("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID")
+    return frozenset(selected)
+
+
 def run_production_daily(
-    *, preflight_only: bool = False, reopen_attempt: int = 1
+    *,
+    preflight_only: bool = False,
+    reopen_attempt: int = 1,
+    source_ids: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
     """Run each exact accepted active source once per UTC day, without retries.
 
     This is a bounded entry point for the existing DigitalOcean job platform,
     not a scheduler. Disabled execution performs no warehouse/provider I/O.
+    Each source runs in its own process so one hard kill stops only that source.
+    A source selector skips the rest with SKIPPED_NOT_SELECTED and does not
+    claim them. Reopen attempts require that selector.
     """
-    from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
-    from .ingestion.intelligence_runtime import (
-        DAILY_SOURCE_BUDGET_SECONDS,
-        DAILY_SOURCE_WATCHDOG_SECONDS,
-        PROD_DAILY_SOURCE_SHA256,
-        PROD_SOURCE_DEFINITIONS,
-        canonical_pilot,
-        pilot_watchdog,
-    )
-    from .ingestion.source_definition import load_source_definition
-    from .ingestion.types import RunStatus, Tier
-    from .settings import PipelineSettings
-
+    # Selector checks precede settings and any Snowflake connection.
+    selection = daily_source_selection(source_ids, reopen_attempt=reopen_attempt)
     if reopen_attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":
         raise PermissionError("INTELLIGENCE_DAILY_REOPEN_REQUIRED")
-    if reopen_attempt < 1:
-        raise ValueError("reopen_attempt must be at least 1")
-    settings = PipelineSettings()
+    settings = pipeline_settings.PipelineSettings()
     if not settings.intelligence_daily_enabled:
         return {"status": "DISABLED", "sources": [], "provider_requests": 0}
     if settings.topx_env != "prod":
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
     day = datetime.now(UTC).date().isoformat()
-    results: list[dict[str, Any]] = []
+    results = []
     for source_id, path in PROD_SOURCE_DEFINITIONS.items():
-        try:
-            with pilot_watchdog(seconds=DAILY_SOURCE_WATCHDOG_SECONDS):
-                orchestrator, definition = canonical_pilot(
-                    load_source_definition(Path(path)),
-                    budget_seconds=DAILY_SOURCE_BUDGET_SECONDS,
-                )
-                source = definition.extra["intelligence_registry"]
-                if source["state"] != "active":
-                    results.append({"source_id": source_id, "outcome": "SCHEDULE_SUPPRESSED"})
-                    continue
-                if (
-                    source["registry_version"] != 2
-                    or source["cadence"]["poll_seconds"] != DAILY_POLL_SECONDS
-                    or identity_hash(source) != PROD_DAILY_SOURCE_SHA256[source_id]
-                ):
-                    raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
-                if preflight_only:
-                    results.append({"source_id": source_id, "outcome": "READY"})
-                    continue
-                run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
-                if not cast(IntelligenceSnowflakeCheckpoints, orchestrator.store).claim_daily_run(
-                    run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id]
-                ):
-                    results.append({"source_id": source_id, "outcome": "ALREADY_CLAIMED"})
-                    continue
-                budget = getattr(orchestrator, "pilot_budget", None)
-                try:
-                    state = orchestrator.run(definition, tier=Tier.C, run_id=run_id)
-                except PermissionError as error:
-                    if str(error) == "INTELLIGENCE_PILOT_DEADLINE":
-                        # Budget expiry blocks the run's own writes; record FAILED on a
-                        # fresh short connection so the claim is never left RUNNING.
-                        terminalize_daily_pilot_deadline(run_id)
-                    else:
-                        _terminalize_claimed_daily_run(run_id)
-                    results.append(
-                        {
-                            "source_id": source_id,
-                            "run_id": run_id,
-                            "outcome": "FAILED",
-                            "stage_timings": _stage_timings(budget),
-                        }
-                    )
-                    continue
-                except Exception:
-                    _terminalize_claimed_daily_run(run_id)
-                    results.append(
-                        {
-                            "source_id": source_id,
-                            "run_id": run_id,
-                            "outcome": "FAILED",
-                            "stage_timings": _stage_timings(budget),
-                        }
-                    )
-                    continue
-                results.append(
-                    {
-                        "source_id": source_id,
-                        "run_id": run_id,
-                        "outcome": "SUCCEEDED" if state.status is RunStatus.SUCCEEDED else "FAILED",
-                        "stage_timings": _stage_timings(budget),
-                    }
-                )
-        except Exception:
-            # Actual stage codes remain in the existing canonical checkpoint.
-            # Never emit raw SDK/credential/provider exceptions in job output.
-            results.append({"source_id": source_id, "outcome": "PREFLIGHT_OR_RUNTIME_FAILED"})
+        if selection is not None and source_id not in selection:
+            results.append(_source_outcome(source_id, "SKIPPED_NOT_SELECTED"))
+            continue
+        results.append(
+            execute_daily_source(
+                source_id,
+                path,
+                preflight_only=preflight_only,
+                reopen_attempt=reopen_attempt,
+                day=day,
+            )
+        )
+    for row in results:
+        _log_daily_outcome(row)
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
-    if preflight_only and any(row["outcome"] != "READY" for row in results):
+    if preflight_only and any(
+        row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results
+    ):
+        failed = True
+    # A second reopen finds the attempt row and must not look like a new success.
+    if reopen_attempt >= 2 and any(row["outcome"] == "ALREADY_CLAIMED" for row in results):
         failed = True
     payload: dict[str, Any] = {
         "status": "FAILED" if failed else "SUCCEEDED",

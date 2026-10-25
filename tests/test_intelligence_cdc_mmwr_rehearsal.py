@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from semantic_contracts import (
+    definition_paths_by_source_id,
+    load_workflow,
+    trigger_map,
+    workflow_runs,
+)
+
 from lyme_gap_atlas_data.ingestion.intelligence_dev_rehearsal import (
     permission_guidance_for_error,
 )
@@ -31,12 +38,17 @@ def test_merge_permission_error_reports_table_grants() -> None:
 
 
 def test_rehearsal_workflow_is_dev_only_and_fixed_definition() -> None:
-    text = (ROOT / ".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
-    assert "- intelligence-cdc-mmwr-rehearsal" in text
-    assert "rehearse_intelligence_cdc_mmwr_dev.py" in text
-    assert 'test "$SOURCE_DEFINITION" = "config/sources/intelligence_cdc_mmwr.yml"' in text
-    assert "inputs.operation == 'intelligence-cdc-mmwr-rehearsal' && 'dev'" in text
-    block = text.rsplit(
+    document = load_workflow(ROOT / ".github/workflows/run-ingestion.yml")
+    operation = trigger_map(document)["workflow_dispatch"]["inputs"]["operation"]
+    assert "intelligence-cdc-mmwr-rehearsal" in operation["options"]
+    environment = document["jobs"]["ingest"]["environment"]
+    assert "intelligence-cdc-mmwr-rehearsal" in environment
+    assert "'dev'" in environment
+    definition = definition_paths_by_source_id()["cdc-mmwr"]
+    runs = "\n".join(workflow_runs(document))
+    assert f'test "$SOURCE_DEFINITION" = "{definition}"' in runs
+    assert "rehearse_intelligence_cdc_mmwr_dev.py" in runs
+    block = runs.rsplit(
         'elif [ "${{ inputs.operation }}" = "intelligence-cdc-mmwr-rehearsal" ]; then', 1
     )[1]
     pilot_branch = 'elif [ "${{ inputs.operation }}" = "nclimgrid-pilot-measurement" ]; then'

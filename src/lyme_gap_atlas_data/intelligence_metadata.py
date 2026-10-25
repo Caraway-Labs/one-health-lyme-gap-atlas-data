@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any
@@ -285,11 +286,24 @@ def _url_paths_permitted(
     return relevant <= policy.permitted_paths
 
 
+def _complete_plain_text(value: str | None) -> str:
+    """Sanitized publisher text. Oversized results fail; they are never shortened."""
+    if value is None:
+        return ""
+    plain = permitted_text(value, 4096) or ""
+    complete = permitted_text(value, max(len(value), 4096) + 1) or ""
+    if complete != plain or len(plain) > 4096:
+        raise ValueError("INTELLIGENCE_NATIVE_FIELD_LIMIT")
+    return plain
+
+
 def _publisher_metadata(
     fields: dict[str, list[str | None]],
     source: dict[str, Any],
     policy: NativeMetadataPolicy,
     native: dict[str, Any],
+    *,
+    sanitized_fields: bool = False,
 ) -> dict[str, Any]:
     canonical: dict[str, Any] = {
         "publisher": permitted_text(source["organization"], 1000),
@@ -320,13 +334,20 @@ def _publisher_metadata(
             if author and "@" not in author and author not in canonical["authors"]:
                 canonical["authors"].append(author)
     category_path = "item/category" if rss else "item/" + ATOM + "category/@term"
-    canonical["categories"] = list(
-        dict.fromkeys(
-            category_value["value"]
-            for raw_value in fields.get(category_path, [])
-            if (category_value := _value(raw_value, category_path, policy))["value"]
-        )
-    )
+    categories: list[str] = []
+    for raw_value in fields.get(category_path, []):
+        if sanitized_fields:
+            category = raw_value if category_path in policy.permitted_paths else None
+        else:
+            category = _value(raw_value, category_path, policy)["value"]
+        if category and category not in categories:
+            categories.append(category)
+    canonical["categories"] = categories
+    # Optional. Older receipts omit the path, so immutable records stay valid
+    # and the description is withheld until a reviewed receipt permits it.
+    description = _publisher_description(fields, rss, policy, sanitized_fields=sanitized_fields)
+    if description is not None:
+        canonical["description"] = description
     language_paths = [
         "item/{http://purl.org/dc/elements/1.1/}language",
         "feed/language",
@@ -362,6 +383,36 @@ def _publisher_metadata(
         if len(canonical[key]) > 100:
             raise ValueError("INTELLIGENCE_NATIVE_COLLECTION_LIMIT")
     return canonical
+
+
+def _publisher_description(
+    fields: dict[str, list[str | None]],
+    rss: bool,
+    policy: NativeMetadataPolicy,
+    *,
+    sanitized_fields: bool,
+) -> dict[str, Any] | None:
+    """Complete plain text from the publisher description. Never a truncated excerpt."""
+    description_path = "item/description" if rss else "item/" + ATOM + "summary"
+    if description_path not in policy.permitted_paths:
+        return None
+    if any(path.startswith(description_path + "/") for path in fields):
+        raise ValueError("INTELLIGENCE_DESCRIPTION_NESTED_MARKUP")
+    values = fields.get(description_path, [])
+    if len(values) > 1:
+        raise ValueError("INTELLIGENCE_NATIVE_MAPPING_AMBIGUOUS")
+    raw_description = values[0] if values else None
+    if raw_description is not None and len(raw_description) > 4096:
+        raise ValueError("INTELLIGENCE_NATIVE_FIELD_LIMIT")
+    # Writer verification rebuilds fields from the sanitized native tree.
+    # Running the HTML parser again would decode literal entity text twice.
+    text = (raw_description or "") if sanitized_fields else _complete_plain_text(raw_description)
+    return {
+        "text": text if values else None,
+        "state": ("present" if text else "empty") if values else "not_provided",
+        "format": "plain_text",
+        "origin": "publisher",
+    }
 
 
 def normalize_native_item(**kwargs: Any) -> dict[str, Any]:
@@ -411,15 +462,31 @@ def verify_native_item(
     fields: dict[str, list[str | None]] = {}
 
     def value_at(value: dict[str, Any], path: str) -> None:
+        retained = value["value"]
+        publisher_text = path in {
+            "item/description",
+            "item/category",
+            "item/" + ATOM + "summary",
+        }
+        plain_text_valid = (
+            isinstance(retained, str)
+            and len(retained) <= 4096
+            and re.search(r"[<>\x00-\x1f\x7f]", retained) is None
+            and retained == " ".join(retained.split())
+        )
         if path not in policy.inventory or (
-            value["value"] is not None
+            retained is not None
             and (
                 path not in policy.permitted_paths
-                or permitted_text(value["value"], 4096) != value["value"]
+                or (
+                    not plain_text_valid
+                    if publisher_text
+                    else permitted_text(retained, 4096) != retained
+                )
             )
         ):
             raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
-        fields.setdefault(path, []).append(value["value"])
+        fields.setdefault(path, []).append(retained)
 
     def check(nodes: list[dict[str, Any]], prefix: str) -> None:
         for node in nodes:
@@ -474,7 +541,9 @@ def verify_native_item(
             or date["parser"] != dialect
         ):
             raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
-    if item["publisher_metadata"] != _publisher_metadata(fields, source, policy, native):
+    if item["publisher_metadata"] != _publisher_metadata(
+        fields, source, policy, native, sanitized_fields=True
+    ):
         raise PermissionError("INTELLIGENCE_NATIVE_MAPPING_INVALID")
     expected_topics = [
         {

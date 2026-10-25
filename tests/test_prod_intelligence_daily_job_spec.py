@@ -68,9 +68,14 @@ def test_rejects_competing_predeploy() -> None:
 
 
 def test_reopen_attempt_appends_flag_and_env() -> None:
-    spec = build_operation_spec(_baseline(), preflight_only=False, reopen_attempt=2)
+    spec = build_operation_spec(
+        _baseline(),
+        preflight_only=False,
+        reopen_attempt=2,
+        source_ids=("cdc-mmwr",),
+    )
     manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
-    assert manual["run_command"] == COMMAND + " --reopen-attempt 2"
+    assert manual["run_command"] == COMMAND + " --reopen-attempt 2 --source cdc-mmwr"
     assert any(
         entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" and entry.get("value") == "true"
         for entry in manual.get("envs", [])
@@ -100,9 +105,51 @@ def test_reopen_is_exclusive_and_bounded(kwargs) -> None:
 
 def test_reopen_leaves_scheduled_daily_job_untouched() -> None:
     baseline = _baseline()
-    spec = build_operation_spec(baseline, preflight_only=False, reopen_attempt=2)
+    spec = build_operation_spec(
+        baseline,
+        preflight_only=False,
+        reopen_attempt=2,
+        source_ids=("cdc-mmwr",),
+    )
     scheduled = next(j for j in spec["jobs"] if j["name"] == "intelligence-feed-daily")
     assert scheduled == next(j for j in baseline["jobs"] if j["name"] == "intelligence-feed-daily")
+
+
+def test_reopen_without_source_or_with_all_is_rejected() -> None:
+    with pytest.raises(PermissionError, match="REOPEN_SOURCE_REQUIRED"):
+        build_operation_spec(_baseline(), preflight_only=False, reopen_attempt=2)
+    with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=2,
+            source_ids=("all",),
+        )
+    with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=2,
+            source_ids=("cdc-mmwr",) * 6,
+        )
+
+
+def test_recover_command_requires_the_matching_source() -> None:
+    run_id = "76e241c4-815f-5c27-b97f-882be9c53903"
+    with pytest.raises(PermissionError, match="RECOVERY_SOURCE_REQUIRED"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            recover_ingestion_run_id=run_id,
+        )
+    spec = build_operation_spec(
+        _baseline(),
+        preflight_only=False,
+        recover_ingestion_run_id=run_id,
+        source_ids=("cdc-mmwr",),
+    )
+    manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
+    assert manual["run_command"].endswith(f"{run_id} --source cdc-mmwr")
 
 
 def test_cli_writes_json(tmp_path: Path) -> None:

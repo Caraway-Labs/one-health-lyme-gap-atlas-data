@@ -12,11 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from semantic_contracts import load_workflow, trigger_map, workflow_runs
+
 _WORKFLOW_PATH = Path("./.github/workflows/flag-completed-story-comment.yml")
-
-
-def _read_workflow() -> str:
-    return _WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
 def test_workflow_file_exists() -> None:
@@ -24,30 +22,30 @@ def test_workflow_file_exists() -> None:
 
 
 def test_triggers_on_issue_comment_created() -> None:
-    workflow = _read_workflow()
-    assert "issue_comment:" in workflow
-    assert "types: [created]" in workflow
+    triggers = trigger_map(load_workflow(_WORKFLOW_PATH))
+    assert triggers["issue_comment"]["types"] == ["created"]
+    assert "pull_request_target" not in triggers
 
 
 def test_only_acts_on_open_issues() -> None:
-    workflow = _read_workflow()
-    assert "github.event.issue.state == 'open'" in workflow
+    document = load_workflow(_WORKFLOW_PATH)
+    assert document["jobs"]["flag-if-complete"]["if"] == "github.event.issue.state == 'open'"
 
 
 def test_uses_the_detector_script() -> None:
-    workflow = _read_workflow()
-    assert "scripts/detect_story_complete_comment.py" in workflow
+    runs = "\n".join(workflow_runs(load_workflow(_WORKFLOW_PATH)))
+    assert "scripts/detect_story_complete_comment.py" in runs
 
 
 def test_never_closes_the_issue() -> None:
     """Closure must remain a human decision; the workflow may only label/comment."""
-    workflow = _read_workflow()
-    assert "issue close" not in workflow
-    assert "gh issue edit" in workflow
-    assert "gh issue comment" in workflow
+    runs = "\n".join(workflow_runs(load_workflow(_WORKFLOW_PATH)))
+    assert "gh issue close" not in runs
+    assert "issue close" not in runs
+    assert "gh issue edit" in runs
+    assert "gh issue comment" in runs
 
 
 def test_scopes_write_permission_to_issues_only() -> None:
-    workflow = _read_workflow()
-    assert "permissions:" in workflow
-    assert "issues: write" in workflow
+    document = load_workflow(_WORKFLOW_PATH)
+    assert document["permissions"] == {"issues": "write"}

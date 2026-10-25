@@ -40,9 +40,11 @@ cover receipt-commit cleanup failure and later payload/checkpoint save failures.
 
 Publication content revisions live separately from run-pinned captures. Captures
 retain source/version, transport, canonical dates and missingness, permitted text,
-tag origin, run/artifact provenance and limitations. A repeat fetch gets a new
-capture; unchanged content keeps its revision. Cross-channel captures share an
-article identity when a reviewed canonical URL supports it, without losing
+tag origin, run/artifact provenance and limitations. A repeat fetch of unchanged
+content keeps the existing capture and revision. A new item or a changed revision
+inserts one capture for that source, registry version, and transport. The capture
+id stays run-scoped. Cross-channel captures share an article identity when a
+reviewed canonical URL supports it, without losing
 attribution. Conflicting publisher dates/titles remain distinct revisions.
 
 The writer validates source/transport/excerpt rights, deterministic hashes,

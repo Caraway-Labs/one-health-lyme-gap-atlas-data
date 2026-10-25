@@ -82,7 +82,18 @@ Contract/scope hashes are also exposed separately.
 uv run atlas-data metadata snapshot --code-commit <full-reviewed-head>
 uv run atlas-data metadata report --snapshot .atlas-metadata-private/snapshot.json
 uv run python scripts/verify_metadata_snapshot_dev.py
+uv run python tests/semantic_contracts.py
 ```
+
+`uv run python tests/semantic_contracts.py` rewrites
+`docs/contracts/snowflake-snapshots/v1.schema.json` from `snapshot_schema()`.
+Quality treats that file as the public column-shape snapshot (the reviewed
+object columns). Migration versions inside the schema are derived from
+`migrations/` filenames and are not a frozen count, so a new migration does
+not require editing the snapshot before Quality. Run the command when the
+public column shape changes and review the diff before committing it. The
+intelligence item, source and health schemas under
+`docs/contracts/intelligence/` remain the public API and feed column contracts.
 
 Supply the exact Git head executing the exporter. The CLI verifies HEAD and a
 clean tracked checkout before collection. Live export requires running from the

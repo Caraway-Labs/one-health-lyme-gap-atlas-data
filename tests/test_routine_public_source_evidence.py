@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from semantic_contracts import load_workflow, workflow_runs
 
 from lyme_gap_atlas_data.ingestion.adapters import AcquireResult
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
@@ -135,12 +136,12 @@ def test_prod_admission_migration_is_narrow_and_production_only() -> None:
 
 
 def test_protected_evidence_workflow_is_narrow_and_never_ingests_rows() -> None:
-    workflow = (REPO / ".github/workflows/capture-prod-routine-public-evidence.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "environment: production" in workflow
-    assert 'ENABLE_PRODUCTION_EXECUTION: "true"' in workflow
-    assert "cdc_atsdr_svi_2022_county.yml" in workflow
-    assert "usda_ers_rucc_2023.yml" in workflow
-    assert "capture-routine-public-evidence" in workflow
-    assert "source run" not in workflow
+    document = load_workflow(REPO / ".github/workflows/capture-prod-routine-public-evidence.yml")
+    job = document["jobs"]["evidence"]
+    assert job["environment"] == "production"
+    assert job["env"]["ENABLE_PRODUCTION_EXECUTION"] == "true"
+    runs = "\n".join(workflow_runs(document))
+    assert "cdc_atsdr_svi_2022_county.yml" in runs
+    assert "usda_ers_rucc_2023.yml" in runs
+    assert "capture-routine-public-evidence" in runs
+    assert "source run" not in runs

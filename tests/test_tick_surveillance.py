@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 from jsonschema import Draft202012Validator
 from openpyxl import Workbook
+from semantic_contracts import load_workflow, workflow_runs
 
 from lyme_gap_atlas_data import tick_surveillance as tick
 from lyme_gap_atlas_data.artifacts import create_artifact
@@ -1369,9 +1370,11 @@ def test_dev_tick_review_migrations_and_workflow_preserve_scope() -> None:
     }
     assert not Path(".github/workflows/capture-dev-cdc-tick-surveillance.yml").exists()
 
-    operator_workflow = Path(
-        ".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml"
-    ).read_text(encoding="utf-8")
+    operator = load_workflow(
+        Path(".github/workflows/capture-dev-cdc-tick-surveillance-operator.yml")
+    )
+    assert operator["jobs"]["capture"]["environment"] == "dev"
+    operator_workflow = "\n".join(workflow_runs(operator))
     assert "TICK_EVIDENCE_OPERATOR_RETRIEVAL_ID" in operator_workflow
     assert "delete-tag pipeline" in operator_workflow
     assert "cdc-tick-surveillance-sample --sample-limit 25" in operator_workflow

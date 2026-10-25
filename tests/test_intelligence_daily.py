@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from semantic_contracts import latest_daily_activation_sql
 
 from lyme_gap_atlas_data import intelligence_polling as polling
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
@@ -161,7 +162,7 @@ def test_daily_uses_per_source_watchdog_not_pilot_default(monkeypatch):
     daily_settings(monkeypatch)
     seen: list[int] = []
 
-    def capture_watchdog(*, seconds: int):
+    def capture_watchdog(state, *, seconds: int):
         seen.append(seconds)
 
         class _Ctx:
@@ -173,7 +174,7 @@ def test_daily_uses_per_source_watchdog_not_pilot_default(monkeypatch):
 
         return _Ctx()
 
-    monkeypatch.setattr(runtime, "pilot_watchdog", capture_watchdog)
+    monkeypatch.setattr(polling, "daily_hard_kill_watchdog", capture_watchdog)
     composed_sources(monkeypatch)
     polling.run_production_daily()
     assert seen == [runtime.DAILY_SOURCE_WATCHDOG_SECONDS] * len(runtime.PROD_SOURCE_DEFINITIONS)
@@ -453,7 +454,7 @@ def insert_version(con, sid, version, change=None, sha=None):
 
 
 def actual_activation_predicate():
-    sql = (ROOT / "migrations/V167__prod_cdc_mmwr_daily_activation_view.sql").read_text()
+    sql = latest_daily_activation_sql()
     inner = sql.split("    WHERE NOT COALESCE((", 1)[1].split("        ),FALSE)", 1)[0]
     gate = (
         "NOT EXISTS (SELECT 1 FROM GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS newer "
@@ -506,7 +507,7 @@ def test_actual_view_sql_fails_closed_for_unreviewed_or_revoked_transitions(chan
 
 
 def test_actual_view_window_deduplicates_same_source_item_across_activation_versions():
-    sql = (ROOT / "migrations/V167__prod_cdc_mmwr_daily_activation_view.sql").read_text()
+    sql = latest_daily_activation_sql()
     window = sql.split("QUALIFY ROW_NUMBER() OVER (", 1)[1].split(") = 1;", 1)[0]
     con = sqlite3.connect(":memory:")
     con.execute(

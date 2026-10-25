@@ -12,6 +12,14 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import yaml
+from semantic_contracts import (
+    assert_migrations_agree,
+    assert_retired_source_workflow,
+    load_workflow,
+    planned_versions,
+    trigger_map,
+    workflow_runs,
+)
 
 from lyme_gap_atlas_data import cdc, cli, orchestration
 from lyme_gap_atlas_data.approval import approval_prerequisites_met, validate_decision
@@ -523,24 +531,28 @@ def test_production_promotion_only_updates_an_existing_secret_preserving_app() -
 
 def test_protected_prod_cdc_evidence_workflow_is_one_shot_and_restores_topology() -> None:
     """x5j9 capture workflow is retired; generic run-ingestion owns the happy path."""
-    workflow = Path(".github/workflows/capture-prod-cdc-evidence.yml").read_text(encoding="utf-8")
-    assert "DEPRECATED" in workflow
-    assert "run-ingestion.yml" in workflow
-    assert "exit 1" in workflow
-    generic = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
-    assert "workflow_dispatch:" in generic
-    assert "atlas-data source" in generic
-    assert "inputs.operation == 'nclimgrid-pilot-measurement' && 'dev'" in generic
-    assert "|| inputs.environment_name }}" in generic
-    assert "operation" in generic
-    assert "must not encode source" in generic.lower() or "source business logic" in generic.lower()
+    assert_retired_source_workflow(Path(".github/workflows/capture-prod-cdc-evidence.yml"))
+    generic = load_workflow(Path(".github/workflows/run-ingestion.yml"))
+    inputs = trigger_map(generic)["workflow_dispatch"]["inputs"]
+    assert "source_definition" in inputs
+    assert inputs["operation"]["type"] == "choice"
+    assert len(inputs["operation"]["options"]) > 1
+    environment = generic["jobs"]["ingest"]["environment"]
+    assert "nclimgrid-pilot-measurement" in environment
+    assert "'dev'" in environment
+    assert "inputs.environment_name" in environment
+    assert "atlas-data source" in "\n".join(workflow_runs(generic))
 
 
 def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology() -> None:
-    workflow = Path(".github/workflows/capture-prod-cdc-historical.yml").read_text(encoding="utf-8")
-    assert "environment: production" in workflow
-    assert "group: prod-app-topology" in workflow
-    assert "DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87" in workflow
+    document = load_workflow(Path(".github/workflows/capture-prod-cdc-historical.yml"))
+    assert document["jobs"]["capture"]["environment"] == "production"
+    assert document["concurrency"]["group"] == "prod-app-topology"
+    assert document["concurrency"]["cancel-in-progress"] is False
+    assert (
+        document["jobs"]["capture"]["env"]["DEV_APP_ID"] == "b33dbae7-e243-4e27-b3ca-1018f5897f87"
+    )
+    workflow = "\n".join(workflow_runs(document))
     assert 'select(.name == "catalog-ingestion")' in workflow
     assert 'select(.name == "catalog-discovery")' in workflow
     assert 'select(.name == "catalog-ingestion") | .image.digest' in workflow
@@ -556,9 +568,11 @@ def test_protected_prod_historical_evidence_reuses_digest_and_restores_topology(
 
 
 def test_protected_prod_historical_ingestion_is_exact_and_restores_topology() -> None:
-    workflow = Path(".github/workflows/ingest-prod-cdc-historical.yml").read_text(encoding="utf-8")
-    assert "environment: production" in workflow
-    assert "group: prod-app-topology" in workflow
+    document = load_workflow(Path(".github/workflows/ingest-prod-cdc-historical.yml"))
+    assert document["jobs"]["ingest"]["environment"] == "production"
+    assert document["concurrency"]["group"] == "prod-app-topology"
+    assert document["concurrency"]["cancel-in-progress"] is False
+    workflow = "\n".join(workflow_runs(document))
     assert 'select(.name == "approved-source-ingestion")' in workflow
     assert '"cdc-historical-ingest-once"' in workflow
     assert "ingest-approved-cdc-historical --source-version-id" in workflow
@@ -572,7 +586,9 @@ def test_protected_prod_historical_ingestion_is_exact_and_restores_topology() ->
 
 
 def test_protected_prod_historical_recovery_reuses_exact_retained_run() -> None:
-    workflow = Path(".github/workflows/run-prod-cdc-dbt-recovery.yml").read_text(encoding="utf-8")
+    document = load_workflow(Path(".github/workflows/run-prod-cdc-dbt-recovery.yml"))
+    assert document["jobs"]["recover"]["environment"] == "production"
+    workflow = "\n".join(workflow_runs(document))
     assert "historical-dbt-recovery" in workflow
     assert "recover-approved-cdc-historical --source-version-id" in workflow
     assert "--ingestion-run-id $INGESTION_RUN_ID" in workflow
@@ -583,11 +599,11 @@ def test_protected_prod_historical_recovery_reuses_exact_retained_run() -> None:
 
 
 def test_protected_prod_historical_rollback_is_retained_revision_guarded() -> None:
-    workflow = Path(".github/workflows/rollback-prod-cdc-historical.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "environment: production" in workflow
-    assert "group: prod-app-topology" in workflow
+    document = load_workflow(Path(".github/workflows/rollback-prod-cdc-historical.yml"))
+    assert document["jobs"]["rollback"]["environment"] == "production"
+    assert document["concurrency"]["group"] == "prod-app-topology"
+    assert document["concurrency"]["cancel-in-progress"] is False
+    workflow = "\n".join(workflow_runs(document))
     assert '"cdc-historical-rollback-once"' in workflow
     assert "rollback-cdc-historical --source-version-id" in workflow
     assert "--ingestion-run-id" in workflow and "--expected-revision" in workflow
@@ -605,17 +621,16 @@ def test_deployment_fixture_uses_current_historical_environment_guard() -> None:
 
 def test_protected_prod_approved_ingestion_reuses_a_dev_tested_digest() -> None:
     """x5j9 approved-ingestion workflow is retired; generic run-ingestion owns the path."""
-    workflow = Path(".github/workflows/run-prod-approved-ingestion.yml").read_text(encoding="utf-8")
-    assert "DEPRECATED" in workflow
-    assert "run-ingestion.yml" in workflow
-    assert "exit 1" in workflow
-    generic = Path(".github/workflows/run-ingestion.yml").read_text(encoding="utf-8")
-    assert "production" in generic
-    assert "atlas-data source validate" in generic or "source validate" in generic
-    assert "atlas-data source run" in generic or "source run" in generic
+    assert_retired_source_workflow(Path(".github/workflows/run-prod-approved-ingestion.yml"))
+    generic = load_workflow(Path(".github/workflows/run-ingestion.yml"))
+    options = trigger_map(generic)["workflow_dispatch"]["inputs"]["environment_name"]["options"]
+    assert "production" in options
+    runs = "\n".join(workflow_runs(generic))
+    assert "atlas-data source validate" in runs or "source validate" in runs
+    assert "atlas-data source run" in runs or "source run" in runs
     assert "promote-prod" not in Path(".github/workflows/run-ingestion.yml").name
-    promote = Path(".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
-    assert "environment: production" in promote
+    promote = load_workflow(Path(".github/workflows/promote-prod.yml"))
+    assert promote["jobs"]["promote"]["environment"] == "production"
 
 
 def test_preflight_identifies_missing_required_configuration() -> None:
@@ -1617,183 +1632,16 @@ def test_dbt_uses_only_migration_provisioned_governed_schemas() -> None:
 
 def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [
-        "V001",
-        "V002",
-        "V003",
-        "V004",
-        "V005",
-        "V006",
-        "V007",
-        "V008",
-        "V009",
-        "V010",
-        "V011",
-        "V012",
-        "V013",
-        "V014",
-        "V015",
-        "V016",
-        "V017",
-        "V018",
-        "V019",
-        "V020",
-        "V021",
-        "V022",
-        "V023",
-        "V024",
-        "V025",
-        "V026",
-        "V027",
-        "V028",
-        "V029",
-        "V030",
-        "V031",
-        "V032",
-        "V033",
-        "V034",
-        "V035",
-        "V036",
-        "V037",
-        "V038",
-        "V039",
-        "V040",
-        "V041",
-        "V042",
-        "V043",
-        "V044",
-        "V045",
-        "V046",
-        "V047",
-        "V048",
-        "V049",
-        "V050",
-        "V051",
-        "V052",
-        "V053",
-        "V054",
-        "V055",
-        "V056",
-        "V057",
-        "V058",
-        "V059",
-        "V060",
-        "V061",
-        "V062",
-        "V063",
-        "V064",
-        "V065",
-        "V066",
-        "V067",
-        "V068",
-        "V069",
-        "V070",
-        "V071",
-        "V072",
-        "V073",
-        "V074",
-        "V075",
-        "V076",
-        "V077",
-        "V078",
-        "V079",
-        "V080",
-        "V081",
-        "V082",
-        "V083",
-        "V084",
-        "V085",
-        "V086",
-        "V087",
-        "V088",
-        "V089",
-        "V090",
-        "V091",
-        "V092",
-        "V093",
-        "V094",
-        "V095",
-        "V096",
-        "V097",
-        "V098",
-        "V099",
-        "V100",
-        "V101",
-        "V102",
-        "V103",
-        "V104",
-        "V105",
-        "V106",
-        "V107",
-        "V108",
-        "V109",
-        "V110",
-        "V111",
-        "V112",
-        "V113",
-        "V114",
-        "V115",
-        "V116",
-        "V117",
-        "V119",
-        "V120",
-        "V121",
-        "V122",
-        "V123",
-        "V124",
-        "V125",
-        "V126",
-        "V127",
-        "V128",
-        "V129",
-        "V130",
-        "V131",
-        "V132",
-        "V133",
-        "V134",
-        "V135",
-        "V136",
-        "V137",
-        "V138",
-        "V139",
-        "V140",
-        "V141",
-        "V142",
-        "V143",
-        "V144",
-        "V145",
-        "V146",
-        "V147",
-        "V148",
-        "V149",
-        "V150",
-        "V151",
-        "V152",
-        "V153",
-        "V154",
-        "V155",
-        "V156",
-        "V157",
-        "V158",
-        "V159",
-        "V160",
-        "V161",
-        "V162",
-        "V163",
-        "V164",
-        "V165",
-        "V166",
-        "V167",
-        "V168",
-        "V169",
-    ]
+    assert_migrations_agree(migrations)
     assert "ONE_HEALTH_LYME_GAP_ATLAS_DEV" in render_migration(
         migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
     )
     with pytest.raises(ValueError, match="only"):
         render_migration(migrations[0], "ONE_HEALTH_LYME_GAP_ATLAS")
     prod_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_PROD")
-    assert len(prod_plan) == 117
+    assert [item["version"] for item in prod_plan] == planned_versions(
+        "ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+    )
     assert "V140" not in {item["version"] for item in prod_plan}
     assert "V123" in {item["version"] for item in prod_plan}
     assert "V124" in {item["version"] for item in prod_plan}
@@ -1850,6 +1698,9 @@ def test_migrations_are_environment_neutral_and_reject_poc() -> None:
     assert "V084" not in {item["version"] for item in prod_plan}
     assert "V085" not in {item["version"] for item in prod_plan}
     dev_plan = migration_plan("ONE_HEALTH_LYME_GAP_ATLAS_DEV")
+    assert [item["version"] for item in dev_plan] == planned_versions(
+        "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+    )
     assert {"V090", "V091", "V092"}.isdisjoint({item["version"] for item in dev_plan})
     assert "V100" in {item["version"] for item in dev_plan}
     assert "V101" in {item["version"] for item in dev_plan}
@@ -2152,7 +2003,7 @@ def test_prod_reconciliation_is_pinned_to_exact_variant_and_duplicate_rows() -> 
 
 def test_prod_reconciliation_command_is_explicit_and_not_in_dev_deploy() -> None:
     cli_source = Path("src/lyme_gap_atlas_data/cli.py").read_text(encoding="utf-8")
-    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    workflow = "\n".join(workflow_runs(load_workflow(Path(".github/workflows/deploy-dev.yml"))))
     assert '@pipeline_app.command("reconcile-legacy-prod-migrations")' in cli_source
     assert "Pass --confirm to reconcile legacy PROD migrations" in cli_source
     assert "reconcile-legacy-prod-migrations" not in workflow
@@ -2176,7 +2027,9 @@ def test_v034_reasserts_the_redacted_observability_contract_after_legacy_reconci
 
 
 def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key() -> None:
-    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    document = load_workflow(Path(".github/workflows/deploy-dev.yml"))
+    assert document["jobs"]["deploy"]["environment"] == "dev"
+    workflow = "\n".join(workflow_runs(document))
     assert "SNOWFLAKE_AUTH_METHOD=key_pair" in workflow
     assert 'SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")"' in workflow
     assert 'SNOWFLAKE_PRIVATE_KEY_B64="$SNOWFLAKE_PRIVATE_KEY_B64"' not in workflow
@@ -2190,9 +2043,12 @@ def test_dev_workflow_applies_checksum_validated_migrations_with_ephemeral_key()
 
 
 def test_dev_workflow_diagnoses_migration_ddl_without_emitting_query_text() -> None:
-    workflow = Path(".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
+    document = load_workflow(Path(".github/workflows/deploy-dev.yml"))
+    diagnose = trigger_map(document)["workflow_dispatch"]["inputs"]["diagnose_query_id"]
+    assert diagnose["description"].startswith("Optional failed migration DDL query ID")
+    workflow = "\n".join(workflow_runs(document))
 
-    assert "Optional failed migration DDL query ID" in workflow
+    assert "Optional failed migration DDL query ID" not in workflow
     assert "QUERY_ID, REGEXP_SUBSTR" in workflow
     assert "REGEXP_REPLACE(ERROR_MESSAGE" in workflow
     assert "QUERY_ID,QUERY_TEXT" not in workflow

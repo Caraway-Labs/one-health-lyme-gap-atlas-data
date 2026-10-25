@@ -6,6 +6,12 @@ from typing import Any
 
 from .ingestion.bulk_stage import stage_json_rows
 from .intelligence_items import canonical_json, identity_hash, revision_content
+from .intelligence_storage import (
+    CAPTURE_NATURAL_KEY,
+    IntelligenceStorageError,
+    WriteReceipt,
+    capture_id,
+)
 
 
 def _stage_source(transport: str) -> str:
@@ -37,8 +43,6 @@ def _count_conflicts(
     hash_column: str,
     error: str,
 ) -> None:
-    from .intelligence_storage import IntelligenceStorageError
-
     join = " AND ".join(f"target.{column}=source.{column}" for column in key_columns)
     cursor.execute(
         f"""SELECT COUNT(*) FROM ({_stage_source(transport)}) source
@@ -50,6 +54,89 @@ def _count_conflicts(
         raise IntelligenceStorageError(error)
 
 
+def _capture_change_sql(transport: str) -> str:
+    """One aggregate over this run's staged rows and this source version's captures."""
+    return f"""
+        SELECT
+          COUNT(*) AS items_seen,
+          COALESCE(SUM(IFF(prior_item IS NULL, 1, 0)), 0) AS items_new,
+          COALESCE(SUM(IFF(prior_item IS NOT NULL AND prior_revision IS NULL, 1, 0)), 0)
+            AS items_changed,
+          COALESCE(SUM(IFF(prior_revision IS NOT NULL, 1, 0)), 0) AS items_unchanged
+        FROM (
+          SELECT
+            MAX(prior.item_id) AS prior_item,
+            MAX(IFF(prior.revision_id = source.revision_id, prior.revision_id, NULL))
+              AS prior_revision
+          FROM ({_stage_source(transport)}) source
+          LEFT JOIN GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES prior
+            ON prior.source_id = source.source_id
+           AND prior.registry_version = source.registry_version
+           AND prior.transport = source.transport
+           AND prior.item_id = source.item_id
+           AND prior.source_id = %s
+           AND prior.registry_version = %s
+          WHERE source.source_id = %s
+            AND source.registry_version = %s
+          GROUP BY source.source_id, source.registry_version, source.transport,
+                   source.item_id, source.revision_id
+        ) classified
+    """
+
+
+def _capture_merge_sql(transport: str) -> str:
+    """Insert a capture only when its natural key is absent for this source version."""
+    match = " AND ".join(f"existing.{column}=source.{column}" for column in CAPTURE_NATURAL_KEY)
+    return f"""
+        MERGE INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES target
+        USING (
+          SELECT source.*
+          FROM ({_stage_source(transport)}) source
+          WHERE source.source_id = %s
+            AND source.registry_version = %s
+            AND NOT EXISTS (
+              SELECT 1
+              FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES existing
+              WHERE {match}
+                AND existing.source_id = %s
+                AND existing.registry_version = %s
+            )
+        ) source
+        ON target.capture_id = source.capture_id
+        WHEN NOT MATCHED THEN INSERT
+          (capture_id, item_id, revision_id, source_id, registry_version, transport,
+           ingestion_run_id, artifact_id, artifact_sha256, item_sha256, item_document,
+           retrieved_at)
+          VALUES (source.capture_id, source.item_id, source.revision_id, source.source_id,
+                  source.registry_version, source.transport, source.ingestion_run_id,
+                  source.artifact_id, source.artifact_sha256, source.item_sha256,
+                  source.item_document, source.retrieved_at)
+    """
+
+
+def _source_version_params(source_id: str, registry_version: int) -> tuple[Any, ...]:
+    return (source_id, registry_version, source_id, registry_version)
+
+
+def _require_capture_accounting(
+    *,
+    staged_count: int,
+    captures_inserted: int,
+    items_seen: int,
+    items_new: int,
+    items_changed: int,
+    items_unchanged: int,
+) -> None:
+    if (
+        items_seen != staged_count
+        or items_new + items_changed + items_unchanged != items_seen
+        or captures_inserted != items_new + items_changed
+        or items_unchanged != staged_count - captures_inserted
+        or min(items_seen, items_new, items_changed, items_unchanged, captures_inserted) < 0
+    ):
+        raise IntelligenceStorageError("INTELLIGENCE_CAPTURE_ACCOUNTING_MISMATCH")
+
+
 def bulk_write_items(
     cursor: Any,
     *,
@@ -57,12 +144,14 @@ def bulk_write_items(
     source_id: str,
     registry_version: int,
     rows: list[dict[str, Any]],
-) -> tuple[Any, str | None]:
-    """Persist validated intelligence rows with a bounded statement count."""
-    from .intelligence_storage import IntelligenceStorageError, WriteReceipt, capture_id
+) -> tuple[WriteReceipt, str | None]:
+    """Persist validated intelligence rows with a bounded statement count.
 
+    The capture change report is one extra aggregate SELECT per source-run.
+    The insert anti-join stays inside the existing capture MERGE.
+    """
     if not rows:
-        return WriteReceipt(0, 0, 0), None
+        return WriteReceipt(0, 0, 0, 0, 0, 0, 0), None
     staged: list[dict[str, Any]] = []
     seen: dict[str, str] = {}
     replays = 0
@@ -96,7 +185,7 @@ def bulk_write_items(
             }
         )
     if not staged:
-        return WriteReceipt(0, 0, replays), None
+        return WriteReceipt(0, 0, replays, 0, 0, 0, 0), None
     transport = stage_json_rows(cursor, run_id=run_id, kind="intelligence-items", rows=staged)
     _count_conflicts(
         cursor,
@@ -124,19 +213,31 @@ def bulk_write_items(
                   source.content_document)"""
     )
     revisions_inserted = cursor.rowcount or 0
-    cursor.execute(
-        f"""MERGE INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES target
-        USING ({_stage_source(transport)}) source
-        ON target.capture_id=source.capture_id
-        WHEN NOT MATCHED THEN INSERT
-          (capture_id, item_id, revision_id, source_id, registry_version, transport,
-           ingestion_run_id, artifact_id, artifact_sha256, item_sha256, item_document,
-           retrieved_at)
-          VALUES (source.capture_id, source.item_id, source.revision_id, source.source_id,
-                  source.registry_version, source.transport, source.ingestion_run_id,
-                  source.artifact_id, source.artifact_sha256, source.item_sha256,
-                  source.item_document, source.retrieved_at)"""
-    )
+    scope = _source_version_params(source_id, registry_version)
+    cursor.execute(_capture_change_sql(transport), scope)
+    counted = cursor.fetchone()
+    if counted is None or len(counted) != 4:
+        raise IntelligenceStorageError("INTELLIGENCE_CAPTURE_ACCOUNTING_MISMATCH")
+    items_seen, items_new, items_changed, items_unchanged = (int(value) for value in counted)
+    cursor.execute(_capture_merge_sql(transport), scope)
     captures_inserted = cursor.rowcount or 0
-    capture_replays = len(staged) - captures_inserted
-    return WriteReceipt(revisions_inserted, captures_inserted, replays + capture_replays), transport
+    _require_capture_accounting(
+        staged_count=len(staged),
+        captures_inserted=captures_inserted,
+        items_seen=items_seen,
+        items_new=items_new,
+        items_changed=items_changed,
+        items_unchanged=items_unchanged,
+    )
+    return (
+        WriteReceipt(
+            revisions_inserted,
+            captures_inserted,
+            replays + items_unchanged,
+            items_seen,
+            items_new,
+            items_changed,
+            items_unchanged,
+        ),
+        transport,
+    )

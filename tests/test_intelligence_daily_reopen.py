@@ -10,8 +10,10 @@ from typing import Any
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from lyme_gap_atlas_data import intelligence_polling as polling
+from lyme_gap_atlas_data.cli import app
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
 from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import (
     IntelligenceSnowflakeCheckpoints,
@@ -188,7 +190,7 @@ def test_cli_reopen_flag_requires_manual_job_env(monkeypatch) -> None:
     monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
     monkeypatch.setattr(runtime, "canonical_pilot", lambda *a, **k: pytest.fail("no compose"))
     with pytest.raises(PermissionError, match="REOPEN_REQUIRED"):
-        polling.run_production_daily(reopen_attempt=2)
+        polling.run_production_daily(reopen_attempt=2, source_ids=("cdc-mmwr",))
 
 
 def _compose_recording(monkeypatch, run_ids: list[str], failing: Any = None):
@@ -217,7 +219,10 @@ def test_reopen_attempt_uses_suffixed_run_id_with_env(monkeypatch) -> None:
     monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
     seen: list[str] = []
     _compose_recording(monkeypatch, seen)
-    result = polling.run_production_daily(reopen_attempt=2)
+    result = polling.run_production_daily(
+        reopen_attempt=2,
+        source_ids=tuple(runtime.PROD_SOURCE_DEFINITIONS),
+    )
     assert result["reopen_attempt"] == 2 and result["status"] == "SUCCEEDED"
     assert seen == [
         daily_run_id(source, TODAY, reopen_attempt=2) for source in runtime.PROD_SOURCE_DEFINITIONS
@@ -241,11 +246,8 @@ def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch)
     _compose_recording(monkeypatch, seen, failing="cdc-eid-ahead-of-print")
     result = polling.run_production_daily()
     assert [row["outcome"] for row in result["sources"]] == [
-        "SUCCEEDED",
-        "FAILED",
-        "SUCCEEDED",
-        "SUCCEEDED",
-        "SUCCEEDED",
+        "FAILED" if source_id == "cdc-eid-ahead-of-print" else "SUCCEEDED"
+        for source_id in runtime.PROD_SOURCE_DEFINITIONS
     ]
     assert result["status"] == "FAILED"
     assert terminalized == [daily_run_id("cdc-eid-ahead-of-print", TODAY)]
@@ -281,5 +283,155 @@ def test_scheduled_spec_has_no_reopen_and_workflow_exposes_reopen_input() -> Non
     )
     inputs = workflow[True]["workflow_dispatch"]["inputs"]
     assert "reopen_attempt" in inputs
+    assert "source_id" in inputs
+    build = next(
+        step["run"]
+        for step in workflow["jobs"]["run"]["steps"]
+        if step.get("name") == "Capture baseline and build one-shot spec"
+    )
+    assert "INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED" in build
+    assert '"all"' in build
     scheduled = (ROOT / ".github/workflows/promote-prod.yml").read_text()
     assert "INTELLIGENCE_DAILY_REOPEN" not in scheduled
+
+
+def _registry(source_id: str) -> dict[str, Any]:
+    return json.loads((ROOT / f"config/intelligence/{source_id}-source-v2.json").read_text())
+
+
+def test_reopen_without_source_exits_before_snowflake(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        polling, "execute_daily_source", lambda *_args, **_kwargs: pytest.fail("executed")
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.sql_sessions.connect",
+        lambda *_args, **_kwargs: pytest.fail("snowflake"),
+    )
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.settings.PipelineSettings",
+        lambda: pytest.fail("settings"),
+    )
+    result = CliRunner().invoke(
+        app,
+        ["pipeline", "run-intelligence-daily", "--reopen-attempt", "2"],
+    )
+    assert result.exit_code == 2
+    assert result.stdout.strip() == "INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED"
+
+
+def test_reopen_rejects_unknown_all_and_duplicates_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    monkeypatch.setattr(
+        polling, "execute_daily_source", lambda *_args, **_kwargs: pytest.fail("executed")
+    )
+    for source_ids in (("all",), ("cdc-mmwr", "not-a-source"), ("cdc-mmwr", "cdc-mmwr")):
+        with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+            polling.run_production_daily(reopen_attempt=2, source_ids=source_ids)
+
+
+def test_reopen_one_source_claims_only_that_source_and_skips_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    claimed: list[str] = []
+
+    def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
+        source_id = definition.source_id
+
+        def claim(run_id: str, claimed_source: str, sha: str) -> bool:
+            assert claimed_source == source_id
+            assert sha == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
+            assert run_id == daily_run_id(source_id, TODAY, reopen_attempt=2)
+            claimed.append(source_id)
+            return True
+
+        def run(_definition: Any, *, tier: Any, run_id: str) -> Any:
+            assert run_id == daily_run_id(source_id, TODAY, reopen_attempt=2)
+            return SimpleNamespace(status=RunStatus.SUCCEEDED)
+
+        orchestrator = SimpleNamespace(
+            store=SimpleNamespace(claim_daily_run=claim),
+            run=run,
+            pilot_budget=runtime.PilotBudget(seconds=budget_seconds),
+        )
+        return orchestrator, SimpleNamespace(extra={"intelligence_registry": _registry(source_id)})
+
+    monkeypatch.setattr(runtime, "canonical_pilot", compose)
+    result = CliRunner().invoke(
+        app,
+        [
+            "pipeline",
+            "run-intelligence-daily",
+            "--reopen-attempt",
+            "2",
+            "--source",
+            "cdc-mmwr",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "SUCCEEDED"
+    by_id = {row["source_id"]: row for row in payload["sources"]}
+    assert claimed == ["cdc-mmwr"]
+    assert by_id["cdc-mmwr"]["outcome"] == "SUCCEEDED"
+    assert by_id["cdc-mmwr"]["status"] == "COMPLETED"
+    skipped = [
+        source_id for source_id in runtime.PROD_SOURCE_DEFINITIONS if source_id != "cdc-mmwr"
+    ]
+    assert skipped
+    assert all(by_id[source_id]["outcome"] == "SKIPPED_NOT_SELECTED" for source_id in skipped)
+
+
+def test_same_reopen_second_time_fails_on_existing_claim_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    seen: list[str] = []
+    runs: list[str] = []
+
+    def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
+        source_id = definition.source_id
+
+        def claim(run_id: str, _source_id: str, _sha: str) -> bool:
+            if run_id in seen:
+                return False
+            seen.append(run_id)
+            return True
+
+        def run(_definition: Any, *, tier: Any, run_id: str) -> Any:
+            runs.append(run_id)
+            return SimpleNamespace(status=RunStatus.SUCCEEDED)
+
+        orchestrator = SimpleNamespace(
+            store=SimpleNamespace(claim_daily_run=claim),
+            run=run,
+            pilot_budget=runtime.PilotBudget(seconds=budget_seconds),
+        )
+        return orchestrator, SimpleNamespace(extra={"intelligence_registry": _registry(source_id)})
+
+    monkeypatch.setattr(runtime, "canonical_pilot", compose)
+    arguments = [
+        "pipeline",
+        "run-intelligence-daily",
+        "--reopen-attempt",
+        "2",
+        "--source",
+        "cdc-mmwr",
+    ]
+    first = CliRunner().invoke(app, arguments)
+    second = CliRunner().invoke(app, arguments)
+    assert first.exit_code == 0
+    assert len(runs) == 1
+    assert second.exit_code == 1
+    payload = json.loads(second.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "FAILED"
+    mmwr = next(row for row in payload["sources"] if row["source_id"] == "cdc-mmwr")
+    assert mmwr["outcome"] == "ALREADY_CLAIMED"
+    assert len(runs) == 1
+    others = [row for row in payload["sources"] if row["source_id"] != "cdc-mmwr"]
+    assert others
+    assert all(row["outcome"] == "SKIPPED_NOT_SELECTED" for row in others)

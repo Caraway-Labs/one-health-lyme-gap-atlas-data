@@ -38,18 +38,26 @@ def test_bulk_write_250_items_uses_bounded_statement_count() -> None:
     database.pin("fixture-run", "fixture-artifact", source, "2026-10-01T00:00:00Z")
     items = [item(source=source, title=f"Publication {index}") for index in range(250)]
     counts = [0]
+    statements: list[str] = []
     original = LedgerCursor.execute
 
     def counted(self: LedgerCursor, statement: str, params: tuple[Any, ...] = ()) -> None:
         counts[0] += 1
+        statements.append(statement)
         return original(self, statement, params)
 
     LedgerCursor.execute = counted  # type: ignore[method-assign]
     try:
-        assert write(database, items) == WriteReceipt(250, 250, 0)
+        assert write(database, items) == WriteReceipt(250, 250, 0, 250, 250, 0, 0)
     finally:
         LedgerCursor.execute = original  # type: ignore[method-assign]
-    assert counts[0] <= 20
+    # 15 statements: the previous bounded write path plus one classification
+    # aggregate. The natural-key anti-join stays inside the existing capture MERGE.
+    assert counts[0] == 15
+    classified = [
+        statement for statement in statements if "ITEMS_SEEN" in " ".join(statement.split()).upper()
+    ]
+    assert len(classified) == 1
 
 
 def test_bulk_write_rerun_is_zero_inserts() -> None:
@@ -60,8 +68,8 @@ def test_bulk_write_rerun_is_zero_inserts() -> None:
     database.pin("fixture-run", "fixture-artifact", source, "2026-10-01T00:00:00Z")
     document = item(source=source)
     batch = [document] * 250
-    assert write(database, batch) == WriteReceipt(1, 1, 249)
-    assert write(database, batch) == WriteReceipt(0, 0, 250)
+    assert write(database, batch) == WriteReceipt(1, 1, 249, 1, 1, 0, 0)
+    assert write(database, batch) == WriteReceipt(0, 0, 250, 1, 0, 0, 1)
 
 
 def test_pilot_query_limit_marks_run_failed() -> None:
