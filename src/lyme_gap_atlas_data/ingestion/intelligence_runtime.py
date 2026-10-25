@@ -42,6 +42,9 @@ ENDPOINTS = {
     "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
+# Draft Entrez searches. They are not RSS endpoints and are not PROD registrations.
+PUBMED_DRAFT_SOURCE_IDS = frozenset({"pubmed-lyme-borrelia", "pubmed-tick-borne"})
+PUBMED_ESEARCH_ENDPOINT = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
 DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
@@ -167,11 +170,20 @@ class PilotBudget:
     Operators track the approved six-request/$5 aggregate across invocations.
     """
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic, *, seconds: int = 300) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        seconds: int = 300,
+        request_limit: int = 1,
+    ) -> None:
         if seconds < 1:
             raise ValueError("Pilot budget seconds must be positive")
+        if request_limit < 1:
+            raise ValueError("Pilot budget request limit must be positive")
         self.clock = clock
         self.seconds = seconds
+        self.request_limit = request_limit
         self.deadline = clock() + seconds
         self.requests = 0
         self.queries = 0
@@ -250,7 +262,7 @@ class PilotBudget:
         timeout: float,
     ) -> FeedResponse:
         remaining = self.remaining()
-        if self.requests >= 1:
+        if self.requests >= self.request_limit:
             raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
         self.requests += 1
         response = sender(
@@ -265,6 +277,14 @@ class PilotBudget:
             # No redirects, retries, conditional bodies, or partial acceptance.
             raise PermissionError("INTELLIGENCE_PILOT_RESPONSE_REQUIRED")
         return response
+
+    def reserve(self) -> float:
+        """Count one owned request without receiving its URL or parameters."""
+        remaining = self.remaining()
+        if self.requests >= self.request_limit:
+            raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
+        self.requests += 1
+        return remaining
 
 
 class DailyStageClock:
@@ -420,6 +440,8 @@ def compose_pilot(
     dev_versions = {1, 2} if definition.source_id == "cdc-mmwr" else {1}
     if registry_version not in ({1, 2} if environment == "PROD" else dev_versions):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
+    if definition.source_id in PUBMED_DRAFT_SOURCE_IDS:
+        raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
     if environment == "PROD":
         endpoint = urlsplit(settings.spaces_endpoint)
         if (
