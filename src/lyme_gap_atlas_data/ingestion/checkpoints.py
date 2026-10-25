@@ -7,7 +7,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 from urllib.parse import urlsplit
@@ -106,6 +106,10 @@ class InMemoryCheckpointStore:
 
     def list_runs(self) -> list[RunState]:
         return list(self._runs.values())
+
+    def list_runs_for_resources(self, resource_keys: Collection[str]) -> list[RunState]:
+        wanted = set(resource_keys)
+        return [state for state in self._runs.values() if state.resource_key in wanted]
 
     def save_payload(self, run_id: str, payload: object) -> None:
         self._payloads[run_id] = payload
@@ -237,6 +241,10 @@ class FileCheckpointStore:
                 continue
             runs.append(run_state_from_dict(json.loads(path.read_text(encoding="utf-8"))))
         return runs
+
+    def list_runs_for_resources(self, resource_keys: Collection[str]) -> list[RunState]:
+        wanted = set(resource_keys)
+        return [state for state in self.list_runs() if state.resource_key in wanted]
 
     def save_payload(self, run_id: str, payload: object) -> None:
         self._write_json(self._payload_path(run_id, "payload"), payload)
@@ -1043,6 +1051,35 @@ class SnowflakeCheckpointStore:
             ids = [str(row[0]) for row in cursor.fetchall()]
         return [state for run_id in ids if (state := self.load(run_id)) is not None]
 
+    def list_runs_for_resources(self, resource_keys: Collection[str]) -> list[RunState]:
+        """Load succeeded-or-not runs for these resource keys in one statement.
+
+        list_runs selects every SOURCE_INGESTION id and then loads each run.
+        The PubMed watermark must not do that: the pilot query budget is 2,500
+        and history outside these keys would exhaust it.
+        """
+        keys = tuple(dict.fromkeys(resource_keys))
+        if not keys:
+            return []
+        placeholders = ", ".join("%s" for _ in keys)
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT r.ingestion_run_id, r.resource_key, r.trigger_type, r.status,
+                        c.source_definition_version, c.stage, c.status, c.attempt_count,
+                        c.artifact_id, c.artifact_sha256,
+                        c.transformation_version, c.failure_category,
+                        c.redacted_diagnostic_code, c.next_action, c.detail,
+                        c.started_at, c.completed_at
+                    FROM GOVERNANCE.INGESTION_RUNS r
+                    LEFT JOIN GOVERNANCE.INGESTION_RUN_CHECKPOINTS c
+                      ON c.ingestion_run_id = r.ingestion_run_id
+                    WHERE r.run_mode='SOURCE_INGESTION'
+                      AND r.resource_key IN ({placeholders})""",
+                keys,
+            )
+            rows = [tuple(row) for row in cursor.fetchall()]
+        return _runs_from_resource_rows(rows)
+
 
 def _checkpoint_from_row(row: tuple[object, ...]) -> StageCheckpoint:
     detail = row[10]
@@ -1069,6 +1106,46 @@ def _checkpoint_from_row(row: tuple[object, ...]) -> StageCheckpoint:
 def _run_status_from_database(value: str) -> RunStatus:
     """Map the governed table's COMPLETED value to the CLI's SUCCEEDED value."""
     return RunStatus.SUCCEEDED if value == "COMPLETED" else RunStatus(value)
+
+
+def _runs_from_resource_rows(rows: list[tuple[object, ...]]) -> list[RunState]:
+    """Group one joined run/checkpoint result into RunState values."""
+    order: list[str] = []
+    meta: dict[str, tuple[object, ...]] = {}
+    stages: dict[str, list[StageCheckpoint]] = {}
+    for row in rows:
+        run_id = str(row[0])
+        if run_id not in meta:
+            order.append(run_id)
+            meta[run_id] = row
+            stages[run_id] = []
+        if row[5] is None:
+            continue
+        stages[run_id].append(_checkpoint_from_row(tuple(row[4:])))
+    states: list[RunState] = []
+    for run_id in order:
+        row = meta[run_id]
+        stage_list = stages[run_id]
+        stage_list.sort(key=lambda item: list(Stage).index(item.stage))
+        states.append(
+            RunState(
+                ingestion_run_id=run_id,
+                resource_key=str(row[1]),
+                source_definition_version=(
+                    int(stage_list[0].detail.get("source_definition_version", 1))
+                    if stage_list
+                    else 1
+                ),
+                tier=Tier(str(row[2])),
+                status=_run_status_from_database(str(row[3])),
+                stages=stage_list,
+                next_action=next(
+                    (item.next_action for item in reversed(stage_list) if item.next_action),
+                    "none",
+                ),
+            )
+        )
+    return states
 
 
 def _serialize_json(value: object) -> str:

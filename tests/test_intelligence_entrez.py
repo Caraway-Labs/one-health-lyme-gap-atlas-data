@@ -19,10 +19,15 @@ from lyme_gap_atlas_data import intelligence_polling as polling
 from lyme_gap_atlas_data.ingestion import intelligence_entrez as entrez
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
 from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
-from lyme_gap_atlas_data.ingestion.checkpoints import InMemoryCheckpointStore
+from lyme_gap_atlas_data.ingestion.checkpoints import (
+    FileCheckpointStore,
+    InMemoryCheckpointStore,
+    SnowflakeCheckpointStore,
+)
 from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import daily_run_id
 from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     BATCH_SIZE,
+    ENTREZ_DAILY_RESOURCE,
     ENTREZ_TOOL,
     ESEARCH_URL,
     MAX_ITEMS,
@@ -33,6 +38,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     RevisionLedger,
     encode_entrez_query,
     entrez_artifact_id,
+    entry_dates_from_ledger,
     entry_window,
     execute_registered_entrez_daily,
     live_entrez_get,
@@ -45,6 +51,14 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     sanitize_abstract_text,
 )
 from lyme_gap_atlas_data.ingestion.intelligence_feed import adapter_for_source
+from lyme_gap_atlas_data.ingestion.types import (
+    RunState,
+    RunStatus,
+    Stage,
+    StageCheckpoint,
+    StageStatus,
+    Tier,
+)
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SQLiteRawLedger
 from lyme_gap_atlas_data.intelligence_retention import PROD_METADATA_FEED_IDS
@@ -1176,3 +1190,117 @@ def test_registered_capture_satisfies_write_references(
     polling._walk_registered_entrez_daily(settings, "2026-10-26", preflight_only=False)
     assert len(revisions) == before
     assert added_counts[-1] == 0
+
+
+def _watermark_state(run_id: str, resource_key: str, sequence: int, day: str) -> RunState:
+    return RunState(
+        ingestion_run_id=run_id,
+        resource_key=resource_key,
+        source_definition_version=1,
+        tier=Tier.C,
+        status=RunStatus.SUCCEEDED,
+        stages=[
+            StageCheckpoint(
+                stage=Stage.LOAD,
+                status=StageStatus.COMPLETED,
+                detail={
+                    "last_entry_date": {
+                        "pubmed-tick-borne": day,
+                        "pubmed-lyme-borrelia": day,
+                    },
+                    "sequence": sequence,
+                },
+            )
+        ],
+    )
+
+
+def test_watermark_scan_reads_only_pubmed_resources(tmp_path: Path) -> None:
+    memory = InMemoryCheckpointStore()
+    for index in range(30):
+        memory.save(_watermark_state(f"other-{index}", f"rss-{index}", 99, "1999-01-01"))
+    memory.save(_watermark_state("pubmed-run", ENTREZ_DAILY_RESOURCE, 4, "2026-10-01"))
+
+    def full_scan() -> list[RunState]:
+        raise AssertionError("full list_runs")
+
+    memory.list_runs = full_scan  # type: ignore[method-assign]
+    ledger = entry_dates_from_ledger(memory)
+    assert ledger.get("pubmed-tick-borne") == date(2026, 10, 1)
+    assert ledger.get("pubmed-lyme-borrelia") == date(2026, 10, 1)
+
+    files = FileCheckpointStore(tmp_path / "checkpoints")
+    files.save(_watermark_state("other-file", "rss-file", 99, "1999-01-01"))
+    files.save(_watermark_state("pubmed-file", "pubmed-tick-borne", 2, "2026-09-01"))
+    matched = files.list_runs_for_resources((ENTREZ_DAILY_RESOURCE, *SOURCE_ORDER))
+    assert [state.ingestion_run_id for state in matched] == ["pubmed-file"]
+
+    detail = {
+        "last_entry_date": {
+            "pubmed-tick-borne": "2026-10-03",
+            "pubmed-lyme-borrelia": "2026-10-04",
+        },
+        "sequence": 7,
+    }
+    pubmed_row = (
+        "pubmed-run",
+        ENTREZ_DAILY_RESOURCE,
+        "C",
+        "COMPLETED",
+        1,
+        "LOAD",
+        "COMPLETED",
+        0,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        json.dumps(detail),
+        None,
+        None,
+    )
+    queries = {"count": 0}
+    captured: dict[str, Any] = {}
+
+    class Cursor:
+        def execute(self, statement: str, params: object = None) -> None:
+            queries["count"] += 1
+            if queries["count"] >= 2500:
+                raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
+            captured["statement"] = statement
+            captured["params"] = tuple(params) if isinstance(params, tuple) else ()
+            self.rows: list[tuple[object, ...]] = (
+                [pubmed_row]
+                if "resource_key IN" in statement
+                else [(f"other-{index}",) for index in range(3000)]
+            )
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            return self.rows
+
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_exc: object) -> bool:
+            return False
+
+    class Connection:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_exc: object) -> bool:
+            return False
+
+    store = SnowflakeCheckpointStore(connection_factory=Connection)
+    store.list_runs = full_scan  # type: ignore[method-assign]
+    snowflake_ledger = entry_dates_from_ledger(store)
+    assert queries["count"] == 1
+    assert "resource_key IN" in captured["statement"]
+    assert set(captured["params"]) == {ENTREZ_DAILY_RESOURCE, *SOURCE_ORDER}
+    assert snowflake_ledger.get("pubmed-tick-borne") == date(2026, 10, 3)
+    assert snowflake_ledger.get("pubmed-lyme-borrelia") == date(2026, 10, 4)
