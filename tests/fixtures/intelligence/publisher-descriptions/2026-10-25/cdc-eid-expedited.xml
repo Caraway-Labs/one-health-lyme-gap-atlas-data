@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+    <channel>
+        <title>Emerging Infectious Diseases Journal</title>
+        <description>This list contains articles published online and expedited.</description>
+        <link>https://wwwnc.cdc.gov/eid/early-release</link>
+        <image>
+            <title>Emerging Infectious Diseases Journal</title>
+            <url>https://wwwnc.cdc.gov/eid/images/og-eid-logo-2.jpg</url>
+            <link>https://wwwnc.cdc.gov/eid/early-release</link>
+            <width>1200</width>
+            <height>630</height>
+            <description>Visit EID</description>
+        </image>
+        <language>en-us</language>
+        <webMaster>eideditor@cdc.gov (EID Questions)</webMaster>
+                <item>
+                    <title>Infectious African Swine Fever Virus in Spray-Dried Porcine Plasma Used as Feed Ingredient, South Korea, 2026</title>
+                    <description>S. Hong et al.</description>
+                    <link>https://wwwnc.cdc.gov/eid/article/32/12/26-1380_article</link>
+                    <pubDate>Mon, 19 Oct 2026 04:00:00 GMT</pubDate>
+                </item> 
+
+    </channel>
+</rss>
+
