@@ -273,6 +273,52 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
                 connection.rollback()
                 raise
 
+    def fail_running_daily_run(self, run_id: str, failure_code: str) -> bool:
+        """Save FAILED for a daily run only while its row is still RUNNING.
+
+        Never inserts. A run that was never claimed, or already finished,
+        keeps its row and its LOAD checkpoint unchanged.
+        """
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            connection.autocommit(False)
+            try:
+                cursor.execute(
+                    """UPDATE GOVERNANCE.INGESTION_RUNS
+                    SET status='FAILED', completed_at=CURRENT_TIMESTAMP(),
+                        error_classification='PROCESS'
+                    WHERE ingestion_run_id=%s AND status='RUNNING'""",
+                    (run_id,),
+                )
+                if int(cursor.rowcount or 0) != 1:
+                    connection.rollback()
+                    return False
+                cursor.execute(
+                    """MERGE INTO GOVERNANCE.INGESTION_RUN_CHECKPOINTS target
+                    USING (SELECT %s AS checkpoint_id, ingestion_run_id, resource_key,
+                                  1 AS source_definition_version, 'LOAD' AS stage
+                           FROM GOVERNANCE.INGESTION_RUNS
+                           WHERE ingestion_run_id=%s AND status='FAILED') source
+                    ON target.checkpoint_id = source.checkpoint_id
+                    WHEN MATCHED THEN UPDATE SET status='FAILED',
+                      failure_category='PROCESS', redacted_diagnostic_code=%s,
+                      updated_at=CURRENT_TIMESTAMP(), completed_at=NULL
+                    WHEN NOT MATCHED THEN INSERT
+                      (checkpoint_id, ingestion_run_id, resource_key,
+                       source_definition_version, stage, status, attempt_count,
+                       failure_category, redacted_diagnostic_code, detail,
+                       started_at, updated_at)
+                      VALUES (source.checkpoint_id, source.ingestion_run_id,
+                              source.resource_key, source.source_definition_version,
+                              source.stage, 'FAILED', 0, 'PROCESS', %s, PARSE_JSON('{}'),
+                              CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())""",
+                    (f"{run_id}:LOAD", run_id, failure_code, failure_code),
+                )
+                connection.commit()
+                return True
+            except BaseException:
+                connection.rollback()
+                raise
+
     @contextmanager
     def _checked_factory(self) -> Iterator[Any]:
         with self._unvalidated_factory() as connection:

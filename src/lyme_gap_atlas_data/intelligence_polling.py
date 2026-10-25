@@ -963,14 +963,17 @@ def _pubmed_walk_process(spec: dict[str, Any], queue: Any) -> None:
 
 
 def _record_isolated_pubmed_failure(day: str, reopen_attempt: int) -> None:
-    """FAILED save on a new session after the walk process is killed."""
+    """FAILED save on a new session after the walk process is killed.
+
+    The parent does not know which runs the child claimed or finished, so it
+    fails only rows still RUNNING and never inserts one.
+    """
     settings = pipeline_settings.PipelineSettings()
     _store, checkpoints, _budget = open_entrez_daily_io(settings)
-    claimed = [
-        (daily_run_id(source_id, day, reopen_attempt=reopen_attempt), source_id)
-        for source_id in SOURCE_ORDER
-    ]
-    _save_claimed_pubmed_failures(checkpoints, claimed)
+    for source_id in SOURCE_ORDER:
+        run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+        with suppress(Exception):
+            checkpoints.fail_running_daily_run(run_id, "PUBMED_DAILY_FAILED")
 
 
 def _pubmed_timeout_rows(day: str, reopen_attempt: int) -> list[dict[str, str]]:
