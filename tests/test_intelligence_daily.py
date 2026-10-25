@@ -213,7 +213,9 @@ def platform_spec(module):
 
 
 @pytest.mark.parametrize("phase", ["preflight", "activate"])
-def test_source_refresh_preserves_all_six_immutable_image_versions(phase):
+def test_source_refresh_preserves_all_six_immutable_image_versions(phase, monkeypatch):
+    monkeypatch.setenv("NCBI_EMAIL", "daily-contact@example.test")
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
     module = script("deploy_intelligence_daily")
     original = platform_spec(module)
     for i, job in enumerate(original["jobs"]):
@@ -259,6 +261,8 @@ def test_refresh_digest_requires_active_daily_job():
 
 
 def test_main_aligns_baseline_digest_before_preflight(monkeypatch):
+    monkeypatch.setenv("NCBI_EMAIL", "daily-contact@example.test")
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
     module = script("deploy_intelligence_daily")
     original = platform_spec(module)
     old_digest = "sha256:" + "0" * 64
@@ -338,7 +342,9 @@ def test_source_refresh_rejects_mutable_or_unexpected_image_sources(field, value
         module.render(original, "sha256:" + "a" * 64, "preflight")
 
 
-def test_daily_platform_render_preserves_six_jobs_and_reuses_only_required_refs():
+def test_daily_platform_render_preserves_six_jobs_and_reuses_only_required_refs(monkeypatch):
+    monkeypatch.setenv("NCBI_EMAIL", "daily-contact@example.test")
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
     m = script("deploy_intelligence_daily")
     spec = platform_spec(m)
     old = copy.deepcopy(spec)
@@ -351,7 +357,13 @@ def test_daily_platform_render_preserves_six_jobs_and_reuses_only_required_refs(
     assert all(1 <= len(j["name"]) <= 32 for s in (pre, active) for j in s["jobs"])
     assert active["jobs"][:-1] == old["jobs"] and active["jobs"][-1]["name"] == m.NAME
     assert active["jobs"][-1]["schedule"] == {"cron": "15 18 * * *", "time_zone": "America/Denver"}
-    assert {e["key"] for e in active["jobs"][-1]["envs"]} == m.KEYS | {"INTELLIGENCE_DAILY_ENABLED"}
+    assert {e["key"] for e in active["jobs"][-1]["envs"]} == m.KEYS | {
+        "INTELLIGENCE_DAILY_ENABLED",
+        "NCBI_EMAIL",
+    }
+    email = next(e for e in active["jobs"][-1]["envs"] if e["key"] == "NCBI_EMAIL")
+    assert email["scope"] == "RUN_TIME" and email["type"] == "SECRET"
+    assert "NCBI_API_KEY" not in {e["key"] for e in active["jobs"][-1]["envs"]}
 
 
 def test_missing_placement_approval_prevents_any_platform_access(monkeypatch):
