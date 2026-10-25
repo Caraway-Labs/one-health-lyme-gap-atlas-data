@@ -21,6 +21,11 @@ from lyme_gap_atlas_data.settings import PipelineSettings
 ROOT = Path(__file__).parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _rss_daily_does_not_open_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *args, **kwargs: [])
+
+
 def script(name):
     spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
     module = importlib.util.module_from_spec(spec)

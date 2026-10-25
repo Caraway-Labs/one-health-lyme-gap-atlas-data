@@ -205,24 +205,30 @@ def _search_file(name: str) -> dict[str, dict[str, Any]]:
     return {queries[source_id]: value for source_id, value in raw.items()}
 
 
-def test_draft_sources_stay_out_of_prod_registration() -> None:
-    """Pins and the daily source walk stay the five CDC/NIH feeds until registration.
-
-    The register-workflow choice list and the daily job env may later mention PubMed
-    or an NCBI email. Those files are not the registration gate.
-    """
+def test_registered_pubmed_sources_are_pinned_outside_the_rss_definitions() -> None:
+    """Active PubMed documents are daily pins. They are not RSS source definitions."""
+    assert runtime.PUBMED_SOURCE_IDS == runtime.PUBMED_DRAFT_SOURCE_IDS
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(runtime.ENDPOINTS)
-    assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(runtime.PROD_DAILY_SOURCE_SHA256)
+    assert set(runtime.PROD_DAILY_SOURCE_SHA256) >= runtime.PUBMED_DRAFT_SOURCE_IDS
+    assert set(runtime.PROD_SOURCE_SHA256) >= runtime.PUBMED_DRAFT_SOURCE_IDS
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(runtime.PROD_SOURCE_DEFINITIONS)
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(PROD_METADATA_FEED_IDS)
-    assert set(runtime.PROD_SOURCE_DEFINITIONS) == set(runtime.PROD_DAILY_SOURCE_SHA256)
+    assert set(runtime.PROD_SOURCE_DEFINITIONS) == (
+        set(runtime.PROD_DAILY_SOURCE_SHA256) - set(runtime.PUBMED_SOURCE_IDS)
+    )
     assert runtime.PUBMED_ESEARCH_ENDPOINT == ESEARCH_URL
-    assert registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256) == []
-    for source_id in runtime.PUBMED_DRAFT_SOURCE_IDS:
+    registered = registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256)
+    assert [source["source_id"] for source in registered] == list(SOURCE_ORDER)
+    for source_id in runtime.PUBMED_SOURCE_IDS:
         document = json.loads(
             Path(f"config/intelligence/{source_id}-source-v1.json").read_text(encoding="utf-8")
         )
-        assert document["state"] != "active"
+        digest = identity_hash(document)
+        assert document["state"] == "active"
+        assert document["trust_classification"] == "research_index"
+        assert document["cadence"]["poll_seconds"] == 86400
+        assert digest == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
+        assert digest == runtime.PROD_SOURCE_SHA256[source_id]
         assert document["source_id"] not in runtime.PROD_SOURCE_DEFINITIONS
         assert adapter_for_source({"transport": "entrez", "source_id": source_id}) == "entrez"
 
@@ -754,12 +760,12 @@ def _daily(prepared, sender, checkpoints, store, settings, *, run_id: str) -> di
     )
 
 
-def test_unregistered_drafts_are_not_fetched() -> None:
+def test_unpinned_sources_are_not_fetched() -> None:
     def fail(url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
-        raise AssertionError("draft sources must not be fetched")
+        raise AssertionError("unpinned sources must not be fetched")
 
     result = execute_registered_entrez_daily(
-        pinned=runtime.PROD_DAILY_SOURCE_SHA256,
+        pinned={},
         sender=fail,
         settings=PipelineSettings(ncbi_email=EMAIL),
         budget=runtime.PilotBudget(request_limit=5),
@@ -779,12 +785,41 @@ def test_entrez_daily_io_stays_closed_outside_prod() -> None:
         polling.open_entrez_daily_io(PipelineSettings())
 
 
+def test_candidate_documents_remain_loadable(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = entrez.json.loads
+
+    def loads(text: str | bytes, *args: object, **kwargs: object) -> object:
+        document = original(text, *args, **kwargs)
+        if (
+            isinstance(document, dict)
+            and document.get("transport") == "entrez"
+            and document.get("source_id") in SOURCE_ORDER
+        ):
+            document["state"] = "candidate"
+            document["approval"]["status"] = "pending"
+            document["approval"]["decision_ref"] = None
+            document["approval"]["reviewed_at"] = None
+            document["trust_review"]["status"] = "pending"
+            document["trust_review"]["decision_ref"] = None
+            document["trust_review"]["reviewed_at"] = None
+            document["trust_classification"] = "unreviewed"
+            document["cadence"]["poll_seconds"] = None
+        return document
+
+    monkeypatch.setattr(entrez.json, "loads", loads)
+    loaded = entrez._load_sources()
+    assert set(loaded) == set(SOURCE_ORDER)
+    assert {source["state"] for source in loaded.values()} == {"candidate"}
+    assert registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256) == []
+
+
 def test_daily_job_calls_the_entrez_walk_only_when_registered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fail_open(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("unregistered pubmed must not open a session")
 
+    monkeypatch.setattr(polling, "registered_entrez_sources", lambda _pinned: [])
     monkeypatch.setattr(polling, "open_entrez_daily_io", fail_open)
     polling._walk_registered_entrez_daily(
         PipelineSettings(
@@ -951,7 +986,8 @@ def test_registry_files_load_outside_the_working_directory(
     monkeypatch.chdir(tmp_path)
     loaded = entrez._load_sources()
     assert set(loaded) == set(SOURCE_ORDER)
-    assert registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256) == []
+    registered = registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256)
+    assert [source["source_id"] for source in registered] == list(SOURCE_ORDER)
 
 
 def _prod_daily_settings() -> PipelineSettings:
@@ -987,6 +1023,7 @@ class _ClaimLedger:
 
 
 def _patch_registered_pubmed(monkeypatch: pytest.MonkeyPatch, ledger: _ClaimLedger) -> None:
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
     monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _prod_daily_settings)
     monkeypatch.setattr(polling, "execute_daily_source", _succeeded_source)
     monkeypatch.setattr(
@@ -1068,6 +1105,57 @@ def test_pubmed_walk_deadline_returns_the_rss_payload(
     assert all(row["outcome"] == "SUCCEEDED" for row in payload["sources"])
     assert {row["error_class"] for row in payload["pubmed"]} == {"TimeoutError"}
     assert {state.status.value for state in ledger.saved} == {"FAILED"}
+
+
+def test_cleared_alarm_is_rearmed_before_the_walk_continues(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import signal
+
+    ledger = _ClaimLedger()
+    _patch_registered_pubmed(monkeypatch, ledger)
+    monkeypatch.setattr(polling, "PUBMED_WALK_DEADLINE_SECONDS", 0.4)
+
+    def hang(**_kwargs: Any) -> None:
+        # The Snowflake connector clears the one-shot timer inside a query.
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        time.sleep(30)
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", hang)
+    started = time.monotonic()
+    payload = polling.run_production_daily()
+    elapsed = time.monotonic() - started
+    capsys.readouterr()
+    assert elapsed < 5
+    assert {row["error_class"] for row in payload["pubmed"]} == {"TimeoutError"}
+    assert {state.status.value for state in ledger.saved} == {"FAILED"}
+
+
+def test_swallowed_alarm_cannot_extend_the_pubmed_walk(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = _ClaimLedger()
+    _patch_registered_pubmed(monkeypatch, ledger)
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", True)
+    monkeypatch.setattr(polling, "PUBMED_WALK_DEADLINE_SECONDS", 0.8)
+    monkeypatch.setattr(polling, "PUBMED_FAIL_SAVE_SECONDS", 0.3)
+    saved: list[tuple[str, int]] = []
+
+    def slow_save(day: str, reopen_attempt: int) -> None:
+        saved.append((day, reopen_attempt))
+        time.sleep(30)
+
+    monkeypatch.setattr(polling, "_record_isolated_pubmed_failure", slow_save)
+    monkeypatch.setenv("ATLAS_PUBMED_WALK_HANG", "swallow-alarm")
+    started = time.monotonic()
+    payload = polling.run_production_daily()
+    elapsed = time.monotonic() - started
+    capsys.readouterr()
+    assert elapsed < 20
+    assert saved
+    assert payload["status"] == "SUCCEEDED"
+    assert {row["error_class"] for row in payload["pubmed"]} == {"TimeoutError"}
+    assert ledger.saved == []
 
 
 def test_registered_capture_satisfies_write_references(

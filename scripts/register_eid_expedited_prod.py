@@ -15,6 +15,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
     PROD_SOURCE_SHA256,
     pilot_watchdog,
 )
+from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.migrations import (
     PROD_FEED_EXPANSION_CLEANUP_MIGRATION,
     PROD_INTELLIGENCE_DAILY_VIEW_MIGRATION,
@@ -44,6 +45,25 @@ V146 = (
     "V146__prod_intelligence_retention_and_v2_view.sql",
     "85a2fd022e4024bfb0217bad6cec78bdfcd1da255a662ebd5c48c7a073eb22dc",
 )
+
+
+def registry_document_path(source_id: str, version: int) -> Path:
+    return Path(__file__).parents[1] / f"config/intelligence/{source_id}-source-v{version}.json"
+
+
+def guard_prod_registry_hash(source_id: str, version: int) -> None:
+    """Refuse a registry file whose digest is not the pinned one.
+
+    reviewed_package also refuses that file. This guard names the hash failure
+    before that broader package check runs.
+    """
+    expected = (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(source_id)
+    path = registry_document_path(source_id, version)
+    if expected is None or not path.is_file():
+        return
+    digest = identity_hash(json.loads(path.read_text(encoding="utf-8")))
+    if digest != expected:
+        raise PermissionError("EID_PROD_SOURCE_HASH_CHANGED")
 
 
 def verify_schema(
@@ -90,6 +110,7 @@ def main() -> None:
                 raise PermissionError("EID_PROD_ENVIRONMENT_REQUIRED")
             source_id = os.environ.get("INTELLIGENCE_SOURCE_ID", "cdc-eid-expedited")
             version = int(os.environ.get("INTELLIGENCE_SOURCE_REGISTRY_VERSION", "1"))
+            guard_prod_registry_hash(source_id, version)
             source, checksum = reviewed_package(source_id, version)
             if checksum != (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(
                 source_id
@@ -109,6 +130,11 @@ def main() -> None:
                 if pending_migration_plan(SnowflakeSettings(), DATABASE):
                     raise PermissionError("EID_PROD_PENDING_MIGRATIONS")
                 result = register(connection, source, checksum, expected_identity=IDENTITY)
+        except PermissionError as error:
+            message = str(error)
+            if message == "EID_PROD_SOURCE_HASH_CHANGED":
+                raise SystemExit(message) from None
+            raise SystemExit("EID_PROD_FIXED_REGISTRATION_FAILED") from None
         except Exception:
             raise SystemExit("EID_PROD_FIXED_REGISTRATION_FAILED") from None
         print(
