@@ -12,7 +12,7 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -1178,6 +1178,8 @@ class RunLedger(Protocol):
 
     def list_runs(self) -> list[RunState]: ...
 
+    def list_runs_for_resources(self, resource_keys: Collection[str]) -> list[RunState]: ...
+
 
 def registered_entrez_sources(pinned: Mapping[str, str]) -> list[dict[str, Any]]:
     """Both PubMed sources when each file is active and its hash is pinned.
@@ -1208,16 +1210,15 @@ _WATERMARK_RESOURCES = frozenset((ENTREZ_DAILY_RESOURCE, *SOURCE_ORDER))
 def _succeeded_watermark_runs(checkpoints: RunLedger) -> list[RunState]:
     return [
         state
-        for state in checkpoints.list_runs()
-        if state.resource_key in _WATERMARK_RESOURCES and state.status is RunStatus.SUCCEEDED
+        for state in checkpoints.list_runs_for_resources(_WATERMARK_RESOURCES)
+        if state.status is RunStatus.SUCCEEDED
     ]
 
 
-def entry_dates_from_ledger(checkpoints: RunLedger) -> EntryDateLedger:
-    """Latest per-source last_entry_date on a succeeded PubMed LOAD checkpoint."""
+def _entry_dates_from_states(states: list[RunState]) -> EntryDateLedger:
     best = -1
     chosen: dict[str, Any] = {}
-    for state in _succeeded_watermark_runs(checkpoints):
+    for state in states:
         load = state.checkpoint(Stage.LOAD)
         detail = load.detail if load is not None else {}
         raw = detail.get("last_entry_date")
@@ -1232,6 +1233,11 @@ def entry_dates_from_ledger(checkpoints: RunLedger) -> EntryDateLedger:
         if isinstance(value, str):
             ledger.set(source_id, date.fromisoformat(value))
     return ledger
+
+
+def entry_dates_from_ledger(checkpoints: RunLedger) -> EntryDateLedger:
+    """Latest per-source last_entry_date on a succeeded PubMed LOAD checkpoint."""
+    return _entry_dates_from_states(_succeeded_watermark_runs(checkpoints))
 
 
 def entrez_artifact_id(run_id: str) -> str:
@@ -1373,7 +1379,8 @@ def execute_registered_entrez_daily(
     for source_id, source in by_id.items():
         if source.get("state") != "active" or pinned.get(source_id) != identity_hash(source):
             return skipped
-    ledger = entry_dates_from_ledger(checkpoints)
+    watermark_runs = _succeeded_watermark_runs(checkpoints)
+    ledger = _entry_dates_from_states(watermark_runs)
     retention = getattr(checkpoints, "feed_retention", None)
     planned = run_ids if run_ids is not None else {source_id: run_id for source_id in SOURCE_ORDER}
     artifact_ids = (
@@ -1433,7 +1440,7 @@ def execute_registered_entrez_daily(
             items=rows,
         )
     previous = -1
-    for state in _succeeded_watermark_runs(checkpoints):
+    for state in watermark_runs:
         load = state.checkpoint(Stage.LOAD)
         sequence = load.detail.get("sequence") if load is not None else None
         if isinstance(sequence, int):
