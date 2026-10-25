@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import date, timedelta
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -31,6 +32,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     EntryDateLedger,
     RevisionLedger,
     encode_entrez_query,
+    entrez_artifact_id,
     entry_window,
     execute_registered_entrez_daily,
     live_entrez_get,
@@ -44,7 +46,9 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
 )
 from lyme_gap_atlas_data.ingestion.intelligence_feed import adapter_for_source
 from lyme_gap_atlas_data.intelligence_items import identity_hash
+from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SQLiteRawLedger
 from lyme_gap_atlas_data.intelligence_retention import PROD_METADATA_FEED_IDS
+from lyme_gap_atlas_data.intelligence_storage import IntelligenceStorageError
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 FIXTURES = Path("tests/fixtures/pubmed")
@@ -1050,3 +1054,125 @@ def test_pubmed_walk_deadline_returns_the_rss_payload(
     assert all(row["outcome"] == "SUCCEEDED" for row in payload["sources"])
     assert {row["error_class"] for row in payload["pubmed"]} == {"TimeoutError"}
     assert {state.status.value for state in ledger.saved} == {"FAILED"}
+
+
+def test_registered_capture_satisfies_write_references(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    prepared = _activated_sources()
+    sources = prepared["sources"]
+    retention = FeedRawRetention(
+        SQLiteRawLedger(tmp_path / "ledger.sqlite"),
+        environment="DEV",
+        source_lookup=lambda source_id, version: sources[source_id],
+        policy_lookup=lambda source: source["access_use"]["content_retention_policy_ref"],
+        clock=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+    class Ledger(InMemoryCheckpointStore):
+        feed_retention = retention
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.claimed: dict[str, str] = {}
+
+        def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+            if run_id in self.claimed:
+                return False
+            self.claimed[run_id] = source_id
+            return source_sha256 == prepared["pinned"][source_id]
+
+    requests: dict[str, dict[str, Any]] = {}
+    artifacts: dict[tuple[str, str], dict[str, Any]] = {}
+    contexts: dict[tuple[str, str], dict[str, Any]] = {}
+    revisions: set[tuple[str, str]] = set()
+    added_counts: list[int] = []
+
+    class Cursor:
+        def execute(self, statement: str, params: tuple[Any, ...]) -> None:
+            if "INGESTION_REQUESTS" in statement:
+                requests[params[0]] = {
+                    "run_id": params[1],
+                    "endpoint": params[2],
+                    "sha256": params[4],
+                }
+            elif "RAW_ARTIFACTS" in statement:
+                artifacts[(params[0], params[1])] = {
+                    "request_id": params[2],
+                    "sha256": params[5],
+                }
+
+    class Store:
+        @contextmanager
+        def capture_session(self) -> Any:
+            yield Cursor()
+
+        def record_acquisition(self, **kwargs: Any) -> None:
+            contexts[(kwargs["run_id"], kwargs["artifact_id"])] = kwargs["context"]
+
+        def write(self, **kwargs: Any) -> int:
+            run_id = kwargs["run_id"]
+            source_id = kwargs["source_id"]
+            if ledger.claimed.get(run_id) != source_id:
+                raise IntelligenceStorageError("INTELLIGENCE_RUN_REFERENCE_INVALID")
+            added = 0
+            for item in kwargs["items"]:
+                provenance = item["provenance"]
+                artifact = artifacts.get((provenance["artifact_id"], run_id))
+                request = requests.get(artifact["request_id"]) if artifact else None
+                context = contexts.get((run_id, provenance["artifact_id"]))
+                if artifact is None or artifact["sha256"] != provenance["artifact_sha256"]:
+                    raise IntelligenceStorageError("INTELLIGENCE_ARTIFACT_REFERENCE_INVALID")
+                if (
+                    context is None
+                    or request is None
+                    or context["artifact_sha256"] != provenance["artifact_sha256"]
+                    or context["effective_url"] != request["endpoint"]
+                    or context["requested_url"] != ESEARCH_URL
+                ):
+                    raise IntelligenceStorageError("INTELLIGENCE_ACQUISITION_REFERENCE_INVALID")
+                key = (item["item_id"], item["revision_id"])
+                if key not in revisions:
+                    revisions.add(key)
+                    added += 1
+            added_counts.append(added)
+            return added
+
+    ledger = Ledger()
+    store = Store()
+    settings = PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None)
+
+    def open_io(_settings: object) -> tuple[Any, Any, Any]:
+        return store, ledger, runtime.PilotBudget(seconds=30, request_limit=5)
+
+    load_policies = entrez._load_policies
+    monkeypatch.setattr(runtime, "PROD_DAILY_SOURCE_SHA256", prepared["pinned"])
+    monkeypatch.setattr(
+        entrez,
+        "_load_policies",
+        lambda loaded, document=None: load_policies(loaded, prepared["receipts"]),
+    )
+    monkeypatch.setattr(
+        polling, "registered_entrez_sources", lambda _pinned: list(sources.values())
+    )
+    monkeypatch.setattr(polling, "open_entrez_daily_io", open_io)
+    monkeypatch.setattr(
+        polling,
+        "live_entrez_get",
+        FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML),
+    )
+    polling._walk_registered_entrez_daily(settings, "2026-10-25", preflight_only=False)
+    assert added_counts == [2]
+    binding = retention.source_binding(next(iter(ledger.claimed)))
+    assert binding is not None
+    assert binding["parser_version"] == "entrez-efetch-v1"
+    assert binding["fetch_version"] == "entrez-eutils-v1"
+    sample_run = next(iter(ledger.claimed))
+    assert entrez_artifact_id(sample_run) in {artifact_id for artifact_id, _run in artifacts}
+    assert "pubmed-efetch" not in {artifact_id for artifact_id, _run in artifacts}
+    policy = sources["pubmed-tick-borne"]["access_use"]["content_retention_policy_ref"]
+    assert policy.endswith("metadata-raw-30d-v1")
+    before = len(revisions)
+    polling._walk_registered_entrez_daily(settings, "2026-10-26", preflight_only=False)
+    assert len(revisions) == before
+    assert added_counts[-1] == 0
