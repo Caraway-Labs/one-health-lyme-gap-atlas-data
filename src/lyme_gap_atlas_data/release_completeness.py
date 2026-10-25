@@ -12,6 +12,13 @@ import json
 from importlib.resources import files
 from typing import Any
 
+from .cdc_county_year_history import (
+    COUNTY_MEASURE_ID,
+    HISTORY_SOURCE_KEY,
+    METHODOLOGY_NOTE,
+    STATE_MEASURE_ID,
+)
+
 SCHEMA = "atlas-release-completeness/v1"
 # Discovered from API repository readers, including independently versioned feeds.
 VIEWS = (
@@ -217,6 +224,21 @@ def validate_manifest(document: Any) -> dict[str, dict[str, Any]]:
             "surveillance-situation-tick-pathogen",
         } and any(not isinstance(item.get(f), str) or not item[f].strip() for f in SOURCE_FIELDS):
             raise ReleaseCompletenessBlocked("Required source attribution missing: " + identity)
+        if identity == HISTORY_SOURCE_KEY:
+            preserved = item.get("preserves_measures")
+            if preserved != sorted(PRESENTATION_MEASURES["human"]):
+                raise ReleaseCompletenessBlocked(
+                    "History release must preserve every existing human measure"
+                )
+            if item.get("gap_note") != METHODOLOGY_NOTE:
+                raise ReleaseCompletenessBlocked("History release is missing the 2022 gap note")
+            if (
+                not isinstance(item.get("previous_release_id"), str)
+                or not item["previous_release_id"].strip()
+            ):
+                raise ReleaseCompletenessBlocked(
+                    "History release must name the unchanged predecessor release"
+                )
         if identity in PRESENTATION_MEASURES and (
             not isinstance(item.get("presentation_measures"), list)
             or (
@@ -380,6 +402,10 @@ def verify_candidate(cursor: Any, release_id: str) -> dict[str, Any]:
             "climate",
         }:
             verify_source_pins(cursor, release_id, identity, item, raw)
+    if HISTORY_SOURCE_KEY in artifacts:
+        verify_cdc_county_year_history(
+            cursor, release_id, artifacts[HISTORY_SOURCE_KEY], published=False
+        )
     return {
         "schema": SCHEMA,
         "bundle_sha256": rows[0][1],
@@ -552,3 +578,166 @@ def verify_current(
             raise ReleaseCompletenessBlocked(
                 "Presentation measure/county footprint changed: " + identity
             )
+    if HISTORY_SOURCE_KEY in artifacts:
+        verify_cdc_county_year_history(
+            cursor,
+            release_id,
+            artifacts[HISTORY_SOURCE_KEY],
+            published=True,
+            read_role=read_role,
+        )
+
+
+_GAP_SENTENCE = "Report year 2022 is not in this release."
+_COUNTY_COLUMNS = """
+    fips, county, state, state_name, population, in_contiguous_tick_scope,
+    human_status, case_count_floor_2023, incidence_floor_2023,
+    state_unallocated_records_2023, tick_status, scapularis_status,
+    pacificus_status, burgdorferi_status, svi_percentile,
+    uninsured_percentile, uninsured_percent, rucc_2023, evidence_completeness
+"""
+
+
+def verify_cdc_county_year_history(
+    cursor: Any,
+    release_id: str,
+    item: dict[str, Any],
+    *,
+    published: bool,
+    read_role: str = "OH_LYME_PROD_READ",
+) -> None:
+    """Prove history invariants and that existing county fields are unchanged.
+
+    The view itself does not filter report years. These checks read the rows the
+    builder admitted. Story #856 can add 2022 rows without a new view migration.
+    """
+    previous = str(item["previous_release_id"])
+    unchanged = (
+        "SELECT COUNT(*) FROM ("
+        "SELECT "
+        + _COUNTY_COLUMNS
+        + " FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS WHERE release_id=%s MINUS SELECT "
+        + _COUNTY_COLUMNS
+        + " FROM PRESENTATION.SEMANTIC_COUNTY_ATLAS WHERE release_id=%s)"
+    )
+    cursor.execute(unchanged, (release_id, previous))
+    forward = cursor.fetchone()
+    cursor.execute(unchanged, (previous, release_id))
+    backward = cursor.fetchone()
+    if forward is None or backward is None or int(forward[0]) != 0 or int(backward[0]) != 0:
+        raise ReleaseCompletenessBlocked("Existing county release fields changed")
+    if published:
+        _verify_history_view(cursor, release_id, item, read_role)
+        return
+    gap_like = "%" + _GAP_SENTENCE + "%"
+    cursor.execute(
+        """SELECT COUNT(*),
+                  MIN(TRY_TO_NUMBER(temporal_window)),
+                  MAX(TRY_TO_NUMBER(temporal_window)),
+                  COUNT_IF(TRY_TO_NUMBER(temporal_window)=2022),
+                  COUNT_IF(TRY_TO_NUMBER(temporal_window)=2023),
+                  COUNT_IF(value:methodology_note::VARCHAR NOT LIKE %s),
+                  COUNT_IF(value_state NOT IN ('OBSERVED','MISSING')),
+                  COUNT_IF(value_state='MISSING' AND value:case_count IS NOT NULL),
+                  COUNT_IF(value_state='OBSERVED' AND value:case_count IS NULL),
+                  COUNT_IF(value_state='ZERO'),
+                  COUNT_IF(measure_id=%s AND fips LIKE %s
+                           AND value:geography_vintage::VARCHAR <> 'legacy_ct_counties_2008_2022'),
+                  COUNT_IF(fips LIKE %s
+                           AND value:geography_vintage::VARCHAR <> 'county_2025_tiger'),
+                  COUNT_IF(measure_id=%s AND value:state_fips::VARCHAR='09'
+                           AND value:geography_vintage::VARCHAR <> 'legacy_ct_counties_2008_2022'),
+                  COUNT_IF(measure_id=%s AND COALESCE(value:state_fips::VARCHAR,'')<>'09'
+                           AND value:geography_vintage::VARCHAR <> 'county_2025_tiger')
+           FROM PRESENTATION.SEMANTIC_OBSERVATIONS
+           WHERE release_id=%s AND measure_id IN (%s, %s)""",
+        (
+            gap_like,
+            COUNTY_MEASURE_ID,
+            "090%",
+            "091%",
+            STATE_MEASURE_ID,
+            STATE_MEASURE_ID,
+            release_id,
+            COUNTY_MEASURE_ID,
+            STATE_MEASURE_ID,
+        ),
+    )
+    _require_history_invariants(cursor.fetchone(), item)
+
+
+def _verify_history_view(
+    cursor: Any, release_id: str, item: dict[str, Any], read_role: str
+) -> None:
+    cursor.execute("SELECT * FROM PRESENTATION.CDC_LYME_COUNTY_YEAR_HISTORY_V1 LIMIT 0")
+    cursor.execute("SHOW GRANTS ON VIEW PRESENTATION.CDC_LYME_COUNTY_YEAR_HISTORY_V1")
+    names = [str(column[0]).lower() for column in cursor.description]
+    grants = [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+    if not any(
+        grant.get("privilege") == "SELECT" and grant.get("grantee_name") == read_role
+        for grant in grants
+    ):
+        raise ReleaseCompletenessBlocked("API read grant missing: CDC_LYME_COUNTY_YEAR_HISTORY_V1")
+    cursor.execute(
+        """SELECT COUNT(*),
+                  MIN(report_year),
+                  MAX(report_year),
+                  COUNT_IF(report_year=2022),
+                  COUNT_IF(report_year=2023),
+                  COUNT_IF(methodology_note NOT LIKE %s),
+                  COUNT_IF(value_state NOT IN ('OBSERVED','MISSING')),
+                  COUNT_IF(value_state='MISSING' AND case_count IS NOT NULL),
+                  COUNT_IF(value_state='OBSERVED' AND case_count IS NULL),
+                  COUNT_IF(value_state='ZERO'),
+                  COUNT_IF(measure_id=%s AND county_fips LIKE %s
+                           AND geography_vintage <> 'legacy_ct_counties_2008_2022'),
+                  COUNT_IF(county_fips LIKE %s AND geography_vintage <> 'county_2025_tiger'),
+                  COUNT_IF(measure_id=%s AND state_fips='09'
+                           AND geography_vintage <> 'legacy_ct_counties_2008_2022'),
+                  COUNT_IF(measure_id=%s AND COALESCE(state_fips,'')<>'09'
+                           AND geography_vintage <> 'county_2025_tiger'),
+                  COUNT_IF(release_id<>%s)
+           FROM PRESENTATION.CDC_LYME_COUNTY_YEAR_HISTORY_V1""",
+        (
+            "%" + _GAP_SENTENCE + "%",
+            COUNTY_MEASURE_ID,
+            "090%",
+            "091%",
+            STATE_MEASURE_ID,
+            STATE_MEASURE_ID,
+            release_id,
+        ),
+    )
+    row = cursor.fetchone()
+    if row is None or int(row[-1]) != 0:
+        raise ReleaseCompletenessBlocked("History view is not limited to the current release")
+    _require_history_invariants(row[:-1], item)
+    cursor.execute(
+        """SELECT COUNT(*) FROM PRESENTATION.CURRENT_METHODOLOGY_METADATA_V
+           WHERE measure_id IN (%s, %s)
+             AND methodology LIKE %s
+             AND limitation LIKE %s
+             AND limitation LIKE %s""",
+        (
+            COUNTY_MEASURE_ID,
+            STATE_MEASURE_ID,
+            "%" + _GAP_SENTENCE + "%",
+            "%ct_legacy_county_codes%",
+            "%legacy_ct_counties_2008_2022%",
+        ),
+    )
+    metadata = cursor.fetchone()
+    if metadata is None or int(metadata[0]) < 1:
+        raise ReleaseCompletenessBlocked("Methodology metadata is missing the 2022 gap note")
+
+
+def _require_history_invariants(row: Any, item: dict[str, Any]) -> None:
+    if row is None or len(row) < 14:
+        raise ReleaseCompletenessBlocked("History invariant query returned no row")
+    count, min_year, max_year = int(row[0]), int(row[1]), int(row[2])
+    if count != item["expected_rows"] or min_year != 2008 or max_year != 2021:
+        raise ReleaseCompletenessBlocked("History year coverage is not 2008-2021")
+    if any(int(value) != 0 for value in row[3:14]):
+        raise ReleaseCompletenessBlocked(
+            "History rows include 2022, 2023, a value-state change, or a geography mismatch"
+        )

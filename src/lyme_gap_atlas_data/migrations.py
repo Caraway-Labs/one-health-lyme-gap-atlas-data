@@ -71,6 +71,13 @@ INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
     "filename": "V170__intelligence_source_activations.sql",
     "sha256": "bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f",
 }
+# V176 is a routine both-environment migration. It is not an intelligence batch,
+# not held back, and not environment-only. V171-V175 stay reserved for other stories.
+CDC_COUNTY_YEAR_HISTORY_MIGRATION = {
+    "version": "V176",
+    "filename": "V176__cdc_county_year_history_view.sql",
+    "sha256": "8b68f288f07692875a0f015fbc5a4c79d7ee1ab543ff4989b4977dcd09e38c24",
+}
 # V170 replaces the feed view in both databases. The protected path is required
 # on DEV and PROD; the historical feed-view migrations stay PROD-only.
 BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170"})
@@ -479,7 +486,17 @@ def migration_execution_role(migration: Migration, database: str) -> str | None:
         if database != PROD_DATABASE:
             raise ValueError("Production governed source admission is PROD-only")
         return "OH_LYME_PROD_OWNER"
-    if migration.version in {"V072", "V117", "V123", "V124", "V127", "V128", "V138", "V155"}:
+    if migration.version in {
+        "V072",
+        "V117",
+        "V123",
+        "V124",
+        "V127",
+        "V128",
+        "V138",
+        "V155",
+        "V176",
+    }:
         if migration.version == "V117" and database != DEV_DATABASE:
             raise ValueError("DEV bulk stage migration is DEV-only")
         return f"OH_LYME_{match.group(1)}_OWNER"

@@ -33,6 +33,11 @@ _ERAS = (
     (2017, 2021, "cdc_2017", CDC_2017),
     (2022, 2023, "cdc_2022", CDC_2022),
 )
+# Two-value break used by the history release. It is not a numeric comparison.
+_DEFINITION_BREAKS = (
+    (2008, 2021, "2008_2021_pre_2022_definition"),
+    (2022, 2023, "2022_onward_definition"),
+)
 STATES = frozenset({"COMPARABLE", "CAUTION_REQUIRED", "NOT_COMPARABLE", "UNKNOWN"})
 
 
@@ -72,6 +77,26 @@ def _jurisdiction_class(state: str, year: int, evidence: Mapping[str, Any] | Non
         if state in LOW_2022:
             return "LOW"
     return _reviewed_class(state, year, evidence)
+
+
+def methodology_era_id_for_year(year: int) -> str:
+    """Return one of the four CDC definition ids for a report year."""
+    if isinstance(year, bool) or not isinstance(year, int):
+        raise ValueError("report year is outside the reviewed CDC definition eras")
+    for start, end, era_id, _url in _ERAS:
+        if start <= year <= end:
+            return era_id
+    raise ValueError("report year is outside the reviewed CDC definition eras")
+
+
+def definition_break_label(year: int) -> str:
+    """Return the two-value case-definition break label for a report year."""
+    if isinstance(year, bool) or not isinstance(year, int):
+        raise ValueError("report year is outside the reviewed case-definition break")
+    for start, end, label in _DEFINITION_BREAKS:
+        if start <= year <= end:
+            return label
+    raise ValueError("report year is outside the reviewed case-definition break")
 
 
 def classify_methodology(

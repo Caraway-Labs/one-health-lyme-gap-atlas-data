@@ -22,6 +22,11 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from lyme_gap_atlas_data.sql_sessions import connect
 
 from . import nlcd_release
+from .cdc_county_year_history import (
+    HISTORY_SOURCE_KEY,
+    build_county_year_history,
+    history_measure_definitions,
+)
 from .climate_release import validate_extension, verify_extension, verify_persisted_extension
 from .svi_context import TRANSFORMATION_VERSION as SVI_TRANSFORMATION
 from .svi_context import numeric_value as svi_numeric_value
@@ -258,6 +263,19 @@ def build_semantic_release(
                     tick_coverage=tick_coverage,
                     tick_parity=tick_parity,
                 )
+                if HISTORY_SOURCE_KEY in source_rows:
+                    history = build_county_year_history(
+                        source_rows[HISTORY_SOURCE_KEY],
+                        atlas_fips={str(county.values[1]) for county in counties},
+                        release_id=manifest.release_id,
+                        source_version_id=manifest.source(
+                            HISTORY_SOURCE_KEY
+                        ).data_source_version_id,
+                        ingestion_run_id=manifest.source(HISTORY_SOURCE_KEY).ingestion_run_id,
+                        artifact_id=manifest.source(HISTORY_SOURCE_KEY).artifact_id,
+                        retrieved_at=gates[HISTORY_SOURCE_KEY].retrieved_at,
+                    )
+                    observations.extend(history.observations)
                 if len(counties) != EXPECTED_COUNTIES:
                     raise SemanticReleaseBlocked(
                         f"Semantic release requires {EXPECTED_COUNTIES} counties; "
@@ -271,7 +289,7 @@ def build_semantic_release(
                         )
                     )
                 _insert_release(cursor, manifest, bundle_sha256)
-                _insert_hierarchy(cursor, manifest)
+                _insert_hierarchy(cursor, manifest, HISTORY_SOURCE_KEY in source_rows)
                 if nlcd_captures:
                     nlcd_release.insert_hierarchy(cursor, manifest.release_id)
                 _insert_sources(cursor, manifest)
@@ -328,7 +346,9 @@ def publish_semantic_release(
                 cursor.execute(
                     """SELECT COUNT(*), COUNT(DISTINCT fips),
                                (SELECT COUNT(*) FROM PRESENTATION.SEMANTIC_OBSERVATIONS o
-                                WHERE o.release_id=%s AND (
+                                WHERE o.release_id=%s
+                                  AND o.source_key<>'cdc_historical'
+                                  AND (
                                  source_key<>'context_nlcd_2025' OR NOT EXISTS (
                                    SELECT 1 FROM PRESENTATION.SEMANTIC_RELEASES nr
                                     WHERE nr.release_id=o.release_id
@@ -630,7 +650,7 @@ def _verify_source_gate(
             f"Source {source.source_key} lacks passing blocking quality evidence"
         )
 
-    if source.source_key == "human":
+    if source.source_key in {"human", HISTORY_SOURCE_KEY}:
         cursor.execute(
             """SELECT MAX(published_at) FROM GOVERNANCE.CDC_PUBLICATIONS
             WHERE data_source_version_id=%s AND ingestion_run_id=%s
@@ -742,7 +762,30 @@ def _read_source_rows(
     cursor: Any, source: SemanticSource, *, dev_tick_generic: bool = False
 ) -> list[dict[str, Any]]:
     columns: tuple[str, ...]
-    if source.source_key == "human":
+    if source.source_key == HISTORY_SOURCE_KEY:
+        cursor.execute(
+            """SELECT county_fips, report_year, case_status, sex, age_category_years,
+                    frequency, source_value_status, payload, source_record_id,
+                    data_source_version_id, ingestion_run_id, retrieved_at
+            FROM CONFORMED.CONFORMED_CDC_LYME_QTBI_XD4I
+            WHERE data_source_version_id=%s AND ingestion_run_id=%s""",
+            (source.data_source_version_id, source.ingestion_run_id),
+        )
+        columns = (
+            "county_fips",
+            "report_year",
+            "case_status",
+            "sex",
+            "age_category_years",
+            "frequency",
+            "source_value_status",
+            "payload",
+            "source_record_id",
+            "data_source_version_id",
+            "ingestion_run_id",
+            "retrieved_at",
+        )
+    elif source.source_key == "human":
         cursor.execute(
             """SELECT county_fips, report_year, case_status, frequency, payload,
                     source_record_id, data_source_version_id, ingestion_run_id, retrieved_at
@@ -822,7 +865,7 @@ def _read_source_rows(
         )
     rows = cursor.fetchall()
     if not rows and (
-        source.source_key not in {"human", "tick", "pathogen"}
+        source.source_key not in {"human", "tick", "pathogen", HISTORY_SOURCE_KEY}
         or (source.source_key == "tick" and dev_tick_generic)
     ):
         cursor.execute(
@@ -1485,7 +1528,9 @@ def _insert_sources(cursor: Any, manifest: SemanticManifest) -> None:
     )
 
 
-def _insert_hierarchy(cursor: Any, manifest: SemanticManifest) -> None:
+def _insert_hierarchy(
+    cursor: Any, manifest: SemanticManifest, include_history: bool = False
+) -> None:
     datasets = {
         source.dataset_id: (
             manifest.release_id,
@@ -1724,6 +1769,8 @@ def _insert_hierarchy(cursor: Any, manifest: SemanticManifest) -> None:
             "Not causal.",
         ),
     ]
+    if include_history:
+        measures.extend(history_measure_definitions())
     cursor.executemany(
         """INSERT INTO PRESENTATION.SEMANTIC_MEASURES
         (release_id, indicator_id, measure_id, label, data_type, unit, geography_semantics,
