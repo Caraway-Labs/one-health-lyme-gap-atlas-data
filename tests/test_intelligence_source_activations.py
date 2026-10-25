@@ -55,6 +55,23 @@ def _migration_sql() -> str:
     return migration.source
 
 
+PIN_ROW = re.compile(r"\('([a-z0-9-]+)', '([0-9a-f]{64})', '([0-9a-f]{64})'\)")
+
+
+def _using_sql(sql: str) -> str:
+    merge = sql.split("MERGE INTO GOVERNANCE.INTELLIGENCE_SOURCE_ACTIVATIONS target", 1)[1]
+    return merge.split("USING (", 1)[1].split(") source\nON target.source_id", 1)[0]
+
+
+def _pin_pairs(sql: str) -> dict[str, tuple[str, str]]:
+    using = _using_sql(sql)
+    pins = using.split("WITH pins AS (", 1)[1].split("),\n    candidates AS (", 1)[0]
+    found = {source_id: (old, new) for source_id, old, new in PIN_ROW.findall(pins)}
+    assert len(found) == len(PIN_ROW.findall(pins))
+    assert set(found) == set(LIVE_SOURCES)
+    return found
+
+
 def _view_sql(sql: str) -> str:
     return sql.split("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2", 1)[1]
 
@@ -315,8 +332,8 @@ def test_view_uses_one_active_join_and_keeps_the_contract_filters() -> None:
 def test_backfill_keeps_every_version_the_current_feed_serves() -> None:
     current = (ROOT / "migrations/V167__prod_cdc_mmwr_daily_activation_view.sql").read_text()
     migration = _migration_sql()
-    assert _pairs(current) == _pairs(migration)
-    assert "'{{ ENV }}' = 'PROD'" in migration
+    assert _pairs(current) == _pin_pairs(migration)
+    assert "'{{ ENV }}' = 'PROD'" in _using_sql(migration)
     pairs = _pairs(current)
     versions = _live_versions()
     assert {version["registry_version"] for version in versions} == {1, 2}
@@ -539,3 +556,25 @@ def test_active_set_is_the_registry_json_intersected_with_activation_rows() -> N
     fresh_rows = activation_for_registration(fresh)
     assert source_is_active(fresh, (fresh,), fresh_rows)
     assert not any(row.source_id == "example-new-feed" for row in rows)
+
+
+def test_backfill_using_has_no_correlated_case_subquery() -> None:
+    """PROD Snowflake rejects a correlated subquery with CASE (error 002031)."""
+    using = _using_sql(_migration_sql())
+    upper = using.upper()
+    assert "CASE" not in upper
+    assert "EXISTS" not in upper
+    assert "CASE S.SOURCE_ID" not in upper
+    # Four plain SELECTs (pins, candidates, superseded, result) and no nested subquery.
+    assert upper.count("SELECT") == 4
+    assert "JOIN GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS NEWER" in upper
+    assert "LEFT JOIN PINS P" in upper and "LEFT JOIN SUPERSEDED X" in upper
+    assert "WHERE X.SOURCE_ID IS NULL" in upper
+    for check in (
+        "newer.registry_document:state::VARCHAR='active'",
+        "newer.registry_document:approval:status::VARCHAR='approved'",
+        "newer.registry_document:trust_review:status::VARCHAR='approved'",
+        "c.registry_version=1 AND newer.registry_version=2",
+        "s.registry_document:approval:decision_ref::VARCHAR IS NOT NULL",
+    ):
+        assert check in using
