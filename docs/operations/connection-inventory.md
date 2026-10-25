@@ -4,6 +4,10 @@
 
 Routine semantic-lineage validation uses `ATLAS_DEV_READ` in DEV and `ATLAS_PROD_READ` in PROD. The latter is a named PAT connection verified on 2026-10-05 as `MATTHEWCARAWAY` / `OH_LYME_PROD_READ` / `ONE_HEALTH_LYME_GAP_ATLAS_PROD` / `COMPUTE_WH` (with the warehouse explicitly selected for audit queries). Protected PROD run [37390492459](https://github.com/Caraway-Labs/one-health-lyme-gap-atlas-data/actions/runs/37390492459) applied V137 and verified its checksum. The bounded query and contract are in [DATA #604 lineage audit v1](../contracts/semantic-domain/data-604-lineage-audit-v1.md). **ACCOUNTADMIN is prohibited for normal lineage verification.** Do not use `ATLAS_PROD_RUNTIME_AUDIT`, `ATLAS_PROD_OWNER`, or `ATLAS_PROD_MIGRATOR` as the routine audit route.
 
+## DATA #787 API diagnostics connection
+
+Atlas API statement-latency investigation uses the same read connections. In DEV, `ATLAS_DEV_READ` queries `API_DIAGNOSTICS.API_QUERY_HISTORY_V` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV`. In PROD, `ATLAS_PROD_READ` queries that view in `ONE_HEALTH_LYME_GAP_ATLAS_PROD` with `COMPUTE_WH` selected explicitly. Each view is limited to statements whose session database is that environment database. The view is proposed in [ADR 0048](../adr/0048-api-diagnostics-history-views.md). Queries and the accepted 45-minute `ACCOUNT_USAGE` lag are in the [API diagnostics runbook](api-diagnostics-history.md). Do not use the migration, owner, or runtime connections for this read.
+
 Story #295 captured the pre-consolidation inventory on 2026-09-16 (12 named
 connections). Story #300 reconciled the client-side `snow` connection surface
 to the role model [ADR 0030](../adr/0030-snowflake-role-model-simplification.md)
@@ -21,8 +25,8 @@ The table below is the Story #300 historical reconciliation. DATA #604 subsequen
 |---|---|---|
 | `MM06468` | interactive human | Personal interactive login, second account (out of scope for this epic) |
 | `BVB26657` | interactive human | Personal interactive login, primary account |
-| `ATLAS_DEV_READ` | `OH_LYME_DEV_READ` (verified live) | **Default for routine agent-initiated DEV read/inspection work** (PMC/migration-ledger audit, general read checks) |
-| `ATLAS_PROD_READ` | `OH_LYME_PROD_READ` (verified live 2026-10-05) | **Routine PROD semantic-lineage audit through V137 secure view**; select `COMPUTE_WH` explicitly |
+| `ATLAS_DEV_READ` | `OH_LYME_DEV_READ` (verified live) | **Default for routine agent-initiated DEV read/inspection work** (PMC/migration-ledger audit, general read checks, API diagnostics views) |
+| `ATLAS_PROD_READ` | `OH_LYME_PROD_READ` (verified live 2026-10-05) | **Routine PROD semantic-lineage audit through V137 secure view and API diagnostics views**; select `COMPUTE_WH` explicitly |
 | `ATLAS_DEV_OWNER` | `OH_LYME_DEV_OWNER` (verified live) | DEV owner-rights: Streamlit deploy, governed-view/budget-procedure ownership, literature/paper-review steward decisions |
 | `ATLAS_PROD_MIGRATOR` | `OH_LYME_PROD_MIGRATION_DEPLOYER` (verified live) | PROD schema migration deploys |
 | `ATLAS_PROD_OWNER` | `OH_LYME_PROD_OWNER` (verified live) | PROD owner-rights: Streamlit deploy (confirmed via `SHOW STREAMLITS` returning both apps through the nested `STREAMLIT_OWNER` role grant), governed-view/budget-procedure ownership, literature/paper-review |
@@ -36,7 +40,9 @@ The table below is the Story #300 historical reconciliation. DATA #604 subsequen
 | Task | Connection |
 |---|---|
 | Routine DEV read/inspection (PMC audit, migration-ledger check, general `SELECT`) | `ATLAS_DEV_READ` |
+| DEV API statement latency investigation | `ATLAS_DEV_READ`; query `API_DIAGNOSTICS.API_QUERY_HISTORY_V` in `ONE_HEALTH_LYME_GAP_ATLAS_DEV` |
 | Routine PROD semantic-lineage validation | `ATLAS_PROD_READ` with `--database ONE_HEALTH_LYME_GAP_ATLAS_PROD --warehouse COMPUTE_WH`; query `LINEAGE_AUDIT.SEMANTIC_LINEAGE_AUDIT_V` |
+| PROD API statement latency investigation | `ATLAS_PROD_READ` with `--database ONE_HEALTH_LYME_GAP_ATLAS_PROD --warehouse COMPUTE_WH`; query `API_DIAGNOSTICS.API_QUERY_HISTORY_V` |
 | DEV Streamlit app deploy, governed-view/budget-procedure owner action, literature/paper-review decision | `ATLAS_DEV_OWNER` |
 | DEV schema migration | Protected `deploy-dev.yml` workflow (service credential, not a personal `snow` connection) |
 | PROD schema migration | `ATLAS_PROD_MIGRATOR` |
