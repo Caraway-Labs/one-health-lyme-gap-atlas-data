@@ -134,10 +134,22 @@ read-only and do not require a reviewed set. PROD retains its existing protected
 promotion controls. Review a changed set and obtain exact authorization before
 redispatch; never automatically replace the reviewed set with the actual set.
 
+V155 and V157–V161 remain on their existing protected paths. Routine
+`apply-reviewed-dev-migrations` lists those pending versions as
+`held_back_migrations`, compares `expected_pending_json` with every other
+pending migration, and leaves the held-back versions unapplied. A reviewed set
+that names one of them fails closed. `pending-migration-plan` still returns
+every pending version, including the held-back ones. V157–V159 continue through
+the owner-authorized release-integrity fixture path. This exclusion is the same
+V157–V161 filter already used by scoped PROD operators, plus county-context
+V155. PROD promotion still requires the full actual pending set to equal one
+allow-listed value.
+
 One or multiple pending migrations can be reviewed together. An in-flight V135
 release remains compatible once V135's exact filename/checksum and every other
-pending DEV migration are explicitly included; a V135-only review fails if
-another pending migration appears. This control does not authorize a release.
+pending DEV migration outside that held-back set are explicitly included. A
+V135-only review fails when another migration outside the held-back set is
+pending. This control does not authorize a release.
 
 If the checksum-enforced runner encounters the documented DEV legacy set for
 V028, V029, and V033, it remains fail-closed until the separately reviewed

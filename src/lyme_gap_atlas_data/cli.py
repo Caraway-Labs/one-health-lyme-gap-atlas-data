@@ -52,6 +52,7 @@ from .literature_status import literature_status
 from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
 from .metadata_cli import app as metadata_app
 from .migrations import (
+    HELD_BACK_DEV_MIGRATION_VERSIONS,
     apply_migrations,
     is_intelligence_prerequisite_batch,
     migration_authority_preflight,
@@ -61,6 +62,7 @@ from .migrations import (
     reconcile_legacy_dev_migrations,
     reconcile_legacy_prod_migrations,
     require_reviewed_pending_set,
+    split_held_back_dev_migrations,
 )
 from .operation_capabilities import (
     assess_operation,
@@ -687,8 +689,14 @@ def apply_reviewed_dev_migrations_command(
         if feed_batch:
             verify_prerequisite_identity(settings)
         actual = pending_migration_plan(settings, database)
-        typer.echo(json.dumps({"pending_migrations": actual}))
-        require_reviewed_pending_set(actual, reviewed)
+        actionable, held_back = split_held_back_dev_migrations(actual)
+        typer.echo(json.dumps({"pending_migrations": actual, "held_back_migrations": held_back}))
+        if feed_batch:
+            require_reviewed_pending_set(actual, reviewed)
+        else:
+            if any(item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in reviewed):
+                raise PermissionError("Held-back DEV migrations require their own protected paths")
+            require_reviewed_pending_set(actionable, reviewed)
         reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
         applied = apply_migrations(
             settings,
@@ -697,7 +705,15 @@ def apply_reviewed_dev_migrations_command(
             expected_pending=reviewed,
             protected_intelligence_prerequisite=feed_batch,
         )
-        typer.echo(json.dumps({"reconciled": reconciled, "applied": applied}))
+        typer.echo(
+            json.dumps(
+                {
+                    "reconciled": reconciled,
+                    "applied": applied,
+                    "held_back_migrations": held_back,
+                }
+            )
+        )
 
 
 @pipeline_app.command("reconcile-legacy-dev-migrations")
