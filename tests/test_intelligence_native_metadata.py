@@ -270,8 +270,8 @@ def test_writer_resolves_native_rights_independently_and_stores_full_metadata() 
         retention_allowed=lambda ref: True,
         native_policy_lookup=lambda source, version: policy(),
     )
-    assert store.write(**args) == WriteReceipt(1, 1, 0)
-    assert store.write(**args) == WriteReceipt(0, 0, 1)
+    assert store.write(**args) == WriteReceipt(1, 1, 0, 1, 1, 0, 0)
+    assert store.write(**args) == WriteReceipt(0, 0, 1, 1, 0, 0, 1)
     captured = json.loads(next(iter(ledger.captures.values()))[1])
     assert captured["native_metadata"] == document["native_metadata"]
     revision = json.loads(next(iter(ledger.revisions.values()))[1])

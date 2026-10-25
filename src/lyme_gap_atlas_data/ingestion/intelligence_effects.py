@@ -163,11 +163,17 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
             run_id=state.ingestion_run_id,
             items=records,
         )
+        # wrote is false when every item was already captured. That is a completed
+        # load. Run status and health stay with the orchestrator and revision history.
         return {
             "record_count": len(records),
             "revisions_inserted": receipt.revisions_inserted,
             "captures_inserted": receipt.captures_inserted,
             "captures_replayed": receipt.captures_replayed,
+            "items_seen": receipt.items_seen,
+            "items_new": receipt.items_new,
+            "items_changed": receipt.items_changed,
+            "items_unchanged": receipt.items_unchanged,
             "wrote": bool(receipt.captures_inserted),
             "mode": "atomic_intelligence",
         }

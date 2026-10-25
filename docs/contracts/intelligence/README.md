@@ -94,10 +94,12 @@ unsupported chronology limitation instead of silently rewriting them.
    could be guessed. No raw mailbox/provider identity leaves private storage.
 
 Fetched time, run/artifact IDs, tags, and transport are excluded from content
-revision identity. Repolling identical content creates a new capture attribution,
-not a new revision. Tag changes require versioned enrichment evidence, not a
-fabricated publisher correction. This rule does not resolve syndication with
-different canonical URLs; #135 must record that limitation instead of using
+revision identity. Repolling identical content keeps the existing capture and
+revision. A capture is stored when the item is new or its revision changed for
+that source, registry version, and transport. Tag changes require versioned
+enrichment evidence, not a fabricated publisher correction. This rule does not
+resolve syndication with different canonical URLs; #135 must record that
+limitation instead of using
 unreviewed fuzzy merging.
 
 ## Chronology, missingness, and text

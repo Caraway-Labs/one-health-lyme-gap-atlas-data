@@ -26,7 +26,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_checkpoints import IntelligenceF
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, IntelligenceFeedAdapter
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
-from lyme_gap_atlas_data.ingestion.types import RunState
+from lyme_gap_atlas_data.ingestion.types import RunState, Stage
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.intelligence_raw_runtime import SQLiteRawLedger
 from lyme_gap_atlas_data.intelligence_storage import IntelligenceStorageError
@@ -399,11 +399,22 @@ def test_composed_run_repoll_and_fresh_resume_preserve_native_capture_provenance
     assert state.stages[-1].detail["target_relation"] == "PRESENTATION.INTELLIGENCE_FEED_V2"
     assert len(calls) == len(ledger.captures) == len(ledger.revisions) == 1
     second, loaded = compose()
-    assert second.run(loaded, tier=Tier.B).status.value == "SUCCEEDED"
-    assert len(calls) == len(ledger.captures) == 2 and len(ledger.revisions) == 1
+    repoll = second.run(loaded, tier=Tier.B)
+    assert repoll.status.value == "SUCCEEDED"
+    assert len(calls) == 2 and len(ledger.captures) == len(ledger.revisions) == 1
+    repoll_load = repoll.checkpoint(Stage.LOAD)
+    assert repoll_load is not None
+    assert repoll_load.detail["wrote"] is False
+    assert repoll_load.detail["captures_inserted"] == 0
+    assert repoll_load.detail["items_seen"] == 1
+    assert repoll_load.detail["items_unchanged"] == 1
+    assert repoll_load.detail["items_new"] == 0
+    assert repoll_load.detail["items_changed"] == 0
+    stored = json.loads(next(iter(ledger.captures.values()))[1])
+    assert stored["provenance"]["run_id"] == state.ingestion_run_id
     resumed, loaded = compose()
     assert resumed.resume(state.ingestion_run_id, definition=loaded).status.value == "SUCCEEDED"
-    assert len(calls) == len(ledger.captures) == 2
+    assert len(calls) == 2 and len(ledger.captures) == 1
     captures = [json.loads(row[1]) for row in ledger.captures.values()]
     assert all(item["registry_version"] == 7 for item in captures)
     assert all(item["publisher_metadata"]["authors"] == ["Test Author"] for item in captures)

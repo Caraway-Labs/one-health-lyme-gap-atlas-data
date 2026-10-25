@@ -11,7 +11,7 @@ import pytest
 
 from lyme_gap_atlas_data import intelligence_polling as polling
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
-from lyme_gap_atlas_data.ingestion.types import RunStatus
+from lyme_gap_atlas_data.ingestion.types import RunStatus, Stage
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 ROOT = Path(__file__).parents[1]
@@ -229,6 +229,72 @@ def test_completed_outcome_records_stage_timings_ms(
         for stage in expected:
             assert payload["stage_timings_ms"][stage] == expected[stage]
         assert len(json.dumps(payload).encode("utf-8")) < 4096
+
+
+def test_completed_outcome_line_reports_new_changed_and_unchanged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _settings(monkeypatch)
+
+    def claim(source_id: str, budget: Any, *args: Any) -> bool:
+        return True
+
+    def run(source_id: str, budget: Any, *args: Any, **kwargs: Any) -> Any:
+        detail = {
+            "wrote": False,
+            "items_seen": 3,
+            "items_new": 1,
+            "items_changed": 0,
+            "items_unchanged": 2,
+            "note": "password=not-for-the-log",
+        }
+        load = SimpleNamespace(detail=detail)
+        return SimpleNamespace(
+            status=RunStatus.SUCCEEDED,
+            checkpoint=lambda stage: load if stage is Stage.LOAD else None,
+        )
+
+    _install(monkeypatch, claim, run)
+    result = polling.run_production_daily()
+    assert result["status"] == "SUCCEEDED"
+    for row in result["sources"]:
+        assert row["status"] == "COMPLETED"
+        assert row["outcome"] == "SUCCEEDED"
+        assert row["items_seen"] == 3
+        assert row["items_new"] == 1
+        assert row["items_changed"] == 0
+        assert row["items_unchanged"] == 2
+        assert "note" not in row
+    payloads = _payloads(_lines(capsys))
+    assert len(payloads) == len(result["sources"])
+    for payload in payloads:
+        assert payload["items_new"] + payload["items_changed"] + payload["items_unchanged"] == 3
+        assert "password" not in json.dumps(payload)
+    accepted = polling._accept_child_result(
+        "cdc-mmwr",
+        {
+            "outcome": "SUCCEEDED",
+            "items_seen": 3,
+            "items_new": 0,
+            "items_changed": 0,
+            "items_unchanged": 3,
+            "items_note": "password=dropped",
+        },
+    )
+    assert accepted["status"] == "COMPLETED"
+    assert accepted["items_unchanged"] == 3
+    assert "items_note" not in accepted
+    rejected = polling._accept_child_result(
+        "cdc-mmwr",
+        {
+            "outcome": "SUCCEEDED",
+            "items_seen": "3",
+            "items_new": 0,
+            "items_changed": 0,
+            "items_unchanged": 3,
+        },
+    )
+    assert "items_seen" not in rejected
 
 
 def test_failed_checkpoint_publishes_code_without_free_text(

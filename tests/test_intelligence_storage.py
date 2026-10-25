@@ -18,8 +18,10 @@ from test_intelligence_feed import FIXTURES, approved, definition, fetch_adapter
 from lyme_gap_atlas_data.ingestion import IngestionOrchestrator, Tier
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
 from lyme_gap_atlas_data.ingestion.intelligence_feed import FeedResponse, acquisition_context
+from lyme_gap_atlas_data.ingestion.types import RunState, RunStatus
 from lyme_gap_atlas_data.intelligence_items import identity_hash, normalize_item
 from lyme_gap_atlas_data.intelligence_storage import (
+    CAPTURE_NATURAL_KEY,
     IntelligenceStorageError,
     IntelligenceStore,
     WriteReceipt,
@@ -193,7 +195,9 @@ class Cursor:
         elif sql.startswith("INSERT INTO CONFORMED.INTELLIGENCE_ITEM_REVISIONS"):
             assert self.connection.locked
             self.connection.pending[0][params[:2]] = params[2:]
-        elif "FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES" in sql:
+        elif "FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES" in sql and not sql.startswith(
+            ("MERGE", "SELECT")
+        ):
             assert self.connection.locked
             value = self.connection.pending[1].get(params[0])
             self.rows = [value] if value else []
@@ -204,6 +208,35 @@ class Cursor:
             assert params[6] in database.runs
             assert database.artifacts[(params[7], params[6])] == params[8]
             self.connection.pending[1][params[0]] = (params[9], params[10])
+        elif "ITEMS_SEEN" in sql:
+            assert self.connection.locked
+            source_id, registry_version = params[0], params[1]
+            known_items: set[tuple[Any, ...]] = set()
+            known_revisions: set[tuple[Any, ...]] = set()
+            for value in self.connection.pending[1].values():
+                document = json.loads(value[1])
+                if (
+                    document["source_id"] != source_id
+                    or document["registry_version"] != registry_version
+                ):
+                    continue
+                item_key = tuple(document[column] for column in CAPTURE_NATURAL_KEY[:4])
+                known_items.add(item_key)
+                known_revisions.add((*item_key, document["revision_id"]))
+            items_new = items_changed = items_unchanged = 0
+            for row in database.bulk_rows:
+                if row["source_id"] != source_id or row["registry_version"] != registry_version:
+                    continue
+                item_key = tuple(row[column] for column in CAPTURE_NATURAL_KEY[:4])
+                revision_key = (*item_key, row["revision_id"])
+                if revision_key in known_revisions:
+                    items_unchanged += 1
+                elif item_key in known_items:
+                    items_changed += 1
+                else:
+                    items_new += 1
+            items_seen = items_new + items_changed + items_unchanged
+            self.rows = [(items_seen, items_new, items_changed, items_unchanged)]
         elif "SELECT COUNT(*)" in sql and "INTELLIGENCE_ITEM" in sql:
             self.rows = [(0,)]
         elif sql.startswith("MERGE INTO CONFORMED.INTELLIGENCE_ITEM_REVISIONS"):
@@ -220,15 +253,25 @@ class Cursor:
         elif sql.startswith("MERGE INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES"):
             if database.fail_on_capture:
                 raise RuntimeError("private provider identifier")
+            source_id, registry_version = params[0], params[1]
+            existing: set[tuple[Any, ...]] = set()
+            for value in self.connection.pending[1].values():
+                document = json.loads(value[1])
+                existing.add(tuple(document[column] for column in CAPTURE_NATURAL_KEY))
             inserted = 0
             for row in database.bulk_rows:
-                key = row["capture_id"]
-                if key not in self.connection.pending[1]:
-                    self.connection.pending[1][key] = (
-                        row["item_sha256"],
-                        row["item_document_json"],
-                    )
-                    inserted += 1
+                if row["source_id"] != source_id or row["registry_version"] != registry_version:
+                    continue
+                natural_key = tuple(row[column] for column in CAPTURE_NATURAL_KEY)
+                capture_key = row["capture_id"]
+                if natural_key in existing or capture_key in self.connection.pending[1]:
+                    continue
+                self.connection.pending[1][capture_key] = (
+                    row["item_sha256"],
+                    row["item_document_json"],
+                )
+                existing.add(natural_key)
+                inserted += 1
             self.rowcount = inserted
         elif sql.startswith("REMOVE ") or sql.startswith("PUT "):
             return
@@ -282,8 +325,8 @@ def write(database: Ledger, items: list[dict[str, Any]], **kwargs: Any) -> Write
 def test_atomic_first_write_replay_and_new_poll_capture() -> None:
     database = Ledger()
     document = item()
-    assert write(database, [document]) == WriteReceipt(1, 1, 0)
-    assert write(database, [document, copy.deepcopy(document)]) == WriteReceipt(0, 0, 2)
+    assert write(database, [document]) == WriteReceipt(1, 1, 0, 1, 1, 0, 0)
+    assert write(database, [document, copy.deepcopy(document)]) == WriteReceipt(0, 0, 2, 1, 0, 0, 1)
     assert len(database.revisions) == len(database.captures) == 1
     database.runs["next-run"] = "synthetic-publication"
     database.artifacts[("next-artifact", "next-run")] = "a" * 64
@@ -293,8 +336,8 @@ def test_atomic_first_write_replay_and_new_poll_capture() -> None:
         fetched_at="2026-10-01T01:00:00Z",
         provenance={**document["provenance"], "run_id": "next-run", "artifact_id": "next-artifact"},
     )
-    assert write(database, [repoll], run_id="next-run") == WriteReceipt(0, 1, 0)
-    assert len(database.revisions) == 1 and len(database.captures) == 2
+    assert write(database, [repoll], run_id="next-run") == WriteReceipt(0, 0, 1, 1, 0, 0, 1)
+    assert len(database.revisions) == 1 and len(database.captures) == 1
     assert database.events[:3] == ["begin", "guard", "commit"]
 
 
@@ -327,7 +370,7 @@ def test_corrections_conflicting_dates_and_cross_transport_attribution() -> None
         source_id="synthetic-atom",
         resource_key="synthetic-atom",
         run_id="atom-run",
-    ) == WriteReceipt(0, 1, 0)
+    ) == WriteReceipt(0, 1, 0, 1, 1, 0, 0)
     captures = [json.loads(value[1]) for value in database.captures.values()]
     assert {x["source_id"] for x in captures} == {"synthetic-publication", "synthetic-atom"}
     assert {x["transport"] for x in captures} == {"rss", "atom"}
@@ -474,9 +517,9 @@ def test_large_approved_feed_is_complete_atomic_and_idempotent() -> None:
         item(record, url=f"https://example.org/article/{index}", publisher_identity=str(index))
         for index in range(1001)
     ]
-    assert write(database, documents) == WriteReceipt(1001, 1001, 0)
+    assert write(database, documents) == WriteReceipt(1001, 1001, 0, 1001, 1001, 0, 0)
     assert len(database.revisions) == len(database.captures) == 1001
-    assert write(database, documents) == WriteReceipt(0, 0, 1001)
+    assert write(database, documents) == WriteReceipt(0, 0, 1001, 1001, 0, 0, 1001)
 
 
 def test_source_limit_still_fails_atomically_below_global_limit() -> None:
@@ -613,7 +656,7 @@ def test_write_redacts_entire_provider_lifecycle(stage: str) -> None:
     else:
         # Commit succeeded before cleanup failed: exact replay remains safe.
         database.fail_at = None
-        assert write(database, [item()]) == WriteReceipt(0, 0, 1)
+        assert write(database, [item()]) == WriteReceipt(0, 0, 1, 1, 0, 0, 1)
 
 
 def test_rollback_failure_cannot_replace_original_safe_error() -> None:
@@ -723,7 +766,7 @@ def test_acquisition_receipt_is_immutable_and_required_before_capture() -> None:
     context = json.loads(database.contexts[("fixture-run", "fixture-artifact")][1])
     database.contexts.clear()
     record_context(database, context)
-    assert write(database, [item()]) == WriteReceipt(1, 1, 0)
+    assert write(database, [item()]) == WriteReceipt(1, 1, 0, 1, 1, 0, 0)
     original = copy.deepcopy(database.contexts)
     record_context(database, context)
     context["fetched_at"] = "2026-10-01T00:01:00Z"
@@ -749,3 +792,219 @@ def test_acquisition_registration_checks_raw_and_review_before_inserting(change:
     with pytest.raises(IntelligenceStorageError):
         record_context(database, context)
     assert not database.contexts and not database.captures
+
+
+def article(url: str, title: str, **kwargs: Any) -> dict[str, Any]:
+    return item(url=url, title=title, publisher_identity=url, **kwargs)
+
+
+def on_run(
+    document: dict[str, Any], run_id: str, artifact_id: str, fetched_at: str
+) -> dict[str, Any]:
+    copied = copy.deepcopy(document)
+    copied["fetched_at"] = fetched_at
+    copied["provenance"] = {
+        **copied["provenance"],
+        "run_id": run_id,
+        "artifact_id": artifact_id,
+    }
+    return copied
+
+
+def open_run(
+    database: Ledger,
+    run_id: str,
+    fetched_at: str,
+    source: dict[str, Any] | None = None,
+) -> str:
+    selected = source or database.sources[0]
+    artifact_id = f"{run_id}-artifact"
+    database.runs[run_id] = selected["source_id"]
+    database.artifacts[(artifact_id, run_id)] = "a" * 64
+    database.endpoints[(artifact_id, run_id)] = selected["fetch_location"]
+    database.pin(run_id, artifact_id, selected, fetched_at)
+    return artifact_id
+
+
+def feed_v2(database: Ledger) -> list[dict[str, Any]]:
+    """Latest capture per FEED_V2 grain. History is kept; nothing is deleted."""
+    chosen: dict[tuple[str, str, str, str], tuple[tuple[str, str], dict[str, Any]]] = {}
+    for capture_key, (_digest, document_json) in database.captures.items():
+        document = json.loads(document_json)
+        grain = (
+            document["item_id"],
+            document["revision_id"],
+            document["source_id"],
+            document["transport"],
+        )
+        rank = (document["fetched_at"], capture_key)
+        current = chosen.get(grain)
+        if current is None or rank > current[0]:
+            chosen[grain] = (rank, document)
+    return [row[1] for row in chosen.values()]
+
+
+def test_unchanged_feed_inserts_nothing() -> None:
+    database = Ledger()
+    rows = [
+        article("https://example.org/a", "A"),
+        article("https://example.org/b", "B"),
+        article("https://example.org/c", "C"),
+    ]
+    assert write(database, rows) == WriteReceipt(3, 3, 0, 3, 3, 0, 0)
+    again = write(database, [copy.deepcopy(row) for row in rows])
+    assert again == WriteReceipt(0, 0, 3, 3, 0, 0, 3)
+    assert len(database.captures) == 3
+    assert again.captures_inserted == again.items_new + again.items_changed
+
+
+def test_new_item_inserts_one_capture() -> None:
+    database = Ledger()
+    existing = [
+        article("https://example.org/a", "A"),
+        article("https://example.org/b", "B"),
+    ]
+    write(database, existing)
+    added = article("https://example.org/d", "D")
+    receipt = write(database, [*existing, added])
+    assert receipt.captures_inserted == 1
+    assert receipt.items_new == 1
+    assert receipt.items_seen == 3
+    assert receipt.items_unchanged == 2
+    assert receipt.items_changed == 0
+    assert len(database.captures) == 3
+
+
+def test_changed_item_inserts_one_revision_and_one_capture() -> None:
+    database = Ledger()
+    original = article("https://example.org/a", "x")
+    write(database, [original])
+    changed = article("https://example.org/a", "y")
+    receipt = write(database, [changed])
+    assert receipt == WriteReceipt(1, 1, 0, 1, 0, 1, 0)
+    assert len(database.revisions) == 2
+    assert len(database.captures) == 2
+
+
+def test_item_removed_from_the_feed_stays_in_feed_v2() -> None:
+    database = Ledger()
+    rows = [
+        article("https://example.org/a", "A"),
+        article("https://example.org/b", "B"),
+        article("https://example.org/c", "C"),
+    ]
+    write(database, rows)
+    before = {document["canonical_url"] for document in feed_v2(database)}
+    fetched_at = "2026-10-02T00:00:00Z"
+    artifact_id = open_run(database, "next-run", fetched_at)
+    kept = [on_run(row, "next-run", artifact_id, fetched_at) for row in rows[:2]]
+    receipt = write(database, kept, run_id="next-run")
+    assert receipt.captures_inserted == 0
+    assert receipt.revisions_inserted == 0
+    assert receipt.items_seen == 2
+    assert receipt.items_unchanged == 2
+    assert len(database.captures) == 3
+    assert {document["canonical_url"] for document in feed_v2(database)} == before
+
+
+def test_same_day_run_written_twice_inserts_nothing_the_second_time() -> None:
+    database = Ledger()
+    rows = [article("https://example.org/a", "A"), article("https://example.org/b", "B")]
+    assert write(database, rows).captures_inserted == 2
+    second = write(database, [copy.deepcopy(row) for row in rows])
+    assert second.revisions_inserted == 0
+    assert second.captures_inserted == 0
+    assert second.items_unchanged == 2
+    assert len(database.captures) == len(database.revisions) == 2
+
+
+def test_registry_version_bump_inserts_once() -> None:
+    database = Ledger()
+    source = database.sources[0]
+    source["registry_version"] = 2
+    database.pin("fixture-run", "fixture-artifact", source, "2026-10-01T00:00:00Z")
+    original = item(source, url="https://example.org/a", title="A", publisher_identity="a")
+    assert write(database, [original], registry_version=2).captures_inserted == 1
+    newer = copy.deepcopy(source)
+    newer["registry_version"] = 3
+    database.sources.append(newer)
+    fetched_at = "2026-10-03T00:00:00Z"
+    artifact_id = open_run(database, "v3-run", fetched_at, newer)
+    bumped = on_run(original, "v3-run", artifact_id, fetched_at)
+    bumped["registry_version"] = 3
+    first = write(database, [bumped], registry_version=3, run_id="v3-run")
+    assert first == WriteReceipt(0, 1, 0, 1, 1, 0, 0)
+    later = "2026-10-04T00:00:00Z"
+    later_artifact = open_run(database, "v3-next", later, newer)
+    repeated = on_run(original, "v3-next", later_artifact, later)
+    repeated["registry_version"] = 3
+    second = write(database, [repeated], registry_version=3, run_id="v3-next")
+    assert second.captures_inserted == 0
+    assert second.revisions_inserted == 0
+    assert second.items_unchanged == 1
+    assert len(database.captures) == 2
+
+
+def test_capture_statements_filter_by_source_version_and_add_one_select() -> None:
+    database = Ledger()
+    statements: list[str] = []
+    original = Cursor.execute
+
+    def counted(self: Cursor, statement: str, params: tuple[Any, ...] = ()) -> None:
+        statements.append(statement)
+        return original(self, statement, params)
+
+    Cursor.execute = counted  # type: ignore[method-assign]
+    try:
+        write(database, [item()])
+    finally:
+        Cursor.execute = original  # type: ignore[method-assign]
+    normalized = [" ".join(statement.split()).upper() for statement in statements]
+    classified = [statement for statement in normalized if "ITEMS_SEEN" in statement]
+    merges = [
+        statement
+        for statement in normalized
+        if statement.startswith("MERGE INTO GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES")
+    ]
+    assert len(classified) == 1
+    assert len(merges) == 1
+    report = classified[0]
+    merge = merges[0]
+    assert "NOT EXISTS" in merge
+    for column in CAPTURE_NATURAL_KEY:
+        assert f"EXISTING.{column.upper()}=SOURCE.{column.upper()}" in merge
+    for statement in (report, merge):
+        assert "SOURCE.SOURCE_ID = %S" in statement
+        assert "SOURCE.REGISTRY_VERSION = %S" in statement
+        assert statement.count("REGISTRY_VERSION = %S") >= 2
+        assert statement.count("SOURCE_ID = %S") >= 2
+
+
+def test_unchanged_load_detail_sets_wrote_false_without_failing() -> None:
+    database = Ledger()
+    document = item()
+    effects = IntelligenceStageEffects(
+        connection_factory=database.connect,
+        retention_allowed=lambda ref: ref == "synthetic-test-policy",
+        artifact_policy_allowed=lambda ref, policy: True,
+    )
+    state = RunState(
+        ingestion_run_id="fixture-run",
+        resource_key="synthetic-publication",
+        source_definition_version=1,
+        tier=Tier.A,
+        status=RunStatus.RUNNING,
+    )
+    selected = definition(database.sources[0])
+    first = effects.load(selected, state, [document])
+    assert first["wrote"] is True
+    assert first["items_new"] == 1
+    second = effects.load(selected, state, [copy.deepcopy(document)])
+    assert second["wrote"] is False
+    assert second["mode"] == "atomic_intelligence"
+    assert second["captures_inserted"] == 0
+    assert second["revisions_inserted"] == 0
+    assert second["items_seen"] == 1
+    assert second["items_unchanged"] == 1
+    assert second["items_new"] + second["items_changed"] + second["items_unchanged"] == 1
+    assert second["captures_inserted"] == second["items_new"] + second["items_changed"]
