@@ -23,8 +23,6 @@ def test_vpc_worker_provisioning_preserves_private_graph_boundary() -> None:
 
 def test_vpc_worker_configuration_overrides_only_governed_runtime_values() -> None:
     configurator = Path("infra/Configure-PmcExtractionWorker.ps1").read_text(encoding="utf-8")
-    assert (
-        "'TOPX_ENV', 'PAPERS_REQUIRE_HUMAN_REVIEW', 'KG_CHAT_ENABLED', 'NEO4J_URI',"
-    ) in configurator
-    assert "PAPERS_REQUIRE_HUMAN_REVIEW=true" in configurator
+    assert ("'TOPX_ENV', 'PAPER_APPROVAL_MODE', 'KG_CHAT_ENABLED', 'NEO4J_URI',") in configurator
+    assert "PAPER_APPROVAL_MODE=human_review" in configurator
     assert "KG_CHAT_ENABLED=false" in configurator

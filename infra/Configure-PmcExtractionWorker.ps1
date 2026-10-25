@@ -23,7 +23,7 @@ $envFile = New-TemporaryFile
 $dockerFile = New-TemporaryFile
 try {
   $managedNames = @(
-    'TOPX_ENV', 'PAPERS_REQUIRE_HUMAN_REVIEW', 'KG_CHAT_ENABLED', 'NEO4J_URI',
+    'TOPX_ENV', 'PAPER_APPROVAL_MODE', 'KG_CHAT_ENABLED', 'NEO4J_URI',
     'SNOWFLAKE_PRIVATE_KEY_PATH', 'SNOWFLAKE_PRIVATE_KEY_B64'
   )
   $keyPathLine = Get-Content -LiteralPath $RuntimeEnvFile |
@@ -45,7 +45,7 @@ try {
     Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } |
     Where-Object { $managedNames -notcontains ($_.Split('=', 2)[0]) }
   $lines += 'TOPX_ENV=dev'
-  $lines += 'PAPERS_REQUIRE_HUMAN_REVIEW=true'
+  $lines += 'PAPER_APPROVAL_MODE=human_review'
   $lines += 'KG_CHAT_ENABLED=false'
   $lines += "NEO4J_URI=bolt://$Neo4jPrivateIp:7687"
   $lines += "SNOWFLAKE_PRIVATE_KEY_B64=$snowflakeKeyB64"

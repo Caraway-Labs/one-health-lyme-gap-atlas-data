@@ -291,7 +291,8 @@ def test_one_shot_job_is_separate_and_restores_clean_baseline(operation: str) ->
     if operation == "discover":
         assert "--max-records 10 --batch-size 10" in temporary["run_command"]
         assert "--family vector_host_pathogen" in temporary["run_command"]
-        assert "PAPERS_REQUIRE_HUMAN_REVIEW" in {env["key"] for env in temporary["envs"]}
+        modes = [env["value"] for env in temporary["envs"] if env["key"] == "PAPER_APPROVAL_MODE"]
+        assert modes == ["human_review"]
     if operation == "extract":
         assert temporary["run_command"].endswith("pmc-extract --estimated-cost-usd 0.20 --confirm")
         assert "NEO4J_RUNTIME_PASSWORD" in {env["key"] for env in temporary["envs"]}
@@ -576,6 +577,7 @@ python() { "$PYTHON_EXECUTABLE" "$@"; }
         BATCH_SIZE="25",
         ESTIMATED_COST_USD="0.20",
         DISCOVERY_RUN_ID="",
+        PAPER_APPROVAL_MODE="human_review",
         LITERATURE_OPERATION="preflight",
         LITERATURE_FAMILY="surveillance_epidemiology",
         BASELINE_FIXTURE=fixture.as_posix(),
@@ -610,3 +612,45 @@ python() { "$PYTHON_EXECUTABLE" "$@"; }
     assert not updates.exists()
     assert "encrypted" not in result.stdout + result.stderr
     assert "private-drift-sentinel" not in result.stdout + result.stderr
+
+
+def test_discover_job_carries_the_requested_approval_mode_and_extract_never_does() -> None:
+    secrets = {
+        "NCBI_EMAIL": "operator@example.test",
+        "NEO4J_RUNTIME_PASSWORD": "graph-secret",
+        "GROQ_API_KEY": "groq-secret",
+        "OPENAI_API_KEY": "openai-secret",
+    }
+
+    def modes(operation: str, **kwargs: str) -> list[str]:
+        result = build_spec(
+            _baseline(),
+            operation=operation,
+            image_digest=DIGEST,
+            family="vector_host_pathogen",
+            max_records=10,
+            batch_size=10,
+            secrets=secrets,
+            **kwargs,
+        )
+        return [
+            env["value"]
+            for env in result["jobs"][-1]["envs"]
+            if env["key"] == "PAPER_APPROVAL_MODE"
+        ]
+
+    assert modes("discover") == ["human_review"]
+    assert modes("discover", paper_approval_mode="query_policy_v1") == ["query_policy_v1"]
+    # The extraction worker never approves, whatever the discovery mode.
+    assert modes("extract", paper_approval_mode="query_policy_v1") == ["human_review"]
+
+
+def test_unknown_paper_approval_mode_is_rejected_before_a_spec_is_built() -> None:
+    with pytest.raises(ValueError, match="paper_approval_mode"):
+        build_spec(
+            _baseline(),
+            operation="discover",
+            image_digest=DIGEST,
+            secrets={"NCBI_EMAIL": "operator@example.test"},
+            paper_approval_mode="auto",
+        )

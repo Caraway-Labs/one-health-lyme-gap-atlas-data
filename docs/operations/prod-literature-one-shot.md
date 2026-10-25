@@ -174,7 +174,17 @@ families before requesting further windows. Discovery does not approve or
 extract any candidate; prepare the PMID, title, publication types, PMCID,
 abstract, and query-match evidence for steward review below.
 
-## 2. Steward review
+## 2. Steward review (or query-policy approval)
+
+With the default `paper_approval_mode=human_review` workflow input, every candidate
+needs a steward as described below. With `query_policy_v1` (ADR 0023, owner-approved
+per invocation, discover only), the discover job approves the run's PMCID-bearing
+papers itself under actor `policy:pubmed-query-v1`; papers without a PMCID remain
+`awaiting_review` for this procedure. If the job reports `policy_approval.status =
+FAILED`, discovery is still `COMPLETED`; rerun the policy for that run with
+`pipeline pubmed-approve-by-policy --discovery-run-id <uuid> --confirm` (use
+`--dry-run` first). `literature-status` reports `decision_sources` to separate
+policy from steward approvals.
 
 The human steward inspects the specific PMIDs, title, publication type, PMCID,
 and study relevance. An active steward uses the governed batch procedure with

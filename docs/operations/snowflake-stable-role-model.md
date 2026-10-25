@@ -38,7 +38,11 @@ PROD). The 2 legacy Alpha POC roles (`OH_LYME_API_READER`,
 
 - Ingestion runtime never holds an owner-rights grant beyond `USAGE` — the
   scheduled job can never call `SP_RECORD_SOURCE_REVIEW_DECISION` or
-  `SP_RECORD_PAPER_REVIEW_BATCH`.
+  `SP_RECORD_PAPER_REVIEW_BATCH`. ADR 0023 / data ADR 0049 amend this for
+  literature only: the runtime also holds `USAGE` on the bounded, deterministic
+  `SP_RECORD_PAPER_POLICY_APPROVAL`, and nothing else that can approve a paper.
+  `literature-preflight` blocks a `query_policy_v1` discover run if the runtime can
+  call the steward procedure or write `PAPER_REVIEW_DECISIONS`.
 - Owner-rights procedures remain separated from the runtime role.
 - DEV and PROD roles, credentials, and warehouses remain fully independent
   (ADR 0006).

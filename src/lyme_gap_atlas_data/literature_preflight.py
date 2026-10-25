@@ -244,6 +244,34 @@ def _snowflake_contract(settings: PipelineSettings, operation: str) -> dict[str,
                 for right, granted_on, name in grants
             ):
                 missing.append(f"{table}:{privilege}")
+        if operation == "discover" and settings.paper_approval_mode == "query_policy_v1":
+            database = settings.snowflake_database.upper()
+
+            def procedure_name(name: str) -> str:
+                return name.split("(", 1)[0].strip()
+
+            # ADR 0023: the runtime may call only the bounded policy procedure. It must
+            # not hold the steward procedure or write the decision ledger directly.
+            if not any(
+                right in {"USAGE", "OWNERSHIP"}
+                and granted_on == "PROCEDURE"
+                and procedure_name(name) == f"{database}.GOVERNANCE.SP_RECORD_PAPER_POLICY_APPROVAL"
+                for right, granted_on, name in grants
+            ):
+                missing.append("GOVERNANCE.SP_RECORD_PAPER_POLICY_APPROVAL:USAGE")
+            if any(
+                granted_on == "PROCEDURE"
+                and procedure_name(name) == f"{database}.GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH"
+                for _right, granted_on, name in grants
+            ):
+                missing.append("FORBIDDEN:GOVERNANCE.SP_RECORD_PAPER_REVIEW_BATCH")
+            if any(
+                granted_on == "TABLE"
+                and name == f"{database}.KNOWLEDGE_GRAPH.PAPER_REVIEW_DECISIONS"
+                and right in {"INSERT", "UPDATE", "DELETE", "TRUNCATE", "OWNERSHIP"}
+                for right, granted_on, name in grants
+            ):
+                missing.append("FORBIDDEN:KNOWLEDGE_GRAPH.PAPER_REVIEW_DECISIONS:WRITE")
         # The budget procedure is not invoked: it reserves spend. Inspect the
         # current role's grant instead, keeping preflight free of mutation.
         if operation == "extract":
@@ -403,8 +431,12 @@ def literature_preflight(
             if not isinstance(capabilities, list):
                 raise ValueError("invalid capability probe result")
             for capability in capabilities:
+                forbidden = str(capability).startswith("FORBIDDEN:")
                 blocked(
-                    operation, "runtime_contract", "apply_schema_or_runtime_grant", str(capability)
+                    operation,
+                    "runtime_contract",
+                    "revoke_runtime_privilege" if forbidden else "apply_schema_or_runtime_grant",
+                    str(capability),
                 )
         except Exception:
             blocked(

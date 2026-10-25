@@ -108,7 +108,7 @@ def test_grants_are_select_on_the_query_view_for_the_read_role_only() -> None:
 def test_rendered_view_keeps_the_other_environment_out() -> None:
     migration = next(item for item in load_migrations() if item.version == "V168")
     versions = [item.version for item in load_migrations()]
-    assert versions[-1] == "V168"
+    assert versions[-1] >= "V168"
     assert versions.count("V168") == 1
     assert migration.filename == "V168__api_diagnostics_history_views.sql"
     assert migration.sha256 == hashlib.sha256(SOURCE.encode()).hexdigest()

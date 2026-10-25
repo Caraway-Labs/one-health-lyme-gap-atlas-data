@@ -1,6 +1,7 @@
 """Settings and environment invariants for the governed pipeline."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,7 +35,9 @@ class PipelineSettings(BaseSettings):
     discovery_max_runtime_seconds: int = 1500
     ncbi_api_key: SecretStr | None = None
     ncbi_email: str = ""
-    papers_require_human_review: bool = True
+    # ADR 0023: `query_policy_v1` approves PMCID-bearing papers of a completed governed
+    # discovery run automatically; `human_review` leaves every paper for a steward.
+    paper_approval_mode: Literal["human_review", "query_policy_v1"] = "human_review"
     neo4j_uri: str = ""
     neo4j_runtime_user: str = "graph_runtime"
     neo4j_runtime_password: SecretStr | None = None

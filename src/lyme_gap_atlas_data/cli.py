@@ -76,6 +76,7 @@ from .orchestration import (
     run_production_cdc_dbt_recovery,
     run_production_schedule,
 )
+from .paper_policy import approve_by_policy, preview_policy_approval
 from .pathogen_surveillance import (
     capture_and_ingest_restricted_pathogen_dev,
     collect_pathogen_surveillance_evidence,
@@ -115,9 +116,16 @@ def _safe_literature_command(
             stage = {
                 "pmc_extract": "extract",
                 "pubmed_discover": "acquire",
+                "pubmed_approve_by_policy": "review",
                 "build_retrieval_corpus_command": "corpus_admit",
             }.get(callback.__name__, "persist")
             category, retryable, action = _failure_outcome(stage, error)
+            if stage == "review":
+                category, retryable, action = (
+                    "policy_approval",
+                    True,
+                    "check_policy_mode_and_runtime_grant_then_retry",
+                )
             if stage == "corpus_admit":
                 category, retryable, action = (
                     "corpus_admission_rebuild",
@@ -499,14 +507,39 @@ def pubmed_discover(
     ),
     batch_size: int = typer.Option(MAX_BATCH_SIZE, "--batch-size", min=1, max=MAX_BATCH_SIZE),
 ) -> None:
-    """Capture bounded PubMed citation metadata; it cannot approve or fetch full text."""
+    """Capture bounded PubMed citation metadata; it never fetches full text.
+
+    Papers stay awaiting steward review unless PAPER_APPROVAL_MODE=query_policy_v1.
+    """
     readiness = literature_preflight(PipelineSettings(), operation="discover")
     typer.echo(json.dumps(readiness, sort_keys=True))
     if readiness["status"] != "READY":
         raise typer.Exit(code=1)
-    typer.echo(
-        json.dumps(discover_pubmed(family, maximum_records=max_records, batch_size=batch_size))
-    )
+    result = discover_pubmed(family, maximum_records=max_records, batch_size=batch_size)
+    typer.echo(json.dumps(result))
+    policy = result.get("policy_approval")
+    if isinstance(policy, dict) and policy.get("status") == "FAILED":
+        # Discovery is committed; the exit code tells the operator to repair approval.
+        raise typer.Exit(code=1)
+
+
+@pipeline_app.command("pubmed-approve-by-policy")
+@_safe_literature_command
+def pubmed_approve_by_policy(
+    discovery_run_id: str = typer.Option(..., "--discovery-run-id"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Approve a completed discovery run's PMCID-bearing papers by query policy (ADR 0023)."""
+    if dry_run == confirm:
+        raise typer.BadParameter("Pass exactly one of --dry-run or --confirm")
+    settings = PipelineSettings()
+    if dry_run:
+        typer.echo(
+            json.dumps(preview_policy_approval(discovery_run_id, settings=settings), sort_keys=True)
+        )
+        return
+    typer.echo(json.dumps(approve_by_policy(discovery_run_id, settings=settings), sort_keys=True))
 
 
 @pipeline_app.command("literature-preflight")

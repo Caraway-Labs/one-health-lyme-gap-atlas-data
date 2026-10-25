@@ -32,6 +32,12 @@ on:
         required: true
         default: "0.20"
         type: string
+      paper_approval_mode:
+        description: Discover only. query_policy_v1 auto-approves PMCID-bearing papers (ADR 0023); default human_review
+        required: true
+        default: human_review
+        type: choice
+        options: [human_review, query_policy_v1]
       discovery_run_id:
         description: Existing PubMed discovery UUID to scope extraction and corpus admission
         required: false
@@ -60,6 +66,7 @@ jobs:
       BATCH_SIZE: ${{ inputs.batch_size }}
       ESTIMATED_COST_USD: ${{ inputs.estimated_cost_usd }}
       DISCOVERY_RUN_ID: ${{ inputs.discovery_run_id }}
+      PAPER_APPROVAL_MODE: ${{ inputs.paper_approval_mode }}
     steps:
       - uses: actions/checkout@v4
       - uses: digitalocean/action-doctl@v2
@@ -124,7 +131,7 @@ jobs:
             --family "$LITERATURE_FAMILY" --max-records "$MAX_RECORDS" \
             --batch-size "$BATCH_SIZE" --estimated-cost-usd "$ESTIMATED_COST_USD" \
             --discovery-run-id "$DISCOVERY_RUN_ID" --source-commit "$GITHUB_SHA" \
-            --workflow-run-id "$GITHUB_RUN_ID" --readiness-report "$readiness_report"; then
+            --workflow-run-id "$GITHUB_RUN_ID" --readiness-report "$readiness_report"             --paper-approval-mode "$PAPER_APPROVAL_MODE"; then
             cat "$readiness_report"
           else
             cat "$readiness_report"

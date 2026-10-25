@@ -25,6 +25,7 @@ from .literature import (
     build_pubmed_query,
     configuration_version,
 )
+from .paper_policy import POLICY_MODE, approve_by_policy
 from .settings import PipelineSettings
 
 logger = logging.getLogger(__name__)
@@ -173,8 +174,6 @@ def discover_pubmed(
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
         raise ValueError(f"batch_size must be between 1 and {MAX_BATCH_SIZE}")
     settings = settings or PipelineSettings()
-    if not settings.papers_require_human_review:
-        raise ValueError("PubMed discovery requires PAPERS_REQUIRE_HUMAN_REVIEW=true")
     runtime_client = client or EntrezHistoryClient(
         settings.ncbi_email,
         settings.ncbi_api_key.get_secret_value() if settings.ncbi_api_key else None,
@@ -375,7 +374,7 @@ def discover_pubmed(
             sort_keys=True,
         ),
     )
-    return {
+    result: dict[str, object] = {
         "discovery_run_id": run_id,
         "family": family,
         "status": "COMPLETED",
@@ -383,3 +382,25 @@ def discover_pubmed(
         "raw_artifact_ids": raw_artifact_ids,
         "bounded_result_count": limit,
     }
+    if settings.paper_approval_mode == POLICY_MODE:
+        # The run is already committed COMPLETED. A failed approval must not undo it:
+        # the idempotent `pubmed-approve-by-policy` command repairs it for this run.
+        try:
+            result["policy_approval"] = {
+                "status": "COMPLETED",
+                **approve_by_policy(run_id, settings=settings),
+            }
+        except Exception as error:
+            logger.warning(
+                "literature.policy_approval_failed %s",
+                json.dumps(
+                    {"discovery_run_id": run_id, "error_type": type(error).__name__},
+                    sort_keys=True,
+                ),
+            )
+            result["policy_approval"] = {
+                "status": "FAILED",
+                "error_type": type(error).__name__,
+                "next_action": "rerun_pubmed_approve_by_policy",
+            }
+    return result

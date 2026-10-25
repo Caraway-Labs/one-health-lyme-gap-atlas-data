@@ -285,6 +285,31 @@ def _paper_status(row: tuple[Any, ...], *, include_latest_event: bool = False) -
     }
 
 
+_DECISION_SOURCE_SQL = """
+SELECT COALESCE(COUNT_IF(e.reason = 'paper_policy_approval'), 0),
+       COALESCE(COUNT_IF(e.reason = 'paper_review' AND e.to_state = 'approved'), 0)
+FROM KNOWLEDGE_GRAPH.PAPER_STATE_EVENTS e
+WHERE ARRAY_CONTAINS(TO_VARIANT(e.pmid), PARSE_JSON(%s))
+"""
+
+
+def _decision_sources(cursor: Any, rows: list[Any]) -> dict[str, object]:
+    """Split approvals into policy and steward decisions (ADR 0023); best effort."""
+    pmids = sorted({str(row[0]) for row in rows})
+    try:
+        cursor.execute(_DECISION_SOURCE_SQL, (json.dumps(pmids),))
+        counts = cursor.fetchone()
+        if counts is None:
+            raise ValueError("decision source counts are unavailable")
+        return {
+            "status": "CHECKED",
+            "approved_by_policy": int(counts[0]),
+            "approved_by_steward": int(counts[1]),
+        }
+    except Exception:
+        return {"status": "NOT_ATTRIBUTED"}
+
+
 def literature_status(discovery_run_id: str) -> dict[str, object]:
     """Use the authoritative discovery ID; never scan an unbounded paper queue."""
     try:
@@ -334,6 +359,7 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
                     }
                     for row in cursor.fetchall()
                 ]
+                decision_sources = _decision_sources(cursor, rows)
     history_rows = [_paper_status(tuple(row)) for row in rows]
     current_rows = [_paper_status(tuple(row), include_latest_event=True) for row in rows]
     papers = list({str(paper["pmid"]): paper for paper in reversed(current_rows)}.values())
@@ -432,6 +458,7 @@ def literature_status(discovery_run_id: str) -> dict[str, object]:
         "attempt_history": attempt_history,
         "corpus_builds": corpus_builds,
         "historical_unlinked_corpus_builds": "not_attributed",
+        "decision_sources": decision_sources,
         "papers": papers,
         "inventory_reconciliation": inventory,
     }

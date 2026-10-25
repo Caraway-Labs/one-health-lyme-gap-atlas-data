@@ -48,7 +48,10 @@ pipeline code, Snowflake DDL, source configuration, or deployment files.
   sources advance via automated checks without a steward click solely to unlock
   technical stages; Tier C PROD remains protected; Tier D exceptional/restricted
   sources still require Streamlit steward review. A pipeline runtime role must
-  never approve candidates.
+  never approve candidates. The one exception is literature papers (ADR 0023 and
+  data ADR 0049): the runtime may call only the bounded, deterministic
+  `GOVERNANCE.SP_RECORD_PAPER_POLICY_APPROVAL`, and never the steward procedures
+  or the decision tables.
 - Canonical simplified ingestion commands (Epic #223):
   - `uv run atlas-data source validate --definition config/sources/<file>.yml`
   - `uv run atlas-data source run --definition ... --tier A`
