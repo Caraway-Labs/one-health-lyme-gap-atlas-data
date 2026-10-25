@@ -26,11 +26,17 @@ on:
         required: false
         default: 1
         type: number
+      reason:
+        description: Why this run is dispatched (required, 200 characters maximum)
+        required: true
+        type: string
 
 permissions:
   contents: read
   checks: read
 
+# Shared with every other PROD app-spec mutator. One daily-once run at a time,
+# and it cannot overlap a promotion or another topology change.
 concurrency:
   group: prod-app-topology
   cancel-in-progress: false
@@ -50,6 +56,7 @@ jobs:
       PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
       RECOVER_INGESTION_RUN_ID: ${{ inputs.recover_ingestion_run_id }}
       REOPEN_ATTEMPT: ${{ inputs.reopen_attempt }}
+      DISPATCH_REASON: ${{ inputs.reason }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -57,10 +64,22 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           version: "1.160.1"
-      - name: Run one temporary intelligence-daily job and restore baseline
+      - name: Validate dispatch reason
         shell: bash
         run: |
           set -Eeuo pipefail
+          umask 077
+          INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
+          mkdir -p "$INTEL_DAILY_WORK"
+          chmod 700 "$INTEL_DAILY_WORK"
+          python scripts/prod_intelligence_daily_job_spec.py \
+            --mode validate-reason --reason="$DISPATCH_REASON"
+      - name: Capture baseline and build one-shot spec
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
           source scripts/ci/guard.sh
           guard_nonempty prod_app_id "$PROD_APP_ID" "PROD_APP_ID is empty. Set the PROD_APP_ID repository variable to the provisioned production app before dispatching."
           CODE_SHA="$REVIEWED_COMMIT"
@@ -72,29 +91,13 @@ jobs:
             | jq -r --arg tag "sha-${CODE_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
           guard_eq registry_source_digest "$IMAGE_DIGEST" "$source_digest" "The registry manifest tagged sha-GITHUB_SHA does not match IMAGE_DIGEST. Re-run with the digest from the latest successful deploy-dev run for this commit."
 
-          baseline_spec="$(mktemp)"
-          operation_spec="$(mktemp)"
-          dev_spec="$(mktemp)"
-          chmod 600 "$baseline_spec" "$operation_spec" "$dev_spec"
-          baseline_captured=false
-          restore_baseline() {
-            operation_status=$?
-            set +e
-            if [ "$baseline_captured" = true ]; then
-              doctl apps update "$PROD_APP_ID" --spec "$baseline_spec" --wait \
-                --format ID,ActiveDeployment.ID --no-header
-              if [ "$?" -ne 0 ]; then
-                echo "::error::Intelligence daily topology restoration failed. Restore the captured seven-job spec before another production action."
-                operation_status=1
-              fi
-            fi
-            rm -f "$baseline_spec" "$operation_spec" "$dev_spec"
-            trap - EXIT
-            exit "$operation_status"
-          }
-          trap restore_baseline EXIT
-
+          mkdir -p "$INTEL_DAILY_WORK"
+          chmod 700 "$INTEL_DAILY_WORK"
+          baseline_spec="$INTEL_DAILY_WORK/baseline.json"
+          operation_spec="$INTEL_DAILY_WORK/operation.json"
+          dev_spec="$INTEL_DAILY_WORK/dev.json"
           doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          chmod 600 "$baseline_spec"
           dev_deployment_id="$(doctl apps get "$DEV_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
           prod_deployment_id="$(doctl apps get "$PROD_APP_ID" --output json | jq -r '.[0].active_deployment.id')"
           dev_phase="$(doctl apps get-deployment "$DEV_APP_ID" "$dev_deployment_id" --output json | jq -r '.[0].phase')"
@@ -102,6 +105,7 @@ jobs:
           prod_phase="$(doctl apps get-deployment "$PROD_APP_ID" "$prod_deployment_id" --output json | jq -r '.[0].phase')"
           guard_eq prod_deployment_phase ACTIVE "$prod_phase" "The PROD deployment is not ACTIVE. Wait until the PROD deployment phase is ACTIVE before running the daily job."
           doctl apps spec get "$DEV_APP_ID" --deployment "$dev_deployment_id" --format json > "$dev_spec"
+          chmod 600 "$dev_spec"
           dev_job_digest="$(jq -r '[.jobs[].image.digest] | unique | .[0]' "$dev_spec")"
           guard_eq dev_job_digest "$IMAGE_DIGEST" "$dev_job_digest" "DEV job image digests are not the single IMAGE_DIGEST. Promote or deploy so every DEV job uses that digest."
           dev_job_digest_count="$(jq -r '[.jobs[].image.digest] | unique | length' "$dev_spec")"
@@ -109,22 +113,185 @@ jobs:
           daily_job_digest="$(jq -r '.jobs[] | select(.name == "intelligence-feed-daily") | .image.digest' "$baseline_spec")"
           guard_eq intelligence_feed_daily_digest "$IMAGE_DIGEST" "$daily_job_digest" "The PROD intelligence-feed-daily image digest does not match IMAGE_DIGEST. Refresh that job to the reviewed digest before running it."
 
-          preflight_flag=""
-          if [ "$PREFLIGHT_ONLY" = true ]; then
-            preflight_flag="--preflight-only"
+          build_args=(
+            --mode build
+            --baseline "$baseline_spec"
+            --output "$operation_spec"
+          )
+          if [[ "$PREFLIGHT_ONLY" == "true" ]]; then
+            build_args+=(--preflight-only)
           fi
-          recover_args=()
-          if [ -n "$RECOVER_INGESTION_RUN_ID" ]; then
-            recover_args=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID")
+          if [[ -n "$RECOVER_INGESTION_RUN_ID" ]]; then
+            build_args+=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID")
           fi
-          reopen_args=()
-          if [ "${REOPEN_ATTEMPT:-1}" -ge 2 ] 2>/dev/null; then
-            reopen_args=(--reopen-attempt "$REOPEN_ATTEMPT")
+          if [[ "${REOPEN_ATTEMPT:-1}" -ge 2 ]] 2>/dev/null; then
+            build_args+=(--reopen-attempt "$REOPEN_ATTEMPT")
           fi
-          python scripts/prod_intelligence_daily_job_spec.py \
-            --baseline "$baseline_spec" --output "$operation_spec" $preflight_flag \
-            "${recover_args[@]}" "${reopen_args[@]}"
-          baseline_captured=true
-          doctl apps update "$PROD_APP_ID" --spec "$operation_spec" --wait \
-            --format ID,ActiveDeployment.ID --no-header
-          echo "One bounded intelligence-daily invocation completed; restoring the seven-job topology."
+          python scripts/prod_intelligence_daily_job_spec.py "${build_args[@]}"
+          chmod 600 "$operation_spec"
+          rm -f "$dev_spec"
+          : > "$INTEL_DAILY_WORK/ready"
+      - name: Apply one-shot intelligence-daily job
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
+          work="$INTEL_DAILY_WORK"
+          if [[ ! -f "$work/ready" ]]; then
+            exit 0
+          fi
+          printf '1\n' > "$work/operation_status"
+          : > "$work/deployment_id"
+          chmod 600 "$work/operation_status" "$work/deployment_id"
+          update_output="$work/update-output.txt"
+          : > "$update_output"
+          chmod 600 "$update_output"
+          operation_status=1
+          set +e
+          doctl apps update "$PROD_APP_ID" --spec "$work/operation.json" --wait \
+            --format ID,ActiveDeployment.ID --no-header >"$update_output" 2>&1
+          operation_status=$?
+          set -e
+          printf '%s\n' "$operation_status" > "$work/operation_status"
+          deployment_id="$(
+            python scripts/prod_intelligence_daily_job_spec.py \
+              --mode deployment-id --deployment-output "$update_output" || true
+          )"
+          if [[ ! "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            deployment_id=""
+          fi
+          printf '%s\n' "$deployment_id" > "$work/deployment_id"
+          rm -f "$update_output" "$work/operation.json"
+          printf 'operation_status=%s\n' "$operation_status"
+          if [[ -n "$deployment_id" ]]; then
+            printf 'deployment_id=%s\n' "$deployment_id"
+          else
+            printf 'deployment_id=unavailable\n'
+          fi
+          exit 0
+      - name: Report per-source daily outcomes
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
+          work="$INTEL_DAILY_WORK"
+          if [[ ! -f "$work/ready" ]]; then
+            exit 0
+          fi
+          deployment_id=""
+          if [[ -f "$work/deployment_id" ]]; then
+            deployment_id="$(tr -d '[:space:]' < "$work/deployment_id")"
+          fi
+          if [[ ! "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            deployment_id=""
+          fi
+          log_file="$work/job.log"
+          : >"$log_file"
+          chmod 600 "$log_file"
+          logs_missing=1
+          if [[ -n "$deployment_id" ]]; then
+            logs_missing=0
+            timeout 120 doctl apps logs "$PROD_APP_ID" intelligence-daily-manual-once \
+              --deployment "$deployment_id" --type run --tail 2000 --no-prefix \
+              >"$log_file" 2>"$work/job.log.err" || true
+          fi
+          outcome_args=(
+            --mode render-outcomes
+            --logs "$log_file"
+            --rows "$work/rows.json"
+          )
+          if [[ "$logs_missing" == "1" ]]; then
+            outcome_args+=(--logs-missing)
+          fi
+          python scripts/prod_intelligence_daily_job_spec.py "${outcome_args[@]}"
+          rm -f "$log_file" "$work/job.log.err"
+      - name: Restore baseline topology
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
+          work="$INTEL_DAILY_WORK"
+          if [[ ! -f "$work/ready" ]]; then
+            exit 0
+          fi
+          restore_output="$work/restore-output.txt"
+          : > "$restore_output"
+          chmod 600 "$restore_output"
+          restore_status=1
+          set +e
+          doctl apps update "$PROD_APP_ID" --spec "$work/baseline.json" --wait \
+            --format ID,ActiveDeployment.ID --no-header >"$restore_output" 2>&1
+          restore_status=$?
+          set -e
+          printf '%s\n' "$restore_status" > "$work/restore_cli_status"
+          rm -f "$restore_output"
+          printf 'restore_cli_status=%s\n' "$restore_status"
+          exit 0
+      - name: Verify restored spec digest
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
+          work="$INTEL_DAILY_WORK"
+          cleanup() {
+            rm -f \
+              "$work/baseline.json" \
+              "$work/restored.json" \
+              "$work/rows.json" \
+              "$work/operation.json" \
+              "$work/dev.json" \
+              "$work/job.log" \
+              "$work/job.log.err" \
+              "$work/update-output.txt" \
+              "$work/restore-output.txt" \
+              "$work/deployment_id" \
+              "$work/operation_status" \
+              "$work/restore_cli_status" \
+              "$work/ready"
+          }
+          trap cleanup EXIT
+          if [[ ! -f "$work/ready" ]]; then
+            exit 0
+          fi
+          restored_spec="$work/restored.json"
+          spec_status=0
+          set +e
+          doctl apps spec get "$PROD_APP_ID" --format json >"$restored_spec"
+          spec_status=$?
+          set -e
+          if [[ "$spec_status" -ne 0 ]]; then
+            rm -f "$restored_spec"
+          fi
+          if [[ -f "$restored_spec" ]]; then
+            chmod 600 "$restored_spec"
+          fi
+          operation_status=""
+          if [[ -f "$work/operation_status" ]]; then
+            operation_status="$(tr -cd '0-9' < "$work/operation_status")"
+          fi
+          if [[ -z "$operation_status" ]]; then
+            operation_status=1
+          fi
+          restored_flag=no
+          if [[ -f "$restored_spec" ]]; then
+            if python scripts/prod_intelligence_daily_job_spec.py --mode compare-specs \
+              --baseline "$work/baseline.json" \
+              --restored "$restored_spec"; then
+              restored_flag=yes
+            fi
+          fi
+          set +e
+          python scripts/prod_intelligence_daily_job_spec.py --mode render-result \
+            --rows "$work/rows.json" \
+            --operation-status "$operation_status" \
+            --restored-flag "$restored_flag"
+          result_status=$?
+          set -e
+          exit "$result_status"
