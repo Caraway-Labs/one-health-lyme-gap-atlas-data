@@ -27,6 +27,7 @@ from lyme_gap_atlas_data.intelligence_topics import (
     backfill_topics,
     load_vocabulary,
     map_topics,
+    merge_topic_rows,
     vocabulary_path,
 )
 from lyme_gap_atlas_data.migrations import (
@@ -95,7 +96,7 @@ def test_no_match_returns_only_the_fallback_topic() -> None:
         {
             "topic_id": FALLBACK_TOPIC_ID,
             "matched_field": "fallback",
-            "matched_term": FALLBACK_TOPIC_ID,
+            "matched_term": None,
         }
     ]
 
@@ -121,6 +122,55 @@ def test_mesh_ui_and_publisher_category_are_exact() -> None:
         "matched_field": "categories",
         "matched_term": "Lyme Disease",
     }
+
+
+def test_fallback_null_matched_term_round_trips_through_the_merge_payload() -> None:
+    cursor = _TopicCursor(table_exists=True)
+    document = _item("Workshop agenda for editors")
+    result = runtime.record_topics_after_merge(cursor, [document], enabled=False)
+    assert result["status"] == "recorded"
+    assert result["rows"] == 1
+    assert result["warnings"] == 0
+    sql, params = cursor.statements[-1]
+    payload = json.loads(params[0])
+    assert payload[0]["topic_id"] == FALLBACK_TOPIC_ID
+    assert payload[0]["matched_field"] == "fallback"
+    assert payload[0]["matched_term"] is None
+    assert '"matched_term":null' in params[0]
+    assert "IS_NULL_VALUE(value:matched_term)" in sql
+    assert "value:matched_term IS NULL" in sql
+    assert document["derived_metadata"] == {}
+
+
+def test_merge_updates_when_matched_term_changes_including_null() -> None:
+    assert "target.matched_term <> source.matched_term" not in _MERGE
+    assert "target.matched_field <> source.matched_field" not in _MERGE
+    assert "target.matched_term IS DISTINCT FROM source.matched_term" in _MERGE
+    assert "target.matched_field IS DISTINCT FROM source.matched_field" in _MERGE
+    identity = {
+        "item_id": "a" * 64,
+        "revision_id": "b" * 64,
+        "topic_id": FALLBACK_TOPIC_ID,
+        "vocabulary_version": "v1",
+        "matched_field": "fallback",
+    }
+    changes = (
+        (None, "Babesiosis"),
+        ("Babesiosis", None),
+        ("Babesiosis", "babesiosis"),
+    )
+    for before, after in changes:
+        assert _is_distinct_from(before, after)
+        if before is None or after is None:
+            assert not _sql_inequality_matches(before, after)
+        cursor = _TopicCursor(table_exists=True)
+        merge_topic_rows(cursor, [{**identity, "matched_term": before}])
+        merge_topic_rows(cursor, [{**identity, "matched_term": after}])
+        first = json.loads(cursor.statements[0][1][0])
+        second = json.loads(cursor.statements[1][1][0])
+        assert first[0]["matched_term"] == before
+        assert second[0]["matched_term"] == after
+        assert cursor.statements[0][0] == cursor.statements[1][0] == _MERGE
 
 
 def test_field_bounds_reject_oversized_or_mistyped_plain_text() -> None:
@@ -368,9 +418,14 @@ def test_topic_migration_is_protected_on_both_environments() -> None:
         assert f"USE DATABASE {database};" in rendered
         assert "CONFORMED.INTELLIGENCE_ITEM_TOPICS" in rendered
         assert "PRESENTATION.INTELLIGENCE_ITEM_TOPICS_V1" in rendered
+        assert "CONFORMED.INTELLIGENCE_TOPICS" in rendered
+        assert "PRESENTATION.INTELLIGENCE_TOPICS_V1" in rendered
         assert "vocabulary_version = 'v1'" in rendered
+        assert "matched_term VARCHAR(4096)," in rendered
         assert f"OH_LYME_{environment}_RUNTIME" in rendered
         assert f"OH_LYME_{environment}_READ" in rendered
+        assert "GRANT SELECT, INSERT, UPDATE ON TABLE CONFORMED.INTELLIGENCE_TOPICS" not in rendered
+        assert "ON TABLE CONFORMED.INTELLIGENCE_TOPICS" not in rendered
         assert "{{" not in rendered
     assert pinned in migration_plan(DEV_DATABASE)
     assert pinned in migration_plan(PROD_DATABASE)
@@ -408,6 +463,16 @@ def test_routine_migration_path_refuses_v171(
     assert "INTELLIGENCE_ITEM_TOPICS" in connection.execute_string.call_args.args[0]
 
 
+def test_v171_vocabulary_rows_equal_the_json_exactly() -> None:
+    migration = next(loaded for loaded in load_migrations() if loaded.version == "V171")
+    topics = VOCAB["topics"]
+    assert _vocabulary_rows(migration.source) == [
+        (topic["id"], "v1", topic["label"], topic["definition"], index)
+        for index, topic in enumerate(topics)
+    ]
+    assert len(topics) == 19
+
+
 def _feed_items(path: Path) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for node in ET.parse(path).getroot().iter("item"):
@@ -442,6 +507,66 @@ def _tagged_fraction(items: list[dict[str, Any]]) -> float:
         if any(row["topic_id"] != FALLBACK_TOPIC_ID for row in matches):
             tagged += 1
     return tagged / len(items)
+
+
+def _vocabulary_rows(sql: str) -> list[tuple[str, str, str, str, int]]:
+    marker = "INSERT INTO CONFORMED.INTELLIGENCE_TOPICS"
+    start = sql.index(marker)
+    body = sql[sql.index("VALUES", start) + len("VALUES") :]
+    rows: list[tuple[str, str, str, str, int]] = []
+    index = 0
+    while index < len(body):
+        if body[index] == ";":
+            break
+        if body[index] != "(":
+            index += 1
+            continue
+        index += 1
+        fields: list[str | int] = []
+        while True:
+            while body[index] in " \n\t,":
+                index += 1
+            if body[index] == ")":
+                index += 1
+                break
+            if body[index] == "'":
+                index += 1
+                chars: list[str] = []
+                while True:
+                    if body[index : index + 2] == "''":
+                        chars.append("'")
+                        index += 2
+                        continue
+                    if body[index] == "'":
+                        index += 1
+                        break
+                    chars.append(body[index])
+                    index += 1
+                fields.append("".join(chars))
+                continue
+            end = index
+            while body[end].isdigit():
+                end += 1
+            fields.append(int(body[index:end]))
+            index = end
+        topic_id, version, label, definition, order = fields
+        assert isinstance(topic_id, str)
+        assert isinstance(version, str)
+        assert isinstance(label, str)
+        assert isinstance(definition, str)
+        assert isinstance(order, int)
+        rows.append((topic_id, version, label, definition, order))
+    return rows
+
+
+def _is_distinct_from(left: str | None, right: str | None) -> bool:
+    return left != right
+
+
+def _sql_inequality_matches(left: str | None, right: str | None) -> bool:
+    if left is None or right is None:
+        return False
+    return left != right
 
 
 def _item(title: str) -> dict[str, Any]:

@@ -29,7 +29,7 @@ _ALLOWED_PENDING = (
     '[{"version":"V168","filename":"V168__api_diagnostics_history_views.sql","sha256":"18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6"}]',
     '[{"version":"V169","filename":"V169__paper_policy_approval.sql","sha256":"1a70bbcf348f3f2daeaa6fde6522d86e26aee558235a5a6ca04a22023c4ea136"}]',
     '[{"version":"V170","filename":"V170__intelligence_source_activations.sql","sha256":"bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f"}]',
-    '[{"version":"V171","filename":"V171__intelligence_item_topics.sql","sha256":"32ccb0f110f124e0b79c64aa66f75115bd74b106c04fb2ca580897ab1afd2079"}]',
+    '[{"version":"V171","filename":"V171__intelligence_item_topics.sql","sha256":"06efcee9aceb39871a22735e70a5c41f382476724d3743b1d3d87f0f64015c10"}]',
     '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"},{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]',
 )
 

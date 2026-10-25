@@ -33,6 +33,7 @@ from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from ..intelligence_retention import PROD_METADATA_FEED_IDS
 from ..intelligence_topics import (
     VOCABULARY_VERSION_V1,
+    TopicRow,
     load_vocabulary,
     merge_topic_rows,
     topic_rows_for_items,
@@ -85,7 +86,7 @@ def record_topics_after_merge(
             "rows": 0,
             "warnings": len(items),
         }
-    rows: list[dict[str, str]] = []
+    rows: list[TopicRow] = []
     warnings = 0
     for item in items:
         try:

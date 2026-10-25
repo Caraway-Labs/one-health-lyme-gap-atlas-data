@@ -10,7 +10,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
@@ -46,6 +46,23 @@ _TOPIC_IDS = frozenset(
 _PAGE_SIZE = 200
 _MAX_PAGES = 100
 _MERGE_CHUNK = 400
+
+
+class TopicMatch(TypedDict):
+    topic_id: str
+    matched_field: str
+    matched_term: str | None
+
+
+class TopicRow(TypedDict):
+    item_id: str
+    revision_id: str
+    topic_id: str
+    vocabulary_version: str
+    matched_field: str
+    matched_term: str | None
+
+
 _TABLE_EXISTS = """
 SELECT COUNT(*)
 FROM INFORMATION_SCHEMA.TABLES
@@ -68,7 +85,10 @@ USING (
     value:topic_id::VARCHAR AS topic_id,
     value:vocabulary_version::VARCHAR AS vocabulary_version,
     value:matched_field::VARCHAR AS matched_field,
-    value:matched_term::VARCHAR AS matched_term
+    CASE
+      WHEN value:matched_term IS NULL OR IS_NULL_VALUE(value:matched_term) THEN NULL
+      ELSE value:matched_term::VARCHAR
+    END AS matched_term
   FROM TABLE(FLATTEN(INPUT => PARSE_JSON(%s)))
 ) AS source
 ON target.item_id = source.item_id
@@ -76,8 +96,8 @@ ON target.item_id = source.item_id
  AND target.topic_id = source.topic_id
  AND target.vocabulary_version = source.vocabulary_version
 WHEN MATCHED AND (
-    target.matched_field <> source.matched_field
-    OR target.matched_term <> source.matched_term
+    target.matched_field IS DISTINCT FROM source.matched_field
+    OR target.matched_term IS DISTINCT FROM source.matched_term
 ) THEN UPDATE SET
     matched_field = source.matched_field,
     matched_term = source.matched_term,
@@ -135,11 +155,12 @@ def map_topics(
     mesh: Sequence[str] | None,
     keywords: Sequence[str] | None,
     vocab: Mapping[str, Any],
-) -> list[dict[str, str]]:
+) -> list[TopicMatch]:
     """Return explainable topic matches in vocabulary order, at most ten.
 
     A topic with no synonym, MeSH UI, or publisher-category match is omitted.
-    When nothing matches, the only row is the fallback topic.
+    When nothing matches, the only row is the fallback topic and its matched
+    term is null.
     """
     fields = {
         "title": _text(title, "title"),
@@ -152,7 +173,7 @@ def map_topics(
     version = vocab.get("vocabulary_version")
     if not isinstance(topics, list) or not isinstance(version, str):
         raise ValueError("TOPIC_VOCABULARY_INVALID")
-    matches: list[dict[str, str]] = []
+    matches: list[TopicMatch] = []
     for topic in topics:
         if not isinstance(topic, dict) or topic.get("id") == FALLBACK_TOPIC_ID:
             continue
@@ -174,7 +195,7 @@ def map_topics(
             {
                 "topic_id": FALLBACK_TOPIC_ID,
                 "matched_field": "fallback",
-                "matched_term": FALLBACK_TOPIC_ID,
+                "matched_term": None,
             }
         )
     return matches
@@ -189,10 +210,10 @@ def topics_table_exists(cursor: Any) -> bool:
 
 def topic_rows_for_items(
     items: Sequence[Mapping[str, Any]], vocabulary: Mapping[str, Any]
-) -> list[dict[str, str]]:
+) -> list[TopicRow]:
     """Map stored item or revision documents without changing those documents."""
     version = str(vocabulary["vocabulary_version"])
-    rows: list[dict[str, str]] = []
+    rows: list[TopicRow] = []
     for item in items:
         title, description, categories, mesh, keywords = inputs_from_document(item)
         for match in map_topics(title, description, categories, mesh, keywords, vocabulary):
@@ -236,7 +257,7 @@ def inputs_from_document(
     )
 
 
-def merge_topic_rows(cursor: Any, rows: Sequence[Mapping[str, str]]) -> int:
+def merge_topic_rows(cursor: Any, rows: Sequence[TopicRow]) -> int:
     """Idempotent MERGE on item, revision, topic, and vocabulary version."""
     affected = 0
     pending = list(rows)

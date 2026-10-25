@@ -74,13 +74,13 @@ INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
 INTELLIGENCE_ITEM_TOPICS_MIGRATION = {
     "version": "V171",
     "filename": "V171__intelligence_item_topics.sql",
-    "sha256": "32ccb0f110f124e0b79c64aa66f75115bd74b106c04fb2ca580897ab1afd2079",
+    "sha256": "06efcee9aceb39871a22735e70a5c41f382476724d3743b1d3d87f0f64015c10",
 }
 # V170 replaces the feed view in both databases. The protected path is required
 # on DEV and PROD; the historical feed-view migrations stay PROD-only.
-# V171 creates the topic table in both databases. The protected path is required
-# on DEV and PROD. The routine migration path cannot apply this version.
-# V170 stays reserved for the source-activation migration.
+# V171 creates the topic and vocabulary tables in both databases. The protected
+# path is required on DEV and PROD. The routine migration path cannot apply this
+# version. V171 requires recorded V170.
 BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V171"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
