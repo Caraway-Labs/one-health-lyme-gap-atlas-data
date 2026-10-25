@@ -12,12 +12,12 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -34,6 +34,7 @@ from ..intelligence_metadata import VERSION, NativeMetadataPolicy
 from ..settings import PipelineSettings
 from .adapters import AcquisitionError
 from .intelligence_feed import adapter_for_source
+from .types import RunState, RunStatus, Stage, StageCheckpoint, StageStatus, Tier
 
 SOURCE_ORDER = ("pubmed-tick-borne", "pubmed-lyme-borrelia")
 QUERY_PINS = {
@@ -105,6 +106,18 @@ ENTREZ_PERMITTED_PATHS = frozenset(
     }
 )
 PUBLISHED_PATH = "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate"
+ENTREZ_DAILY_RESOURCE = "pubmed-entrez"
+# Publisher suppression matches the journal title from Journal/Title, exactly.
+_DROPPED_ELEMENTS = {"script", "style", "iframe", "object"}
+_DROPPED_MARKUP = re.compile(
+    r"<(script|style|iframe|object)\b[^<>]*>.*?</\1\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_DROPPED_TO_END = re.compile(
+    r"<(script|style|iframe|object)\b[^<>]*>.*\Z",
+    re.IGNORECASE | re.DOTALL,
+)
+_REAL_TAG = re.compile(r"</?[A-Za-z][^<>]*>")
 
 
 class RequestBudget(Protocol):
@@ -188,15 +201,58 @@ def ncbi_day(day: date) -> str:
     return day.strftime("%Y/%m/%d")
 
 
+def encode_entrez_query(params: Mapping[str, str]) -> str:
+    """Encode one E-utilities query. A space becomes '+' once; a plus sign is not pre-encoded."""
+    return urlencode(list(params.items()))
+
+
+class _DropRequestUrl(logging.Filter):
+    """Hide one request's URL for the duration of that call. The logger level stays as it was."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return False
+        return EUTILS_HOST not in message and "api_key" not in message and "email=" not in message
+
+
+def read_bounded(chunks: Iterable[bytes], limit: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read a response until the byte cap. Further chunks are not pulled after the cap."""
+    parts: list[bytes] = []
+    total = 0
+    for chunk in chunks:
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > limit:
+            raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
+        parts.append(chunk)
+    return b"".join(parts)
+
+
 def live_entrez_get(url: str, params: Mapping[str, str], timeout: float) -> EntrezResponse:
     """One HTTPS GET to E-utilities. Callers supply this; tests use recorded responses."""
     parts = urlsplit(url)
     if parts.scheme != "https" or parts.hostname != EUTILS_HOST or parts.username or parts.password:
         raise AcquisitionError("FEED_HOST_NOT_APPROVED", code="FEED_HOST_NOT_APPROVED")
-    # httpx logs full URLs at INFO, including the contact parameters.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    response = httpx.get(url, params=dict(params), timeout=timeout, follow_redirects=False)
-    return EntrezResponse(response.status_code, response.content)
+    logger = logging.getLogger("httpx")
+    redaction = _DropRequestUrl()
+    logger.addFilter(redaction)
+    try:
+        with (
+            httpx.Client(timeout=timeout, follow_redirects=False) as client,
+            client.stream("GET", url, params=dict(params)) as response,
+        ):
+            body = read_bounded(response.iter_bytes())
+            status = response.status_code
+    except AcquisitionError:
+        raise
+    except Exception:
+        raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
+    finally:
+        logger.removeFilter(redaction)
+    return EntrezResponse(status, body)
 
 
 def mesh_refresh_candidates(items: list[dict[str, Any]], *, today: date) -> list[str]:
@@ -224,6 +280,7 @@ def mesh_refresh_candidates(items: list[dict[str, Any]], *, today: date) -> list
 def load_suppressions(
     path: Path = SUPPRESSION_PATH,
 ) -> tuple[frozenset[str], frozenset[str]]:
+    """PMID set plus publisher set. A publisher value is the journal title, matched exactly."""
     document = json.loads(path.read_text(encoding="utf-8"))
     pmids = document.get("pmids")
     publishers = document.get("publishers")
@@ -302,11 +359,15 @@ def run_pubmed_daily(
     revisions: RevisionLedger | None = None,
     suppress_pmids: frozenset[str] | None = None,
     suppress_publishers: frozenset[str] | None = None,
+    sources: Mapping[str, dict[str, Any]] | None = None,
+    receipt_document: dict[str, Any] | None = None,
 ) -> PubmedOutcome:
     """Run both approved searches once, then efetch the deduped PMID union."""
-    sources = _load_sources()
+    loaded = dict(sources) if sources is not None else _load_sources()
+    if sources is not None:
+        _require_run_sources(loaded)
     queries = _load_queries()
-    policies = _load_policies(sources)
+    policies = _load_policies(loaded, receipt_document)
     if suppress_pmids is None or suppress_publishers is None:
         file_pmids, file_publishers = load_suppressions()
         suppress_pmids = file_pmids if suppress_pmids is None else suppress_pmids
@@ -351,22 +412,19 @@ def run_pubmed_daily(
         if stored.abstract_refused:
             refused += 1
             continue
-        try:
-            items.append(
-                _build_item(
-                    stored,
-                    matched=matched,
-                    sources=sources,
-                    policies=policies,
-                    fetched_at=fetched_at,
-                    run_id=run_id,
-                    artifact_sha=artifact_sha,
-                    suppress_pmids=suppress_pmids,
-                    suppress_publishers=suppress_publishers,
-                )
+        items.append(
+            _build_item(
+                stored,
+                matched=matched,
+                sources=loaded,
+                policies=policies,
+                fetched_at=fetched_at,
+                run_id=run_id,
+                artifact_sha=artifact_sha,
+                suppress_pmids=suppress_pmids,
+                suppress_publishers=suppress_publishers,
             )
-        except AbstractRefused:
-            refused += 1
+        )
     watermarks = _advance_watermarks(ledger, items, truncated=truncated)
     inserted = revisions.apply(items) if revisions is not None else 0
     return PubmedOutcome(
@@ -468,7 +526,7 @@ class _EntrezSession:
                 "retmax": str(MAX_ITEMS),
                 "usehistory": "n",
                 "retmode": "json",
-                "sort": "most+recent",
+                "sort": "most recent",
             },
         )
         return _parse_esearch(body)
@@ -483,7 +541,13 @@ class _EntrezSession:
 
     def _contact(self) -> dict[str, str]:
         email = self._settings.ncbi_email
-        if not email or len(email) > 320 or _has_control(email):
+        if (
+            not isinstance(email, str)
+            or not email.strip()
+            or email != email.strip()
+            or len(email) > 320
+            or _has_control(email)
+        ):
             raise PermissionError("NCBI_CONTACT_REQUIRED")
         params = {"tool": ENTREZ_TOOL, "email": email}
         secret = self._settings.ncbi_api_key
@@ -513,7 +577,12 @@ class _EntrezSession:
         if self._budget.requests >= min(self._budget.request_limit, self._request_cap):
             raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
         remaining = self._budget.reserve()
-        response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
+        try:
+            response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
+        except AcquisitionError:
+            raise
+        except Exception:
+            raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
         self._budget.remaining()
         if response.status == 403:
             raise AcquisitionError("FEED_HTTP_403", code="FEED_HTTP_403")
@@ -538,6 +607,7 @@ def _load_sources() -> dict[str, dict[str, Any]]:
             or source["registry_version"] != 1
             or source["state"] != "candidate"
             or source["approval"]["status"] != "pending"
+            or source["trust_review"]["status"] != "pending"
             or source["transport"] != "entrez"
             or source["family"] != "pubmed"
             or source["fetch_location"] != ESEARCH_URL
@@ -549,6 +619,23 @@ def _load_sources() -> dict[str, dict[str, Any]]:
             raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
         sources[source_id] = source
     return sources
+
+
+def _require_run_sources(sources: Mapping[str, dict[str, Any]]) -> None:
+    """Sources supplied by the daily walk. They stay Entrez and inside the same caps."""
+    if set(sources) != set(SOURCE_ORDER):
+        raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
+    for source_id, source in sources.items():
+        if (
+            source.get("source_id") != source_id
+            or source.get("transport") != "entrez"
+            or source.get("family") != "pubmed"
+            or source.get("state") not in {"candidate", "active"}
+            or source.get("fetch_location") != ESEARCH_URL
+            or source.get("limits", {}).get("maximum_items") != MAX_ITEMS
+            or source.get("limits", {}).get("maximum_bytes") != MAX_RESPONSE_BYTES
+        ):
+            raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
 
 
 def _load_queries() -> dict[str, str]:
@@ -573,8 +660,11 @@ def _load_queries() -> dict[str, str]:
     return found
 
 
-def _load_policies(sources: dict[str, dict[str, Any]]) -> dict[str, NativeMetadataPolicy]:
-    document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
+def _load_policies(
+    sources: Mapping[str, dict[str, Any]], document: dict[str, Any] | None = None
+) -> dict[str, NativeMetadataPolicy]:
+    if document is None:
+        document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
     receipts = document.get("receipts")
     if not isinstance(receipts, list) or len(receipts) != len(SOURCE_ORDER):
         raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
@@ -712,7 +802,7 @@ def _abstract(paper: ET.Element) -> tuple[str | None, str | None]:
     parts: list[str] = []
     for node in paper.findall("Abstract/AbstractText"):
         label = node.attrib.get("Label") or ""
-        text = "".join(node.itertext())
+        text = _visible_text(node)
         if _has_control(label):
             label = ""
         parts.append(f"{label}: {text}" if label else text)
@@ -729,11 +819,45 @@ def _abstract(paper: ET.Element) -> tuple[str | None, str | None]:
     return (sanitized or None), copyright
 
 
+def sanitize_abstract_text(value: str) -> str:
+    """Plain text. Real tags are removed. A bare '<' or '>' is kept as a fullwidth look-alike."""
+    text = value
+    previous: str | None = None
+    while previous != text:
+        previous = text
+        text = _DROPPED_MARKUP.sub("", text)
+    text = _DROPPED_TO_END.sub("", text)
+    text = _REAL_TAG.sub("", text)
+    text = text.replace("<", "\uff1c").replace(">", "\uff1e")
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    return " ".join(text.split())
+
+
 def _sanitize_abstract(value: str) -> str:
-    sanitized = permitted_text(value, max(len(value), ABSTRACT_LIMIT) + 1) or ""
+    sanitized = sanitize_abstract_text(value)
     if len(sanitized) > ABSTRACT_LIMIT:
         raise AbstractRefused
     return sanitized
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def _visible_text(node: ET.Element) -> str:
+    """Element text with script, style, iframe and object subtrees omitted."""
+    parts: list[str] = []
+    if node.text:
+        parts.append(node.text)
+    for child in list(node):
+        if _local_name(child.tag) in _DROPPED_ELEMENTS:
+            if child.tail:
+                parts.append(child.tail)
+            continue
+        parts.append(_visible_text(child))
+        if child.tail:
+            parts.append(child.tail)
+    return "".join(parts)
 
 
 def _authors(paper: ET.Element) -> list[str]:
@@ -842,6 +966,7 @@ def _build_item(
     source_id = matched[0]
     source = sources[source_id]
     policy = policies[source_id]
+    # Publisher suppression matches the journal title exactly, not the publisher organization.
     suppressed = record.pmid in suppress_pmids or (
         record.journal is not None and record.journal in suppress_publishers
     )
@@ -993,3 +1118,164 @@ def _advance_watermarks(
         ledger.set(source_id, chosen)
         saved[source_id] = chosen.isoformat()
     return saved
+
+
+class ItemWriter(Protocol):
+    """IntelligenceStore.write: the load-stage MERGE used by the other feeds."""
+
+    def write(
+        self,
+        *,
+        source_id: str,
+        registry_version: int,
+        resource_key: str,
+        run_id: str,
+        items: list[dict[str, Any]],
+    ) -> Any: ...
+
+
+class RunLedger(Protocol):
+    """Checkpoint store shape shared by the memory ledger and the Snowflake ledger."""
+
+    def save(self, state: RunState) -> None: ...
+
+    def list_runs(self) -> list[RunState]: ...
+
+
+def registered_entrez_sources(pinned: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Both PubMed sources when each file is active and its hash is pinned.
+
+    Candidate drafts are not walked. One pinned search without the other is not a walk.
+    """
+    ready: list[dict[str, Any]] = []
+    for source_id in SOURCE_ORDER:
+        path = Path(f"config/intelligence/{source_id}-source-v1.json")
+        if not path.is_file():
+            return []
+        source = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(source, dict)
+            or source.get("source_id") != source_id
+            or source.get("transport") != "entrez"
+            or source.get("state") != "active"
+            or pinned.get(source_id) != identity_hash(source)
+        ):
+            return []
+        ready.append(source)
+    return ready
+
+
+def entry_dates_from_ledger(checkpoints: RunLedger) -> EntryDateLedger:
+    """Latest per-source last_entry_date on a succeeded pubmed-entrez LOAD checkpoint."""
+    best = -1
+    chosen: dict[str, Any] = {}
+    for state in checkpoints.list_runs():
+        if state.resource_key != ENTREZ_DAILY_RESOURCE or state.status is not RunStatus.SUCCEEDED:
+            continue
+        load = state.checkpoint(Stage.LOAD)
+        detail = load.detail if load is not None else {}
+        raw = detail.get("last_entry_date")
+        sequence = detail.get("sequence")
+        if not isinstance(raw, dict) or not isinstance(sequence, int) or sequence < best:
+            continue
+        best = sequence
+        chosen = raw
+    ledger = EntryDateLedger()
+    for source_id in SOURCE_ORDER:
+        value = chosen.get(source_id)
+        if isinstance(value, str):
+            ledger.set(source_id, date.fromisoformat(value))
+    return ledger
+
+
+def execute_registered_entrez_daily(
+    *,
+    pinned: Mapping[str, str],
+    sender: EntrezSender,
+    settings: PipelineSettings,
+    budget: RequestBudget,
+    checkpoints: RunLedger,
+    store: ItemWriter,
+    today: date,
+    run_id: str,
+    fetched_at: str,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
+    sources: list[dict[str, Any]] | None = None,
+    receipt_document: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run both searches and write items through store.write when they are registered.
+
+    Unregistered or candidate sources return without a request. store.write is
+    IntelligenceStore.write, which MERGEs revisions in bulk_write_items.
+    last_entry_date is stored on the LOAD checkpoint of this ledger.
+    """
+    selected = sources if sources is not None else registered_entrez_sources(pinned)
+    skipped: dict[str, Any] = {"walked": False, "requests": 0, "items": [], "windows": {}}
+    if not selected:
+        return skipped
+    by_id = {source["source_id"]: source for source in selected}
+    if set(by_id) != set(SOURCE_ORDER):
+        return skipped
+    for source_id, source in by_id.items():
+        if source.get("state") != "active" or pinned.get(source_id) != identity_hash(source):
+            return skipped
+    ledger = entry_dates_from_ledger(checkpoints)
+    outcome = run_pubmed_daily(
+        today=today,
+        sender=sender,
+        settings=settings,
+        budget=budget,
+        fetched_at=fetched_at,
+        run_id=run_id,
+        clock=clock,
+        sleep=sleep,
+        checkpoints=ledger,
+        sources=by_id,
+        receipt_document=receipt_document,
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in SOURCE_ORDER}
+    for item in outcome.items:
+        grouped.setdefault(item["source_id"], []).append(item)
+    for source_id in SOURCE_ORDER:
+        rows = grouped.get(source_id) or []
+        if not rows:
+            continue
+        store.write(
+            source_id=source_id,
+            registry_version=int(by_id[source_id]["registry_version"]),
+            resource_key=source_id,
+            run_id=run_id,
+            items=rows,
+        )
+    previous = -1
+    for state in checkpoints.list_runs():
+        if state.resource_key != ENTREZ_DAILY_RESOURCE:
+            continue
+        load = state.checkpoint(Stage.LOAD)
+        sequence = load.detail.get("sequence") if load is not None else None
+        if isinstance(sequence, int):
+            previous = max(previous, sequence)
+    checkpoints.save(
+        RunState(
+            ingestion_run_id=run_id,
+            resource_key=ENTREZ_DAILY_RESOURCE,
+            source_definition_version=1,
+            tier=Tier.C,
+            status=RunStatus.SUCCEEDED,
+            stages=[
+                StageCheckpoint(
+                    stage=Stage.LOAD,
+                    status=StageStatus.COMPLETED,
+                    detail={"last_entry_date": outcome.watermarks, "sequence": previous + 1},
+                )
+            ],
+        )
+    )
+    return {
+        "walked": True,
+        "requests": outcome.requests,
+        "items": outcome.items,
+        "windows": outcome.windows,
+        "watermarks": outcome.watermarks,
+    }

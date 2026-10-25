@@ -3,30 +3,43 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
+from lyme_gap_atlas_data import intelligence_polling as polling
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
+from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
+from lyme_gap_atlas_data.ingestion.checkpoints import InMemoryCheckpointStore
 from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     BATCH_SIZE,
     ENTREZ_TOOL,
     ESEARCH_URL,
     MAX_ITEMS,
     MAX_RESPONSE_BYTES,
+    SOURCE_ORDER,
     EntrezResponse,
     EntryDateLedger,
     RevisionLedger,
+    encode_entrez_query,
     entry_window,
+    execute_registered_entrez_daily,
     live_entrez_get,
     mesh_refresh_candidates,
+    read_bounded,
     refresh_pubmed_mesh,
+    registered_entrez_sources,
     run_pubmed_daily,
+    sanitize_abstract_text,
 )
 from lyme_gap_atlas_data.ingestion.intelligence_feed import adapter_for_source
+from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.intelligence_retention import PROD_METADATA_FEED_IDS
 from lyme_gap_atlas_data.settings import PipelineSettings
 
@@ -174,17 +187,24 @@ def _search_file(name: str) -> dict[str, dict[str, Any]]:
 
 
 def test_draft_sources_stay_out_of_prod_registration() -> None:
+    """Pins and the daily source walk stay the five CDC/NIH feeds until registration.
+
+    The register-workflow choice list and the daily job env may later mention PubMed
+    or an NCBI email. Those files are not the registration gate.
+    """
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(runtime.ENDPOINTS)
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(runtime.PROD_DAILY_SOURCE_SHA256)
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(runtime.PROD_SOURCE_DEFINITIONS)
     assert runtime.PUBMED_DRAFT_SOURCE_IDS.isdisjoint(PROD_METADATA_FEED_IDS)
+    assert set(runtime.PROD_SOURCE_DEFINITIONS) == set(runtime.PROD_DAILY_SOURCE_SHA256)
     assert runtime.PUBMED_ESEARCH_ENDPOINT == ESEARCH_URL
-    register = Path(".github/workflows/register-prod-eid.yml").read_text(encoding="utf-8")
-    daily = Path("scripts/deploy_intelligence_daily.py").read_text(encoding="utf-8")
-    assert "pubmed" not in register
-    assert "NCBI_EMAIL" not in daily
-    assert "NCBI_API_KEY" not in daily
+    assert registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256) == []
     for source_id in runtime.PUBMED_DRAFT_SOURCE_IDS:
+        document = json.loads(
+            Path(f"config/intelligence/{source_id}-source-v1.json").read_text(encoding="utf-8")
+        )
+        assert document["state"] != "active"
+        assert document["source_id"] not in runtime.PROD_SOURCE_DEFINITIONS
         assert adapter_for_source({"transport": "entrez", "source_id": source_id}) == "entrez"
 
 
@@ -227,7 +247,7 @@ def test_empty_watermark_uses_a_30_day_window_and_both_queries() -> None:
         assert int(call["retmax"]) <= 200
         assert call["usehistory"] == "n"
         assert call["retmode"] == "json"
-        assert call["sort"] == "most+recent"
+        assert call["sort"] == "most recent"
     fetched = [call for call in transport.calls if "id" in call]
     assert len(fetched) == 1
     assert len(fetched[0]["id"].split(",")) <= BATCH_SIZE
@@ -466,3 +486,287 @@ def test_first_window_is_thirty_days() -> None:
 def test_live_sender_rejects_a_non_entrez_host() -> None:
     with pytest.raises(Exception, match="FEED_HOST_NOT_APPROVED"):
         live_entrez_get("https://example.com/esearch.fcgi", {}, 1.0)
+
+
+def test_abstract_keeps_comparisons_and_drops_script_content() -> None:
+    assert sanitize_abstract_text("Mean age <65 years (p < 0.05)") == (
+        "Mean age \uff1c65 years (p \uff1c 0.05)"
+    )
+    assert sanitize_abstract_text("CD4<CD8") == "CD4\uff1cCD8"
+    assert sanitize_abstract_text("<script>x</script>Results") == "Results"
+    xml = (
+        b"<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>30000003</PMID><Article>"
+        b"<Journal><Title>Journal</Title><JournalIssue><PubDate>"
+        b"<Year>2026</Year><Month>10</Month><Day>1</Day></PubDate></JournalIssue></Journal>"
+        b"<ArticleTitle>Markup</ArticleTitle>"
+        b"<Abstract><AbstractText><script>x</script>Results</AbstractText></Abstract>"
+        b"<Language>eng</Language></Article></MedlineCitation>"
+        b'<PubmedData><History><PubMedPubDate PubStatus="entrez">'
+        b"<Year>2026</Year><Month>10</Month><Day>24</Day></PubMedPubDate></History>"
+        b"</PubmedData></PubmedArticle></PubmedArticleSet>"
+    )
+    searches = {
+        _queries()["pubmed-tick-borne"]: {"count": 1, "idlist": ["30000003"]},
+        _queries()["pubmed-lyme-borrelia"]: {"count": 0, "idlist": []},
+    }
+
+    class ScriptTransport(FixtureTransport):
+        def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
+            response = super().__call__(url, params, timeout)
+            if "id" in params:
+                return EntrezResponse(200, xml)
+            return response
+
+    outcome, _sleeps = _run(ScriptTransport(searches))
+    assert outcome.items[0]["publisher_metadata"]["abstract"]["text"] == "Results"
+
+
+def test_search_sort_is_encoded_once_on_the_wire() -> None:
+    transport = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+    _run(transport)
+    search = next(call for call in transport.calls if call.get("sort"))
+    wire = encode_entrez_query(search)
+    request = httpx.Request("GET", ESEARCH_URL, params=search)
+    for encoded in (wire, str(request.url)):
+        assert "sort=most+recent" in encoded
+        assert "most%2B" not in encoded
+        assert "%252B" not in encoded
+    assert parse_qs(urlsplit(str(request.url)).query)["sort"] == ["most recent"]
+
+
+def test_whitespace_email_makes_no_request() -> None:
+    transport = FixtureTransport(_search_file("esearch_overlap.json"))
+    with pytest.raises(PermissionError, match="NCBI_CONTACT_REQUIRED"):
+        _run(transport, settings=PipelineSettings(ncbi_email="   "))
+    assert transport.calls == []
+
+
+def test_response_cap_stops_while_streaming() -> None:
+    pulled = {"n": 0}
+
+    def chunks() -> Any:
+        yield b"a" * MAX_RESPONSE_BYTES
+        pulled["n"] += 1
+        yield b"b"
+        pulled["n"] += 1
+        yield b"c"
+
+    with pytest.raises(AcquisitionError, match="FEED_TOO_LARGE"):
+        read_bounded(chunks())
+    assert pulled["n"] == 1
+
+
+def test_transport_error_hides_the_contact(caplog: pytest.LogCaptureFixture) -> None:
+    email = "hidden-user@example.test"
+    key = "hidden-key-value"
+
+    class Boom:
+        def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
+            raise httpx.ConnectError(f"{url}?email={params['email']}&api_key={params['api_key']}")
+
+    with pytest.raises(Exception, match="FEED_HTTP_FAILED") as caught:
+        _run(
+            Boom(),
+            settings=PipelineSettings(ncbi_email=email, ncbi_api_key=SecretStr(key)),
+        )
+    assert email not in str(caught.value)
+    assert key not in str(caught.value)
+    assert email not in caplog.text
+    assert key not in caplog.text
+
+    class FakeStream:
+        def __enter__(self) -> FakeStream:
+            logging.getLogger("httpx").warning(
+                "GET https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?email=%s&api_key=%s",
+                email,
+                key,
+            )
+            raise httpx.ConnectTimeout("timed out")
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+    class FakeClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def stream(self, *args: object, **kwargs: object) -> FakeStream:
+            return FakeStream()
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    caplog.set_level(logging.DEBUG, logger="httpx")
+    try:
+        with pytest.raises(Exception, match="FEED_HTTP_FAILED") as live:
+            live_entrez_get(ESEARCH_URL, {"email": email, "api_key": key, "db": "pubmed"}, 5)
+    finally:
+        monkeypatch.undo()
+    blob = str(live.value) + caplog.text
+    assert email not in blob
+    assert key not in blob
+
+
+def _activated_sources() -> dict[str, Any]:
+    sources = {}
+    document = json.loads(Path("config/intelligence/pubmed-policy-receipts.json").read_text())
+    for source_id in SOURCE_ORDER:
+        source = json.loads(
+            Path(f"config/intelligence/{source_id}-source-v1.json").read_text(encoding="utf-8")
+        )
+        source["state"] = "active"
+        source["cadence"]["poll_seconds"] = 86400
+        sources[source_id] = source
+    for receipt in document["receipts"]:
+        digest = identity_hash(sources[receipt["source_id"]])
+        receipt["source_sha256"] = digest
+        receipt["native_policy"]["source_sha256"] = digest
+    return {
+        "sources": sources,
+        "receipts": document,
+        "pinned": {source_id: identity_hash(source) for source_id, source in sources.items()},
+    }
+
+
+def test_registered_daily_run_writes_without_an_api_key() -> None:
+    prepared = _activated_sources()
+    checkpoints = InMemoryCheckpointStore()
+    store_keys: set[tuple[str, str]] = set()
+    writes: list[tuple[str, int]] = []
+
+    class FakeStore:
+        def write(
+            self,
+            *,
+            source_id: str,
+            registry_version: int,
+            resource_key: str,
+            run_id: str,
+            items: list[dict[str, Any]],
+        ) -> int:
+            added = 0
+            for item in items:
+                key = (item["item_id"], item["revision_id"])
+                if key not in store_keys:
+                    store_keys.add(key)
+                    added += 1
+            writes.append((source_id, added))
+            return added
+
+    settings = PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None)
+    first_sender = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+    first = _daily(prepared, first_sender, checkpoints, FakeStore(), settings, run_id="pubmed-1")
+    assert first["walked"] is True
+    assert first["requests"] == 3
+    assert first["windows"]["pubmed-tick-borne"] == ("2026/09/25", "2026/10/25")
+    assert writes and writes[0][0] == "pubmed-tick-borne"
+    assert all("api_key" not in call for call in first_sender.calls)
+    load = checkpoints.load("pubmed-1")
+    assert load is not None
+    assert load.stages[0].detail["last_entry_date"]["pubmed-tick-borne"] == "2026-10-24"
+    second_sender = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+    before = len(writes)
+    second = _daily(prepared, second_sender, checkpoints, FakeStore(), settings, run_id="pubmed-2")
+    assert second["windows"]["pubmed-tick-borne"][0] == "2026/10/22"
+    assert second_sender.calls[0]["mindate"] == "2026/10/22"
+    assert all("api_key" not in call for call in second_sender.calls)
+    assert writes[before:]
+    assert all(added == 0 for _source_id, added in writes[before:])
+
+
+def _daily(prepared, sender, checkpoints, store, settings, *, run_id: str) -> dict[str, Any]:
+    _sleeps, clock, sleep = _clock()
+    budget = runtime.PilotBudget(clock, seconds=30, request_limit=5)
+    return execute_registered_entrez_daily(
+        pinned=prepared["pinned"],
+        sender=sender,
+        settings=settings,
+        budget=budget,
+        checkpoints=checkpoints,
+        store=store,
+        today=TODAY,
+        run_id=run_id,
+        fetched_at=FETCHED_AT,
+        clock=clock,
+        sleep=sleep,
+        sources=list(prepared["sources"].values()),
+        receipt_document=prepared["receipts"],
+    )
+
+
+def test_unregistered_drafts_are_not_fetched() -> None:
+    def fail(url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
+        raise AssertionError("draft sources must not be fetched")
+
+    result = execute_registered_entrez_daily(
+        pinned=runtime.PROD_DAILY_SOURCE_SHA256,
+        sender=fail,
+        settings=PipelineSettings(ncbi_email=EMAIL),
+        budget=runtime.PilotBudget(request_limit=5),
+        checkpoints=None,  # type: ignore[arg-type]
+        store=None,  # type: ignore[arg-type]
+        today=TODAY,
+        run_id="unused",
+        fetched_at=FETCHED_AT,
+        clock=lambda: 0.0,
+        sleep=lambda _seconds: None,
+    )
+    assert result == {"walked": False, "requests": 0, "items": [], "windows": {}}
+
+
+def test_entrez_daily_io_stays_closed_outside_prod() -> None:
+    with pytest.raises(PermissionError, match="INTELLIGENCE_DAILY_PROD_REQUIRED"):
+        runtime.open_entrez_daily_io(PipelineSettings())
+
+
+def test_daily_job_calls_the_entrez_walk_only_when_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_open(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("unregistered pubmed must not open a session")
+
+    monkeypatch.setattr(runtime, "open_entrez_daily_io", fail_open)
+    polling._walk_registered_entrez_daily(
+        PipelineSettings(
+            topx_env="prod",
+            enable_production_execution=True,
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+            intelligence_daily_enabled=True,
+        ),
+        "2026-10-25",
+        preflight_only=False,
+    )
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        polling,
+        "registered_entrez_sources",
+        lambda _pinned: [{"source_id": "pubmed-tick-borne"}],
+    )
+    monkeypatch.setattr(
+        runtime, "open_entrez_daily_io", lambda _settings: ("store", "ledger", "budget")
+    )
+
+    def execute(**kwargs: Any) -> dict[str, bool]:
+        seen.update(kwargs)
+        return {"walked": True}
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", execute)
+    polling._walk_registered_entrez_daily(
+        PipelineSettings(
+            topx_env="prod",
+            enable_production_execution=True,
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+            intelligence_daily_enabled=True,
+        ),
+        "2026-10-25",
+        preflight_only=False,
+    )
+    assert seen["store"] == "store"
+    assert seen["checkpoints"] == "ledger"
+    assert seen["sender"] is live_entrez_get
