@@ -22,7 +22,9 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 
 from ..intelligence_items import (
+    ACQUISITION_VERSION,
     TOKEN,
+    canonical_timestamp,
     canonical_url,
     identity_hash,
     item_identities,
@@ -31,6 +33,7 @@ from ..intelligence_items import (
     validate_record,
 )
 from ..intelligence_metadata import VERSION, NativeMetadataPolicy
+from ..intelligence_raw_runtime import FeedRawRetention
 from ..settings import PipelineSettings
 from .adapters import AcquisitionError
 from .intelligence_feed import adapter_for_source
@@ -185,6 +188,7 @@ class PubmedOutcome:
     watermarks: dict[str, str]
     withheld_abstracts: int
     windows: dict[str, tuple[str, str]]
+    response_body: bytes = b""
 
 
 def withhold_overlong_pubmed_abstract(text: str) -> bool:
@@ -375,6 +379,7 @@ def run_pubmed_daily(
     sources: Mapping[str, dict[str, Any]] | None = None,
     receipt_document: dict[str, Any] | None = None,
     run_ids: Mapping[str, str] | None = None,
+    artifact_ids: Mapping[str, str] | None = None,
 ) -> PubmedOutcome:
     """Run both approved searches once, then efetch the deduped PMID union."""
     loaded = dict(sources) if sources is not None else _load_sources()
@@ -437,6 +442,7 @@ def run_pubmed_daily(
                 fetched_at=fetched_at,
                 run_id=run_ids[owner] if run_ids is not None else run_id,
                 artifact_sha=artifact_sha,
+                artifact_id=(artifact_ids[owner] if artifact_ids is not None else "pubmed-efetch"),
                 suppress_pmids=suppress_pmids,
                 suppress_publishers=suppress_publishers,
             )
@@ -455,6 +461,7 @@ def run_pubmed_daily(
             source_id: (ncbi_day(start), ncbi_day(end))
             for source_id, (start, end) in windows.items()
         },
+        response_body=b"".join(session.bodies),
     )
 
 
@@ -970,6 +977,7 @@ def _build_item(
     artifact_sha: str,
     suppress_pmids: frozenset[str],
     suppress_publishers: frozenset[str],
+    artifact_id: str = "pubmed-efetch",
 ) -> dict[str, Any]:
     source_id = matched[0]
     source = sources[source_id]
@@ -1023,7 +1031,7 @@ def _build_item(
         fetched_at=fetched_at,
         provenance={
             "run_id": run_id,
-            "artifact_id": "pubmed-efetch",
+            "artifact_id": artifact_id,
             "artifact_sha256": artifact_sha,
             "parser_version": PARSER,
             "fetch_version": FETCH,
@@ -1137,7 +1145,20 @@ def _advance_watermarks(
 
 
 class ItemWriter(Protocol):
-    """IntelligenceStore.write: the load-stage MERGE used by the other feeds."""
+    """IntelligenceStore.write plus the Entrez capture rows that write checks."""
+
+    def capture_session(self) -> Any: ...
+
+    def record_acquisition(
+        self,
+        *,
+        source_id: str,
+        registry_version: int,
+        resource_key: str,
+        run_id: str,
+        artifact_id: str,
+        context: dict[str, Any],
+    ) -> None: ...
 
     def write(
         self,
@@ -1213,6 +1234,112 @@ def entry_dates_from_ledger(checkpoints: RunLedger) -> EntryDateLedger:
     return ledger
 
 
+def entrez_artifact_id(run_id: str) -> str:
+    """One artifact id for one ingestion run. Not the shared constant pubmed-efetch."""
+    return f"entrez-{run_id}"
+
+
+def insert_entrez_capture_rows(
+    cursor: Any,
+    *,
+    run_id: str,
+    artifact_id: str,
+    endpoint: str,
+    sha256: str,
+    byte_count: int,
+    retention_class: str,
+    fetched_at: str,
+) -> str:
+    """Write the request and artifact rows IntelligenceStore.write joins together."""
+    request_id = f"{run_id}:ACQUIRE:1"
+    cursor.execute(
+        """INSERT INTO GOVERNANCE.INGESTION_REQUESTS
+        (ingestion_request_id, ingestion_run_id, request_sequence, request_purpose,
+         endpoint, redacted_request, status_code, response_sha256, retrieved_row_count,
+         created_at)
+        SELECT %s, %s, 1, 'ENTREZ_ESEARCH', %s, PARSE_JSON(%s), 200, %s, %s, %s""",
+        (
+            request_id,
+            run_id,
+            endpoint,
+            "{}",
+            sha256,
+            0,
+            fetched_at,
+        ),
+    )
+    cursor.execute(
+        """INSERT INTO GOVERNANCE.RAW_ARTIFACTS
+        (artifact_id, ingestion_run_id, ingestion_request_id, artifact_uri, artifact_type,
+         media_type, byte_count, sha256, retention_class, created_at)
+        SELECT %s, %s, %s, %s, 'SOURCE_PAYLOAD', 'application/xml', %s, %s, %s, %s""",
+        (
+            artifact_id,
+            run_id,
+            request_id,
+            f"memory://entrez/{artifact_id}",
+            byte_count,
+            sha256,
+            retention_class,
+            fetched_at,
+        ),
+    )
+    return request_id
+
+
+def prepare_entrez_source_capture(
+    *,
+    retention: FeedRawRetention,
+    source: dict[str, Any],
+    run_id: str,
+    body: bytes,
+    fetched_at: str,
+    capture_session: Any,
+) -> dict[str, Any]:
+    """Bind the Entrez lease, store request and artifact rows, and return the context.
+
+    requested_url is the esearch fetch_location. effective_url is that same endpoint,
+    which is the INGESTION_REQUESTS.endpoint value. The lease policy is the source's
+    30-day raw retention reference.
+    """
+    artifact_id = entrez_artifact_id(run_id)
+    digest = hashlib.sha256(body).hexdigest()
+    requested = canonical_url(source["fetch_location"])
+    if not isinstance(requested, str):
+        raise PermissionError("INTELLIGENCE_ACQUISITION_URL_INVALID")
+    context = {
+        "context_version": ACQUISITION_VERSION,
+        "attempt_id": hashlib.sha256(run_id.encode()).hexdigest()[:32],
+        "source_id": source["source_id"],
+        "registry_version": source["registry_version"],
+        "registry_sha256": identity_hash(source),
+        "requested_url": requested,
+        "effective_url": requested,
+        "capture_mode": "https",
+        "fetch_status": 200,
+        "fetched_at": canonical_timestamp(fetched_at),
+        "artifact_sha256": digest,
+    }
+    retention.bind_source(run_id, source, parser_version=PARSER, fetch_version=FETCH)
+    lease_sha = retention.capture(source, context)
+    locator = f"memory://entrez/{artifact_id}"
+    with (
+        retention.lease_access(lease_sha, "raw_object", locator, write=True),
+        capture_session() as cursor,
+    ):
+        insert_entrez_capture_rows(
+            cursor,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            endpoint=context["effective_url"],
+            sha256=digest,
+            byte_count=len(body),
+            retention_class=source["access_use"]["content_retention_policy_ref"],
+            fetched_at=context["fetched_at"],
+        )
+    return context
+
+
 def execute_registered_entrez_daily(
     *,
     pinned: Mapping[str, str],
@@ -1247,6 +1374,13 @@ def execute_registered_entrez_daily(
         if source.get("state") != "active" or pinned.get(source_id) != identity_hash(source):
             return skipped
     ledger = entry_dates_from_ledger(checkpoints)
+    retention = getattr(checkpoints, "feed_retention", None)
+    planned = run_ids if run_ids is not None else {source_id: run_id for source_id in SOURCE_ORDER}
+    artifact_ids = (
+        {source_id: entrez_artifact_id(item_run) for source_id, item_run in planned.items()}
+        if retention is not None
+        else None
+    )
     outcome = run_pubmed_daily(
         today=today,
         sender=sender,
@@ -1260,21 +1394,42 @@ def execute_registered_entrez_daily(
         sources=by_id,
         receipt_document=receipt_document,
         run_ids=run_ids,
+        artifact_ids=artifact_ids,
     )
     grouped: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in SOURCE_ORDER}
     for item in outcome.items:
         grouped.setdefault(item["source_id"], []).append(item)
     writers = run_ids if run_ids is not None else {source_id: run_id for source_id in SOURCE_ORDER}
+    if retention is not None:
+        for source_id, item_run in writers.items():
+            if not grouped.get(source_id):
+                continue
+            context = prepare_entrez_source_capture(
+                retention=retention,
+                source=by_id[source_id],
+                run_id=item_run,
+                body=outcome.response_body,
+                fetched_at=fetched_at,
+                capture_session=store.capture_session,
+            )
+            store.record_acquisition(
+                source_id=source_id,
+                registry_version=int(by_id[source_id]["registry_version"]),
+                resource_key=source_id,
+                run_id=item_run,
+                artifact_id=entrez_artifact_id(item_run),
+                context=context,
+            )
     for source_id in SOURCE_ORDER:
         rows = grouped.get(source_id) or []
-        item_run = writers.get(source_id)
-        if not rows or item_run is None:
+        write_run = writers.get(source_id)
+        if not rows or write_run is None:
             continue
         store.write(
             source_id=source_id,
             registry_version=int(by_id[source_id]["registry_version"]),
             resource_key=source_id,
-            run_id=item_run,
+            run_id=write_run,
             items=rows,
         )
     previous = -1

@@ -320,6 +320,20 @@ class IntelligenceStore:
         if cursor.rowcount != 1:
             raise IntelligenceStorageError("INTELLIGENCE_WRITE_GUARD_INVALID")
 
+    @contextmanager
+    def capture_session(self) -> Iterator[Any]:
+        """Owned transaction for Entrez request and artifact inserts."""
+        with self._session() as (connection, cursor):
+            self._context(cursor)
+            try:
+                self._begin(cursor)
+                yield cursor
+                connection.commit()
+            except BaseException:
+                with suppress(Exception):
+                    connection.rollback()
+                raise
+
     @_redacted("INTELLIGENCE_ACQUISITION_REGISTRATION_FAILED")
     def record_acquisition(
         self,

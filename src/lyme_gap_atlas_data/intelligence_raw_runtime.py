@@ -305,11 +305,11 @@ class FeedRawRetention:
         self, run_id: str, source: dict[str, Any], *, parser_version: str, fetch_version: str
     ) -> None:
         """Pin approved metadata before acquisition, including failed first attempts."""
-        if (
-            not TOKEN.fullmatch(run_id)
-            or parser_version not in {"rss-atom-v1", "rss-atom-native-v2"}
-            or fetch_version != "pinned-https-v1"
-        ):
+        rss = parser_version in {"rss-atom-v1", "rss-atom-native-v2"} and (
+            fetch_version == "pinned-https-v1"
+        )
+        entrez = parser_version == "entrez-efetch-v1" and fetch_version == "entrez-eutils-v1"
+        if not TOKEN.fullmatch(run_id) or not (rss or entrez):
             raise PermissionError("INTELLIGENCE_RUN_BINDING_INVALID")
         if self.source_lookup(source["source_id"], source["registry_version"]) != source:
             raise PermissionError("INTELLIGENCE_RAW_RIGHTS_REQUIRED")
