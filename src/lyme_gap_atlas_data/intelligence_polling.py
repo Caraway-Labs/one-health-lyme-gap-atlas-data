@@ -26,6 +26,7 @@ from .ingestion import intelligence_runtime
 from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .ingestion.intelligence_daily_run_ids import daily_run_id
 from .ingestion.intelligence_entrez import (
+    RECEIPT_PATH,
     execute_registered_entrez_daily,
     live_entrez_get,
     registered_entrez_sources,
@@ -675,9 +676,7 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
         with connect(SnowflakeSettings()) as raw:
             yield intelligence_runtime._Connection(raw, budget)
 
-    document = json.loads(
-        Path("config/intelligence/pubmed-policy-receipts.json").read_text(encoding="utf-8")
-    )
+    document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
     policies: dict[str, NativeMetadataPolicy] = {}
     for receipt in document["receipts"]:
         native = receipt["native_policy"]
@@ -708,32 +707,55 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
     return store, checkpoints, budget
 
 
-def _walk_registered_entrez_daily(settings: Any, day: str, *, preflight_only: bool) -> None:
+def _walk_registered_entrez_daily(
+    settings: Any,
+    day: str,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int = 1,
+) -> None:
     """Run PubMed when both sources are active and pinned. Drafts do not fetch or write.
 
-    The five CDC/NIH sources keep their own walk. This adds the Entrez path beside
-    them and returns before any session when the PubMed files are still unregistered.
-    Pins are read from the runtime module so a later import edit cannot drop the name.
+    Each source gets its own daily_run_id and claim_daily_run, with the same attempt
+    rules as the RSS sources. A PubMed error is terminalized and does not escape, so
+    the RSS payload already built by the caller is unchanged.
     """
-    pins = intelligence_runtime.PROD_DAILY_SOURCE_SHA256
-    if not registered_entrez_sources(pins):
+    claimed: list[tuple[str, str]] = []
+    try:
+        pins = intelligence_runtime.PROD_DAILY_SOURCE_SHA256
+        sources = registered_entrez_sources(pins)
+        if not sources or preflight_only:
+            return
+        store, checkpoints, budget = open_entrez_daily_io(settings)
+        run_ids: dict[str, str] = {}
+        for source in sources:
+            source_id = source["source_id"]
+            run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+            if not checkpoints.claim_daily_run(run_id, source_id, identity_hash(source)):
+                continue
+            claimed.append((run_id, source_id))
+            run_ids[source_id] = run_id
+        if not run_ids:
+            return
+        execute_registered_entrez_daily(
+            pinned=pins,
+            sender=live_entrez_get,
+            settings=settings,
+            budget=budget,
+            checkpoints=checkpoints,
+            store=store,
+            today=datetime.fromisoformat(day).date(),
+            run_id=next(iter(run_ids.values())),
+            fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            clock=time.monotonic,
+            sleep=time.sleep,
+            sources=sources,
+            run_ids=run_ids,
+        )
+    except Exception:
+        for run_id, source_id in claimed:
+            _terminalize_claimed_daily_run(run_id, source_id)
         return
-    if preflight_only:
-        return
-    store, checkpoints, budget = open_entrez_daily_io(settings)
-    execute_registered_entrez_daily(
-        pinned=pins,
-        sender=live_entrez_get,
-        settings=settings,
-        budget=budget,
-        checkpoints=checkpoints,
-        store=store,
-        today=datetime.fromisoformat(day).date(),
-        run_id=f"pubmed-entrez-{day}",
-        fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        clock=time.monotonic,
-        sleep=time.sleep,
-    )
 
 
 def daily_source_selection(
@@ -803,7 +825,9 @@ def run_production_daily(
         )
     for row in results:
         _log_daily_outcome(row)
-    _walk_registered_entrez_daily(settings, day, preflight_only=preflight_only)
+    _walk_registered_entrez_daily(
+        settings, day, preflight_only=preflight_only, reopen_attempt=reopen_attempt
+    )
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
     if preflight_only and any(
         row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results

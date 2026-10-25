@@ -55,9 +55,10 @@ PARSER = "entrez-efetch-v1"
 FETCH = "entrez-eutils-v1"
 NLM_ATTRIBUTION = "Courtesy of the U.S. National Library of Medicine"
 NLM_POLICY_URL = "https://www.ncbi.nlm.nih.gov/home/about/policies/"
-SELECTION_PATH = Path("config/intelligence/feed-selection-v1.json")
-RECEIPT_PATH = Path("config/intelligence/pubmed-policy-receipts.json")
-SUPPRESSION_PATH = Path("config/intelligence/pubmed-abstract-suppressions.json")
+CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "intelligence"
+SELECTION_PATH = CONFIG_DIR / "feed-selection-v1.json"
+RECEIPT_PATH = CONFIG_DIR / "pubmed-policy-receipts.json"
+SUPPRESSION_PATH = CONFIG_DIR / "pubmed-abstract-suppressions.json"
 MAX_REQUESTS = 5
 REFRESH_REQUESTS = 3
 MAX_ITEMS = 200
@@ -373,6 +374,7 @@ def run_pubmed_daily(
     suppress_publishers: frozenset[str] | None = None,
     sources: Mapping[str, dict[str, Any]] | None = None,
     receipt_document: dict[str, Any] | None = None,
+    run_ids: Mapping[str, str] | None = None,
 ) -> PubmedOutcome:
     """Run both approved searches once, then efetch the deduped PMID union."""
     loaded = dict(sources) if sources is not None else _load_sources()
@@ -421,6 +423,9 @@ def run_pubmed_daily(
         stored = records.get(pmid)
         if stored is None:
             continue
+        owner = matched[0]
+        if run_ids is not None and owner not in run_ids:
+            continue
         if stored.abstract_withheld:
             withheld += 1
         items.append(
@@ -430,7 +435,7 @@ def run_pubmed_daily(
                 sources=loaded,
                 policies=policies,
                 fetched_at=fetched_at,
-                run_id=run_id,
+                run_id=run_ids[owner] if run_ids is not None else run_id,
                 artifact_sha=artifact_sha,
                 suppress_pmids=suppress_pmids,
                 suppress_publishers=suppress_publishers,
@@ -602,7 +607,7 @@ class _EntrezSession:
 def _load_sources() -> dict[str, dict[str, Any]]:
     sources: dict[str, dict[str, Any]] = {}
     for source_id in SOURCE_ORDER:
-        path = Path(f"config/intelligence/{source_id}-source-v1.json")
+        path = CONFIG_DIR / f"{source_id}-source-v1.json"
         source = json.loads(path.read_text(encoding="utf-8"))
         validate_record("source", source)
         draft = (
@@ -1160,7 +1165,7 @@ def registered_entrez_sources(pinned: Mapping[str, str]) -> list[dict[str, Any]]
     """
     ready: list[dict[str, Any]] = []
     for source_id in SOURCE_ORDER:
-        path = Path(f"config/intelligence/{source_id}-source-v1.json")
+        path = CONFIG_DIR / f"{source_id}-source-v1.json"
         if not path.is_file():
             return []
         source = json.loads(path.read_text(encoding="utf-8"))
@@ -1176,13 +1181,22 @@ def registered_entrez_sources(pinned: Mapping[str, str]) -> list[dict[str, Any]]
     return ready
 
 
+_WATERMARK_RESOURCES = frozenset((ENTREZ_DAILY_RESOURCE, *SOURCE_ORDER))
+
+
+def _succeeded_watermark_runs(checkpoints: RunLedger) -> list[RunState]:
+    return [
+        state
+        for state in checkpoints.list_runs()
+        if state.resource_key in _WATERMARK_RESOURCES and state.status is RunStatus.SUCCEEDED
+    ]
+
+
 def entry_dates_from_ledger(checkpoints: RunLedger) -> EntryDateLedger:
-    """Latest per-source last_entry_date on a succeeded pubmed-entrez LOAD checkpoint."""
+    """Latest per-source last_entry_date on a succeeded PubMed LOAD checkpoint."""
     best = -1
     chosen: dict[str, Any] = {}
-    for state in checkpoints.list_runs():
-        if state.resource_key != ENTREZ_DAILY_RESOURCE or state.status is not RunStatus.SUCCEEDED:
-            continue
+    for state in _succeeded_watermark_runs(checkpoints):
         load = state.checkpoint(Stage.LOAD)
         detail = load.detail if load is not None else {}
         raw = detail.get("last_entry_date")
@@ -1214,6 +1228,7 @@ def execute_registered_entrez_daily(
     sleep: Callable[[float], None],
     sources: list[dict[str, Any]] | None = None,
     receipt_document: dict[str, Any] | None = None,
+    run_ids: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run both searches and write items through store.write when they are registered.
 
@@ -1244,45 +1259,53 @@ def execute_registered_entrez_daily(
         checkpoints=ledger,
         sources=by_id,
         receipt_document=receipt_document,
+        run_ids=run_ids,
     )
     grouped: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in SOURCE_ORDER}
     for item in outcome.items:
         grouped.setdefault(item["source_id"], []).append(item)
+    writers = run_ids if run_ids is not None else {source_id: run_id for source_id in SOURCE_ORDER}
     for source_id in SOURCE_ORDER:
         rows = grouped.get(source_id) or []
-        if not rows:
+        item_run = writers.get(source_id)
+        if not rows or item_run is None:
             continue
         store.write(
             source_id=source_id,
             registry_version=int(by_id[source_id]["registry_version"]),
             resource_key=source_id,
-            run_id=run_id,
+            run_id=item_run,
             items=rows,
         )
     previous = -1
-    for state in checkpoints.list_runs():
-        if state.resource_key != ENTREZ_DAILY_RESOURCE:
-            continue
+    for state in _succeeded_watermark_runs(checkpoints):
         load = state.checkpoint(Stage.LOAD)
         sequence = load.detail.get("sequence") if load is not None else None
         if isinstance(sequence, int):
             previous = max(previous, sequence)
-    checkpoints.save(
-        RunState(
-            ingestion_run_id=run_id,
-            resource_key=ENTREZ_DAILY_RESOURCE,
-            source_definition_version=1,
-            tier=Tier.C,
-            status=RunStatus.SUCCEEDED,
-            stages=[
-                StageCheckpoint(
-                    stage=Stage.LOAD,
-                    status=StageStatus.COMPLETED,
-                    detail={"last_entry_date": outcome.watermarks, "sequence": previous + 1},
-                )
-            ],
-        )
+    detail = {"last_entry_date": outcome.watermarks, "sequence": previous + 1}
+    saved_runs = (
+        [(run_ids[source_id], source_id) for source_id in SOURCE_ORDER if source_id in run_ids]
+        if run_ids is not None
+        else [(run_id, ENTREZ_DAILY_RESOURCE)]
     )
+    for saved_run, resource_key in saved_runs:
+        checkpoints.save(
+            RunState(
+                ingestion_run_id=saved_run,
+                resource_key=resource_key,
+                source_definition_version=1,
+                tier=Tier.C,
+                status=RunStatus.SUCCEEDED,
+                stages=[
+                    StageCheckpoint(
+                        stage=Stage.LOAD,
+                        status=StageStatus.COMPLETED,
+                        detail=detail,
+                    )
+                ],
+            )
+        )
     return {
         "walked": True,
         "requests": outcome.requests,

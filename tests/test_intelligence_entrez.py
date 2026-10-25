@@ -18,6 +18,7 @@ from lyme_gap_atlas_data.ingestion import intelligence_entrez as entrez
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
 from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
 from lyme_gap_atlas_data.ingestion.checkpoints import InMemoryCheckpointStore
+from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import daily_run_id
 from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     BATCH_SIZE,
     ENTREZ_TOOL,
@@ -777,14 +778,24 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
         preflight_only=False,
     )
     seen: dict[str, Any] = {}
+    claims: list[tuple[str, str]] = []
 
+    class Ledger:
+        def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+            claims.append((run_id, source_id))
+            return True
+
+    ledger = Ledger()
     monkeypatch.setattr(
         polling,
         "registered_entrez_sources",
-        lambda _pinned: [{"source_id": "pubmed-tick-borne"}],
+        lambda _pinned: [
+            {"source_id": "pubmed-tick-borne"},
+            {"source_id": "pubmed-lyme-borrelia"},
+        ],
     )
     monkeypatch.setattr(
-        polling, "open_entrez_daily_io", lambda _settings: ("store", "ledger", "budget")
+        polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, "budget")
     )
 
     def execute(**kwargs: Any) -> dict[str, bool]:
@@ -801,10 +812,20 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
         ),
         "2026-10-25",
         preflight_only=False,
+        reopen_attempt=2,
     )
     assert seen["store"] == "store"
-    assert seen["checkpoints"] == "ledger"
+    assert seen["checkpoints"] is ledger
     assert seen["sender"] is live_entrez_get
+    assert seen["run_ids"] == {
+        source_id: daily_run_id(source_id, "2026-10-25", reopen_attempt=2)
+        for source_id in ("pubmed-tick-borne", "pubmed-lyme-borrelia")
+    }
+    assert len(set(seen["run_ids"].values())) == 2
+    assert [source_id for _run_id, source_id in claims] == [
+        "pubmed-tick-borne",
+        "pubmed-lyme-borrelia",
+    ]
 
 
 def test_invalid_pmids_are_skipped() -> None:
@@ -903,3 +924,65 @@ def test_load_sources_accepts_an_active_form(monkeypatch: pytest.MonkeyPatch) ->
     loaded = entrez._load_sources()
     assert set(loaded) == set(SOURCE_ORDER)
     assert {source["state"] for source in loaded.values()} == {"active"}
+
+
+def test_registry_files_load_outside_the_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    loaded = entrez._load_sources()
+    assert set(loaded) == set(SOURCE_ORDER)
+    assert registered_entrez_sources(runtime.PROD_DAILY_SOURCE_SHA256) == []
+
+
+def test_pubmed_failure_leaves_the_rss_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = PipelineSettings(
+        topx_env="prod",
+        enable_production_execution=True,
+        snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        intelligence_daily_enabled=True,
+    )
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", lambda: settings)
+
+    def execute_source(source_id: str, _path: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "source_id": source_id,
+            "outcome": "SUCCEEDED",
+            "status": "COMPLETED",
+            "failed_stage": None,
+            "stage_timings_ms": {},
+        }
+
+    class Ledger:
+        def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+            return True
+
+    terminal: list[tuple[str, str]] = []
+    monkeypatch.setattr(polling, "execute_daily_source", execute_source)
+    monkeypatch.setattr(
+        polling,
+        "registered_entrez_sources",
+        lambda _pinned: [
+            {"source_id": "pubmed-tick-borne"},
+            {"source_id": "pubmed-lyme-borrelia"},
+        ],
+    )
+    monkeypatch.setattr(
+        polling, "open_entrez_daily_io", lambda _settings: ("store", Ledger(), "budget")
+    )
+
+    def boom(**_kwargs: Any) -> None:
+        raise PermissionError("INTELLIGENCE_RUN_REFERENCE_INVALID")
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", boom)
+    monkeypatch.setattr(
+        polling,
+        "_terminalize_claimed_daily_run",
+        lambda run_id, source_id: terminal.append((run_id, source_id)),
+    )
+    payload = polling.run_production_daily()
+    assert payload["status"] == "SUCCEEDED"
+    assert [row["source_id"] for row in payload["sources"]] == list(runtime.PROD_SOURCE_DEFINITIONS)
+    assert all(row["outcome"] == "SUCCEEDED" for row in payload["sources"])
+    assert len(terminal) == 2
+    assert terminal[0][0] != terminal[1][0]
