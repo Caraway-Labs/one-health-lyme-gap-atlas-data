@@ -351,16 +351,17 @@ def test_topics_backfill_command_prints_counts_without_item_text(
 
 def test_topic_migration_is_protected_on_both_environments() -> None:
     versions = [item.version for item in load_migrations()]
-    assert "V169" not in versions
-    migration = next(loaded for loaded in load_migrations() if loaded.version == "V170")
+    assert "V170" not in versions
+    assert "V169" in versions
+    migration = next(loaded for loaded in load_migrations() if loaded.version == "V171")
     pinned = INTELLIGENCE_ITEM_TOPICS_MIGRATION
-    assert migration.filename == pinned["filename"] == "V170__intelligence_item_topics.sql"
+    assert migration.filename == pinned["filename"] == "V171__intelligence_item_topics.sql"
     assert migration.sha256 == pinned["sha256"]
-    assert versions.count("V170") == 1
+    assert versions.count("V171") == 1
     assert pinned["version"] in BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS
     assert pinned in PROTECTED_INTELLIGENCE_MIGRATIONS
-    assert "V170" not in DEV_ONLY_MIGRATION_VERSIONS
-    assert "V170" not in PROD_ONLY_MIGRATION_VERSIONS
+    assert "V171" not in DEV_ONLY_MIGRATION_VERSIONS
+    assert "V171" not in PROD_ONLY_MIGRATION_VERSIONS
     assert "CREATE SCHEMA" not in migration.source.upper()
     for database, environment in ((DEV_DATABASE, "DEV"), (PROD_DATABASE, "PROD")):
         rendered = render_migration(migration, database)
@@ -376,10 +377,10 @@ def test_topic_migration_is_protected_on_both_environments() -> None:
 
 
 @pytest.mark.parametrize("database", [DEV_DATABASE, PROD_DATABASE])
-def test_routine_migration_path_refuses_v170(
+def test_routine_migration_path_refuses_v171(
     monkeypatch: pytest.MonkeyPatch, database: str
 ) -> None:
-    migration = next(loaded for loaded in load_migrations() if loaded.version == "V170")
+    migration = next(loaded for loaded in load_migrations() if loaded.version == "V171")
     monkeypatch.setattr(
         "lyme_gap_atlas_data.migrations.load_migrations",
         lambda: [migration],
@@ -394,7 +395,7 @@ def test_routine_migration_path_refuses_v170(
     )
     pinned = INTELLIGENCE_ITEM_TOPICS_MIGRATION
     for expected in (None, [pinned]):
-        with pytest.raises(PermissionError, match="V170 requires the protected intelligence"):
+        with pytest.raises(PermissionError, match="V171 requires the protected intelligence"):
             apply_migrations(Mock(), database, expected_pending=expected)
     connection.execute_string.assert_not_called()
     assert apply_migrations(
@@ -402,7 +403,7 @@ def test_routine_migration_path_refuses_v170(
         database,
         expected_pending=[pinned],
         protected_intelligence_prerequisite=True,
-    ) == ["V170"]
+    ) == ["V171"]
     connection.execute_string.assert_called_once()
     assert "INTELLIGENCE_ITEM_TOPICS" in connection.execute_string.call_args.args[0]
 
