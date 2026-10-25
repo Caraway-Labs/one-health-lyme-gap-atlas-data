@@ -15,8 +15,10 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from lyme_gap_atlas_data.intelligence_items import identity_hash
+
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = "V166__prod_nih_news_daily_activation_view.sql"
+MIGRATION = "V169__intelligence_source_activations.sql"
 DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 
 
@@ -25,13 +27,15 @@ def literal(value: object) -> str:
 
 
 def fixture_query(source_id: str, change: str) -> str:
-    old = json.loads((ROOT / f"config/intelligence/{source_id}-source-v1.json").read_text())
-    new = json.loads((ROOT / f"config/intelligence/{source_id}-source-v2.json").read_text())
-    from lyme_gap_atlas_data.intelligence_items import identity_hash
-
-    old_hash, new_hash = identity_hash(old), identity_hash(new)
+    template = "cdc-eid-ahead-of-print" if change == "new_source" else source_id
+    if change == "new_source":
+        source_id = "example-new-feed"
+    old = json.loads((ROOT / f"config/intelligence/{template}-source-v1.json").read_text())
+    new = json.loads((ROOT / f"config/intelligence/{template}-source-v2.json").read_text())
+    old, new = copy.deepcopy(old), copy.deepcopy(new)
+    old["source_id"] = source_id
+    new["source_id"] = source_id
     if change in {"paused", "revoked", "untrusted", "null_state"}:
-        new = copy.deepcopy(new)
         if change == "paused":
             new["state"] = "paused"
         elif change == "revoked":
@@ -41,42 +45,59 @@ def fixture_query(source_id: str, change: str) -> str:
         else:
             new["state"] = None
     version = 3 if change == "future" else 2
-    if change == "wrong_hash":
-        new_hash = "0" * 64
+    new["registry_version"] = version
+    old_hash, new_hash = identity_hash(old), identity_hash(new)
     docs = [(1, old_hash, old), (version, new_hash, new)]
     registry = " UNION ALL ".join(
         f"SELECT {literal(source_id)} source_id,{v} registry_version,"
         f"{literal(sha)} registry_sha256,PARSE_JSON({literal(json.dumps(doc))}) registry_document"
         for v, sha, doc in docs
     )
+    activation_sha = "0" * 64 if change == "wrong_hash" else new_hash
+    activation_state = "BLOCKED" if change == "future" else "ACTIVE"
+    activations = (
+        f"SELECT {literal(source_id)} source_id,1 registry_version,"
+        f"{literal(old_hash)} registry_sha256,'BLOCKED' state,'reviewed' decision_id,"
+        "'2026-10-21T00:00:00Z'::TIMESTAMP_LTZ activated_at"
+        " UNION ALL "
+        f"SELECT {literal(source_id)},{version},{literal(activation_sha)},"
+        f"{literal(activation_state)},'reviewed','2026-10-21T00:00:00Z'::TIMESTAMP_LTZ"
+    )
     item = {
         "contract_version": "2.0.0",
         "title": "DEV inline fixture",
         "provenance": {"run_id": "dev-fixture-run", "artifact_sha256": "a" * 64},
     }
+    capture_version = 1 if change == "blocked_v1" else version
     captures = (
         "SELECT 'item' item_id,'revision' revision_id,"
-        f"{literal(source_id)} source_id,1 registry_version,'rss' transport,"
+        f"{literal(source_id)} source_id,{capture_version} registry_version,'rss' transport,"
         f"PARSE_JSON({literal(json.dumps(item))}) item_document,"
         "'2026-10-21T00:00:00Z'::TIMESTAMP_NTZ retrieved_at,'old' capture_id"
     )
     if change == "dedup":
         captures += (
             " UNION ALL SELECT 'item','revision',"
-            f"{literal(source_id)},2,'rss',PARSE_JSON({literal(json.dumps(item))}),"
-            "'2026-10-21T01:00:00Z'::TIMESTAMP_NTZ,'new'"
+            f"{literal(source_id)},1,'rss',PARSE_JSON({literal(json.dumps(item))}),"
+            "'2026-10-21T01:00:00Z'::TIMESTAMP_NTZ,'blocked-v1'"
+        )
+    if change == "blocked_v1":
+        captures = (
+            "SELECT 'item' item_id,'revision' revision_id,"
+            f"{literal(source_id)} source_id,1 registry_version,'rss' transport,"
+            f"PARSE_JSON({literal(json.dumps(item))}) item_document,"
+            "'2026-10-21T00:00:00Z'::TIMESTAMP_NTZ retrieved_at,'old' capture_id"
         )
     query = (ROOT / "migrations" / MIGRATION).read_text().split("COPY GRANTS AS", 1)[1]
     query = query.strip().removesuffix(";")
     query = query.replace("GOVERNANCE.INTELLIGENCE_SOURCE_VERSIONS", "fixture_sources")
     query = query.replace("GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES", "fixture_captures")
     query = query.replace("CONFORMED.INTELLIGENCE_ITEM_REVISIONS", "fixture_revisions")
-    return query.replace(
-        "WITH blocked_source_versions AS (",
+    query = query.replace("GOVERNANCE.INTELLIGENCE_SOURCE_ACTIVATIONS", "fixture_activations")
+    return (
         f"WITH fixture_sources AS ({registry}),fixture_captures AS ({captures}),"
         "fixture_revisions AS (SELECT 'item' item_id,'revision' revision_id),"
-        "blocked_source_versions AS (",
-        1,
+        f"fixture_activations AS ({activations}) {query}"
     )
 
 
@@ -87,6 +108,7 @@ def acceptance_sql() -> tuple[str, dict[str, tuple[int, int | None]]]:
         for change in (
             "active",
             "dedup",
+            "blocked_v1",
             "paused",
             "revoked",
             "untrusted",
@@ -95,13 +117,18 @@ def acceptance_sql() -> tuple[str, dict[str, tuple[int, int | None]]]:
             "wrong_hash",
         ):
             name = source + ":" + change
-            expected[name] = (
-                (1, 2 if change == "dedup" else 1) if change in {"active", "dedup"} else (0, None)
-            )
+            expected[name] = (1, 2) if change in {"active", "dedup"} else (0, None)
             selects.append(
                 f"SELECT {literal(name)} AS SCENARIO,COUNT(*) AS ENTRY_COUNT,"
                 f"MAX(REGISTRY_VERSION) AS VERSION FROM ({fixture_query(source, change)})"
             )
+    expected["example-new-feed:new_source"] = (1, 2)
+    selects.append(
+        "SELECT 'example-new-feed:new_source' AS SCENARIO,COUNT(*) AS ENTRY_COUNT,"
+        "MAX(REGISTRY_VERSION) AS VERSION FROM ("
+        + fixture_query("cdc-eid-ahead-of-print", "new_source")
+        + ")"
+    )
     return " UNION ALL ".join(selects), expected
 
 

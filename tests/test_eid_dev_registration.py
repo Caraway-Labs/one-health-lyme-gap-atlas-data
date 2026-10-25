@@ -101,6 +101,9 @@ def test_exact_single_insert_and_idempotent_retry() -> None:
         )
         == 1
     )
+    merges = [sql for sql in first.selected.statements if sql.startswith("MERGE INTO")]
+    assert len(merges) == 1
+    assert merges[0].count("MERGE INTO") == 1
     retry = Connection(Cursor(existing=[(1, checksum, json.dumps(source))]))
     assert module.register(retry, source, checksum) == "ALREADY_RECORDED"
     assert retry.commits == 0 and retry.rollbacks == 1

@@ -83,6 +83,17 @@ class PilotCursor(AcquisitionCursor):
                 if s["source_id"] == params[0]
             ]
             self.rows = [(max(versions),)] if versions else []
+        elif "INTELLIGENCE_SOURCE_ACTIVATIONS" in sql:
+            source = self.connection.ledger.sources[0]
+            self.rows = [
+                (
+                    source["source_id"],
+                    source["registry_version"],
+                    identity_hash(source),
+                    "ACTIVE",
+                    source["approval"]["decision_ref"],
+                )
+            ]
         else:
             super().execute(statement, params)
 

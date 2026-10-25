@@ -318,17 +318,25 @@ def privileges_match(name: str, grants: list[dict[str, Any]]) -> dict[str, bool]
 
 
 def view_matches(name: str, actual: str) -> bool:
-    source = (
-        Path(__file__).parents[1] / "docs/contracts/intelligence/v2/presentation-projection.sql"
-    ).read_text()
-    proposals = re.split(r"(?=CREATE (?:OR REPLACE )?VIEW\b)", source)[1:]
-    proposal = next(
-        part
-        for part in proposals
-        if re.match(
-            r"CREATE (?:OR REPLACE )?VIEW (?:IF NOT EXISTS )?PRESENTATION\." + name + r"\b", part
+    if name == "INTELLIGENCE_FEED_V2":
+        source = (
+            Path(__file__).parents[1] / "migrations" / "V169__intelligence_source_activations.sql"
+        ).read_text()
+        proposal = source.split("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2", 1)[1]
+        proposal = "CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2" + proposal
+    else:
+        source = (
+            Path(__file__).parents[1] / "docs/contracts/intelligence/v2/presentation-projection.sql"
+        ).read_text()
+        proposals = re.split(r"(?=CREATE (?:OR REPLACE )?VIEW\b)", source)[1:]
+        proposal = next(
+            part
+            for part in proposals
+            if re.match(
+                r"CREATE (?:OR REPLACE )?VIEW (?:IF NOT EXISTS )?PRESENTATION\." + name + r"\b",
+                part,
+            )
         )
-    )
     proposal = proposal.split(";", 1)[0]
 
     def tokens(ddl: str) -> list[str]:
