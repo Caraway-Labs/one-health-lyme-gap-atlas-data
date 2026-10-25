@@ -308,6 +308,62 @@ def _without_ncbi(envs: list[Any]) -> list[Any]:
     ]
 
 
+def _provider_encrypted(value: object) -> bool:
+    return isinstance(value, str) and value.startswith("EV[") and value.endswith("]")
+
+
+def _ncbi_entries_equivalent(before: list[Any], after: list[Any]) -> bool:
+    """Treat a provider ciphertext and its plaintext replacement as the same setting."""
+
+    def indexed(envs: list[Any]) -> dict[str, dict[str, Any]]:
+        return {
+            str(entry.get("key")): entry
+            for entry in envs
+            if isinstance(entry, dict) and entry.get("key") in NCBI_PLACEMENT_ALLOWLIST
+        }
+
+    left = indexed(before)
+    right = indexed(after)
+    if set(left) != set(right):
+        return False
+    for key, old in left.items():
+        new = right[key]
+        if old == new or _encrypted_plaintext_pair(old, new):
+            continue
+        return False
+    return True
+
+
+def _encrypted_plaintext_pair(old: dict[str, Any], new: dict[str, Any]) -> bool:
+    if old.get("scope") != "RUN_TIME" or new.get("scope") != "RUN_TIME":
+        return False
+    if old.get("type") != "SECRET" or new.get("type") != "SECRET":
+        return False
+    new_value = new.get("value")
+    return (
+        _provider_encrypted(old.get("value"))
+        and isinstance(new_value, str)
+        and new_value.strip() != ""
+    )
+
+
+def _same_except_encrypted_ncbi(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    left = copy.deepcopy(before)
+    right = copy.deepcopy(after)
+    left_jobs = left.get("jobs", [])
+    right_jobs = right.get("jobs", [])
+    if len(left_jobs) != len(right_jobs):
+        return False
+    for left_job, right_job in zip(left_jobs, right_jobs, strict=True):
+        if not isinstance(left_job, dict) or not isinstance(right_job, dict):
+            return False
+        if not _ncbi_entries_equivalent(left_job.get("envs", []), right_job.get("envs", [])):
+            return False
+        left_job["envs"] = _without_ncbi(left_job.get("envs", []))
+        right_job["envs"] = _without_ncbi(right_job.get("envs", []))
+    return left == right
+
+
 def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, Any]:
     if not daily_job_active(spec):
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_ACTIVE_JOB")
@@ -316,6 +372,10 @@ def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, 
     aligned = sync_daily_job_schedule(with_baseline_digests(spec, digest))
     daily = next(job for job in aligned.get("jobs", []) if job.get("name") == NAME)
     _apply_ncbi_placement(daily, keep_existing_email=True)
+    # A stored EV[...] value is the provider form of a secret already on the job.
+    # Rewriting that ciphertext as plaintext is not a separate deployment.
+    if _same_except_encrypted_ncbi(spec, aligned):
+        return copy.deepcopy(spec)
     return aligned
 
 
@@ -650,7 +710,7 @@ def main() -> None:
                     "deployment_id": app["active_deployment"]["id"],
                     "operational_jobs_aligned": True,
                     "credential_provisioning": False,
-                    **ncbi_presence(spec),
+                    **ncbi_presence(app["spec"]),
                 }
             )
         )
@@ -695,7 +755,7 @@ def main() -> None:
                 "deployment_id": current["active_deployment"]["id"],
                 "original_six_jobs_preserved": True,
                 "credential_provisioning": False,
-                **ncbi_presence(spec),
+                **ncbi_presence(current["spec"]),
             }
         )
     )

@@ -301,6 +301,116 @@ def test_missing_or_blank_email_stops_before_platform_update(phase, email, monke
     assert API_KEY not in combined
 
 
+def test_refresh_is_a_no_op_when_only_the_encrypted_email_differs(monkeypatch):
+    module = _module()
+    _clear_ncbi(monkeypatch)
+    monkeypatch.setenv("NCBI_EMAIL", EMAIL)
+    spec = _with_daily(
+        module,
+        _baseline(module),
+        envs=[_secret("NCBI_EMAIL", "EV[provider-encrypted]")],
+    )
+    for job in spec["jobs"]:
+        job["image"]["digest"] = DIGEST
+    before = copy.deepcopy(spec)
+    rendered = module.refresh_operational_digests(spec, DIGEST)
+    assert rendered == before
+    assert spec == before
+
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "platform_update",
+        lambda *_args, **_kwargs: calls.append(True) or pytest.fail("platform update"),
+    )
+    monkeypatch.setattr(
+        module,
+        "get",
+        lambda *_args, **_kwargs: {
+            "spec": spec,
+            "active_deployment": {"id": "dep-1"},
+            "in_progress_deployment": None,
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "deploy",
+            "--phase",
+            "refresh-digest",
+            "--image-digest",
+            DIGEST,
+            "--credential-placement-approved",
+        ],
+    )
+    module.main()
+    assert calls == []
+
+
+def test_digest_change_still_places_plaintext_over_encrypted_email(monkeypatch):
+    module = _module()
+    _clear_ncbi(monkeypatch)
+    monkeypatch.setenv("NCBI_EMAIL", EMAIL)
+    spec = _with_daily(
+        module,
+        _baseline(module),
+        envs=[_secret("NCBI_EMAIL", "EV[provider-encrypted]")],
+    )
+    rendered = module.refresh_operational_digests(spec, DIGEST)
+    job = _phase_job(module, rendered, "refresh-digest")
+    _assert_secret(_entry(job, "NCBI_EMAIL"), EMAIL)
+    assert job["image"]["digest"] == DIGEST
+
+
+def test_refresh_summary_presence_comes_from_readback(monkeypatch, capsys):
+    module = _module()
+    _clear_ncbi(monkeypatch)
+    monkeypatch.setenv("NCBI_EMAIL", EMAIL)
+    monkeypatch.setenv("NCBI_API_KEY", API_KEY)
+    spec = _with_daily(module, _baseline(module))
+    state = {"spec": spec}
+
+    def fake_update(updated, *, update_sources):
+        readback = copy.deepcopy(updated)
+        for job in readback["jobs"]:
+            if job.get("name") != module.NAME:
+                continue
+            job["envs"] = [entry for entry in job["envs"] if entry.get("key") != "NCBI_API_KEY"]
+            for entry in job["envs"]:
+                if entry.get("key") == "NCBI_EMAIL":
+                    entry["value"] = "EV[provider-encrypted]"
+        state["spec"] = readback
+        return SimpleNamespace(returncode=0, stderr="", stdout="[]")
+
+    monkeypatch.setattr(module, "platform_update", fake_update)
+    monkeypatch.setattr(
+        module,
+        "get",
+        lambda *_args, **_kwargs: {
+            "spec": copy.deepcopy(state["spec"]),
+            "active_deployment": {"id": "dep-1"},
+            "in_progress_deployment": None,
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "deploy",
+            "--phase",
+            "refresh-digest",
+            "--image-digest",
+            DIGEST,
+            "--credential-placement-approved",
+        ],
+    )
+    module.main()
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["ncbi_email_present"] is True
+    assert summary["ncbi_api_key_present"] is False
+
+
 def test_refresh_keeps_stored_email_when_process_env_has_none(monkeypatch):
     module = _module()
     _clear_ncbi(monkeypatch)
