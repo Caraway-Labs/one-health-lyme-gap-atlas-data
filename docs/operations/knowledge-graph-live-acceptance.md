@@ -18,7 +18,9 @@ green unit-test run is not permission to enable the feature flag.
 4. Run one bounded PubMed family in DEV. Confirm its EFetch XML checksum and
    object key, normalized paper/query-match records, and the steward review
    queue. Record the run ID and selected PMID.
-5. As a steward, approve a permitted PMCID paper. Run one extraction worker
+5. Approve a permitted PMCID paper: as a steward (`human_review`), or let DEV
+   discovery do it under `PAPER_APPROVAL_MODE=query_policy_v1` (ADR 0023) and
+   confirm the decision actor is `policy:pubmed-query-v1`. Run one extraction worker
    and reconcile the PMC artifact ledger, paper content hash/object key,
    extraction receipt, Neo4j transaction ID, passage count, and PubMed link.
    Confirm the durable attempt route matches the complete-request estimate:

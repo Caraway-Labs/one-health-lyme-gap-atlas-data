@@ -26,6 +26,7 @@ EXPECTED_JOBS = frozenset(
         "cdc-operations-watchdog",
     }
 )
+PAPER_APPROVAL_MODES = frozenset({"human_review", "query_policy_v1"})
 FAMILIES = frozenset(
     {
         "surveillance_epidemiology",
@@ -254,6 +255,7 @@ def build_spec(
     source_commit: str = "",
     workflow_run_id: str = "",
     secrets: dict[str, str] | None = None,
+    paper_approval_mode: str = "human_review",
 ) -> dict[str, Any]:
     """Return a new spec; reject drift and every unbounded invocation."""
     readiness = host_readiness(
@@ -283,6 +285,8 @@ def build_spec(
         raise ValueError("production image digest differs from the reviewed active digest")
     if operation not in {"preflight", "discover", "extract", "build-corpus"}:
         raise ValueError("unsupported literature operation")
+    if paper_approval_mode not in PAPER_APPROVAL_MODES:
+        raise ValueError("paper_approval_mode must be human_review or query_policy_v1")
     if discovery_run_id:
         try:
             discovery_run_id = str(uuid.UUID(discovery_run_id))
@@ -357,7 +361,7 @@ def build_spec(
         if supplied.get("NCBI_API_KEY"):
             _add_secret(job, "NCBI_API_KEY", supplied["NCBI_API_KEY"])
         job["envs"].append(
-            {"key": "PAPERS_REQUIRE_HUMAN_REVIEW", "scope": "RUN_TIME", "value": "true"}
+            {"key": "PAPER_APPROVAL_MODE", "scope": "RUN_TIME", "value": paper_approval_mode}
         )
         job["run_command"] = (
             "/app/.venv/bin/atlas-data pipeline pubmed-discover"
@@ -370,7 +374,8 @@ def build_spec(
         job["envs"] += [
             {"key": "NEO4J_URI", "scope": "RUN_TIME", "value": NEO4J_URI},
             {"key": "NEO4J_RUNTIME_USER", "scope": "RUN_TIME", "value": "graph_runtime"},
-            {"key": "PAPERS_REQUIRE_HUMAN_REVIEW", "scope": "RUN_TIME", "value": "true"},
+            # The extraction worker never approves papers, whatever the discovery mode.
+            {"key": "PAPER_APPROVAL_MODE", "scope": "RUN_TIME", "value": "human_review"},
         ]
         job["run_command"] = (
             "/app/.venv/bin/atlas-data pipeline pmc-extract"
@@ -396,6 +401,7 @@ def main() -> None:
     parser.add_argument("--source-commit", default="")
     parser.add_argument("--workflow-run-id", default="")
     parser.add_argument("--readiness-report", type=Path)
+    parser.add_argument("--paper-approval-mode", default="human_review")
     args = parser.parse_args()
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     supplied = {
@@ -431,6 +437,7 @@ def main() -> None:
         source_commit=args.source_commit,
         workflow_run_id=args.workflow_run_id,
         secrets=supplied,
+        paper_approval_mode=args.paper_approval_mode,
     )
     args.output.write_text(json.dumps(result), encoding="utf-8")
 

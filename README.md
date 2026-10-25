@@ -60,13 +60,22 @@ Community does not enforce separate API-reader and pipeline-writer permissions;
 the VPC, secret store, fixed API retrieval templates, and review gate are the
 required compensating controls.
 
-The literature worker is deliberately split at the human-review boundary:
+The literature worker is deliberately split at the approval boundary:
 `pipeline pubmed-discover --family <family>` writes immutable EFetch XML and
-queues normalized citations for a steward. Only after a paper is approved can
-`pipeline pmc-extract` claim one PMC Open Access paper, validate its
+queues normalized citations as `awaiting_review`. Only after a paper is approved
+can `pipeline pmc-extract` claim one PMC Open Access paper, validate its
 license-bearing JATS content, reserve extraction budget, and publish a
 passage-backed graph contribution. Both commands use the isolated DEV/PROD
 database selected by `TOPX_ENV`; neither touches the Alpha POC database.
+
+`PAPER_APPROVAL_MODE` selects who approves (ADR 0023, data ADR 0049). The default,
+`human_review`, leaves every paper for a steward. With `query_policy_v1`,
+discovery approves the PMCID-bearing, still-awaiting papers of the completed run
+through `GOVERNANCE.SP_RECORD_PAPER_POLICY_APPROVAL`, recorded as actor
+`policy:pubmed-query-v1`. Papers without a PMCID stay `awaiting_review`. Repair or
+preview a run with `pipeline pubmed-approve-by-policy --discovery-run-id <uuid>`
+and exactly one of `--dry-run` or `--confirm`. PROD stays on `human_review` until
+an owner-approved workflow input enables the policy.
 
 ```powershell
 uv sync --extra dev

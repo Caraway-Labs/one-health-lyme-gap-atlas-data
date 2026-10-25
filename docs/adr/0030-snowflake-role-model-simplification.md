@@ -1,6 +1,7 @@
 # 0030: Snowflake Role Model Simplification (Epic #294 / Story #296)
 
 Status: Accepted
+Amended by [ADR 0049](0049-pubmed-query-policy-paper-approval.md) and workspace ADR 0023 for the literature paper-approval boundary only.
 Date: 2026-09-16
 Decision owner: One Health Lyme Gap Atlas product and engineering leads
 Parent: Epic #294 — Reduce Snowflake role sprawl and ingestion governance overhead

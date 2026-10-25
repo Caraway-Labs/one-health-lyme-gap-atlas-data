@@ -67,6 +67,8 @@ Controls this **drops**, named explicitly:
 1. **"Pipeline runtime role must never approve candidates"** (`AGENTS.md`,
    ADR 0005/0027) — the scheduled ingestion job's credential could now also
    call `SP_RECORD_SOURCE_REVIEW_DECISION` and `SP_RECORD_PAPER_REVIEW_BATCH`.
+(ADR 0023 later allows literature discovery the single bounded
+`SP_RECORD_PAPER_POLICY_APPROVAL`; the steward procedures stay forbidden.)
    A compromised or buggy scheduled run could self-approve its own source or
    literature candidate with no separate identity required.
 2. **Owner-rights procedures separated from runtime** (data-repo `AGENTS.md`,

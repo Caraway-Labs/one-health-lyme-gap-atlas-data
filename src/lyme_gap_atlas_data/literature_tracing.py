@@ -25,6 +25,7 @@ LITERATURE_COMMANDS = frozenset(
         "pipeline.pmc-extract",
         "pipeline.literature-preflight",
         "pipeline.pubmed-discover",
+        "pipeline.pubmed-approve-by-policy",
         "pipeline.build-retrieval-corpus",
         "pipeline.literature-status",
     }

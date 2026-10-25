@@ -119,6 +119,7 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     )
     assert result["status"] == "COMPLETED"
     assert result["record_count"] == 1
+    assert "policy_approval" not in result
     assert calls == 2
     assert events.count("artifact") == 1
     assert sum("MERGE INTO KNOWLEDGE_GRAPH.PAPERS " in sql for sql, _values in statements) == 1
@@ -144,16 +145,14 @@ def test_discovery_persists_artifact_before_normalizing_and_is_bounded(
     assert "finished_at" not in request_statement
 
 
-def test_discovery_rejects_unbounded_or_non_review_execution() -> None:
+def test_discovery_rejects_unbounded_execution_and_unknown_approval_mode() -> None:
     with pytest.raises(ValueError, match="maximum_records"):
         discover_pubmed("vector_host_pathogen", maximum_records=MAX_RECORDS_PER_RUN + 1)
-    with pytest.raises(ValueError, match="HUMAN_REVIEW"):
-        discover_pubmed(
-            "vector_host_pathogen",
-            maximum_records=1,
-            settings=PipelineSettings(
-                ncbi_email="steward@example.org", papers_require_human_review=False
-            ),
+    with pytest.raises(ValueError, match="paper_approval_mode"):
+        PipelineSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            ncbi_email="steward@example.org",
+            paper_approval_mode="auto",  # type: ignore[arg-type]
         )
 
 
@@ -229,3 +228,97 @@ def test_dev_job_is_bounded_and_uses_runtime_contact_secret() -> None:
         "SNOWFLAKE_PRIVATE_KEY_B64",
         "SPACES_SECRET_ACCESS_KEY",
     }
+
+
+def _discover_with_fakes(
+    monkeypatch: pytest.MonkeyPatch, mode: str, approve: object
+) -> dict[str, object]:
+    class Client:
+        def start(self, family: str) -> HistoryCursor:
+            return HistoryCursor(family, "history", "1", 1, 0)
+
+        def fetch(self, _cursor: HistoryCursor) -> bytes:
+            return EFETCH
+
+    class Store:
+        def put_object(self, **_kwargs: object) -> None:
+            return None
+
+    class Cursor:
+        def execute(self, _query: str, _values: object = None) -> None:
+            return None
+
+    class Connection:
+        def autocommit(self, _enabled: bool) -> None:
+            return None
+
+        @contextmanager
+        def cursor(self):
+            yield Cursor()
+
+        def commit(self) -> None:
+            return None
+
+    @contextmanager
+    def fake_connect(_settings: object):
+        yield Connection()
+
+    monkeypatch.setattr("lyme_gap_atlas_data.pubmed_discovery.connect", fake_connect)
+    monkeypatch.setattr("lyme_gap_atlas_data.pubmed_discovery.time.sleep", lambda _x: None)
+    monkeypatch.setattr("lyme_gap_atlas_data.pubmed_discovery.approve_by_policy", approve)
+    return discover_pubmed(
+        "vector_host_pathogen",
+        maximum_records=1,
+        batch_size=1,
+        settings=PipelineSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            ncbi_email="reader@example.test",
+            paper_approval_mode=mode,  # type: ignore[arg-type]
+        ),
+        client=Client(),
+        s3=Store(),
+    )
+
+
+def test_human_review_mode_never_attempts_policy_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("policy approval must not run in human_review mode")
+
+    result = _discover_with_fakes(monkeypatch, "human_review", forbidden)
+    assert result["status"] == "COMPLETED"
+    assert "policy_approval" not in result
+
+
+def test_query_policy_mode_approves_the_completed_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    def approve(run_id: str, **_kwargs: object) -> dict[str, object]:
+        seen.append(run_id)
+        return {"approved_count": 1, "skipped_no_pmcid": 0, "skipped_not_awaiting_review": 0}
+
+    result = _discover_with_fakes(monkeypatch, "query_policy_v1", approve)
+    assert seen == [result["discovery_run_id"]]
+    assert result["policy_approval"] == {
+        "status": "COMPLETED",
+        "approved_count": 1,
+        "skipped_no_pmcid": 0,
+        "skipped_not_awaiting_review": 0,
+    }
+
+
+def test_failed_policy_approval_keeps_discovery_completed_and_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def approve(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("SELECT secret sql and private paper text")
+
+    result = _discover_with_fakes(monkeypatch, "query_policy_v1", approve)
+    assert result["status"] == "COMPLETED"
+    assert result["policy_approval"] == {
+        "status": "FAILED",
+        "error_type": "RuntimeError",
+        "next_action": "rerun_pubmed_approve_by_policy",
+    }
+    assert "secret" not in json.dumps(result)
