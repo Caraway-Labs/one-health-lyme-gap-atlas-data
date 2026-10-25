@@ -15,8 +15,13 @@ ERROR_CLASS = "INTELLIGENCE_DAILY_PROCESS_EXIT"
 DIAGNOSTIC = "PROCESS_WATCHDOG_OR_EXIT"
 
 
-def terminalize_stuck_daily_run(ingestion_run_id: str) -> dict[str, Any]:
-    """Mark a watchdog-interrupted daily admission FAILED without erasing ledger evidence."""
+def terminalize_stuck_daily_run(ingestion_run_id: str, *, source_id: str) -> dict[str, Any]:
+    """Mark a watchdog-interrupted daily admission FAILED without erasing ledger evidence.
+
+    ``source_id`` must be the run's resource_key. A mismatch writes nothing.
+    """
+    if source_id not in PROD_SOURCE_DEFINITIONS:
+        raise PermissionError("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID")
     settings = PipelineSettings()
     if (
         settings.topx_env != "prod"
@@ -49,6 +54,8 @@ def terminalize_stuck_daily_run(ingestion_run_id: str) -> dict[str, Any]:
         if row is None:
             raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_RUN_NOT_FOUND")
         resource_key, status, code_version, config_sha256 = row
+        if resource_key != source_id:
+            raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_SOURCE_MISMATCH")
         if (
             status != "RUNNING"
             or code_version != DAILY_CODE_VERSION

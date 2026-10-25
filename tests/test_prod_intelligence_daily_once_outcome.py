@@ -83,6 +83,38 @@ def test_non_allowlisted_code_and_other_log_text_stay_out_of_the_table() -> None
     assert "cdc-mmwr | FAILED | UNCLASSIFIED_EXCEPTION | - | 12" in table
 
 
+def test_skipped_source_is_reported_and_does_not_fail_the_operation() -> None:
+    text = "\n".join(
+        (
+            _outcome_line(
+                source_id="cdc-eid-expedited",
+                outcome="SKIPPED_NOT_SELECTED",
+                status="SKIPPED_NOT_SELECTED",
+                error_code=None,
+                failed_stage=None,
+                stage_timings_ms={},
+            ),
+            _outcome_line(
+                outcome="SUCCEEDED",
+                status="COMPLETED",
+                error_code=None,
+                failed_stage=None,
+            ),
+        )
+    )
+    rows = _MODULE["parse_daily_outcomes"](text)
+    assert [row["status"] for row in rows] == ["SKIPPED_NOT_SELECTED", "COMPLETED"]
+    assert _MODULE["run_failed"](0, rows) is False
+    assert _MODULE["result_exit_code"](operation_status=0, rows=rows, restored=True) == 0
+
+
+def test_already_claimed_reopen_names_the_existing_claim_code() -> None:
+    rows = _MODULE["parse_daily_outcomes"](
+        _outcome_line(outcome="ALREADY_CLAIMED", status="ALREADY_CLAIMED", error_code=None)
+    )
+    assert _MODULE["failure_codes"](1, rows) == ["ALREADY_CLAIMED"]
+
+
 def test_later_outcome_for_the_same_source_replaces_the_earlier_one() -> None:
     text = "\n".join(
         (

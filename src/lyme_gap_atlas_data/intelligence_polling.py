@@ -72,16 +72,19 @@ _STATUS_FOR_OUTCOME = {
     "SCHEDULE_SUPPRESSED": "SCHEDULE_SUPPRESSED",
     "READY": "READY",
     "PREFLIGHT_OR_RUNTIME_FAILED": "FAILED",
+    "SKIPPED_NOT_SELECTED": "SKIPPED_NOT_SELECTED",
 }
+# One reopen names one source. Five is the whole approved daily set.
+MAX_DAILY_SOURCE_SELECTION = 5
 _LOG_STATUSES = frozenset(_STATUS_FOR_OUTCOME.values())
 _LOG_OUTCOMES = frozenset(_STATUS_FOR_OUTCOME)
 
 
-def _terminalize_claimed_daily_run(run_id: str) -> None:
+def _terminalize_claimed_daily_run(run_id: str, source_id: str) -> None:
     from .intelligence_daily_run_recovery import terminalize_stuck_daily_run
 
     try:
-        terminalize_stuck_daily_run(run_id)
+        terminalize_stuck_daily_run(run_id, source_id=source_id)
     except Exception:
         return
 
@@ -597,7 +600,7 @@ def execute_daily_source_in_process(
                     # fresh short connection so the claim is never left RUNNING.
                     terminalize_daily_pilot_deadline(run_id)
                 else:
-                    _terminalize_claimed_daily_run(run_id)
+                    _terminalize_claimed_daily_run(run_id, source_id)
                 return _failed_from_exception(
                     source_id,
                     error,
@@ -639,39 +642,80 @@ def execute_daily_source_in_process(
         )
 
 
+def daily_source_selection(
+    source_ids: tuple[str, ...] | list[str] | None,
+    *,
+    reopen_attempt: int,
+) -> frozenset[str] | None:
+    """Return approved sources to run, or None when every approved source runs.
+
+    A reopen (attempt >= 2) must name 1 to 5 approved daily sources before any
+    warehouse connection. ``all`` and unknown ids are rejected. Omitted sources
+    are not claimed.
+    """
+    if reopen_attempt < 1:
+        raise ValueError("reopen_attempt must be at least 1")
+    selected = tuple(source_ids or ())
+    if not selected:
+        if reopen_attempt >= 2:
+            raise PermissionError("INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED")
+        return None
+    if (
+        len(selected) > MAX_DAILY_SOURCE_SELECTION
+        or len(set(selected)) != len(selected)
+        or any(source_id not in PROD_SOURCE_DEFINITIONS for source_id in selected)
+    ):
+        raise PermissionError("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID")
+    return frozenset(selected)
+
+
 def run_production_daily(
-    *, preflight_only: bool = False, reopen_attempt: int = 1
+    *,
+    preflight_only: bool = False,
+    reopen_attempt: int = 1,
+    source_ids: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
     """Run each exact accepted active source once per UTC day, without retries.
 
     This is a bounded entry point for the existing DigitalOcean job platform,
     not a scheduler. Disabled execution performs no warehouse/provider I/O.
     Each source runs in its own process so one hard kill stops only that source.
+    A source selector skips the rest with SKIPPED_NOT_SELECTED and does not
+    claim them. Reopen attempts require that selector.
     """
+    # Selector checks precede settings and any Snowflake connection.
+    selection = daily_source_selection(source_ids, reopen_attempt=reopen_attempt)
     if reopen_attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":
         raise PermissionError("INTELLIGENCE_DAILY_REOPEN_REQUIRED")
-    if reopen_attempt < 1:
-        raise ValueError("reopen_attempt must be at least 1")
     settings = pipeline_settings.PipelineSettings()
     if not settings.intelligence_daily_enabled:
         return {"status": "DISABLED", "sources": [], "provider_requests": 0}
     if settings.topx_env != "prod":
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
     day = datetime.now(UTC).date().isoformat()
-    results = [
-        execute_daily_source(
-            source_id,
-            path,
-            preflight_only=preflight_only,
-            reopen_attempt=reopen_attempt,
-            day=day,
+    results = []
+    for source_id, path in PROD_SOURCE_DEFINITIONS.items():
+        if selection is not None and source_id not in selection:
+            results.append(_source_outcome(source_id, "SKIPPED_NOT_SELECTED"))
+            continue
+        results.append(
+            execute_daily_source(
+                source_id,
+                path,
+                preflight_only=preflight_only,
+                reopen_attempt=reopen_attempt,
+                day=day,
+            )
         )
-        for source_id, path in PROD_SOURCE_DEFINITIONS.items()
-    ]
     for row in results:
         _log_daily_outcome(row)
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
-    if preflight_only and any(row["outcome"] != "READY" for row in results):
+    if preflight_only and any(
+        row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results
+    ):
+        failed = True
+    # A second reopen finds the attempt row and must not look like a new success.
+    if reopen_attempt >= 2 and any(row["outcome"] == "ALREADY_CLAIMED" for row in results):
         failed = True
     payload: dict[str, Any] = {
         "status": "FAILED" if failed else "SUCCEEDED",

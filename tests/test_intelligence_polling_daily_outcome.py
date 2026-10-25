@@ -25,7 +25,7 @@ def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
         intelligence_daily_enabled=True,
     )
     monkeypatch.setattr("lyme_gap_atlas_data.settings.PipelineSettings", lambda: value)
-    monkeypatch.setattr(polling, "_terminalize_claimed_daily_run", lambda run_id: None)
+    monkeypatch.setattr(polling, "_terminalize_claimed_daily_run", lambda run_id, source_id: None)
     monkeypatch.setattr(polling, "terminalize_daily_pilot_deadline", lambda run_id: None)
 
 
