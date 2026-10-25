@@ -54,6 +54,8 @@ on:
           - cdc-outbreaks
           - nih-news-releases
           - cdc-mmwr
+          - pubmed-tick-borne
+          - pubmed-lyme-borrelia
       intelligence_register_registry_version:
         description: Exact reviewed immutable source version for bounded DEV registration
         required: false
@@ -261,7 +263,7 @@ jobs:
               --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
             case "$INTELLIGENCE_REGISTER_SOURCE_ID" in
-              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr) ;;
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr|pubmed-tick-borne|pubmed-lyme-borrelia) ;;
               *) echo "Unsupported intelligence registration source" >&2; exit 1 ;;
             esac
             case "$INTELLIGENCE_REGISTER_REGISTRY_VERSION" in

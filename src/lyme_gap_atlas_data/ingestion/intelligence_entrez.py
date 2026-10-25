@@ -37,6 +37,7 @@ from ..intelligence_raw_runtime import FeedRawRetention
 from ..settings import PipelineSettings
 from .adapters import AcquisitionError
 from .intelligence_feed import adapter_for_source
+from .step_deadline import note_step_deadline
 from .types import RunState, RunStatus, Stage, StageCheckpoint, StageStatus, Tier
 
 SOURCE_ORDER = ("pubmed-tick-borne", "pubmed-lyme-borrelia")
@@ -575,6 +576,7 @@ class _EntrezSession:
         return {"tool": ENTREZ_TOOL, "email": email}
 
     def _pace(self) -> None:
+        note_step_deadline()
         now = self._clock()
         if self._last is not None:
             wait = MIN_INTERVAL_SECONDS - (now - self._last)
@@ -588,6 +590,7 @@ class _EntrezSession:
         self._last = self._clock()
 
     def _get(self, url: str, params: dict[str, str]) -> bytes:
+        note_step_deadline()
         self._pace()
         if self._budget.requests >= min(self._budget.request_limit, self._request_cap):
             raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
@@ -598,6 +601,8 @@ class _EntrezSession:
             raise
         except Exception:
             raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
+        finally:
+            note_step_deadline()
         self._budget.remaining()
         if response.status == 403:
             raise AcquisitionError("FEED_HTTP_403", code="FEED_HTTP_403")

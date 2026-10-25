@@ -27,6 +27,13 @@ from lyme_gap_atlas_data.ingestion.types import RunStatus
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 ROOT = Path(__file__).parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _rss_daily_does_not_open_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *args, **kwargs: [])
+
+
 SID = "cdc-eid-expedited"
 SHA = runtime.PROD_DAILY_SOURCE_SHA256[SID]
 TODAY = datetime.now(UTC).date()

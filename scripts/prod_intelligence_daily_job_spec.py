@@ -245,6 +245,11 @@ def _row_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     stage = payload.get("failed_stage")
     failed_stage = stage if isinstance(stage, str) and stage in OPERATOR_STAGES else None
     error_code = published_outcome_code(payload.get("error_code"))
+    if error_code is None and status == "FAILED":
+        # PubMed lines publish error_class (TimeoutError, PermissionError, ...).
+        error_class = payload.get("error_class")
+        if isinstance(error_class, str) and _EXCEPTION_CLASS_NAME.fullmatch(error_class):
+            error_code = error_class
     if status == "FAILED" and error_code is None:
         error_code = "UNCLASSIFIED_EXCEPTION"
     timings = payload.get("stage_timings_ms")
