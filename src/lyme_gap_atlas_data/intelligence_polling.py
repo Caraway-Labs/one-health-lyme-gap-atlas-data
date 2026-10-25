@@ -11,12 +11,15 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty
 from typing import Any, cast
+
+from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from . import settings as pipeline_settings
 from .ingestion import intelligence_runtime
@@ -48,6 +51,10 @@ from .intelligence_daily_hard_kill import (
     source_process_timeout,
 )
 from .intelligence_items import canonical_url, identity_hash, validate_record
+from .intelligence_metadata import NativeMetadataPolicy
+from .intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
+from .intelligence_storage import IntelligenceStore
+from .sql_sessions import connect
 
 DAILY_POLL_SECONDS = 86_400
 DAILY_OUTCOME_LOG_PREFIX = "ATLAS_INTEL_DAILY_OUTCOME "
@@ -648,19 +655,74 @@ def execute_daily_source_in_process(
         )
 
 
+def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
+    """PROD store and Snowflake checkpoint ledger for a registered Entrez daily run.
+
+    Draft sources never reach this function. The store's write method is the same
+    MERGE path the RSS load stage uses. The raw-artifact lease still accepts only
+    RSS parser versions, so this opener does not bind Entrez response bytes there.
+    """
+    if settings.topx_env != "prod" or not settings.intelligence_daily_enabled:
+        raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
+    budget = intelligence_runtime.PilotBudget(
+        seconds=intelligence_runtime.DAILY_SOURCE_BUDGET_SECONDS,
+        request_limit=5,
+    )
+
+    @contextmanager
+    def factory() -> Iterator[Any]:
+        budget.remaining()
+        with connect(SnowflakeSettings()) as raw:
+            yield intelligence_runtime._Connection(raw, budget)
+
+    document = json.loads(
+        Path("config/intelligence/pubmed-policy-receipts.json").read_text(encoding="utf-8")
+    )
+    policies: dict[str, NativeMetadataPolicy] = {}
+    for receipt in document["receipts"]:
+        native = receipt["native_policy"]
+        policies[receipt["source_id"]] = NativeMetadataPolicy(
+            policy_ref=native["policy_ref"],
+            source_sha256=native["source_sha256"],
+            inventory=frozenset(native["inventory"]),
+            permitted_paths=frozenset(native["permitted_paths"]),
+            required_paths=frozenset(native["required_paths"]),
+            published_path=native["published_path"],
+            published_format=native["published_format"],
+            updated_path=native.get("updated_path"),
+            updated_format=native.get("updated_format", "iso8601"),
+        )
+    store = IntelligenceStore(
+        connection_factory=factory,
+        retention_allowed=lambda ref: str(ref).endswith("metadata-raw-30d-v1"),
+        native_policy_lookup=lambda sid, version: policies[sid],
+        settings=settings,
+    )
+    retention = FeedRawRetention(
+        SnowflakeRawLedger(factory, "PROD"),
+        environment="PROD",
+        source_lookup=store.lookup_source,
+        policy_lookup=lambda source: source["access_use"]["content_retention_policy_ref"],
+    )
+    checkpoints = IntelligenceSnowflakeCheckpoints(retention, connection_factory=factory)
+    return store, checkpoints, budget
+
+
 def _walk_registered_entrez_daily(settings: Any, day: str, *, preflight_only: bool) -> None:
     """Run PubMed when both sources are active and pinned. Drafts do not fetch or write.
 
     The five CDC/NIH sources keep their own walk. This adds the Entrez path beside
     them and returns before any session when the PubMed files are still unregistered.
+    Pins are read from the runtime module so a later import edit cannot drop the name.
     """
-    if not registered_entrez_sources(PROD_DAILY_SOURCE_SHA256):
+    pins = intelligence_runtime.PROD_DAILY_SOURCE_SHA256
+    if not registered_entrez_sources(pins):
         return
     if preflight_only:
         return
-    store, checkpoints, budget = intelligence_runtime.open_entrez_daily_io(settings)
+    store, checkpoints, budget = open_entrez_daily_io(settings)
     execute_registered_entrez_daily(
-        pinned=PROD_DAILY_SOURCE_SHA256,
+        pinned=pins,
         sender=live_entrez_get,
         settings=settings,
         budget=budget,

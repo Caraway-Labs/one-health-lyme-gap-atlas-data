@@ -521,6 +521,37 @@ def test_abstract_keeps_comparisons_and_drops_script_content() -> None:
     assert outcome.items[0]["publisher_metadata"]["abstract"]["text"] == "Results"
 
 
+def test_copyright_line_maps_angle_brackets() -> None:
+    xml = (
+        b"<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>30000004</PMID><Article>"
+        b"<Journal><Title>Journal</Title><JournalIssue><PubDate>"
+        b"<Year>2026</Year><Month>10</Month><Day>1</Day></PubDate></JournalIssue></Journal>"
+        b"<ArticleTitle>Copyright</ArticleTitle>"
+        b"<Abstract><AbstractText>Results</AbstractText>"
+        b"<CopyrightInformation>Copyright &lt;2026&gt; Holder</CopyrightInformation></Abstract>"
+        b"<Language>eng</Language></Article></MedlineCitation>"
+        b'<PubmedData><History><PubMedPubDate PubStatus="entrez">'
+        b"<Year>2026</Year><Month>10</Month><Day>24</Day></PubMedPubDate></History>"
+        b"</PubmedData></PubmedArticle></PubmedArticleSet>"
+    )
+    searches = {
+        _queries()["pubmed-tick-borne"]: {"count": 1, "idlist": ["30000004"]},
+        _queries()["pubmed-lyme-borrelia"]: {"count": 0, "idlist": []},
+    }
+
+    class CopyrightTransport(FixtureTransport):
+        def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
+            response = super().__call__(url, params, timeout)
+            if "id" in params:
+                return EntrezResponse(200, xml)
+            return response
+
+    outcome, _sleeps = _run(CopyrightTransport(searches))
+    line = outcome.items[0]["publisher_metadata"]["abstract"]["copyright_line"]
+    assert line == "Copyright \uff1c2026\uff1e Holder"
+    assert "<" not in line and ">" not in line
+
+
 def test_search_sort_is_encoded_once_on_the_wire() -> None:
     transport = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
     _run(transport)
@@ -721,7 +752,7 @@ def test_unregistered_drafts_are_not_fetched() -> None:
 
 def test_entrez_daily_io_stays_closed_outside_prod() -> None:
     with pytest.raises(PermissionError, match="INTELLIGENCE_DAILY_PROD_REQUIRED"):
-        runtime.open_entrez_daily_io(PipelineSettings())
+        polling.open_entrez_daily_io(PipelineSettings())
 
 
 def test_daily_job_calls_the_entrez_walk_only_when_registered(
@@ -730,7 +761,7 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
     def fail_open(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("unregistered pubmed must not open a session")
 
-    monkeypatch.setattr(runtime, "open_entrez_daily_io", fail_open)
+    monkeypatch.setattr(polling, "open_entrez_daily_io", fail_open)
     polling._walk_registered_entrez_daily(
         PipelineSettings(
             topx_env="prod",
@@ -749,7 +780,7 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
         lambda _pinned: [{"source_id": "pubmed-tick-borne"}],
     )
     monkeypatch.setattr(
-        runtime, "open_entrez_daily_io", lambda _settings: ("store", "ledger", "budget")
+        polling, "open_entrez_daily_io", lambda _settings: ("store", "ledger", "budget")
     )
 
     def execute(**kwargs: Any) -> dict[str, bool]:

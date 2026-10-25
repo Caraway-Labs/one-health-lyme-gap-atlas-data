@@ -808,10 +808,10 @@ def _abstract(paper: ET.Element) -> tuple[str | None, str | None]:
         parts.append(f"{label}: {text}" if label else text)
     raw = "\n".join(parts)
     copyright_node = paper.find("Abstract/CopyrightInformation")
-    copyright: str | None = (
-        "".join(copyright_node.itertext()).strip() if copyright_node is not None else None
-    )
-    if not copyright or len(copyright) > 1000 or _has_control(copyright):
+    raw_copyright = "".join(copyright_node.itertext()).strip() if copyright_node is not None else ""
+    # Same look-alike mapping as abstracts, so a literal "<" cannot fail the API text check.
+    copyright: str | None = sanitize_abstract_text(raw_copyright)
+    if not copyright or len(copyright) > 1000:
         copyright = None
     if not raw.strip():
         return None, copyright
