@@ -81,6 +81,24 @@ def verify_schema(
                 raise PermissionError("CDC_PROD_EXPANDED_RETENTION_HANDOFF_REQUIRED")
 
 
+def require_additional_source_hash(source_id: str, registry_version: int) -> None:
+    """Check a pinned registry file that is not one of the five RSS feeds.
+
+    Those five feeds keep their reviewed-package checks. An id or version with
+    no pin raises EID_REVIEWED_PACKAGE_MISMATCH before the registry file is
+    read. A pin whose file hash differs raises EID_PROD_SOURCE_HASH_CHANGED.
+    """
+    if source_id in _dev_module.RSS_REVIEWED_SOURCE_IDS:
+        return
+    expected = _dev_module._pinned_registry_sha256(source_id, registry_version)
+    registry_path = (
+        _dev_module.ROOT / f"config/intelligence/{source_id}-source-v{registry_version}.json"
+    )
+    source = json.loads(registry_path.read_text(encoding="utf-8"))
+    if _dev_module.identity_hash(source) != expected:
+        raise PermissionError("EID_PROD_SOURCE_HASH_CHANGED")
+
+
 def main() -> None:
     os.environ["ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS"] = "10"
     with pilot_watchdog(seconds=120):
@@ -90,6 +108,7 @@ def main() -> None:
                 raise PermissionError("EID_PROD_ENVIRONMENT_REQUIRED")
             source_id = os.environ.get("INTELLIGENCE_SOURCE_ID", "cdc-eid-expedited")
             version = int(os.environ.get("INTELLIGENCE_SOURCE_REGISTRY_VERSION", "1"))
+            require_additional_source_hash(source_id, version)
             source, checksum = reviewed_package(source_id, version)
             if checksum != (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(
                 source_id

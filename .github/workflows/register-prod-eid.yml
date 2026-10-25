@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_id:
-        description: One exact reviewed CDC metadata source; no other source admission
+        description: One exact reviewed intelligence source
         required: true
         type: choice
         default: cdc-eid-expedited
@@ -14,6 +14,8 @@ on:
           - cdc-outbreaks
           - nih-news-releases
           - cdc-mmwr
+          - pubmed-tick-borne
+          - pubmed-lyme-borrelia
       reviewed_commit:
         description: Exact green main commit approved for PROD source registration
         required: true

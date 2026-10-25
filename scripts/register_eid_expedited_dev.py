@@ -34,9 +34,21 @@ IDENTITY = (
 SOURCE_ID = "cdc-eid-expedited"
 DECISION_REF = "DATA-132-135-EID-ADMISSION-2026-10-09"
 ARTIFACT_POLICY = "CDC_EID_RESTRICTED_RAW_30D_V1"
+ACCEPTED_REGISTRY_VERSIONS = frozenset({1, 2})
+# Package rules for these five feeds stay as they are. Any other id is accepted
+# when the requested version's pin dict contains it.
+RSS_REVIEWED_SOURCE_IDS = frozenset(
+    {
+        "cdc-eid-expedited",
+        "cdc-eid-ahead-of-print",
+        "cdc-outbreaks",
+        "nih-news-releases",
+        "cdc-mmwr",
+    }
+)
 
 
-def reviewed_package(
+def _reviewed_rss_package(
     source_id: str = SOURCE_ID, registry_version: int = 1
 ) -> tuple[dict[str, Any], str]:
     if source_id not in PROD_SOURCE_SHA256:
@@ -123,6 +135,45 @@ def reviewed_package(
     return source, checksum
 
 
+def _pins_for_version(registry_version: int) -> dict[str, str]:
+    if registry_version not in ACCEPTED_REGISTRY_VERSIONS:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    if registry_version == 1:
+        return PROD_SOURCE_SHA256
+    return PROD_DAILY_SOURCE_SHA256
+
+
+def _pinned_registry_sha256(source_id: str, registry_version: int) -> str:
+    try:
+        return _pins_for_version(registry_version)[source_id]
+    except KeyError:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH") from None
+
+
+def _reviewed_pinned_package(source_id: str, registry_version: int) -> tuple[dict[str, Any], str]:
+    """Accept any pinned id whose registry file matches that version's hash pin."""
+    expected = _pinned_registry_sha256(source_id, registry_version)
+    registry_path = ROOT / f"config/intelligence/{source_id}-source-v{registry_version}.json"
+    source = json.loads(registry_path.read_text(encoding="utf-8"))
+    validate_record("source", source)
+    checksum = identity_hash(source)
+    if (
+        source["source_id"] != source_id
+        or source["registry_version"] != registry_version
+        or checksum != expected
+    ):
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    return source, checksum
+
+
+def reviewed_package(
+    source_id: str = SOURCE_ID, registry_version: int = 1
+) -> tuple[dict[str, Any], str]:
+    if source_id in RSS_REVIEWED_SOURCE_IDS:
+        return _reviewed_rss_package(source_id, registry_version)
+    return _reviewed_pinned_package(source_id, registry_version)
+
+
 def register(
     connection: Any,
     source: dict[str, Any],
@@ -133,12 +184,7 @@ def register(
     """Guarded single-source insert; exact existing row is an idempotent retry."""
     source_id = source["source_id"]
     version = source["registry_version"]
-    expected_hashes = PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256
-    if (
-        version not in {1, 2}
-        or source_id not in expected_hashes
-        or checksum != expected_hashes[source_id]
-    ):
+    if checksum != _pinned_registry_sha256(source_id, version):
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     if identity_hash(source) != checksum:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
