@@ -19,7 +19,10 @@ from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
     pilot_watchdog,
 )
 from lyme_gap_atlas_data.intelligence_items import canonical_json, identity_hash, validate_record
-from lyme_gap_atlas_data.intelligence_metadata import NativeMetadataPolicy
+from lyme_gap_atlas_data.intelligence_metadata import (
+    NativeMetadataPolicy,
+    prod_native_published_format_allowed,
+)
 from lyme_gap_atlas_data.sql_sessions import connect
 
 ROOT = Path(__file__).parents[1]
@@ -117,7 +120,7 @@ def reviewed_package(
         )
         or native.updated_path is not None
         or native.published_path != "item/pubDate"
-        or native.published_format != "rfc822"
+        or not prod_native_published_format_allowed(source_id, native)
     ):
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     return source, checksum

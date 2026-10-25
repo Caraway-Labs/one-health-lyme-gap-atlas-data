@@ -28,9 +28,33 @@ snapshot; inventory is not copying permission.
 
 Publisher dates additionally retain their exact bounded raw string, normalized UTC
 value, explicit invalid/not-provided state and selected dialect in private data.
-Profiles explicitly map RSS RFC822 or namespaced ISO8601/Atom fields. Missing
-timezone is invalid; retrieval time never supplies missing publisher chronology.
-No event date is invented. Exact fractional UTC precision remains preserved.
+Profiles select RSS RFC 822, namespaced ISO 8601, or the NIH Drupal wall-clock
+dialect below. A missing zone on RFC 822 or ISO 8601 stays invalid. Retrieval
+time never supplies missing publisher chronology. No event date is invented.
+Exact fractional UTC precision remains preserved.
+
+## NIH news-release publication time
+
+`nih-news-releases` may select `published_format` `nih_drupal_wallclock` together
+with `published_timezone` `America/New_York`. That pair is valid only for this
+source. The item `pubDate` text is a weekday and `MM/DD/YYYY - HH:MM` with no
+zone. The reader strips surrounding whitespace, requires the weekday to match
+the calendar date, and converts that America/New_York wall clock to canonical
+UTC. `America/New_York` is the IANA zone for US Eastern, including its
+daylight-saving transitions. An ambiguous local time, including the repeated
+fall-back hour, and a local time that does not exist, including the
+spring-forward gap, stay invalid with a null normalized value. The stored raw
+publisher string is the original text.
+
+On 2026-10-25 the owner decided to read NIH item publish times as US Eastern,
+and only for NIH. The Eastern basis is the recorded feed channel `pubDate`
+offset `-0400`, which is the same instant as the newest item's `13:00` wall
+clock, and NIH's location in Bethesda, Maryland. The applied NIH receipt
+remains `rfc822`.
+
+`config/intelligence/nih-news-releases-settings-receipt-prepared.json` is the
+prepared settings receipt. It is not applied. Runtime loading stays on the
+applied receipts.
 
 Revision content includes eligible publisher/native metadata, so GUID attributes,
 categories, language, author/media and chronology-format changes are not dropped

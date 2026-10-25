@@ -14,7 +14,10 @@ from lyme_gap_atlas_shared.snowflake import connect
 
 from lyme_gap_atlas_data.climate_dev_validation import DEV, ROLE, USER, WAREHOUSE
 from lyme_gap_atlas_data.intelligence_items import identity_hash, validate_record
-from lyme_gap_atlas_data.intelligence_metadata import NativeMetadataPolicy
+from lyme_gap_atlas_data.intelligence_metadata import (
+    NativeMetadataPolicy,
+    prod_native_published_format_allowed,
+)
 
 SOURCE_ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
@@ -161,7 +164,7 @@ def source_result(
             not native.policy_ref
             or not native.permitted_paths <= safe_paths
             or native.published_path != "item/pubDate"
-            or native.published_format != "rfc822"
+            or not prod_native_published_format_allowed(source_id, native)
             or native.updated_path is not None
         ):
             return fail("NATIVE_POLICY_MISMATCH")
