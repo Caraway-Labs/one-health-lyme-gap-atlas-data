@@ -9,10 +9,11 @@ import json
 import multiprocessing
 import os
 import re
+import signal
 import sys
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,8 @@ from .ingestion import intelligence_runtime
 from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .ingestion.intelligence_daily_run_ids import daily_run_id
 from .ingestion.intelligence_entrez import (
+    RECEIPT_PATH,
+    SOURCE_ORDER,
     execute_registered_entrez_daily,
     live_entrez_get,
     registered_entrez_sources,
@@ -40,7 +43,17 @@ from .ingestion.intelligence_runtime import (
     DailyStageClock,
 )
 from .ingestion.source_definition import load_source_definition
-from .ingestion.types import AdapterKind, RunStatus, SourceDefinition, Stage, Tier
+from .ingestion.types import (
+    AdapterKind,
+    FailureCategory,
+    RunState,
+    RunStatus,
+    SourceDefinition,
+    Stage,
+    StageCheckpoint,
+    StageStatus,
+    Tier,
+)
 from .intelligence_daily_deadline import terminalize_daily_pilot_deadline
 from .intelligence_daily_hard_kill import (
     HARD_KILL_EXIT_CODE,
@@ -89,6 +102,8 @@ _STATUS_FOR_OUTCOME = {
 }
 # One reopen names one source. Five is the whole approved daily set.
 MAX_DAILY_SOURCE_SELECTION = 5
+# Five Entrez requests at the 30 second cap, plus pacing. Independent of the RSS budget.
+PUBMED_WALK_DEADLINE_SECONDS = 180
 _LOG_STATUSES = frozenset(_STATUS_FOR_OUTCOME.values())
 _LOG_OUTCOMES = frozenset(_STATUS_FOR_OUTCOME)
 
@@ -675,9 +690,7 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
         with connect(SnowflakeSettings()) as raw:
             yield intelligence_runtime._Connection(raw, budget)
 
-    document = json.loads(
-        Path("config/intelligence/pubmed-policy-receipts.json").read_text(encoding="utf-8")
-    )
+    document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
     policies: dict[str, NativeMetadataPolicy] = {}
     for receipt in document["receipts"]:
         native = receipt["native_policy"]
@@ -708,32 +721,131 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
     return store, checkpoints, budget
 
 
-def _walk_registered_entrez_daily(settings: Any, day: str, *, preflight_only: bool) -> None:
+@contextmanager
+def _pubmed_walk_deadline(seconds: float) -> Iterator[None]:
+    """Interrupt a hung PubMed walk so the daily job can return the RSS payload."""
+    alarm = getattr(signal, "SIGALRM", None)
+    if alarm is None:
+        yield
+        return
+
+    def handler(_signum: int, _frame: object) -> None:
+        raise TimeoutError
+
+    previous = signal.signal(alarm, handler)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(alarm, previous)
+
+
+def fail_claimed_pubmed_run(checkpoints: Any, run_id: str, source_id: str) -> None:
+    """Save FAILED for one claimed PubMed run. RSS recovery does not accept these ids."""
+    if source_id not in SOURCE_ORDER:
+        raise PermissionError("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID")
+    checkpoints.save(
+        RunState(
+            ingestion_run_id=run_id,
+            resource_key=source_id,
+            source_definition_version=1,
+            tier=Tier.C,
+            status=RunStatus.FAILED,
+            stages=[
+                StageCheckpoint(
+                    stage=Stage.LOAD,
+                    status=StageStatus.FAILED,
+                    failure_category=FailureCategory.PROCESS,
+                    redacted_diagnostic_code="PUBMED_DAILY_FAILED",
+                )
+            ],
+        )
+    )
+
+
+def _pubmed_error_class(error: BaseException) -> str:
+    name = type(error).__name__
+    if _EXCEPTION_CLASS_NAME.fullmatch(name):
+        return name
+    return "Exception"
+
+
+def _log_pubmed_failure(source_id: str, error_class: str) -> None:
+    """One line: source id, FAILED, and the exception class. No message text."""
+    safe_source = source_id if source_id in SOURCE_ORDER else "unknown"
+    safe_class = error_class if _EXCEPTION_CLASS_NAME.fullmatch(error_class) else "Exception"
+    line = DAILY_OUTCOME_LOG_PREFIX + json.dumps(
+        {"error_class": safe_class, "source_id": safe_source, "status": "FAILED"},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+def _walk_registered_entrez_daily(
+    settings: Any,
+    day: str,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int = 1,
+) -> list[dict[str, str]]:
     """Run PubMed when both sources are active and pinned. Drafts do not fetch or write.
 
-    The five CDC/NIH sources keep their own walk. This adds the Entrez path beside
-    them and returns before any session when the PubMed files are still unregistered.
-    Pins are read from the runtime module so a later import edit cannot drop the name.
+    Each source gets its own daily_run_id and claim_daily_run, with the same attempt
+    rules as the RSS sources. A PubMed error is saved FAILED and does not escape, so
+    the RSS payload already built by the caller is unchanged.
     """
-    pins = intelligence_runtime.PROD_DAILY_SOURCE_SHA256
-    if not registered_entrez_sources(pins):
-        return
-    if preflight_only:
-        return
-    store, checkpoints, budget = open_entrez_daily_io(settings)
-    execute_registered_entrez_daily(
-        pinned=pins,
-        sender=live_entrez_get,
-        settings=settings,
-        budget=budget,
-        checkpoints=checkpoints,
-        store=store,
-        today=datetime.fromisoformat(day).date(),
-        run_id=f"pubmed-entrez-{day}",
-        fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        clock=time.monotonic,
-        sleep=time.sleep,
-    )
+    claimed: list[tuple[str, str]] = []
+    checkpoints: Any = None
+    try:
+        with _pubmed_walk_deadline(PUBMED_WALK_DEADLINE_SECONDS):
+            pins = intelligence_runtime.PROD_DAILY_SOURCE_SHA256
+            sources = registered_entrez_sources(pins)
+            if not sources or preflight_only:
+                return []
+            store, checkpoints, budget = open_entrez_daily_io(settings)
+            run_ids: dict[str, str] = {}
+            for source in sources:
+                source_id = source["source_id"]
+                run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+                if not checkpoints.claim_daily_run(run_id, source_id, identity_hash(source)):
+                    continue
+                claimed.append((run_id, source_id))
+                run_ids[source_id] = run_id
+            if not run_ids:
+                return []
+            execute_registered_entrez_daily(
+                pinned=pins,
+                sender=live_entrez_get,
+                settings=settings,
+                budget=budget,
+                checkpoints=checkpoints,
+                store=store,
+                today=datetime.fromisoformat(day).date(),
+                run_id=next(iter(run_ids.values())),
+                fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                clock=time.monotonic,
+                sleep=time.sleep,
+                sources=sources,
+                run_ids=run_ids,
+            )
+            return []
+    except Exception as error:
+        error_class = _pubmed_error_class(error)
+        if checkpoints is not None:
+            for run_id, source_id in claimed:
+                with suppress(Exception):
+                    fail_claimed_pubmed_run(checkpoints, run_id, source_id)
+        source_ids = [source_id for _run_id, source_id in claimed] or list(SOURCE_ORDER)
+        rows = [
+            {"source_id": source_id, "status": "FAILED", "error_class": error_class}
+            for source_id in source_ids
+        ]
+        for row in rows:
+            _log_pubmed_failure(row["source_id"], row["error_class"])
+        return rows
 
 
 def daily_source_selection(
@@ -803,7 +915,11 @@ def run_production_daily(
         )
     for row in results:
         _log_daily_outcome(row)
-    _walk_registered_entrez_daily(settings, day, preflight_only=preflight_only)
+    pubmed: list[dict[str, str]] = []
+    if selection is None:
+        pubmed = _walk_registered_entrez_daily(
+            settings, day, preflight_only=preflight_only, reopen_attempt=reopen_attempt
+        )
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
     if preflight_only and any(
         row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results
@@ -819,6 +935,8 @@ def run_production_daily(
         "reopen_attempt": reopen_attempt,
         "sources": results,
     }
+    if pubmed:
+        payload["pubmed"] = pubmed
     return payload
 
 
