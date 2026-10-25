@@ -139,6 +139,7 @@ def test_latest_registry_version_is_discovered_without_yaml_self_approval() -> N
     )
     assert loaded.definition_version == 7 and configured.definition_version == 1
     assert loaded.extra["intelligence_registry"] == source
+    assert orchestrator._effects_override.store.after_merge is runtime.record_topics_after_merge
     assert orchestrator.store.feed_retention is orchestrator._adapter_override.feed_retention
     assert orchestrator._effects_override.feed_retention is orchestrator.store.feed_retention
     assert not ledger.requests and not ledger.captures

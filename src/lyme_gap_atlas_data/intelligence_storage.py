@@ -155,6 +155,7 @@ class IntelligenceStore:
         self.retention_allowed = retention_allowed
         self.native_policy_lookup = native_policy_lookup
         self.settings = settings or PipelineSettings()
+        self.after_merge: Callable[[Any, list[dict[str, Any]]], Any] | None = None
 
     @contextmanager
     def _session(self) -> Iterator[tuple[Any, Any]]:
@@ -453,6 +454,8 @@ class IntelligenceStore:
                     registry_version=registry_version,
                     rows=validated,
                 )
+                if self.after_merge is not None:
+                    self.after_merge(cursor, validated)
                 connection.commit()
                 logger.info(
                     "intelligence_load step=write_complete run_id=%s "

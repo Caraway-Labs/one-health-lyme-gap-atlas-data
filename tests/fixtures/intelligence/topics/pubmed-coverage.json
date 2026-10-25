@@ -1,0 +1,145 @@
+{
+  "source_id": "pubmed",
+  "items": [
+    {
+      "title": "Lyme disease incidence after expansion of Ixodes scapularis",
+      "description": "County reports describe Borrelia burgdorferi infection.",
+      "categories": [],
+      "mesh": ["D008193", "Lyme Disease"],
+      "keywords": ["Borrelia burgdorferi", "Lyme disease"]
+    },
+    {
+      "title": "Babesiosis cases after blood transfusion",
+      "description": "Babesia microti was identified in the donor unit.",
+      "categories": ["Babesiosis"],
+      "mesh": ["Babesiosis"],
+      "keywords": ["Babesia microti"]
+    },
+    {
+      "title": "Human granulocytic anaplasmosis in the upper Midwest",
+      "description": "Anaplasma phagocytophilum infection presented as fever.",
+      "categories": [],
+      "mesh": ["Anaplasmosis"],
+      "keywords": ["Anaplasma phagocytophilum"]
+    },
+    {
+      "title": "Ehrlichia chaffeensis infection in a rural county",
+      "description": "The illness met the ehrlichiosis surveillance case definition.",
+      "categories": [],
+      "mesh": ["Ehrlichiosis"],
+      "keywords": ["Ehrlichia chaffeensis"]
+    },
+    {
+      "title": "Powassan virus encephalitis in a New England resident",
+      "description": "Deer tick virus was considered in the differential.",
+      "categories": [],
+      "mesh": ["Powassan virus"],
+      "keywords": ["Powassan"]
+    },
+    {
+      "title": "Alpha-gal syndrome after tick bites",
+      "description": "Galactose-alpha-1,3-galactose IgE was elevated.",
+      "categories": [],
+      "mesh": [],
+      "keywords": ["alpha-gal syndrome"]
+    },
+    {
+      "title": "Rocky Mountain spotted fever in the south-central United States",
+      "description": "Rickettsia rickettsii infection required doxycycline.",
+      "categories": [],
+      "mesh": ["Rocky Mountain Spotted Fever"],
+      "keywords": ["spotted fever"]
+    },
+    {
+      "title": "Tick-borne encephalitis virus in an unvaccinated traveler",
+      "description": "TBE virus neutralization was positive.",
+      "categories": [],
+      "mesh": ["Encephalitis, Tick-Borne"],
+      "keywords": ["tick-borne encephalitis"]
+    },
+    {
+      "title": "Crimean-Congo hemorrhagic fever in a returning traveler",
+      "description": "CCHF virus RNA was detected.",
+      "categories": [],
+      "mesh": [],
+      "keywords": ["CCHF"]
+    },
+    {
+      "title": "Severe fever with thrombocytopenia syndrome in East Asia",
+      "description": "SFTS virus was isolated from the patient.",
+      "categories": [],
+      "mesh": [],
+      "keywords": ["SFTS"]
+    },
+    {
+      "title": "Questing Ixodes ticks and pathogen prevalence",
+      "description": "Amblyomma and Dermacentor specimens were also counted.",
+      "categories": ["Ticks"],
+      "mesh": [],
+      "keywords": ["Ixodes scapularis"]
+    },
+    {
+      "title": "One Health investigation of a zoonotic outbreak",
+      "description": "Animal and human cases were reviewed together.",
+      "categories": [],
+      "mesh": ["Zoonoses"],
+      "keywords": ["One Health"]
+    },
+    {
+      "title": "West Nile virus and other arboviruses in mosquito pools",
+      "description": "Dengue virus was not detected.",
+      "categories": [],
+      "mesh": ["West Nile virus"],
+      "keywords": ["arbovirus"]
+    },
+    {
+      "title": "Salmonella enterica outbreak linked to produce",
+      "description": "This foodborne investigation also tested for Campylobacter.",
+      "categories": [],
+      "mesh": ["Salmonella"],
+      "keywords": ["foodborne"]
+    },
+    {
+      "title": "Influenza vaccine effectiveness in outpatient respiratory illness",
+      "description": "SARS-CoV-2 coinfection was recorded.",
+      "categories": [],
+      "mesh": ["Influenza Vaccines"],
+      "keywords": ["vaccine"]
+    },
+    {
+      "title": "Carbapenem-resistant organisms in a regional network",
+      "description": "Antimicrobial resistance increased over five seasons.",
+      "categories": [],
+      "mesh": [],
+      "keywords": ["antimicrobial resistance"]
+    },
+    {
+      "title": "National surveillance of notifiable infections",
+      "description": "QuickStats tables accompany the annual file.",
+      "categories": ["Surveillance"],
+      "mesh": [],
+      "keywords": ["surveillance"]
+    },
+    {
+      "title": "PCR assays for tick-borne pathogens",
+      "description": "Serology and molecular detection were compared.",
+      "categories": [],
+      "mesh": [],
+      "keywords": ["PCR", "diagnostic"]
+    },
+    {
+      "title": "School meal nutrition standards and adolescent diet",
+      "description": "The workshop compared menu planning methods.",
+      "categories": ["Nutrition"],
+      "mesh": ["Diet"],
+      "keywords": ["menu planning"]
+    },
+    {
+      "title": "Editorial calendar for a methods workshop",
+      "description": "Speakers reviewed manuscript formatting.",
+      "categories": [],
+      "mesh": [],
+      "keywords": ["workshop"]
+    }
+  ]
+}

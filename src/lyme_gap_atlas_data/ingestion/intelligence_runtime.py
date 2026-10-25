@@ -25,6 +25,13 @@ from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from ..intelligence_retention import PROD_METADATA_FEED_IDS
+from ..intelligence_topics import (
+    VOCABULARY_VERSION_V1,
+    load_vocabulary,
+    merge_topic_rows,
+    topic_rows_for_items,
+    topics_table_exists,
+)
 from ..settings import PipelineSettings
 from ..sql_sessions import connect
 from .adapters import AcquireResult, NormalizeResult
@@ -33,6 +40,31 @@ from .intelligence_effects import IntelligenceStageEffects
 from .intelligence_feed import FeedResponse, IntelligenceFeedAdapter, _request, _resolve
 from .orchestrator import IngestionOrchestrator
 from .types import AdapterKind, SourceDefinition
+
+TOPICS_FLAG = "ATLAS_INTELLIGENCE_TOPICS"
+
+
+def record_topics_after_merge(
+    cursor: Any,
+    items: list[dict[str, Any]],
+    *,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Assign vocabulary topics after the item MERGE.
+
+    The hook does nothing when the topic table is absent and the explicit flag
+    is off, so a daily run can promote before the table migration.
+    """
+    flag = enabled if enabled is not None else os.environ.get(TOPICS_FLAG, "").lower() == "on"
+    if not items:
+        return {"status": "inert", "reason": "no_items", "rows": 0}
+    if not topics_table_exists(cursor) and not flag:
+        return {"status": "inert", "reason": "topics_table_absent", "rows": 0}
+    vocabulary = load_vocabulary(VOCABULARY_VERSION_V1)
+    rows = topic_rows_for_items(items, vocabulary)
+    recorded = merge_topic_rows(cursor, rows)
+    return {"status": "recorded", "reason": "topics_recorded", "rows": recorded}
+
 
 ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
@@ -562,6 +594,7 @@ def compose_pilot(
         policy_lookup=lambda selected_source: receipt["raw_policy_ref"],
     )
     effects.feed_retention = retention
+    effects.store.after_merge = record_topics_after_merge
     adapter = PilotFeedAdapter(
         registry_lookup=effects.store.lookup_source,
         retention_allowed=lambda ref: ref == policy_ref,
