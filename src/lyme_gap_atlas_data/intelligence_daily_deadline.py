@@ -12,6 +12,7 @@ from .ingestion.intelligence_runtime import (
     PROD_SOURCE_DEFINITIONS,
 )
 from .ingestion.types import FailureCategory
+from .intelligence_daily_telemetry import observed
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -33,7 +34,7 @@ def terminalize_daily_pilot_deadline(ingestion_run_id: str) -> dict[str, Any]:
     if ingestion_run_id.strip() != ingestion_run_id or len(ingestion_run_id) != 36:
         raise ValueError("INTELLIGENCE_DAILY_DEADLINE_RUN_ID_REQUIRED")
     snowflake = SnowflakeSettings()
-    with connect(snowflake) as connection, connection.cursor() as cursor:
+    with observed(), connect(snowflake) as connection, connection.cursor() as cursor:
         cursor.execute(
             "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=%s",
             (GRACE_SECONDS,),

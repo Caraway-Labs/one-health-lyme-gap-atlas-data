@@ -27,6 +27,7 @@ from .ingestion.intelligence_runtime import (
     PROD_SOURCE_DEFINITIONS,
 )
 from .ingestion.types import FailureCategory, Stage
+from .intelligence_daily_telemetry import observed
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -212,7 +213,7 @@ def terminalize_hard_killed_run(ingestion_run_id: str, stage: str) -> dict[str, 
     if run_id is None:
         raise ValueError("INTELLIGENCE_DAILY_HARD_KILL_RUN_ID_REQUIRED")
     snowflake = SnowflakeSettings()
-    with connect(snowflake) as connection, connection.cursor() as cursor:
+    with observed(), connect(snowflake) as connection, connection.cursor() as cursor:
         cursor.execute(
             "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=%s, "
             "STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=%s, ABORT_DETACHED_QUERY=TRUE",

@@ -168,7 +168,10 @@ def build_operation_spec(
         manual["envs"] = envs
     manual.pop("schedule", None)
     result = copy.deepcopy(baseline)
-    result["jobs"] = [job for job in jobs if job.get("name") != MANUAL_JOB] + [manual]
+    result["jobs"] = [job for job in result["jobs"] if job.get("name") != MANUAL_JOB] + [manual]
+    for job in result["jobs"]:
+        if job.get("name") in {daily.NAME, MANUAL_JOB}:
+            daily.place_daily_otel(job, result)
     return result
 
 

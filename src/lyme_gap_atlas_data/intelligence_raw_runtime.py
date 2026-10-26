@@ -17,6 +17,12 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
+from .intelligence_daily_telemetry import (
+    guard_scope,
+    record_lease,
+    record_ledger,
+    warn_open_transaction,
+)
 from .intelligence_items import TOKEN, canonical_json, identity_hash, validate_acquisition_context
 from .intelligence_retention import CopyKind, RawCopy, RawLease, capture_lease, require_read
 
@@ -76,9 +82,14 @@ class SQLiteRawLedger:
 
     @contextmanager
     def guard(self) -> Iterator[None]:
-        if getattr(self.local, "connection", None) is not None:
-            yield
-            return
+        nested = getattr(self.local, "connection", None) is not None
+        with guard_scope(nested=nested):
+            if nested:
+                yield
+                return
+            yield from self._open_local_guard()
+
+    def _open_local_guard(self) -> Iterator[None]:
         with closing(sqlite3.connect(self.path, timeout=5)) as connection:
             self.local.connection = connection
             try:
@@ -92,6 +103,7 @@ class SQLiteRawLedger:
                 self.local.connection = None
 
     def get(self, kind: str, key: str) -> dict[str, Any] | None:
+        record_ledger("read", kind)
         with self.guard():
             row = self.local.connection.execute(
                 "SELECT checksum,document FROM documents WHERE kind=? AND key=?", (kind, key)
@@ -99,6 +111,9 @@ class SQLiteRawLedger:
             return _verified(row) if row else None
 
     def put(self, kind: str, key: str, document: dict[str, Any]) -> None:
+        record_ledger("write", kind)
+        if kind == "lease":
+            record_lease("acquire")
         with self.guard():
             old = self.get(kind, key)
             if old is not None:
@@ -164,43 +179,51 @@ class SnowflakeRawLedger:
 
     @contextmanager
     def guard(self) -> Iterator[None]:
-        if getattr(self.local, "cursor", None) is not None:
-            yield
-            return
-        with self.factory() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_TRANSACTION()")
-            if cursor.fetchall() != [
-                (
-                    self.expected_role,
-                    f"ONE_HEALTH_LYME_GAP_ATLAS_{self.environment}",
-                    None,
-                )
-            ]:
-                raise PermissionError("INTELLIGENCE_RAW_WRITER_CONTEXT_REQUIRED")
-            connection.autocommit(False)
-            timeout = 120 if self.expected_role == f"OH_LYME_{self.environment}_RUNTIME" else 10
-            cursor.execute(
-                f"ALTER SESSION SET LOCK_TIMEOUT=5, STATEMENT_TIMEOUT_IN_SECONDS={timeout}"
-            )
-            cursor.execute("BEGIN TRANSACTION")
-            cursor.execute(
-                "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD "
-                "SET write_sequence=write_sequence+1 WHERE guard_id=1"
-            )
-            if cursor.rowcount != 1:
-                connection.rollback()
-                raise PermissionError("INTELLIGENCE_RAW_WRITE_GUARD_REQUIRED")
-            self.local.cursor = cursor
-            try:
+        nested = getattr(self.local, "cursor", None) is not None
+        with guard_scope(nested=nested):
+            if nested:
                 yield
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
-            finally:
-                self.local.cursor = None
+                return
+            with self.factory() as connection, connection.cursor() as cursor:
+                cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_TRANSACTION()")
+                rows = cursor.fetchall()
+                if len(rows) == 1 and rows[0][2] is not None:
+                    warn_open_transaction()
+                if rows != [
+                    (
+                        self.expected_role,
+                        f"ONE_HEALTH_LYME_GAP_ATLAS_{self.environment}",
+                        None,
+                    )
+                ]:
+                    raise PermissionError("INTELLIGENCE_RAW_WRITER_CONTEXT_REQUIRED")
+                connection.autocommit(False)
+                timeout = 120 if self.expected_role == f"OH_LYME_{self.environment}_RUNTIME" else 10
+                cursor.execute(
+                    f"ALTER SESSION SET LOCK_TIMEOUT=5, STATEMENT_TIMEOUT_IN_SECONDS={timeout}"
+                )
+                cursor.execute("BEGIN TRANSACTION")
+                cursor.execute(
+                    "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD "
+                    "SET write_sequence=write_sequence+1 WHERE guard_id=1"
+                )
+                if cursor.rowcount != 1:
+                    connection.rollback()
+                    raise PermissionError("INTELLIGENCE_RAW_WRITE_GUARD_REQUIRED")
+                self.local.cursor = cursor
+                try:
+                    yield
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    raise
+                finally:
+                    self.local.cursor = None
 
     def get(self, kind: str, key: str) -> dict[str, Any] | None:
+        record_ledger("read", kind)
+        if kind == "lease":
+            record_lease("renew")
         with self.guard():
             self.local.cursor.execute(
                 "SELECT document_sha256,TO_JSON(document) "
@@ -214,6 +237,11 @@ class SnowflakeRawLedger:
             return _verified(rows[0]) if rows else None
 
     def put(self, kind: str, key: str, document: dict[str, Any]) -> None:
+        record_ledger("write", kind)
+        if kind == "lease":
+            record_lease("acquire")
+        if kind == "buffer_release":
+            record_lease("release")
         with self.guard():
             old = self.get(kind, key)
             if old is not None:
@@ -376,6 +404,7 @@ class FeedRawRetention:
     def release_buffer(self, locator: str) -> None:
         # Release only this controller's managed buffers, then commit metadata
         # proof so a later worker can distinguish released from unknown owners.
+        record_lease("release")
         if locator not in self.buffers:
             return
         self.buffers[locator]()
@@ -565,6 +594,7 @@ class FeedRawRetention:
     def lease_access(
         self, sha256: str, kind: CopyKind, locator: str, *, write: bool = False
     ) -> Iterator[None]:
+        record_lease("renew")
         if write:
             self._reserve_lease(sha256, kind, locator)
             # Claim is durably committed BEFORE physical I/O. Cleanup sees the

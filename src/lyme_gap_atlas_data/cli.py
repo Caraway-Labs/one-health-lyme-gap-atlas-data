@@ -47,6 +47,11 @@ from .ingestion import (
     load_source_definition,
     starter_definition_yaml,
 )
+from .intelligence_daily_telemetry import (
+    DAILY_TRACE_COMMANDS,
+    configure_daily_log_export,
+    shutdown_daily_logs,
+)
 from .literature_preflight import literature_preflight
 from .literature_status import literature_status
 from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
@@ -185,7 +190,7 @@ class ObservedTyper(typer.Typer):
         command = _command_path(arguments)
         tracing_ready = True
         try:
-            if command in LITERATURE_COMMANDS:
+            if command in LITERATURE_COMMANDS or command in DAILY_TRACE_COMMANDS:
                 configure_literature_tracing(SERVICE_NAME)
             else:
                 configure_tracing(SERVICE_NAME)
@@ -195,6 +200,9 @@ class ObservedTyper(typer.Typer):
             # message because it can contain credentials.
             tracing_ready = False
             logging.getLogger(__name__).warning("atlas-data.tracing_unavailable")
+        if command in DAILY_TRACE_COMMANDS:
+            with suppress(Exception):
+                configure_daily_log_export()
         tracer = (
             trace.get_tracer(SERVICE_NAME)
             if tracing_ready
@@ -227,6 +235,8 @@ class ObservedTyper(typer.Typer):
                     span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
         finally:
             _flush_and_shutdown_tracing()
+            if command in DAILY_TRACE_COMMANDS:
+                shutdown_daily_logs()
 
 
 app = ObservedTyper(no_args_is_help=True)

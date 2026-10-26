@@ -30,6 +30,7 @@ from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 from xml.parsers import expat
 
+from ..intelligence_daily_telemetry import http_observation
 from ..intelligence_items import (
     ACQUISITION_VERSION,
     canonical_timestamp,
@@ -330,6 +331,23 @@ def _request(
             with suppress(OSError):
                 connection.sock.shutdown(socket.SHUT_RDWR)
 
+    with http_observation(url) as observed:
+        return _request_observed(
+            url, parts, connection, headers, deadline, timer, interrupt, budget, observed
+        )
+
+
+def _request_observed(
+    url: str,
+    parts: Any,
+    connection: _PinnedHTTPS,
+    headers: dict[str, str],
+    deadline: float,
+    timer: threading.Timer | None,
+    interrupt: Callable[[], None],
+    budget: int,
+    observed: dict[str, Any],
+) -> FeedResponse:
     try:
         connection.connect()
         remaining = deadline - time.monotonic()
@@ -353,6 +371,8 @@ def _request(
             raise _failure("FEED_TOO_LARGE")
         if time.monotonic() >= deadline:
             raise _failure("FEED_TIMEOUT")
+        observed["status"] = response.status
+        observed["bytes"] = len(body)
         return FeedResponse(response.status, metadata, body)
     except TimeoutError:
         raise _failure("FEED_TIMEOUT") from None

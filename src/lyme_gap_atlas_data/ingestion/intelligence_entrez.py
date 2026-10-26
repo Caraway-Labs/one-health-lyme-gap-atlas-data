@@ -26,6 +26,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
+from ..intelligence_daily_telemetry import http_observation
 from ..intelligence_items import (
     ACQUISITION_VERSION,
     TOKEN,
@@ -677,21 +678,24 @@ class _EntrezSession:
         if self._budget.requests >= min(self._budget.request_limit, self._request_cap):
             raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
         remaining = self._budget.reserve()
-        try:
-            response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
-        except AcquisitionError:
-            raise
-        except Exception as error:
-            raise _transport_acquisition_error(error) from None
-        finally:
-            note_step_deadline()
-        self._budget.remaining()
-        if response.status != 200:
-            raise _http_status_error(response.status)
-        if len(response.body) > MAX_RESPONSE_BYTES:
-            raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
-        self.bodies.append(response.body)
-        return response.body
+        with http_observation(url) as observed:
+            try:
+                response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
+            except AcquisitionError:
+                raise
+            except Exception as error:
+                raise _transport_acquisition_error(error) from None
+            finally:
+                note_step_deadline()
+            self._budget.remaining()
+            observed["status"] = response.status
+            observed["bytes"] = len(response.body)
+            if response.status != 200:
+                raise _http_status_error(response.status)
+            if len(response.body) > MAX_RESPONSE_BYTES:
+                raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
+            self.bodies.append(response.body)
+            return response.body
 
 
 def _load_sources() -> dict[str, dict[str, Any]]:
