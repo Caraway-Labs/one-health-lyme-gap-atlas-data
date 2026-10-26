@@ -135,6 +135,7 @@ def pilot_watchdog(*, seconds: int = 300) -> Iterator[None]:
     warehouse or session is cancelled. The feed default is five minutes; the
     exact prerequisite batch uses fifty seconds.
     """
+    # os._exit ends the process, so there is no observation context to carry.
     timer = threading.Timer(seconds, os._exit, args=(124,))
     timer.daemon = True
     timer.start()

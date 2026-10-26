@@ -27,6 +27,15 @@ from .intelligence_items import TOKEN, canonical_json, identity_hash, validate_a
 from .intelligence_retention import CopyKind, RawCopy, RawLease, capture_lease, require_read
 
 
+@contextmanager
+def _lease_event(action: str | None) -> Iterator[None]:
+    if action is None:
+        yield
+        return
+    with record_lease(action):
+        yield
+
+
 def buffer_namespace(scheme: str) -> str:
     host = hashlib.sha256(socket.gethostname().encode()).hexdigest()[:16]
     return f"{scheme}://{host}-{os.getpid()}.{uuid4().hex}"
@@ -103,18 +112,18 @@ class SQLiteRawLedger:
                 self.local.connection = None
 
     def get(self, kind: str, key: str) -> dict[str, Any] | None:
-        record_ledger("read", kind)
-        with self.guard():
+        with record_ledger("read", kind), self.guard():
             row = self.local.connection.execute(
                 "SELECT checksum,document FROM documents WHERE kind=? AND key=?", (kind, key)
             ).fetchone()
             return _verified(row) if row else None
 
     def put(self, kind: str, key: str, document: dict[str, Any]) -> None:
-        record_ledger("write", kind)
-        if kind == "lease":
-            record_lease("acquire")
-        with self.guard():
+        with (
+            record_ledger("write", kind),
+            _lease_event("acquire" if kind == "lease" else None),
+            self.guard(),
+        ):
             old = self.get(kind, key)
             if old is not None:
                 if old != document:
@@ -221,10 +230,11 @@ class SnowflakeRawLedger:
                     self.local.cursor = None
 
     def get(self, kind: str, key: str) -> dict[str, Any] | None:
-        record_ledger("read", kind)
-        if kind == "lease":
-            record_lease("renew")
-        with self.guard():
+        with (
+            record_ledger("read", kind),
+            _lease_event("get" if kind == "lease" else None),
+            self.guard(),
+        ):
             self.local.cursor.execute(
                 "SELECT document_sha256,TO_JSON(document) "
                 "FROM GOVERNANCE.INTELLIGENCE_RAW_RETENTION_DOCUMENTS "
@@ -237,12 +247,13 @@ class SnowflakeRawLedger:
             return _verified(rows[0]) if rows else None
 
     def put(self, kind: str, key: str, document: dict[str, Any]) -> None:
-        record_ledger("write", kind)
         if kind == "lease":
-            record_lease("acquire")
-        if kind == "buffer_release":
-            record_lease("release")
-        with self.guard():
+            lease_action = "acquire"
+        elif kind == "buffer_release":
+            lease_action = "release"
+        else:
+            lease_action = None
+        with record_ledger("write", kind), _lease_event(lease_action), self.guard():
             old = self.get(kind, key)
             if old is not None:
                 if old != document:
@@ -404,17 +415,19 @@ class FeedRawRetention:
     def release_buffer(self, locator: str) -> None:
         # Release only this controller's managed buffers, then commit metadata
         # proof so a later worker can distinguish released from unknown owners.
-        record_lease("release")
-        if locator not in self.buffers:
-            return
-        self.buffers[locator]()
-        with self.ledger.guard():
-            for copy in self.copies():
-                if (
-                    copy.locator == locator
-                    and self.ledger.get("buffer_release", copy.sha256) is None
-                ):
-                    self.ledger.put("buffer_release", copy.sha256, {"released_at": self.clock()})
+        with record_lease("release"):
+            if locator not in self.buffers:
+                return
+            self.buffers[locator]()
+            with self.ledger.guard():
+                for copy in self.copies():
+                    if (
+                        copy.locator == locator
+                        and self.ledger.get("buffer_release", copy.sha256) is None
+                    ):
+                        self.ledger.put(
+                            "buffer_release", copy.sha256, {"released_at": self.clock()}
+                        )
 
     def close(self) -> None:
         for locator in tuple(self.buffers):
@@ -594,19 +607,19 @@ class FeedRawRetention:
     def lease_access(
         self, sha256: str, kind: CopyKind, locator: str, *, write: bool = False
     ) -> Iterator[None]:
-        record_lease("renew")
-        if write:
-            self._reserve_lease(sha256, kind, locator)
-            # Claim is durably committed BEFORE physical I/O. Cleanup sees the
-            # unexpired claim even between transactions; expiry is rechecked
-            # under the I/O guard. Ambiguous provider failures retain the claim.
-        with self.ledger.guard():
-            lease = self.require_lease(sha256)
-            copy = RawCopy(self.environment, lease.source_id, kind, locator, sha256)
-            require_read(copy, self, now=self.clock(), permitted=self._permitted)
-            completion = {"lease_sha256": sha256}
-            if not write and self.ledger.get("write_complete", copy.sha256) != completion:
-                raise PermissionError("INTELLIGENCE_RAW_WRITE_COMPLETION_REQUIRED")
-            yield
+        with record_lease("renew"):
             if write:
-                self.ledger.put("write_complete", copy.sha256, completion)
+                self._reserve_lease(sha256, kind, locator)
+                # Claim is durably committed BEFORE physical I/O. Cleanup sees the
+                # unexpired claim even between transactions; expiry is rechecked
+                # under the I/O guard. Ambiguous provider failures retain the claim.
+            with self.ledger.guard():
+                lease = self.require_lease(sha256)
+                copy = RawCopy(self.environment, lease.source_id, kind, locator, sha256)
+                require_read(copy, self, now=self.clock(), permitted=self._permitted)
+                completion = {"lease_sha256": sha256}
+                if not write and self.ledger.get("write_complete", copy.sha256) != completion:
+                    raise PermissionError("INTELLIGENCE_RAW_WRITE_COMPLETION_REQUIRED")
+                yield
+                if write:
+                    self.ledger.put("write_complete", copy.sha256, completion)

@@ -17,9 +17,9 @@ import resource
 import sys
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
-from contextvars import ContextVar, Token
+from contextvars import ContextVar, Token, copy_context
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -90,7 +90,15 @@ _FORBIDDEN = re.compile(
     r"(?i)(token|secret|password|private_key|authorization|snowflake://|"
     r"://[^/\s]*@|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})"
 )
-_STRING_LITERAL = re.compile(r"'(?:''|[^'])*'|\"(?:\\\\\"|[^\"])*\"")
+_STRING_LITERAL = re.compile(r"'(?:\\.|''|[^'])*'|" r'"(?:\\.|""|[^"])*"')
+_DOLLAR_QUOTE = re.compile(r"\$([A-Za-z0-9_]*)\$[\s\S]*?\$\1\$")
+_QUERY_TAG = re.compile(
+    r"(?i)(QUERY_TAG\s*=\s*)(?:"
+    r"\$([A-Za-z0-9_]*)\$[\s\S]*?\$\2\$|"
+    r"'(?:\\.|''|[^'])*'|"
+    r'"(?:\\.|""|[^"])*"|'
+    r"[^\s,;]+)"
+)
 _NUMBER = re.compile(r"\b\d+\b")
 _LOCK_TIMEOUT_SQL = re.compile(r"LOCK_TIMEOUT\s*=\s*(\d+)", re.IGNORECASE)
 _STATEMENT_TIMEOUT_SQL = re.compile(r"STATEMENT_TIMEOUT_IN_SECONDS\s*=\s*(\d+)", re.IGNORECASE)
@@ -148,6 +156,42 @@ def parent_heartbeat_active() -> bool:
     return _PARENT_HEARTBEAT.get()
 
 
+def spawn_observed(
+    target: Callable[..., Any],
+    args: tuple[Any, ...] = (),
+    *,
+    name: str,
+    daemon: bool = True,
+) -> threading.Thread:
+    """Start a thread whose body runs under a copy of the caller's context."""
+    copied = copy_context()
+    thread = threading.Thread(
+        target=copied.run,
+        args=(target, *args),
+        name=name,
+        daemon=daemon,
+    )
+    thread.start()
+    return thread
+
+
+def spawn_observed_timer(
+    interval: float,
+    target: Callable[..., Any],
+    args: tuple[Any, ...] = (),
+) -> threading.Timer:
+    """Start a daemon timer whose callback runs under a copy of the caller's context."""
+    copied = copy_context()
+
+    def invoke() -> None:
+        copied.run(target, *args)
+
+    timer = threading.Timer(interval, invoke)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
 def captured_events() -> tuple[dict[str, Any], ...]:
     with _EVENTS_LOCK:
         return tuple(_EVENTS)
@@ -163,8 +207,10 @@ def transferred_bytes() -> int:
 
 
 def scrub_sql(statement: str) -> str:
-    """Drop literals and numbers so a statement shape cannot carry bound values."""
-    without_strings = _STRING_LITERAL.sub("?", statement)
+    """Drop literals, dollar quotes, query tags, and numbers from a statement shape."""
+    without_tags = _QUERY_TAG.sub(r"\1?", statement)
+    without_dollars = _DOLLAR_QUOTE.sub("?", without_tags)
+    without_strings = _STRING_LITERAL.sub("?", without_dollars)
     without_numbers = _NUMBER.sub("?", without_strings)
     return re.sub(r"\s+", " ", without_numbers).strip()
 
@@ -329,7 +375,8 @@ def record_statement(
     if shape and _FORBIDDEN.search(shape) is None:
         fields["statement_shape"] = shape[:300]
     if label in _LOCK_LABELS or _GUARD_DEPTH.get() > 0:
-        fields["lock_wait_ms"] = duration_ms
+        # Duration of the guarded statement, not Snowflake's lock-wait timer.
+        fields["guarded_statement_ms"] = duration_ms
     emit("snowflake.statement", **fields)
     if errno in {625, 630}:
         emit("lock.timeout", level="WARNING", **fields)
@@ -395,32 +442,47 @@ def http_observation(url: str) -> Iterator[dict[str, Any]]:
         )
 
 
-def record_checkpoint(operation: str) -> None:
+@contextmanager
+def _observed_step(step: str, **fields: Any) -> Iterator[None]:
+    """Emit one step and keep its span open for the body so duration is real."""
     if not observation_active():
+        yield
         return
+    started = time.perf_counter()
+    try:
+        with _span(step, step=step, **fields) as span:
+            try:
+                yield
+            finally:
+                if span is not None:
+                    with suppress(Exception):
+                        span.set_attribute("duration_ms", _duration_ms(started))
+    finally:
+        emit(step, step=step, duration_ms=_duration_ms(started), **fields)
+
+
+@contextmanager
+def record_checkpoint(operation: str) -> Iterator[None]:
     step = "checkpoint.read" if operation == "read" else "checkpoint.write"
-    emit(step, step=step)
-    with _span(step, step=step):
-        pass
+    with _observed_step(step):
+        yield
 
 
-def record_ledger(operation: str, kind: str) -> None:
-    if not observation_active():
-        return
+@contextmanager
+def record_ledger(operation: str, kind: str) -> Iterator[None]:
     step = "ledger.read" if operation == "read" else "ledger.write"
     safe_kind = kind if _IDENTIFIER.fullmatch(kind) else None
-    emit(step, step=step, statement_label=safe_kind)
-    with _span(step, step=step, statement_label=safe_kind):
-        pass
+    with _observed_step(step, statement_label=safe_kind):
+        yield
 
 
-def record_lease(action: str) -> None:
-    if not observation_active() or action not in {"acquire", "renew", "release"}:
+@contextmanager
+def record_lease(action: str) -> Iterator[None]:
+    if action not in {"acquire", "get", "renew", "release"}:
+        yield
         return
-    step = f"lease.{action}"
-    emit(step, step=step)
-    with _span(step, step=step):
-        pass
+    with _observed_step(f"lease.{action}"):
+        yield
 
 
 @contextmanager
@@ -434,10 +496,15 @@ def guard_scope(*, nested: bool) -> Iterator[int]:
         "guard.enter",
         step="guard.enter",
         guard_depth=depth,
-        transaction_open=nested,
+        nested=nested,
     )
     try:
-        with _span("intelligence-daily.guard", step="guard.enter", guard_depth=depth):
+        with _span(
+            "intelligence-daily.guard",
+            step="guard.enter",
+            guard_depth=depth,
+            nested=nested,
+        ):
             yield depth
     finally:
         emit("guard.exit", step="guard.exit", guard_depth=depth)
@@ -533,10 +600,7 @@ class StageHeartbeat:
             _HEARTBEAT.set(self)
         if self._thread is not None:
             return
-        self._thread = threading.Thread(
-            target=self._loop, name="intelligence-daily-heartbeat", daemon=True
-        )
-        self._thread.start()
+        self._thread = spawn_observed(self._loop, name="intelligence-daily-heartbeat")
 
     def stop(self) -> None:
         self._stop.set()
@@ -589,14 +653,30 @@ def emit_source_summary(
     )
 
 
-def emit_run_summary(*, status: str, seconds: float, sources: int, failed: int) -> None:
+def emit_run_summary(
+    *,
+    status: str,
+    seconds: float,
+    sources: int,
+    failed: int,
+    failure_class: str | None = None,
+) -> None:
+    safe_status = status if status in {"SUCCEEDED", "FAILED", "DISABLED"} else "FAILED"
+    safe_failed = failed if type(failed) is int and 0 <= failed <= 100 else None
+    safe_class = (
+        failure_class
+        if isinstance(failure_class, str) and _EXCEPTION.fullmatch(failure_class)
+        else None
+    )
     emit(
         "run.summary",
         step="run.summary",
-        status=status if status in {"SUCCEEDED", "FAILED", "DISABLED"} else "FAILED",
+        status=safe_status,
         seconds=_bounded_seconds(seconds),
         items=sources if type(sources) is int and 0 <= sources <= 100 else None,
-        failure_code=None if failed == 0 else "RUN_FAILED",
+        failed=safe_failed,
+        exception_class=safe_class,
+        failure_code=None if safe_status != "FAILED" else "RUN_FAILED",
         peak_rss_kb=peak_rss_kb(),
     )
 
@@ -663,7 +743,8 @@ def configure_daily_log_export() -> None:
                     "service_name": SERVICE_NAME,
                     "component": COMPONENT,
                 }
-            )
+            ),
+            shutdown_on_exit=False,
         )
         provider.add_log_record_processor(
             BatchLogRecordProcessor(
@@ -680,11 +761,7 @@ def configure_daily_log_export() -> None:
         _LOG_EMITTER = None
         return
     if _EXPORT_THREAD is None:
-        thread = threading.Thread(
-            target=_export_loop, name="intelligence-daily-log-export", daemon=True
-        )
-        _EXPORT_THREAD = thread
-        thread.start()
+        _EXPORT_THREAD = spawn_observed(_export_loop, name="intelligence-daily-log-export")
 
 
 def shutdown_daily_logs() -> None:
@@ -704,8 +781,7 @@ def shutdown_daily_logs() -> None:
                 provider.shutdown()
             completed.set()
 
-        worker = threading.Thread(target=flush, name="intelligence-daily-log-flush", daemon=True)
-        worker.start()
+        spawn_observed(flush, name="intelligence-daily-log-flush")
         completed.wait(3)
 
 
@@ -899,7 +975,8 @@ def _apply_span_attributes(span: Any, attributes: Mapping[str, Any]) -> None:
         "exception_class",
         "errno",
         "sqlstate",
-        "lock_wait_ms",
+        "guarded_statement_ms",
+        "nested",
         "lock_timeout_seconds",
         "statement_timeout_seconds",
         "guard_depth",

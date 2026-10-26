@@ -30,7 +30,7 @@ from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 from xml.parsers import expat
 
-from ..intelligence_daily_telemetry import http_observation
+from ..intelligence_daily_telemetry import http_observation, spawn_observed, spawn_observed_timer
 from ..intelligence_items import (
     ACQUISITION_VERSION,
     canonical_timestamp,
@@ -308,7 +308,7 @@ def _resolve(host: str, timeout: float) -> tuple[str, ...]:
 
     # A platform resolver may block beyond socket timeouts. Only one bounded
     # lookup per request is started; daemon threads never prevent worker exit.
-    threading.Thread(target=lookup, daemon=True).start()
+    spawn_observed(lookup, name="intelligence-feed-dns")
     try:
         reply = replies.get(timeout=timeout)
     except queue.Empty as error:
@@ -353,9 +353,7 @@ def _request_observed(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise _failure("FEED_TIMEOUT")
-        timer = threading.Timer(remaining, interrupt)
-        timer.daemon = True
-        timer.start()
+        timer = spawn_observed_timer(remaining, interrupt)
         connection.request(
             "GET", (parts.path or "/") + ("?" + parts.query if parts.query else ""), headers=headers
         )

@@ -27,7 +27,7 @@ from .ingestion.intelligence_runtime import (
     PROD_SOURCE_DEFINITIONS,
 )
 from .ingestion.types import FailureCategory, Stage
-from .intelligence_daily_telemetry import observed
+from .intelligence_daily_telemetry import observed, spawn_observed, spawn_observed_timer
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -307,12 +307,7 @@ def _ledger_with_timeout(run_id: str, stage: str, timeout: float) -> str:
         finally:
             finished.set()
 
-    worker = threading.Thread(
-        target=attempt,
-        name="intelligence-daily-hard-kill-ledger",
-        daemon=True,
-    )
-    worker.start()
+    spawn_observed(attempt, name="intelligence-daily-hard-kill-ledger")
     if not finished.wait(timeout):
         return "timed_out"
     return outcome["value"]
@@ -379,9 +374,7 @@ def daily_hard_kill_watchdog(
             writer=writer,
         )
 
-    timer = threading.Timer(seconds, fire)
-    timer.daemon = True
-    timer.start()
+    timer = spawn_observed_timer(seconds, fire)
     try:
         yield
     finally:
