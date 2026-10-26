@@ -952,6 +952,170 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
     ]
 
 
+NCBI_DOCTYPE = (
+    '<!DOCTYPE PubmedArticleSet PUBLIC "-//NLM//DTD PubMedArticle, 1st January 2025//EN" '
+    '"https://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_250101.dtd">'
+)
+
+
+def _expect_efetch_invalid(body: str) -> None:
+    with pytest.raises(AcquisitionError, match="FEED_EFETCH_PAYLOAD_INVALID") as caught:
+        entrez._parse_efetch(body.encode())
+    assert caught.value.code == "FEED_EFETCH_PAYLOAD_INVALID"
+
+
+def test_ncbi_doctype_fixture_parses_real_field_shapes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The live header is removed before parse, so the DTD URL is never resolved."""
+    xml = (FIXTURES / "efetch_ncbi_doctype.xml").read_bytes()
+    assert xml.startswith(b'<?xml version="1.0" ?>\n' + NCBI_DOCTYPE.encode())
+    seen: dict[str, bytes] = {}
+    real_fromstring = entrez.ET.fromstring
+
+    def capture(body: bytes) -> Any:
+        seen["body"] = body
+        return real_fromstring(body)
+
+    monkeypatch.setattr(entrez.ET, "fromstring", capture)
+    records = {record.pmid: record for record in entrez._parse_efetch(xml)}
+    assert b"<!DOCTYPE" not in seen["body"]
+    assert b"dtd.nlm.nih.gov" not in seen["body"]
+    assert set(records) == {"31000001", "31000002", "31000003"}
+    structured = records["31000001"]
+    assert structured.title == "Tick Ixodes CO2 assay"
+    assert structured.journal == "Wilderness & Environmental Medicine"
+    assert structured.published_at == "2026-10-23T00:00:00Z"
+    assert structured.entry_date == date(2026, 10, 24)
+    assert structured.doi == "10.1000/fixture.1"
+    assert structured.authors == ["Kai Ng"]
+    assert structured.mesh == [{"name": "Lyme Disease", "ui": "D008193"}]
+    assert structured.abstract_text == (
+        "BACKGROUND: Caused by Borrelia when p \uff1c 0.05. METHODS: Given CO2 daily."
+    )
+    assert structured.copyright_line == "Copyright 2026 Holder"
+    assert "<" not in (structured.abstract_text or "")
+    medline = records["31000002"]
+    assert medline.title == "Medline date without an abstract"
+    assert medline.published_at is None
+    assert medline.abstract_text is None
+    assert medline.entry_date == date(2026, 10, 22)
+    partial = records["31000003"]
+    assert partial.title == "Range of Ixodes ticks"
+    assert partial.published_at is None
+    assert partial.abstract_text is None
+    assert partial.entry_date == date(2026, 10, 21)
+
+
+def test_ncbi_doctype_fixture_builds_feed_items() -> None:
+    xml = (FIXTURES / "efetch_ncbi_doctype.xml").read_bytes()
+    searches = {
+        _queries()["pubmed-tick-borne"]: {
+            "count": 3,
+            "idlist": ["31000001", "31000002", "31000003"],
+        },
+        _queries()["pubmed-lyme-borrelia"]: {"count": 0, "idlist": []},
+    }
+
+    class HeaderTransport(FixtureTransport):
+        def __call__(self, url: str, params: dict[str, str], timeout: float) -> EntrezResponse:
+            response = super().__call__(url, params, timeout)
+            if "id" in params:
+                return EntrezResponse(200, xml)
+            return response
+
+    outcome, _sleeps = _run(HeaderTransport(searches))
+    by_pmid = {item["publisher_metadata"]["source_item_id"]: item for item in outcome.items}
+    assert set(by_pmid) == {"31000001", "31000002", "31000003"}
+    present = by_pmid["31000001"]["publisher_metadata"]["abstract"]
+    assert present["state"] == "present"
+    assert present["text"] == (
+        "BACKGROUND: Caused by Borrelia when p \uff1c 0.05. METHODS: Given CO2 daily."
+    )
+    assert by_pmid["31000001"]["title"] == "Tick Ixodes CO2 assay"
+    for pmid in ("31000002", "31000003"):
+        abstract = by_pmid[pmid]["publisher_metadata"]["abstract"]
+        assert abstract["state"] == "not_provided"
+        assert abstract["text"] is None
+        assert by_pmid[pmid]["field_states"]["published_at"] == "not_provided"
+
+
+def test_realistic_esearch_shape_keeps_ids_and_ignores_the_warning_list() -> None:
+    """Live esearch JSON: string count, header, translationset, and a warninglist."""
+    warning = "Unknown sort schema 'most recent' ignored"
+    body = json.dumps(
+        {
+            "header": {"type": "esearch", "version": "0.3"},
+            "esearchresult": {
+                "count": "1015",
+                "retmax": "3",
+                "retstart": "0",
+                "idlist": ["42920256", "42905950", "0123"],
+                "translationset": [{"from": "lyme disease", "to": "lyme disease[MeSH]"}],
+                "querytranslation": "lyme disease",
+                "warninglist": {
+                    "phrasesignored": [],
+                    "quotedphrasesnotfound": [],
+                    "outputmessages": [warning],
+                },
+            },
+        }
+    ).encode()
+    pmids, count = entrez._parse_esearch(body)
+    assert count == 1015
+    assert pmids == ["42920256", "42905950"]
+    assert warning not in pmids
+    with pytest.raises(AcquisitionError, match="FEED_ESEARCH_PAYLOAD_INVALID") as caught:
+        entrez._parse_esearch(b'{"esearchresult": {"ERROR": "nope"}}')
+    assert caught.value.code == "FEED_ESEARCH_PAYLOAD_INVALID"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        (
+            '<?xml version="1.0" ?>\n'
+            f"{NCBI_DOCTYPE[:-1]} [\n<!ELEMENT PubmedArticleSet ANY>\n]>\n"
+            "<PubmedArticleSet></PubmedArticleSet>"
+        ),
+        (
+            '<?xml version="1.0" ?>\n'
+            f'{NCBI_DOCTYPE[:-1]} [\n<!ENTITY secret "expanded">\n]>\n'
+            "<PubmedArticleSet>&secret;</PubmedArticleSet>"
+        ),
+        (
+            '<?xml version="1.0" ?>\n'
+            '<!DOCTYPE PubmedArticleSet SYSTEM "file:///etc/passwd">\n'
+            "<PubmedArticleSet></PubmedArticleSet>"
+        ),
+        (
+            '<?xml version="1.0" ?>\n'
+            '<!DOCTYPE PubmedArticle PUBLIC "-//NLM//DTD PubMedArticle, 1st January 2025//EN" '
+            '"https://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_250101.dtd">\n'
+            "<PubmedArticleSet></PubmedArticleSet>"
+        ),
+        (
+            '<?xml version="1.0" ?>\n'
+            f"{NCBI_DOCTYPE}\n{NCBI_DOCTYPE}\n"
+            "<PubmedArticleSet></PubmedArticleSet>"
+        ),
+        (
+            '<?xml version="1.0" ?>\n'
+            '<!DOCTYPE eEfetchResult PUBLIC "-//NLM//DTD efetch 20131226//EN" '
+            '"https://eutils.ncbi.nlm.nih.gov/eutils/dtd/20131226/efetch.dtd">\n'
+            "<eEfetchResult></eEfetchResult>"
+        ),
+    ],
+)
+def test_efetch_rejects_doctype_shapes_other_than_the_ncbi_header(body: str) -> None:
+    _expect_efetch_invalid(body)
+
+
+def test_pubmed_parse_failure_codes_stay_on_the_allowlist() -> None:
+    for code in (entrez.ESEARCH_PAYLOAD_INVALID, entrez.EFETCH_PAYLOAD_INVALID):
+        error = AcquisitionError(code, code=code)
+        assert polling.allowlisted_error_code(error) == code
+        assert polling.published_error_code(code) == code
+
+
 def test_invalid_pmids_are_skipped() -> None:
     body = json.dumps(
         {
