@@ -1152,6 +1152,10 @@ def apply_migrations(
         or (database == PROD_DATABASE and "V167" not in applied)
     ):
         raise PermissionError("V170 requires the recorded feed view before source activations")
+    if any(item.version == "V171" and item.version not in applied for item in plan) and (
+        "V170" not in applied
+    ):
+        raise PermissionError("V171 requires recorded V170 before intelligence item topics")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

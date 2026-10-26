@@ -35,9 +35,11 @@ from lyme_gap_atlas_data.migrations import (
     DEV_DATABASE,
     DEV_ONLY_MIGRATION_VERSIONS,
     INTELLIGENCE_ITEM_TOPICS_MIGRATION,
+    INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
     PROD_DATABASE,
     PROD_ONLY_MIGRATION_VERSIONS,
     PROTECTED_INTELLIGENCE_MIGRATIONS,
+    Migration,
     apply_migrations,
     load_migrations,
     migration_plan,
@@ -401,8 +403,13 @@ def test_topics_backfill_command_prints_counts_without_item_text(
 
 def test_topic_migration_is_protected_on_both_environments() -> None:
     versions = [item.version for item in load_migrations()]
-    assert "V170" not in versions
+    assert versions.count("V170") == 1
     assert "V169" in versions
+    activation = next(loaded for loaded in load_migrations() if loaded.version == "V170")
+    assert activation.filename == INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION["filename"]
+    assert activation.sha256 == INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION["sha256"]
+    assert INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION in PROTECTED_INTELLIGENCE_MIGRATIONS
+    assert "V170" in BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS
     migration = next(loaded for loaded in load_migrations() if loaded.version == "V171")
     pinned = INTELLIGENCE_ITEM_TOPICS_MIGRATION
     assert migration.filename == pinned["filename"] == "V171__intelligence_item_topics.sql"
@@ -431,28 +438,49 @@ def test_topic_migration_is_protected_on_both_environments() -> None:
     assert pinned in migration_plan(PROD_DATABASE)
 
 
-@pytest.mark.parametrize("database", [DEV_DATABASE, PROD_DATABASE])
-def test_routine_migration_path_refuses_v171(
-    monkeypatch: pytest.MonkeyPatch, database: str
-) -> None:
-    migration = next(loaded for loaded in load_migrations() if loaded.version == "V171")
+def _install_topic_apply(
+    monkeypatch: pytest.MonkeyPatch,
+    plan: list[Migration],
+    ledger: list[tuple[str, str]],
+) -> Mock:
     monkeypatch.setattr(
         "lyme_gap_atlas_data.migrations.load_migrations",
-        lambda: [migration],
+        lambda: plan,
     )
     cursor = Mock()
-    cursor.fetchall.return_value = []
+    cursor.fetchall.side_effect = [ledger, []]
     connection = Mock()
     connection.cursor.side_effect = lambda: nullcontext(cursor)
     monkeypatch.setattr(
         "lyme_gap_atlas_data.migrations.connect",
         lambda *_, **__: nullcontext(connection),
     )
+    return connection
+
+
+@pytest.mark.parametrize("database", [DEV_DATABASE, PROD_DATABASE])
+def test_routine_migration_path_refuses_v171(
+    monkeypatch: pytest.MonkeyPatch, database: str
+) -> None:
+    loaded = load_migrations()
+    v170 = next(item for item in loaded if item.version == "V170")
+    migration = next(item for item in loaded if item.version == "V171")
     pinned = INTELLIGENCE_ITEM_TOPICS_MIGRATION
     for expected in (None, [pinned]):
+        connection = _install_topic_apply(monkeypatch, [migration], [])
         with pytest.raises(PermissionError, match="V171 requires the protected intelligence"):
             apply_migrations(Mock(), database, expected_pending=expected)
+        connection.execute_string.assert_not_called()
+    connection = _install_topic_apply(monkeypatch, [migration], [])
+    with pytest.raises(PermissionError, match="V171 requires recorded V170"):
+        apply_migrations(
+            Mock(),
+            database,
+            expected_pending=[pinned],
+            protected_intelligence_prerequisite=True,
+        )
     connection.execute_string.assert_not_called()
+    connection = _install_topic_apply(monkeypatch, [v170, migration], [("V170", v170.sha256)])
     assert apply_migrations(
         Mock(),
         database,
