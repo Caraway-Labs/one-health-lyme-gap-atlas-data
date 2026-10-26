@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -16,18 +17,23 @@ from typer.testing import CliRunner
 
 from lyme_gap_atlas_data import cli
 from lyme_gap_atlas_data.ingestion import Tier
+from lyme_gap_atlas_data.ingestion import intelligence_entrez as entrez
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
 from lyme_gap_atlas_data.ingestion.intelligence_effects import IntelligenceStageEffects
+from lyme_gap_atlas_data.ingestion.intelligence_entrez import ABSTRACT_LIMIT
 from lyme_gap_atlas_data.ingestion.types import RunState, RunStatus
 from lyme_gap_atlas_data.intelligence_items import permitted_text
 from lyme_gap_atlas_data.intelligence_topics import (
     _MERGE,
     FALLBACK_TOPIC_ID,
+    MAX_ABSTRACT_CHARS,
+    MAX_FIELD_CHARS,
     MAX_TOPICS,
     backfill_topics,
     load_vocabulary,
     map_topics,
     merge_topic_rows,
+    topic_rows_for_items,
     vocabulary_path,
 )
 from lyme_gap_atlas_data.migrations import (
@@ -362,7 +368,7 @@ def test_backfill_pages_revisions_and_merges_on_the_natural_key() -> None:
         ]
     )
     first = backfill_topics(cursor, vocabulary_version="v1")
-    assert first == {"items": 1, "topic_rows": 1}
+    assert first == {"items": 1, "topic_rows": 1, "warnings": 0}
     merge = next(sql for sql, _params in cursor.statements if "MERGE" in sql.upper())
     assert "item_id" in merge and "revision_id" in merge
     assert "topic_id" in merge and "vocabulary_version" in merge
@@ -396,7 +402,7 @@ def test_topics_backfill_command_prints_counts_without_item_text(
     result = CliRunner().invoke(cli.app, ["topics", "backfill", "--vocabulary-version", "v1"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload == {"items": 0, "topic_rows": 0, "vocabulary_version": "v1"}
+    assert payload == {"items": 0, "topic_rows": 0, "vocabulary_version": "v1", "warnings": 0}
     assert observed["committed"] is True
     assert "Babesiosis" not in result.output
 
@@ -429,6 +435,10 @@ def test_topic_migration_is_protected_on_both_environments() -> None:
         assert "PRESENTATION.INTELLIGENCE_TOPICS_V1" in rendered
         assert "vocabulary_version = 'v1'" in rendered
         assert "matched_term VARCHAR(4096)," in rendered
+        assert (
+            "GRANT SELECT, INSERT, UPDATE ON TABLE CONFORMED.INTELLIGENCE_ITEM_TOPICS" in rendered
+        )
+        assert "DELETE" not in rendered.upper()
         assert f"OH_LYME_{environment}_RUNTIME" in rendered
         assert f"OH_LYME_{environment}_READ" in rendered
         assert "GRANT SELECT, INSERT, UPDATE ON TABLE CONFORMED.INTELLIGENCE_TOPICS" not in rendered
@@ -501,6 +511,122 @@ def test_v171_vocabulary_rows_equal_the_json_exactly() -> None:
     assert len(topics) == 19
 
 
+def test_daily_hook_records_topics_for_a_recorded_pubmed_item() -> None:
+    """The recorded efetch fixture stores MeSH as name/ui objects, not strings."""
+    item = _recorded_pubmed_items()["12345678"]
+    mesh = item["publisher_metadata"]["mesh"]
+    abstract = item["publisher_metadata"]["abstract"]
+    assert mesh == [{"name": "Lyme Disease", "ui": "D008193"}]
+    assert abstract["state"] == "present"
+    assert "Borrelia burgdorferi" in abstract["text"]
+    assert item["publisher_metadata"]["categories"] == ["Borrelia", "tick-borne"]
+    cursor = _TopicCursor(table_exists=True)
+    result = runtime.record_topics_after_merge(cursor, [item], enabled=False)
+    assert result["status"] == "recorded"
+    assert result["warnings"] == 0
+    payload = json.loads(cursor.statements[-1][1][0])
+    lyme = next(row for row in payload if row["topic_id"] == "lyme-disease")
+    assert lyme["matched_field"] == "mesh"
+    assert lyme["matched_term"] == "D008193"
+    named = map_topics(
+        None,
+        None,
+        [],
+        [{"name": mesh[0]["name"], "ui": "D000000"}],
+        [],
+        VOCAB,
+    )
+    assert named[0]["topic_id"] == "lyme-disease"
+    assert named[0]["matched_field"] == "mesh"
+    assert named[0]["matched_term"] == "Lyme Disease"
+    with pytest.raises(ValueError, match="TOPIC_FIELD_TYPE"):
+        map_topics(None, None, [], [{"name": "Lyme Disease"}], [], VOCAB)
+    with pytest.raises(ValueError, match="TOPIC_FIELD_TYPE"):
+        map_topics(None, None, [], [12], [], VOCAB)
+
+
+def test_backfill_counts_a_bad_pubmed_item_and_continues() -> None:
+    good = _recorded_pubmed_items()["12345678"]
+    bad = {
+        "title": "Babesiosis cases rise in New York",
+        "publisher_metadata": {"mesh": [12], "abstract": {"text": None, "state": "not_provided"}},
+    }
+    cursor = _PageCursor(
+        [
+            [
+                ("bad-item", "bad-rev", json.dumps(bad)),
+                (good["item_id"], good["revision_id"], json.dumps(good)),
+            ],
+            [],
+        ]
+    )
+    summary = backfill_topics(cursor, vocabulary_version="v1")
+    assert summary["items"] == 2
+    assert summary["warnings"] == 1
+    assert summary["topic_rows"] == 1
+    payload = json.loads(next(params[0] for sql, params in cursor.statements if "MERGE" in sql))
+    assert any(
+        row["topic_id"] == "lyme-disease" and row["matched_term"] == "D008193" for row in payload
+    )
+    assert all(row["item_id"] != "bad-item" for row in payload)
+
+
+def test_recorded_pubmed_abstract_accepts_the_6000_character_cap() -> None:
+    item = _recorded_pubmed_items()["23456789"]
+    abstract = item["publisher_metadata"]["abstract"]
+    assert abstract["state"] == "present"
+    assert item["publisher_metadata"]["mesh"] == []
+    term = "Borrelia burgdorferi"
+    abstract["text"] = term + ("." * (MAX_ABSTRACT_CHARS - len(term)))
+    assert len(abstract["text"]) == MAX_ABSTRACT_CHARS == ABSTRACT_LIMIT
+    rows = topic_rows_for_items([item], VOCAB)
+    lyme = next(row for row in rows if row["topic_id"] == "lyme-disease")
+    assert lyme["matched_field"] == "abstract"
+    assert lyme["matched_term"] == term
+    over = deepcopy(item)
+    over["publisher_metadata"]["abstract"]["text"] += "."
+    with pytest.raises(ValueError, match="TOPIC_FIELD_LIMIT:abstract"):
+        topic_rows_for_items([over], VOCAB)
+    with pytest.raises(ValueError, match="TOPIC_FIELD_LIMIT:title"):
+        map_topics("a" * (MAX_FIELD_CHARS + 1), None, [], [], [], VOCAB)
+    hidden = deepcopy(item)
+    hidden["title"] = "Workshop agenda for editors"
+    hidden["publisher_metadata"]["categories"] = []
+    hidden["publisher_metadata"]["abstract"] = {
+        "text": term,
+        "state": "suppressed",
+    }
+    assert [row["topic_id"] for row in topic_rows_for_items([hidden], VOCAB)] == [FALLBACK_TOPIC_ID]
+
+
+def _recorded_pubmed_items() -> dict[str, dict[str, Any]]:
+    """Items produced by the Entrez parser from the recorded overlap fixtures."""
+    fixture_dir = ROOT / "tests" / "fixtures" / "pubmed"
+    searches = json.loads((fixture_dir / "esearch_overlap.json").read_text(encoding="utf-8"))
+    records = entrez._parse_efetch((fixture_dir / "efetch_overlap.xml").read_bytes())
+    sources = entrez._load_sources()
+    policies = entrez._load_policies(sources)
+    items: dict[str, dict[str, Any]] = {}
+    for record in records:
+        matched = tuple(
+            source_id
+            for source_id in entrez.SOURCE_ORDER
+            if record.pmid in searches[source_id]["idlist"]
+        )
+        items[record.pmid] = entrez._build_item(
+            record,
+            matched=matched,
+            sources=sources,
+            policies=policies,
+            fetched_at="2026-10-25T12:00:00Z",
+            run_id="dev-pubmed-fixture",
+            artifact_sha="a" * 64,
+            suppress_pmids=frozenset(),
+            suppress_publishers=frozenset(),
+        )
+    return items
+
+
 def _feed_items(path: Path) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for node in ET.parse(path).getroot().iter("item"):
@@ -538,9 +664,11 @@ def _tagged_fraction(items: list[dict[str, Any]]) -> float:
 
 
 def _vocabulary_rows(sql: str) -> list[tuple[str, str, str, str, int]]:
-    marker = "INSERT INTO CONFORMED.INTELLIGENCE_TOPICS"
+    marker = "MERGE INTO CONFORMED.INTELLIGENCE_TOPICS"
     start = sql.index(marker)
+    assert "INSERT INTO CONFORMED.INTELLIGENCE_TOPICS" not in sql
     body = sql[sql.index("VALUES", start) + len("VALUES") :]
+    body = body[: body.index(") AS source")]
     rows: list[tuple[str, str, str, str, int]] = []
     index = 0
     while index < len(body):

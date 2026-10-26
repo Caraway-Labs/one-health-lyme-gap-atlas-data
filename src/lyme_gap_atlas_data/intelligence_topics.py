@@ -7,10 +7,11 @@ matches on every run. It does not read files, call a model, or write storage.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
@@ -19,6 +20,9 @@ FALLBACK_TOPIC_ID = "other-public-health"
 VOCABULARY_VERSION_V1 = "v1"
 MAX_TOPICS = 10
 MAX_FIELD_CHARS = 4096
+# PubMed stores a present abstract up to this cap and withholds anything longer.
+MAX_ABSTRACT_CHARS = 6000
+logger = logging.getLogger(__name__)
 _VERSION = re.compile(r"^v[0-9]+$")
 _TOPIC_IDS = frozenset(
     {
@@ -152,21 +156,26 @@ def map_topics(
     title: str | None,
     description: str | None,
     categories: Sequence[str] | None,
-    mesh: Sequence[str] | None,
+    mesh: Sequence[str | Mapping[str, Any]] | None,
     keywords: Sequence[str] | None,
     vocab: Mapping[str, Any],
+    *,
+    abstract: str | None = None,
 ) -> list[TopicMatch]:
     """Return explainable topic matches in vocabulary order, at most ten.
 
     A topic with no synonym, MeSH UI, or publisher-category match is omitted.
     When nothing matches, the only row is the fallback topic and its matched
-    term is null.
+    term is null. MeSH entries may be bare strings or ``{"name", "ui"}``
+    objects. ``abstract`` is a separate field with the PubMed 6000-character cap.
     """
+    mesh_values = _mesh_values(mesh)
     fields = {
         "title": _text(title, "title"),
         "description": _text(description, "description"),
+        "abstract": _text(abstract, "abstract", limit=MAX_ABSTRACT_CHARS),
         "categories": _texts(categories, "categories"),
-        "mesh": _texts(mesh, "mesh"),
+        "mesh": tuple(entry.text for entry in mesh_values),
         "keywords": _texts(keywords, "keywords"),
     }
     topics = vocab.get("topics")
@@ -177,7 +186,7 @@ def map_topics(
     for topic in topics:
         if not isinstance(topic, dict) or topic.get("id") == FALLBACK_TOPIC_ID:
             continue
-        found = _match_topic(topic, fields)
+        found = _match_topic(topic, fields, mesh_values)
         if found is None:
             continue
         matched_field, matched_term = found
@@ -215,8 +224,16 @@ def topic_rows_for_items(
     version = str(vocabulary["vocabulary_version"])
     rows: list[TopicRow] = []
     for item in items:
-        title, description, categories, mesh, keywords = inputs_from_document(item)
-        for match in map_topics(title, description, categories, mesh, keywords, vocabulary):
+        title, description, categories, mesh, keywords, abstract = inputs_from_document(item)
+        for match in map_topics(
+            title,
+            description,
+            categories,
+            mesh,
+            keywords,
+            vocabulary,
+            abstract=abstract,
+        ):
             rows.append(
                 {
                     "item_id": str(item["item_id"]),
@@ -232,7 +249,7 @@ def topic_rows_for_items(
 
 def inputs_from_document(
     document: Mapping[str, Any],
-) -> tuple[str | None, str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+) -> tuple[str | None, str | None, tuple[str, ...], Any, tuple[str, ...], str | None]:
     """Read publisher fields. A badly typed or oversized field raises."""
     if not isinstance(document, Mapping):
         raise ValueError("TOPIC_FIELD_TYPE")
@@ -248,12 +265,16 @@ def inputs_from_document(
         description = description_value.get("text")
     else:
         description = description_value
+    mesh = document.get("mesh")
+    if mesh is None:
+        mesh = publisher_map.get("mesh")
     return (
         _text(document.get("title"), "title"),
         _text(description, "description"),
         _texts(publisher_map.get("categories"), "categories"),
-        _texts(document.get("mesh") or publisher_map.get("mesh"), "mesh"),
+        mesh,
         _texts(document.get("keywords") or publisher_map.get("keywords"), "keywords"),
+        _present_abstract(publisher_map.get("abstract")),
     )
 
 
@@ -273,39 +294,55 @@ def merge_topic_rows(cursor: Any, rows: Sequence[TopicRow]) -> int:
 def backfill_topics(
     cursor: Any, *, vocabulary_version: str = VOCABULARY_VERSION_V1
 ) -> dict[str, int]:
-    """Page stored revisions and merge their topic rows. Repeating the call is a no-op."""
+    """Page stored revisions and merge their topic rows.
+
+    A badly typed item is counted, skipped, and reported in ``warnings``. The
+    page continues. Repeating the call after a clean run merges the same keys.
+    """
     vocabulary = load_vocabulary(vocabulary_version)
     last_item = ""
     last_revision = ""
     items = 0
     topic_rows = 0
+    warnings = 0
     for _page in range(_MAX_PAGES):
         cursor.execute(_REVISION_PAGE, (last_item, last_item, last_revision))
         fetched = cursor.fetchall()
         if not fetched:
             break
-        documents: list[dict[str, Any]] = []
         for item_id, revision_id, document_json in fetched:
-            document = json.loads(document_json)
-            if not isinstance(document, dict):
-                raise ValueError("TOPIC_REVISION_DOCUMENT")
-            document["item_id"] = item_id
-            document["revision_id"] = revision_id
-            documents.append(document)
+            items += 1
             last_item = str(item_id)
             last_revision = str(revision_id)
-        items += len(documents)
-        topic_rows += merge_topic_rows(cursor, topic_rows_for_items(documents, vocabulary))
+            try:
+                document = json.loads(document_json)
+                if not isinstance(document, dict):
+                    raise ValueError("TOPIC_REVISION_DOCUMENT")
+                document["item_id"] = item_id
+                document["revision_id"] = revision_id
+                rows = topic_rows_for_items([document], vocabulary)
+            except Exception:
+                warnings += 1
+                continue
+            topic_rows += merge_topic_rows(cursor, rows)
         if len(fetched) < _PAGE_SIZE:
             break
     else:
         raise ValueError("TOPIC_BACKFILL_PAGE_LIMIT")
-    return {"items": items, "topic_rows": topic_rows}
+    if warnings:
+        logger.warning("intelligence_topics step=backfill_item_skipped warnings=%s", warnings)
+    return {"items": items, "topic_rows": topic_rows, "warnings": warnings}
+
+
+class _MeshValue(NamedTuple):
+    ui: str | None
+    text: str
 
 
 def _match_topic(
     topic: Mapping[str, Any],
     fields: Mapping[str, str | None | tuple[str, ...]],
+    mesh_values: tuple[_MeshValue, ...],
 ) -> tuple[str, str] | None:
     topic_id = topic.get("id")
     if not isinstance(topic_id, str):
@@ -315,12 +352,12 @@ def _match_topic(
     for category in categories:
         if category.casefold() in _folded(topic.get("publisher_categories")):
             return "categories", category
-    mesh_values = _field_texts(fields, "mesh")
     mesh_ids = _folded(topic.get("mesh_ui"))
-    for mesh_value in mesh_values:
-        if mesh_value.casefold() in mesh_ids:
-            return "mesh", mesh_value
-    for field in ("title", "description", "categories", "mesh", "keywords"):
+    for entry in mesh_values:
+        candidate = entry.ui if entry.ui is not None else entry.text
+        if candidate.casefold() in mesh_ids:
+            return "mesh", candidate
+    for field in ("title", "description", "abstract", "categories", "mesh", "keywords"):
         for text in _field_texts(fields, field):
             for pattern in patterns:
                 found = pattern.search(text)
@@ -358,13 +395,59 @@ def _pattern(synonym: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.IGNORECASE)
 
 
-def _text(value: Any, field: str) -> str | None:
+def _present_abstract(value: Any) -> str | None:
+    """Return abstract text only when the publisher state is ``present``."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError("TOPIC_FIELD_TYPE")
+    state = value.get("state")
+    if state != "present":
+        if state is not None and not isinstance(state, str):
+            raise ValueError("TOPIC_FIELD_TYPE")
+        return None
+    text = value.get("text")
+    if text is not None and not isinstance(text, str):
+        raise ValueError("TOPIC_FIELD_TYPE")
+    return text
+
+
+def _mesh_values(values: Any) -> tuple[_MeshValue, ...]:
+    """Accept bare MeSH strings and PubMed ``{"name", "ui"}`` objects."""
+    if values is None:
+        return ()
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise ValueError("TOPIC_FIELD_TYPE")
+    checked: list[_MeshValue] = []
+    for value in values:
+        if isinstance(value, str):
+            _bounded(value, "mesh", MAX_FIELD_CHARS)
+            checked.append(_MeshValue(ui=None, text=value))
+            continue
+        if isinstance(value, Mapping) and set(value) == {"name", "ui"}:
+            name = value["name"]
+            ui = value["ui"]
+            if not isinstance(name, str) or not isinstance(ui, str):
+                raise ValueError("TOPIC_FIELD_TYPE")
+            _bounded(name, "mesh", MAX_FIELD_CHARS)
+            _bounded(ui, "mesh", MAX_FIELD_CHARS)
+            checked.append(_MeshValue(ui=ui, text=name))
+            continue
+        raise ValueError("TOPIC_FIELD_TYPE")
+    return tuple(checked)
+
+
+def _bounded(value: str, field: str, limit: int) -> None:
+    if len(value) > limit:
+        raise ValueError(f"TOPIC_FIELD_LIMIT:{field}")
+
+
+def _text(value: Any, field: str, *, limit: int = MAX_FIELD_CHARS) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
         raise ValueError("TOPIC_FIELD_TYPE")
-    if len(value) > MAX_FIELD_CHARS:
-        raise ValueError(f"TOPIC_FIELD_LIMIT:{field}")
+    _bounded(value, field, limit)
     return value
 
 

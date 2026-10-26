@@ -1,6 +1,8 @@
 -- Vocabulary topic rows for intelligence item revisions.
 -- Readers use the v1 projections. The pipeline runtime may merge item topic rows.
--- The vocabulary table is static. A fallback match stores a null matched term.
+-- The vocabulary table is static. Rows merge on topic and vocabulary version
+-- so a retry after a later statement failure does not insert duplicates.
+-- A fallback match stores a null matched term.
 -- Captured item documents stay unchanged.
 USE DATABASE {{ DATABASE }};
 
@@ -41,9 +43,15 @@ CREATE TABLE IF NOT EXISTS CONFORMED.INTELLIGENCE_TOPICS (
     PRIMARY KEY (topic_id, vocabulary_version)
 );
 
-INSERT INTO CONFORMED.INTELLIGENCE_TOPICS
-    (topic_id, vocabulary_version, label, definition, sort_order)
-VALUES
+MERGE INTO CONFORMED.INTELLIGENCE_TOPICS AS target
+USING (
+    SELECT
+        column1 AS topic_id,
+        column2 AS vocabulary_version,
+        column3 AS label,
+        column4 AS definition,
+        column5 AS sort_order
+    FROM VALUES
     ('lyme-disease', 'v1', 'Lyme disease', 'Borrelia burgdorferi sensu lato infection and the clinical disease called Lyme disease.', 0),
     ('babesiosis', 'v1', 'Babesiosis', 'Babesia infection, including babesiosis.', 1),
     ('anaplasmosis', 'v1', 'Anaplasmosis', 'Anaplasma infection, including human granulocytic anaplasmosis.', 2),
@@ -62,7 +70,23 @@ VALUES
     ('antimicrobial-resistance', 'v1', 'Antimicrobial resistance', 'Antimicrobial and antibiotic resistance, including MRSA and carbapenem resistance.', 15),
     ('surveillance-data', 'v1', 'Surveillance data', 'Public-health surveillance products and routine statistical summaries such as QuickStats.', 16),
     ('diagnostics', 'v1', 'Diagnostics', 'Laboratory diagnostics, including PCR, serology, and molecular detection.', 17),
-    ('other-public-health', 'v1', 'Other public health', 'Public-health item with no vocabulary v1 topic match.', 18);
+    ('other-public-health', 'v1', 'Other public health', 'Public-health item with no vocabulary v1 topic match.', 18)
+) AS source
+ON target.topic_id = source.topic_id
+ AND target.vocabulary_version = source.vocabulary_version
+WHEN MATCHED AND (
+    target.label IS DISTINCT FROM source.label
+    OR target.definition IS DISTINCT FROM source.definition
+    OR target.sort_order IS DISTINCT FROM source.sort_order
+) THEN UPDATE SET
+    label = source.label,
+    definition = source.definition,
+    sort_order = source.sort_order
+WHEN NOT MATCHED THEN INSERT (
+    topic_id, vocabulary_version, label, definition, sort_order
+) VALUES (
+    source.topic_id, source.vocabulary_version, source.label, source.definition, source.sort_order
+);
 
 CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_TOPICS_V1 AS
 SELECT topic_id,

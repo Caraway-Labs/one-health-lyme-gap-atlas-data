@@ -74,7 +74,7 @@ INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
 INTELLIGENCE_ITEM_TOPICS_MIGRATION = {
     "version": "V171",
     "filename": "V171__intelligence_item_topics.sql",
-    "sha256": "06efcee9aceb39871a22735e70a5c41f382476724d3743b1d3d87f0f64015c10",
+    "sha256": "0bde46663f249afe562d6e9c202b7a5d52f3c2d83e72e112c727d82e01819185",
 }
 # V170 replaces the feed view in both databases. The protected path is required
 # on DEV and PROD; the historical feed-view migrations stay PROD-only.
