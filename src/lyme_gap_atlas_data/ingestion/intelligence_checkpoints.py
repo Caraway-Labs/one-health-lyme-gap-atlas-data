@@ -19,7 +19,11 @@ from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..intelligence_retention import CopyKind
 from .artifact_replay import ArtifactMember, resolve_member
 from .checkpoints import FileCheckpointStore, InMemoryCheckpointStore, SnowflakeCheckpointStore
-from .intelligence_daily_run_ids import prior_daily_run_id, reopen_attempt_for_run_id
+from .intelligence_daily_run_ids import (
+    daily_attempt_over_cap,
+    prior_daily_run_id,
+    reopen_attempt_for_run_id,
+)
 from .types import RunState
 
 STALE_DAILY_RUN_MINUTES = 30
@@ -203,12 +207,15 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
     def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
         """Commit one daily admission before I/O using the existing write guard.
 
-        A crash or failed acquisition consumes the claim. Scheduled invocations
-        never reopen it or retry a provider request on the same day.
+        A crash or failed acquisition consumes that attempt. A later attempt is
+        a new row, admitted only when the previous attempt is terminal FAILED,
+        the checksum and code version match, and the attempt is within the cap.
         """
         from .intelligence_runtime import PROD_DAILY_SOURCE_SHA256
 
         day = datetime.now(UTC).date()
+        if daily_attempt_over_cap(source_id, day, run_id):
+            raise PermissionError("INTELLIGENCE_DAILY_ATTEMPT_CAP")
         attempt = reopen_attempt_for_run_id(source_id, day, run_id)
         if (
             self.feed_retention.environment != "PROD"

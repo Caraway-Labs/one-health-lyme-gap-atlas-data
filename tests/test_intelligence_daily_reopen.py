@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 import yaml
@@ -51,6 +53,8 @@ def test_run_ids_are_stable_distinct_and_chain_to_prior_attempt() -> None:
     assert reopen_attempt_for_run_id(SID, TODAY, "x" * 36) is None
     with pytest.raises(ValueError):
         daily_run_id(SID, TODAY, reopen_attempt=0)
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        daily_run_id(SID, TODAY, reopen_attempt=4)
 
 
 class _Cursor:
@@ -257,7 +261,10 @@ def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch)
         for source_id in runtime.PROD_SOURCE_DEFINITIONS
     ]
     assert result["status"] == "FAILED"
-    assert terminalized == [daily_run_id("cdc-eid-ahead-of-print", TODAY)]
+    assert terminalized == [
+        daily_run_id("cdc-eid-ahead-of-print", TODAY),
+        daily_run_id("cdc-eid-ahead-of-print", TODAY, reopen_attempt=2),
+    ]
     assert all("stage_timings" in row for row in result["sources"])
 
 
@@ -442,3 +449,101 @@ def test_same_reopen_second_time_fails_on_existing_claim_and_writes_nothing(
     others = [row for row in payload["sources"] if row["source_id"] != "cdc-mmwr"]
     assert others
     assert all(row["outcome"] == "SKIPPED_NOT_SELECTED" for row in others)
+
+
+def test_attempt_above_the_cap_is_refused_before_sql_or_settings(monkeypatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    store = _store({}, [])
+    store._connection_factory = lambda: pytest.fail("no SQL")
+    over = str(
+        uuid5(NAMESPACE_URL, f"atlas:intelligence:daily:{SID}:{TODAY.isoformat()}:attempt-4")
+    )
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        store.claim_daily_run(over, SID, SHA)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.settings.PipelineSettings",
+        lambda: pytest.fail("settings"),
+    )
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        polling.run_production_daily(reopen_attempt=4, source_ids=("cdc-mmwr",))
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        polling.daily_source_selection(("pubmed-lyme-borrelia",), reopen_attempt=4)
+
+
+def test_pubmed_failed_prior_can_be_claimed_and_success_or_running_cannot(monkeypatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    sid = "pubmed-tick-borne"
+    sha = runtime.PROD_DAILY_SOURCE_SHA256[sid]
+    base = daily_run_id(sid, TODAY)
+    two = daily_run_id(sid, TODAY, reopen_attempt=2)
+    events: list[Any] = []
+    assert _store({base: ("FAILED", sid, CODE, sha)}, events).claim_daily_run(two, sid, sha) is True
+    assert "INSERT" in events
+    for status in ("SUCCEEDED", "RUNNING"):
+        denied: list[Any] = []
+        with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
+            _store({base: (status, sid, CODE, sha)}, denied).claim_daily_run(two, sid, sha)
+        assert "INSERT" not in denied
+        assert denied[-1] == "ROLLBACK"
+
+
+def test_scheduled_run_retries_only_the_failed_rss_source_once(monkeypatch) -> None:
+    _settings(monkeypatch)
+    monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
+    calls: list[tuple[str, str]] = []
+
+    def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
+        source_id = definition.source_id
+
+        def claim(run_id: str, claimed_source: str, sha: str) -> bool:
+            assert claimed_source == source_id
+            assert sha == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
+            if run_id == daily_run_id(source_id, TODAY, reopen_attempt=2):
+                assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") == "true"
+            else:
+                assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+            return True
+
+        def run(_definition: Any, *, tier: Any, run_id: str) -> Any:
+            calls.append((source_id, run_id))
+            if source_id == "cdc-mmwr" and run_id == daily_run_id(source_id, TODAY):
+                return SimpleNamespace(status=RunStatus.FAILED)
+            return SimpleNamespace(status=RunStatus.SUCCEEDED)
+
+        return (
+            SimpleNamespace(
+                store=SimpleNamespace(claim_daily_run=claim),
+                run=run,
+                pilot_budget=runtime.PilotBudget(seconds=budget_seconds),
+            ),
+            SimpleNamespace(extra={"intelligence_registry": _registry(source_id)}),
+        )
+
+    monkeypatch.setattr(runtime, "canonical_pilot", compose)
+    result = polling.run_production_daily()
+    assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+    by_source: dict[str, list[str]] = {}
+    for source_id, run_id in calls:
+        by_source.setdefault(source_id, []).append(run_id)
+    assert by_source["cdc-mmwr"] == [
+        daily_run_id("cdc-mmwr", TODAY),
+        daily_run_id("cdc-mmwr", TODAY, reopen_attempt=2),
+    ]
+    for source_id in runtime.PROD_SOURCE_DEFINITIONS:
+        if source_id == "cdc-mmwr":
+            continue
+        assert by_source[source_id] == [daily_run_id(source_id, TODAY)]
+    by_id = {row["source_id"]: row for row in result["sources"]}
+    assert by_id["cdc-mmwr"]["outcome"] == "SUCCEEDED"
+    assert by_id["cdc-mmwr"]["attempt"] == 2
+    assert result["status"] == "SUCCEEDED"
+
+
+def test_cli_rejects_a_fourth_attempt_before_a_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(polling, "run_production_daily", lambda **_kwargs: pytest.fail("ran"))
+    result = CliRunner().invoke(
+        app,
+        ["pipeline", "run-intelligence-daily", "--reopen-attempt", "4", "--source", "cdc-mmwr"],
+    )
+    assert result.exit_code != 0
+    assert "ran" not in result.stdout

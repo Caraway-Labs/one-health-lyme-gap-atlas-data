@@ -59,6 +59,8 @@ _STATUS_FOR_OUTCOME = {
     "SKIPPED_NOT_SELECTED": "SKIPPED_NOT_SELECTED",
 }
 MAX_SELECTED_SOURCES = 5
+# Keep aligned with intelligence_daily_run_ids.MAX_DAILY_ATTEMPTS.
+MAX_REOPEN_ATTEMPT = 3
 _SOURCE_TOKEN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ALLOWLISTED_ERROR_CODE = re.compile(
     r"^(?:INTELLIGENCE_[A-Z0-9_]{3,80}|FEED_[A-Z0-9_]{1,80}|MALFORMED_FEED|"
@@ -120,7 +122,9 @@ def build_operation_spec(
         raise PermissionError("INTELLIGENCE_DAILY_COMMAND_REQUIRED")
     if recover_ingestion_run_id and preflight_only:
         raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_MODE_EXCLUSIVE")
-    if not 1 <= reopen_attempt <= 31:
+    if reopen_attempt > MAX_REOPEN_ATTEMPT:
+        raise PermissionError("INTELLIGENCE_DAILY_ATTEMPT_CAP")
+    if reopen_attempt < 1:
         raise PermissionError("INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID")
     if recover_ingestion_run_id and reopen_attempt >= 2:
         raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_MODE_EXCLUSIVE")

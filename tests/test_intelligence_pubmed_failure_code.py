@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import ssl
 from typing import Any
@@ -62,11 +63,13 @@ def _patch_walk(monkeypatch: pytest.MonkeyPatch, ledger: _Ledger, error: BaseExc
     monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
     monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
     monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
-    monkeypatch.setattr(
-        polling,
-        "registered_entrez_sources",
-        lambda *_args, **_kwargs: [{"source_id": source_id} for source_id in SOURCE_ORDER],
-    )
+
+    def _registered(*_args: Any, **kwargs: Any) -> list[dict[str, str]]:
+        only = kwargs.get("only_source_id")
+        chosen = SOURCE_ORDER if only is None else (only,)
+        return [{"source_id": source_id} for source_id in chosen if source_id in SOURCE_ORDER]
+
+    monkeypatch.setattr(polling, "registered_entrez_sources", _registered)
     monkeypatch.setattr(polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, None))
 
     def boom(**_kwargs: Any) -> None:
@@ -129,7 +132,7 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
         assert all("http_status" not in row for row in payload["pubmed"])
     else:
         assert [row["http_status"] for row in payload["pubmed"]] == [status, status]
-    assert len(ledger.saved) == 2
+    assert len(ledger.saved) == 4
     for state in ledger.saved:
         checkpoint = state.stages[0]
         assert checkpoint.redacted_diagnostic_code == code
@@ -257,6 +260,78 @@ def test_pubmed_reopen_rejects_a_prior_attempt_that_is_not_failed(
     )
     with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
         polling.run_production_daily(reopen_attempt=2, source_ids=(TICK,))
+
+
+def test_scheduled_run_retries_one_failed_pubmed_source_and_records_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+    calls: list[dict[str, Any]] = []
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        if kwargs["reopen_attempt"] == 1:
+            return [
+                {
+                    "source_id": TICK,
+                    "status": "FAILED",
+                    "error_class": "TimeoutError",
+                    "error_code": "FEED_TIMEOUT",
+                }
+            ]
+        assert kwargs["scheduled_retry"] is True
+        assert kwargs["only_source_id"] == TICK
+        assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+        return [
+            {
+                "source_id": TICK,
+                "status": "FAILED",
+                "error_class": "TimeoutError",
+                "error_code": "FEED_TIMEOUT",
+            }
+        ]
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily()
+    assert [call["reopen_attempt"] for call in calls] == [1, 2]
+    assert calls[0]["only_source_id"] is None
+    assert payload["status"] == "SUCCEEDED"
+    assert payload["pubmed"] == [
+        {
+            "source_id": TICK,
+            "status": "FAILED",
+            "error_class": "TimeoutError",
+            "error_code": "FEED_TIMEOUT",
+            "attempt": 2,
+        }
+    ]
+    assert LYME not in json.dumps(payload["pubmed"])
+    assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+
+
+def test_scheduled_pubmed_retry_success_clears_the_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+    calls: list[int] = []
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs["reopen_attempt"])
+        if kwargs["reopen_attempt"] == 1:
+            return [{"source_id": LYME, "status": "FAILED", "error_class": "TimeoutError"}]
+        assert kwargs["only_source_id"] == LYME
+        return []
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily()
+    assert calls == [1, 2]
+    assert "pubmed" not in payload
+    assert payload["status"] == "SUCCEEDED"
 
 
 def test_rss_reopen_still_skips_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:

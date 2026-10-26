@@ -22,12 +22,12 @@ on:
         default: ""
         type: string
       reopen_attempt:
-        description: Governed same-UTC-day reopen attempt (2 or higher); requires manual job env and source_id
+        description: Same-UTC-day re-run of one source whose previous attempt is terminal FAILED. Use 2 or 3 (hard cap). Requires source_id. Each attempt is a new ledger row. No separate approval; the run URL and an issue comment are the audit trail.
         required: false
         default: 1
         type: number
       source_id:
-        description: Approved daily source id. Required when reopen_attempt is 2 or higher and when recovering a stuck run. none and all are rejected in those modes. A normal run (none) ignores this and runs every approved source. PubMed ids are accepted only when reopen_attempt is 2 or higher.
+        description: Registered daily source id. Required when reopen_attempt is 2 or 3 and when recovering a stuck run. none and all are rejected in those modes. A normal run (none) ignores this and runs every approved source. PubMed ids are accepted only when reopen_attempt is 2 or 3.
         required: false
         default: none
         type: choice
@@ -140,6 +140,10 @@ jobs:
             SOURCE_ID=""
           fi
           # Patterns are literal. A "|" taken from a variable is one character, not alternation.
+          if [[ "${REOPEN_ATTEMPT:-1}" -gt 3 ]]; then
+            echo "::error::INTELLIGENCE_DAILY_ATTEMPT_CAP"
+            exit 1
+          fi
           if [[ -n "$RECOVER_INGESTION_RUN_ID" ]]; then
             if [[ -z "${SOURCE_ID}" || "$SOURCE_ID" == "all" ]]; then
               echo "::error::INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED"

@@ -133,7 +133,8 @@ def test_unknown_exception_code_omits_message_text(
     assert secret not in rendered
     assert "super-secret" not in rendered
     lines = _lines(capsys)
-    assert len(lines) == len(runtime.PROD_SOURCE_DEFINITIONS)
+    # The scheduled run records the first failure, then one same-day retry.
+    assert len(lines) == len(runtime.PROD_SOURCE_DEFINITIONS) + 1
     logged = "\n".join(lines)
     assert secret not in logged
     assert "super-secret" not in logged

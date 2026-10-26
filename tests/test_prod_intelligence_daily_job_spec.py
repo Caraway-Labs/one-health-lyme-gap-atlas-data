@@ -9,6 +9,8 @@ from runpy import run_path
 
 import pytest
 
+from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import MAX_DAILY_ATTEMPTS
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 _MODULE = run_path(str(ROOT / "scripts" / "prod_intelligence_daily_job_spec.py"))
@@ -122,12 +124,42 @@ def test_default_manual_spec_never_sets_reopen_env_or_flag() -> None:
         {"preflight_only": True, "reopen_attempt": 2},
         {"preflight_only": False, "reopen_attempt": 2, "recover_ingestion_run_id": "x"},
         {"preflight_only": False, "reopen_attempt": 0},
-        {"preflight_only": False, "reopen_attempt": 32},
     ],
 )
 def test_reopen_is_exclusive_and_bounded(kwargs) -> None:
     with pytest.raises(PermissionError, match="REOPEN|RECOVERY"):
         build_operation_spec(_baseline(), **kwargs)
+
+
+@pytest.mark.parametrize("attempt", [4, 32])
+def test_reopen_attempt_above_the_daily_cap_is_rejected(attempt: int) -> None:
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=attempt,
+            source_ids=("cdc-mmwr",),
+        )
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=attempt,
+            source_ids=("pubmed-lyme-borrelia",),
+        )
+
+
+def test_reopen_attempt_three_is_admitted_for_rss_and_pubmed() -> None:
+    assert _MODULE["MAX_REOPEN_ATTEMPT"] == MAX_DAILY_ATTEMPTS == 3
+    for source_id in ("cdc-mmwr", "pubmed-tick-borne"):
+        spec = build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=3,
+            source_ids=(source_id,),
+        )
+        manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
+        assert manual["run_command"] == COMMAND + f" --reopen-attempt 3 --source {source_id}"
 
 
 def test_reopen_leaves_scheduled_daily_job_untouched() -> None:

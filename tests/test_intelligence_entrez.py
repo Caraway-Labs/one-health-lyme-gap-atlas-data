@@ -1096,14 +1096,12 @@ def _patch_registered_pubmed(monkeypatch: pytest.MonkeyPatch, ledger: _ClaimLedg
     monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
     monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _prod_daily_settings)
     monkeypatch.setattr(polling, "execute_daily_source", _succeeded_source)
-    monkeypatch.setattr(
-        polling,
-        "registered_entrez_sources",
-        lambda _pinned: [
-            {"source_id": "pubmed-tick-borne"},
-            {"source_id": "pubmed-lyme-borrelia"},
-        ],
-    )
+
+    def _registered(_pinned: object, only_source_id: str | None = None) -> list[dict[str, str]]:
+        chosen = SOURCE_ORDER if only_source_id is None else (only_source_id,)
+        return [{"source_id": source_id} for source_id in chosen if source_id in SOURCE_ORDER]
+
+    monkeypatch.setattr(polling, "registered_entrez_sources", _registered)
     monkeypatch.setattr(
         polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, "budget")
     )
@@ -1132,7 +1130,7 @@ def test_pubmed_failure_leaves_the_rss_payload(
     assert {row["status"] for row in payload["pubmed"]} == {"FAILED"}
     assert {row["error_class"] for row in payload["pubmed"]} == {"PermissionError"}
     assert "pubmed-tick-borne" not in runtime.PROD_SOURCE_DEFINITIONS
-    assert len(ledger.saved) == 2
+    assert len(ledger.saved) == 4
     assert {state.status.value for state in ledger.saved} == {"FAILED"}
     assert {state.resource_key for state in ledger.saved} == set(SOURCE_ORDER)
     assert ledger.saved[0].ingestion_run_id != ledger.saved[1].ingestion_run_id

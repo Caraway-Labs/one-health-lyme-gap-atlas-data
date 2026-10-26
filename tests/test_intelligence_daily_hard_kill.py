@@ -527,7 +527,7 @@ def test_production_executor_spawns_one_process_per_source(monkeypatch: pytest.M
 
 
 def test_one_hard_killed_source_does_not_starve_the_others(monkeypatch: pytest.MonkeyPatch) -> None:
-    order: list[str] = []
+    order: list[tuple[str, int, bool]] = []
 
     def fake(
         source_id: str,
@@ -536,8 +536,9 @@ def test_one_hard_killed_source_does_not_starve_the_others(monkeypatch: pytest.M
         preflight_only: bool,
         reopen_attempt: int,
         day: str,
+        scheduled_retry: bool = False,
     ) -> dict[str, Any]:
-        order.append(source_id)
+        order.append((source_id, reopen_attempt, scheduled_retry))
         if source_id == "cdc-outbreaks":
             return {"source_id": source_id, "outcome": "FAILED", "exit_code": 124}
         return {
@@ -557,8 +558,9 @@ def test_one_hard_killed_source_does_not_starve_the_others(monkeypatch: pytest.M
         ),
     )
     result = polling.run_production_daily()
-    assert order == list(PROD_SOURCE_DEFINITIONS)
-    assert [row["source_id"] for row in result["sources"]] == order
+    assert [item[0] for item in order] == [*PROD_SOURCE_DEFINITIONS, "cdc-outbreaks"]
+    assert order[-1] == ("cdc-outbreaks", 2, True)
+    assert [row["source_id"] for row in result["sources"]] == list(PROD_SOURCE_DEFINITIONS)
     killed = next(row for row in result["sources"] if row["source_id"] == "cdc-outbreaks")
     assert killed["exit_code"] == 124
     assert result["status"] == "FAILED"

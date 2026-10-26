@@ -104,17 +104,18 @@ def composed_sources(monkeypatch, states=None, failed=None):
     return events
 
 
-def test_daily_claim_precedes_io_and_failure_does_not_retry_or_block_other_sources(monkeypatch):
+def test_daily_claim_precedes_io_and_a_failure_retries_once_without_blocking_others(monkeypatch):
     daily_settings(monkeypatch)
     events = composed_sources(monkeypatch, failed="cdc-eid-expedited")
     first = polling.run_production_daily()
     second = polling.run_production_daily()
     assert first["status"] == "FAILED"
-    assert [e for e in events if e[0] == "run"] == [
-        ("run", s) for s in runtime.PROD_SOURCE_DEFINITIONS
+    sources = list(runtime.PROD_SOURCE_DEFINITIONS)
+    assert [e for e in events if e[0] == "run"] == [("run", s) for s in sources] + [
+        ("run", "cdc-eid-expedited")
     ]
     assert all(row["outcome"] == "ALREADY_CLAIMED" for row in second["sources"])
-    assert len([e for e in events if e[0] == "run"]) == len(runtime.PROD_SOURCE_DEFINITIONS)
+    assert len([e for e in events if e[0] == "run"]) == len(sources) + 1
 
 
 @pytest.mark.parametrize("state", ["manual", "paused"])

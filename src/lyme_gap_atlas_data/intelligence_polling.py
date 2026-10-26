@@ -26,7 +26,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 from . import settings as pipeline_settings
 from .ingestion import intelligence_runtime
 from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
-from .ingestion.intelligence_daily_run_ids import daily_run_id
+from .ingestion.intelligence_daily_run_ids import MAX_DAILY_ATTEMPTS, daily_run_id
 from .ingestion.intelligence_entrez import (
     RECEIPT_PATH,
     SOURCE_ORDER,
@@ -115,6 +115,23 @@ PUBMED_FAIL_SAVE_SECONDS = 30
 # Checkpoint code when the failure has no allowlisted code of its own.
 PUBMED_DAILY_FAILED = "PUBMED_DAILY_FAILED"
 _REOPEN_PRIOR_NOT_FAILED = "INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED"
+# The scheduled job's one automatic re-run. Manual attempts 2 and 3 stay explicit.
+SCHEDULED_RETRY_ATTEMPT = 2
+# These denials are not a consumed provider failure, so the scheduled job does not
+# spend another attempt on them.
+_NO_SAME_DAY_RETRY = frozenset(
+    {
+        "INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED",
+        "INTELLIGENCE_DAILY_REOPEN_REQUIRED",
+        "INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED",
+        "INTELLIGENCE_DAILY_ATTEMPT_CAP",
+        "INTELLIGENCE_DAILY_CLAIM_SCOPE_REQUIRED",
+        "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID",
+        "INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED",
+        "INTELLIGENCE_DAILY_SCHEDULED_RETRY_INVALID",
+        "INTELLIGENCE_DAILY_PROD_REQUIRED",
+    }
+)
 # Production walks in a child so a swallowed SIGALRM cannot keep the parent going.
 PUBMED_WALK_ISOLATE = True
 _LOG_STATUSES = frozenset(_STATUS_FOR_OUTCOME.values())
@@ -313,6 +330,13 @@ def _log_daily_outcome(result: dict[str, Any]) -> None:
     exit_code = result.get("exit_code")
     if isinstance(exit_code, int) and not isinstance(exit_code, bool):
         safe["exit_code"] = exit_code
+    attempt = result.get("attempt")
+    if (
+        isinstance(attempt, int)
+        and not isinstance(attempt, bool)
+        and 2 <= attempt <= MAX_DAILY_ATTEMPTS
+    ):
+        safe["attempt"] = attempt
     safe.update(_validated_item_counts(result))
     line = DAILY_OUTCOME_LOG_PREFIX + json.dumps(safe, separators=(",", ":"), sort_keys=True)
     if len(line.encode("utf-8")) > _MAX_OUTCOME_LOG_BYTES:
@@ -425,6 +449,27 @@ _CHILD_OUTCOMES = frozenset(
 )
 
 
+@contextmanager
+def _scheduled_retry_reopen_env(enabled: bool) -> Iterator[None]:
+    """Admit one scheduled attempt-2 claim without putting the flag on the job spec."""
+    if not enabled:
+        yield
+        return
+    previous = os.environ.get("INTELLIGENCE_DAILY_REOPEN")
+    os.environ["INTELLIGENCE_DAILY_REOPEN"] = "true"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("INTELLIGENCE_DAILY_REOPEN", None)
+        else:
+            os.environ["INTELLIGENCE_DAILY_REOPEN"] = previous
+
+
+def _retriable_same_day_failure(error_code: object) -> bool:
+    return not (isinstance(error_code, str) and error_code in _NO_SAME_DAY_RETRY)
+
+
 def _daily_source_child(spec: dict[str, Any], result_queue: Any) -> None:
     """Child entry. A hard kill in this process leaves the parent and siblings alive."""
     source_id = spec.get("source_id")
@@ -437,6 +482,7 @@ def _daily_source_child(spec: dict[str, Any], result_queue: Any) -> None:
                 preflight_only=bool(spec["preflight_only"]),
                 reopen_attempt=int(spec["reopen_attempt"]),
                 day=str(spec["day"]),
+                scheduled_retry=bool(spec.get("scheduled_retry")),
             )
         )
     except Exception as error:
@@ -564,6 +610,7 @@ def execute_daily_source(
     preflight_only: bool,
     reopen_attempt: int,
     day: str,
+    scheduled_retry: bool = False,
 ) -> dict[str, Any]:
     """Run one source in a child process so a hard kill stops only that source."""
     return _run_isolated(
@@ -574,6 +621,7 @@ def execute_daily_source(
             "preflight_only": preflight_only,
             "reopen_attempt": reopen_attempt,
             "day": day,
+            "scheduled_retry": scheduled_retry,
         },
         timeout=source_process_timeout(DAILY_SOURCE_WATCHDOG_SECONDS),
     )
@@ -586,6 +634,7 @@ def execute_daily_source_in_process(
     preflight_only: bool,
     reopen_attempt: int,
     day: str,
+    scheduled_retry: bool = False,
 ) -> dict[str, Any]:
     """Run one daily source in the current process. Tests use this seam."""
     kill_state = HardKillState()
@@ -612,14 +661,17 @@ def execute_daily_source_in_process(
                 raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
             if preflight_only:
                 return _source_outcome(source_id, "READY")
+            if scheduled_retry and reopen_attempt != SCHEDULED_RETRY_ATTEMPT:
+                raise PermissionError("INTELLIGENCE_DAILY_SCHEDULED_RETRY_INVALID")
             run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
             # Set before claim so a hang after the RUNNING insert can still be recorded.
             kill_state.run_id = run_id
             claim_clock.begin("CLAIM")
             try:
-                claimed = cast(
-                    IntelligenceSnowflakeCheckpoints, orchestrator.store
-                ).claim_daily_run(run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id])
+                with _scheduled_retry_reopen_env(scheduled_retry):
+                    claimed = cast(
+                        IntelligenceSnowflakeCheckpoints, orchestrator.store
+                    ).claim_daily_run(run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id])
             finally:
                 claim_clock.end("CLAIM")
             timings_ms = _merged_timings(claim_clock, budget)
@@ -924,6 +976,7 @@ def _log_pubmed_failure(
     *,
     error_code: str | None = None,
     http_status: int | None = None,
+    attempt: int | None = None,
 ) -> None:
     """One line: source id, FAILED, class, and the redacted code. No message text."""
     safe_source = source_id if source_id in SOURCE_ORDER else "unknown"
@@ -933,6 +986,12 @@ def _log_pubmed_failure(
         "source_id": safe_source,
         "status": "FAILED",
     }
+    if (
+        isinstance(attempt, int)
+        and not isinstance(attempt, bool)
+        and 2 <= attempt <= MAX_DAILY_ATTEMPTS
+    ):
+        payload["attempt"] = attempt
     if error_code == PUBMED_DAILY_FAILED or (
         isinstance(error_code, str) and _ALLOWLISTED_ERROR_CODE.fullmatch(error_code)
     ):
@@ -952,6 +1011,7 @@ def _walk_registered_entrez_daily(
     preflight_only: bool,
     reopen_attempt: int = 1,
     only_source_id: str | None = None,
+    scheduled_retry: bool = False,
 ) -> list[dict[str, Any]]:
     """Run PubMed when both sources are active and pinned. Drafts do not fetch or write.
 
@@ -963,7 +1023,10 @@ def _walk_registered_entrez_daily(
     claimed: list[tuple[str, str]] = []
     checkpoints: Any = None
     tracked = (only_source_id,) if only_source_id in SOURCE_ORDER else SOURCE_ORDER
+    logged_attempt = reopen_attempt if reopen_attempt >= 2 else None
     try:
+        if scheduled_retry and reopen_attempt != SCHEDULED_RETRY_ATTEMPT:
+            raise PermissionError("INTELLIGENCE_DAILY_SCHEDULED_RETRY_INVALID")
         with _pubmed_walk_deadline(PUBMED_WALK_DEADLINE_SECONDS):
             pins = intelligence_runtime.PROD_DAILY_SOURCE_SHA256
             if only_source_id is None:
@@ -974,13 +1037,14 @@ def _walk_registered_entrez_daily(
                 return []
             store, checkpoints, budget = open_entrez_daily_io(settings)
             run_ids: dict[str, str] = {}
-            for source in sources:
-                source_id = source["source_id"]
-                run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
-                if not checkpoints.claim_daily_run(run_id, source_id, identity_hash(source)):
-                    continue
-                claimed.append((run_id, source_id))
-                run_ids[source_id] = run_id
+            with _scheduled_retry_reopen_env(scheduled_retry):
+                for source in sources:
+                    source_id = source["source_id"]
+                    run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+                    if not checkpoints.claim_daily_run(run_id, source_id, identity_hash(source)):
+                        continue
+                    claimed.append((run_id, source_id))
+                    run_ids[source_id] = run_id
             if not run_ids:
                 if only_source_id in SOURCE_ORDER:
                     return [
@@ -1040,6 +1104,7 @@ def _walk_registered_entrez_daily(
                 error_class,
                 error_code=error_code,
                 http_status=http_status,
+                attempt=logged_attempt,
             )
         return rows
 
@@ -1060,6 +1125,7 @@ def _pubmed_walk_process(spec: dict[str, Any], queue: Any) -> None:
             preflight_only=bool(spec["preflight_only"]),
             reopen_attempt=int(spec["reopen_attempt"]),
             only_source_id=named if isinstance(named, str) else None,
+            scheduled_retry=bool(spec.get("scheduled_retry")),
         )
         queue.put({"ok": True, "rows": rows})
     except PermissionError as error:
@@ -1103,13 +1169,14 @@ def _pubmed_timeout_rows(
         source_ids,
         seconds=PUBMED_FAIL_SAVE_SECONDS,
     )
+    logged_attempt = reopen_attempt if reopen_attempt >= 2 else None
     rows = [
         {"source_id": source_id, "status": "FAILED", "error_class": "TimeoutError"}
         for source_id in source_ids
         if source_id in SOURCE_ORDER
     ]
     for row in rows:
-        _log_pubmed_failure(row["source_id"], row["error_class"])
+        _log_pubmed_failure(row["source_id"], row["error_class"], attempt=logged_attempt)
     return rows
 
 
@@ -1120,6 +1187,7 @@ def _isolate_pubmed_walk(
     preflight_only: bool,
     reopen_attempt: int = 1,
     only_source_id: str | None = None,
+    scheduled_retry: bool = False,
 ) -> list[dict[str, Any]]:
     """Run the PubMed walk in a child. Kill it when the wall clock expires.
 
@@ -1145,6 +1213,7 @@ def _isolate_pubmed_walk(
                 "preflight_only": preflight_only,
                 "reopen_attempt": reopen_attempt,
                 "only_source_id": only_source_id,
+                "scheduled_retry": scheduled_retry,
             },
             result_queue,
         ),
@@ -1171,12 +1240,13 @@ def _isolate_pubmed_walk(
                 reported = payload.get("error_class")
                 if isinstance(reported, str):
                     error_class = reported
+            logged_attempt = reopen_attempt if reopen_attempt >= 2 else None
             rows = [
                 {"source_id": source_id, "status": "FAILED", "error_class": error_class}
                 for source_id in tracked
             ]
             for row in rows:
-                _log_pubmed_failure(row["source_id"], row["error_class"])
+                _log_pubmed_failure(row["source_id"], row["error_class"], attempt=logged_attempt)
             return rows
         found = payload.get("rows")
         if isinstance(found, list):
@@ -1198,13 +1268,15 @@ def daily_source_selection(
 ) -> frozenset[str] | None:
     """Return approved sources to run, or None when every approved source runs.
 
-    A reopen (attempt >= 2) must name 1 to 5 approved daily sources before any
+    A re-run (attempt >= 2) must name 1 to 5 approved daily sources before any
     warehouse connection. ``all`` and unknown ids are rejected. Omitted sources
     are not claimed. A PubMed id is accepted only for one source on attempt 2
-    or higher.
+    or 3. Attempt 4 and higher is refused.
     """
     if reopen_attempt < 1:
         raise ValueError("reopen_attempt must be at least 1")
+    if reopen_attempt > MAX_DAILY_ATTEMPTS:
+        raise PermissionError("INTELLIGENCE_DAILY_ATTEMPT_CAP")
     selected = tuple(source_ids or ())
     if not selected:
         if reopen_attempt >= 2:
@@ -1224,20 +1296,120 @@ def daily_source_selection(
     return frozenset(selected)
 
 
+def _scheduled_same_day_retry(
+    *,
+    reopen_attempt: int,
+    selection: frozenset[str] | None,
+    preflight_only: bool,
+) -> bool:
+    """The 18:15 full run retries a FAILED source once after the other sources."""
+    return reopen_attempt == 1 and selection is None and not preflight_only
+
+
+def _retry_failed_rss_once(results: list[dict[str, Any]], *, day: str) -> list[dict[str, Any]]:
+    updated = list(results)
+    for index, row in enumerate(updated):
+        if row.get("outcome") != "FAILED" or not _retriable_same_day_failure(row.get("error_code")):
+            continue
+        source_id = row.get("source_id")
+        if not isinstance(source_id, str):
+            continue
+        path = PROD_SOURCE_DEFINITIONS.get(source_id)
+        if path is None:
+            continue
+        replacement = execute_daily_source(
+            source_id,
+            path,
+            preflight_only=False,
+            reopen_attempt=SCHEDULED_RETRY_ATTEMPT,
+            day=day,
+            scheduled_retry=True,
+        )
+        replacement = {**replacement, "attempt": SCHEDULED_RETRY_ATTEMPT}
+        _log_daily_outcome(replacement)
+        updated[index] = replacement
+    return updated
+
+
+def _log_pubmed_retry_success(source_id: str) -> None:
+    """The Entrez walk returns no row on success. Record that attempt anyway."""
+    _log_daily_outcome(
+        {
+            "source_id": source_id,
+            "outcome": "SUCCEEDED",
+            "status": "COMPLETED",
+            "failed_stage": None,
+            "stage_timings_ms": {},
+            "attempt": SCHEDULED_RETRY_ATTEMPT,
+        }
+    )
+
+
+def _retry_failed_pubmed_once(
+    rows: list[dict[str, Any]],
+    walker: Callable[..., list[dict[str, Any]]],
+    settings: Any,
+    day: str,
+) -> list[dict[str, Any]]:
+    """Retry each failed PubMed source alone so a success is not an empty walk."""
+    failed_ids = [
+        row["source_id"]
+        for row in rows
+        if row.get("status") == "FAILED"
+        and row.get("source_id") in SOURCE_ORDER
+        and _retriable_same_day_failure(row.get("error_code"))
+    ]
+    ordered = [source_id for source_id in SOURCE_ORDER if source_id in failed_ids]
+    recorded: list[dict[str, Any]] = []
+    for source_id in ordered:
+        try:
+            retried = walker(
+                settings,
+                day,
+                preflight_only=False,
+                reopen_attempt=SCHEDULED_RETRY_ATTEMPT,
+                only_source_id=source_id,
+                scheduled_retry=True,
+            )
+        except PermissionError as error:
+            if str(error) != _REOPEN_PRIOR_NOT_FAILED:
+                raise
+            retried = [
+                {
+                    "source_id": source_id,
+                    "status": "FAILED",
+                    "error_class": "PermissionError",
+                    "error_code": _REOPEN_PRIOR_NOT_FAILED,
+                }
+            ]
+            _log_pubmed_failure(
+                source_id,
+                "PermissionError",
+                error_code=_REOPEN_PRIOR_NOT_FAILED,
+                attempt=SCHEDULED_RETRY_ATTEMPT,
+            )
+        if not retried:
+            _log_pubmed_retry_success(source_id)
+            continue
+        recorded.extend({**row, "attempt": SCHEDULED_RETRY_ATTEMPT} for row in retried)
+    return recorded
+
+
 def run_production_daily(
     *,
     preflight_only: bool = False,
     reopen_attempt: int = 1,
     source_ids: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run each exact accepted active source once per UTC day, without retries.
+    """Run each accepted active source for this UTC day.
 
     This is a bounded entry point for the existing DigitalOcean job platform,
     not a scheduler. Disabled execution performs no warehouse/provider I/O.
     Each source runs in its own process so one hard kill stops only that source.
     A source selector skips the rest with SKIPPED_NOT_SELECTED and does not
-    claim them. Reopen attempts require that selector. A PubMed reopen names one
-    PubMed source and does not run the RSS sources.
+    claim them. Re-run attempts require that selector. A PubMed re-run names one
+    PubMed source and does not run the RSS sources. The scheduled full run
+    retries each FAILED source once, as attempt 2, after the other sources finish.
     """
     # Selector checks precede settings and any Snowflake connection.
     selection = daily_source_selection(source_ids, reopen_attempt=reopen_attempt)
@@ -1269,6 +1441,7 @@ def run_production_daily(
     for row in results:
         _log_daily_outcome(row)
     pubmed: list[dict[str, Any]] = []
+    walker: Callable[..., list[dict[str, Any]]] | None = None
     if selection is None or pubmed_only is not None:
         walker = _isolate_pubmed_walk if PUBMED_WALK_ISOLATE else _walk_registered_entrez_daily
         pubmed = walker(
@@ -1278,6 +1451,14 @@ def run_production_daily(
             reopen_attempt=reopen_attempt,
             only_source_id=pubmed_only,
         )
+    if _scheduled_same_day_retry(
+        reopen_attempt=reopen_attempt,
+        selection=selection,
+        preflight_only=preflight_only,
+    ):
+        results = _retry_failed_rss_once(results, day=day)
+        if pubmed and walker is not None:
+            pubmed = _retry_failed_pubmed_once(pubmed, walker, settings, day)
     failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
     if pubmed_only is not None and any(
         row.get("status") in {"FAILED", "ALREADY_CLAIMED"} for row in pubmed

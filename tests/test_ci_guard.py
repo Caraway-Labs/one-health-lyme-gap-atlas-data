@@ -226,6 +226,10 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
         ("pubmed-first-attempt", "pubmed-tick-borne", "1", "", False),
         ("rss-recover", "cdc-mmwr", "1", "recover-run", True),
         ("pubmed-recover", "pubmed-tick-borne", "2", "recover-run", False),
+        ("rss-attempt-3", "cdc-mmwr", "3", "", True),
+        ("pubmed-attempt-3", "pubmed-lyme-borrelia", "3", "", True),
+        ("cap-rss", "cdc-mmwr", "4", "", False),
+        ("cap-pubmed", "pubmed-tick-borne", "4", "", False),
     )
     for name, source_id, attempt, recover, accepted in cases:
         work = tmp_path / name
@@ -258,11 +262,16 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
         if accepted:
             assert result.returncode == 0, f"{name}: {output}"
             assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" not in output
+            assert "INTELLIGENCE_DAILY_ATTEMPT_CAP" not in output
             args = args_file.read_text(encoding="utf-8").splitlines()
             assert (work / "ready").is_file(), name
         else:
             assert result.returncode != 0, name
-            assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" in output, output
+            if name.startswith("cap-"):
+                assert "INTELLIGENCE_DAILY_ATTEMPT_CAP" in output, output
+                assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" not in output
+            else:
+                assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" in output, output
             assert not args_file.exists(), name
             assert not (work / "ready").exists(), name
             continue
@@ -282,5 +291,13 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
             assert args[args.index("--recover-ingestion-run-id") + 1] == "recover-run"
             assert args[args.index("--source") + 1] == "cdc-mmwr"
             assert "--reopen-attempt" not in args
+        elif name == "rss-attempt-3":
+            assert args[args.index("--reopen-attempt") + 1] == "3"
+            assert args[args.index("--source") + 1] == "cdc-mmwr"
+            assert "--recover-ingestion-run-id" not in args
+        elif name == "pubmed-attempt-3":
+            assert args[args.index("--reopen-attempt") + 1] == "3"
+            assert args[args.index("--source") + 1] == "pubmed-lyme-borrelia"
+            assert "--recover-ingestion-run-id" not in args
         else:
             raise AssertionError(name)
