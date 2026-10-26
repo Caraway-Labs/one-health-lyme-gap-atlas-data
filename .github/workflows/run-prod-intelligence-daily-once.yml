@@ -139,15 +139,14 @@ jobs:
           if [[ "$SOURCE_ID" == "none" ]]; then
             SOURCE_ID=""
           fi
-          rss_sources="cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr"
-          pubmed_sources="pubmed-tick-borne|pubmed-lyme-borrelia"
+          # Patterns are literal. A "|" taken from a variable is one character, not alternation.
           if [[ -n "$RECOVER_INGESTION_RUN_ID" ]]; then
             if [[ -z "${SOURCE_ID}" || "$SOURCE_ID" == "all" ]]; then
               echo "::error::INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED"
               exit 1
             fi
             case "$SOURCE_ID" in
-              $rss_sources) ;;
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr) ;;
               *) echo "::error::INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID"; exit 1 ;;
             esac
             build_args+=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID" --source "$SOURCE_ID")
@@ -158,8 +157,8 @@ jobs:
               exit 1
             fi
             case "$SOURCE_ID" in
-              $rss_sources) ;;
-              $pubmed_sources) ;;
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr) ;;
+              pubmed-tick-borne|pubmed-lyme-borrelia) ;;
               *) echo "::error::INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID"; exit 1 ;;
             esac
             build_args+=(--reopen-attempt "$REOPEN_ATTEMPT" --source "$SOURCE_ID")
