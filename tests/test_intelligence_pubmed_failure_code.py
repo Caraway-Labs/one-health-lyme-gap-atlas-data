@@ -113,6 +113,7 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
     code: str,
     status: int | None,
 ) -> None:
+    entrez._PUBMED_STEP.set(None)
     ledger = _Ledger()
     _patch_walk(monkeypatch, ledger, error)
     payload = polling.run_production_daily()
@@ -133,7 +134,10 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
     for state in ledger.saved:
         checkpoint = state.stages[0]
         assert checkpoint.redacted_diagnostic_code == code
-        assert checkpoint.detail == ({} if status is None else {"http_status": status})
+        if code == "PUBMED_DAILY_FAILED":
+            assert checkpoint.detail == {"exception_class": type(error).__name__}
+        else:
+            assert checkpoint.detail == ({} if status is None else {"http_status": status})
         _assert_redacted(json.dumps(state.to_dict()))
     for line in logged.splitlines():
         if not line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX):
@@ -147,6 +151,91 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
             assert "http_status" not in body
         else:
             assert body["http_status"] == status
+
+
+class ProgrammingError(Exception):
+    """Stand-in for the Snowflake DB-API error. The message must never be stored."""
+
+    def __init__(self, message: str, *, errno: object, sqlstate: object) -> None:
+        super().__init__(message)
+        self.errno = errno
+        self.sqlstate = sqlstate
+
+
+def test_unclassified_programming_error_records_step_errno_and_sqlstate(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    message = (
+        "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD SET write_sequence=write_sequence+1 "
+        "WHERE note='user@example.test' AND sql='SELECT secret FROM RAW_ARTIFACTS'"
+    )
+    error = ProgrammingError(message, errno=625, sqlstate="57014")
+    ledger = _Ledger()
+    _patch_walk(monkeypatch, ledger, error)
+
+    def boom(**_kwargs: Any) -> None:
+        entrez.note_pubmed_step("CAPTURE")
+        raise error
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", boom)
+    payload = polling.run_production_daily()
+    logged = capsys.readouterr().out
+    rendered = json.dumps(payload)
+    _assert_redacted(logged)
+    _assert_redacted(rendered)
+    assert "INTELLIGENCE_WRITE_GUARD" not in logged
+    assert "RAW_ARTIFACTS" not in logged
+    assert "SELECT" not in logged
+    expected = {
+        "errno": 625,
+        "exception_class": "ProgrammingError",
+        "sqlstate": "57014",
+        "step": "CAPTURE",
+    }
+    assert [row["error_code"] for row in payload["pubmed"]] == ["PUBMED_DAILY_FAILED"] * 2
+    for row in payload["pubmed"]:
+        assert {key: row[key] for key in expected} == expected
+        assert "http_status" not in row
+    for state in ledger.saved:
+        assert state.stages[0].detail == expected
+        _assert_redacted(json.dumps(state.to_dict()))
+    for line in logged.splitlines():
+        if not line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX):
+            continue
+        body = json.loads(line.removeprefix(polling.DAILY_OUTCOME_LOG_PREFIX))
+        if body.get("source_id") not in SOURCE_ORDER:
+            continue
+        assert {key: body[key] for key in expected} == expected
+        assert body["error_class"] == "ProgrammingError"
+        assert body["error_code"] == "PUBMED_DAILY_FAILED"
+        assert set(body) <= {
+            "errno",
+            "error_class",
+            "error_code",
+            "exception_class",
+            "source_id",
+            "sqlstate",
+            "status",
+            "step",
+        }
+    entrez._PUBMED_STEP.set(None)
+
+
+def test_unclassified_failure_drops_partial_or_free_text_dbapi_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    entrez._PUBMED_STEP.set(None)
+    error = ProgrammingError(POISON, errno=True, sqlstate="not a state")
+    ledger = _Ledger()
+    _patch_walk(monkeypatch, ledger, error)
+    payload = polling.run_production_daily()
+    capsys.readouterr()
+    assert ledger.saved[0].stages[0].detail == {"exception_class": "ProgrammingError"}
+    assert "errno" not in payload["pubmed"][0]
+    assert "sqlstate" not in payload["pubmed"][0]
+    assert "step" not in payload["pubmed"][0]
 
 
 def test_connector_exceptions_become_redacted_codes() -> None:

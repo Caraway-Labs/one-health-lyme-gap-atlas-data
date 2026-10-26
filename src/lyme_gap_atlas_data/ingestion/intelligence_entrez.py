@@ -8,6 +8,7 @@ secret from the environment on its own.
 
 from __future__ import annotations
 
+import contextvars
 import errno
 import hashlib
 import http.client
@@ -63,8 +64,39 @@ EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 ENTREZ_TOOL = "one_health_lyme_gap_atlas"
 PARSER = "entrez-efetch-v1"
 FETCH = "entrez-eutils-v1"
+# Fixed names for an unclassified PubMed failure. Free-text stages are rejected.
+PUBMED_PIPELINE_STEPS = frozenset(
+    {
+        "ESEARCH",
+        "EFETCH",
+        "PARSE",
+        "CAPTURE",
+        "ACQUISITION_CONTEXT",
+        "ITEM_WRITE",
+        "CHECKPOINT_SAVE",
+    }
+)
+_PUBMED_STEP: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "pubmed_pipeline_step", default=None
+)
 NLM_ATTRIBUTION = "Courtesy of the U.S. National Library of Medicine"
 NLM_POLICY_URL = "https://www.ncbi.nlm.nih.gov/home/about/policies/"
+
+
+def note_pubmed_step(step: str) -> None:
+    """Remember the fixed pipeline step that is running. Unknown names are ignored."""
+    if step in PUBMED_PIPELINE_STEPS:
+        _PUBMED_STEP.set(step)
+
+
+def current_pubmed_step() -> str | None:
+    """The step noted on this walk, or None before the first noted step."""
+    step = _PUBMED_STEP.get()
+    if step in PUBMED_PIPELINE_STEPS:
+        return step
+    return None
+
+
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "intelligence"
 SELECTION_PATH = CONFIG_DIR / "feed-selection-v1.json"
 RECEIPT_PATH = CONFIG_DIR / "pubmed-policy-receipts.json"
@@ -503,7 +535,9 @@ def run_pubmed_daily(
     records: dict[str, _Record] = {}
     withheld = 0
     for batch in _chunks([pmid for pmid, _queries in selected], BATCH_SIZE):
-        for record in _parse_efetch(session.efetch(batch)):
+        fetched = session.efetch(batch)
+        note_pubmed_step("PARSE")
+        for record in _parse_efetch(fetched):
             if record.pmid in by_query and record.pmid not in records:
                 records[record.pmid] = record
     artifact_sha = hashlib.sha256(b"".join(session.bodies)).hexdigest()
@@ -621,6 +655,7 @@ class _EntrezSession:
         self.bodies: list[bytes] = []
 
     def esearch(self, term: str, start: date, end: date) -> tuple[list[str], int]:
+        note_pubmed_step("ESEARCH")
         body = self._get(
             ESEARCH_URL,
             {
@@ -636,9 +671,11 @@ class _EntrezSession:
                 "sort": "most recent",
             },
         )
+        note_pubmed_step("PARSE")
         return _parse_esearch(body)
 
     def efetch(self, pmids: list[str]) -> bytes:
+        note_pubmed_step("EFETCH")
         if not pmids or len(pmids) > BATCH_SIZE:
             raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
         return self._get(
@@ -1480,7 +1517,14 @@ def prepare_entrez_source_capture(
     requested_url is the esearch fetch_location. effective_url is that same endpoint,
     which is the INGESTION_REQUESTS.endpoint value. The lease policy is the source's
     30-day raw retention reference.
+
+    The raw-ledger guard and the artifact insert both update
+    ``GOVERNANCE.INTELLIGENCE_WRITE_GUARD``. Holding the lease across that insert
+    makes the second session wait out ``LOCK_TIMEOUT`` and raise a Snowflake
+    ``ProgrammingError``. The lease claim is committed first. No response bytes
+    are written while that guard is held.
     """
+    note_pubmed_step("CAPTURE")
     artifact_id = entrez_artifact_id(run_id)
     digest = hashlib.sha256(body).hexdigest()
     requested = canonical_url(source["fetch_location"])
@@ -1502,10 +1546,10 @@ def prepare_entrez_source_capture(
     retention.bind_source(run_id, source, parser_version=PARSER, fetch_version=FETCH)
     lease_sha = retention.capture(source, context)
     locator = f"memory://entrez/{artifact_id}"
-    with (
-        retention.lease_access(lease_sha, "raw_object", locator, write=True),
-        capture_session() as cursor,
-    ):
+    with retention.lease_access(lease_sha, "raw_object", locator, write=True):
+        # Commit the copy claim and release the write guard before the insert.
+        pass
+    with capture_session() as cursor:
         insert_entrez_capture_rows(
             cursor,
             run_id=run_id,
@@ -1603,6 +1647,7 @@ def execute_registered_entrez_daily(
                 fetched_at=fetched_at,
                 capture_session=store.capture_session,
             )
+            note_pubmed_step("ACQUISITION_CONTEXT")
             store.record_acquisition(
                 source_id=source_id,
                 registry_version=int(by_id[source_id]["registry_version"]),
@@ -1616,6 +1661,7 @@ def execute_registered_entrez_daily(
         write_run = writers.get(source_id)
         if not rows or write_run is None:
             continue
+        note_pubmed_step("ITEM_WRITE")
         store.write(
             source_id=source_id,
             registry_version=int(by_id[source_id]["registry_version"]),
@@ -1642,6 +1688,7 @@ def execute_registered_entrez_daily(
         if run_ids is not None
         else [(run_id, ENTREZ_DAILY_RESOURCE)]
     )
+    note_pubmed_step("CHECKPOINT_SAVE")
     for saved_run, resource_key in saved_runs:
         checkpoints.save(
             RunState(
