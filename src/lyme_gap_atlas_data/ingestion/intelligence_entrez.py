@@ -846,6 +846,25 @@ def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
 
 
+# One NCBI efetch header. The system id is not opened: the declaration is removed
+# before ElementTree sees the body. Internal subsets still expand entities, so any
+# other declaration is rejected first.
+_NCBI_DOCTYPE_RE = re.compile(
+    rb"<!DOCTYPE\s+PubmedArticleSet\s+PUBLIC\s+"
+    rb'"[^"<>\[]*NLM//DTD PubMedArticle[^"<>\[]*"\s+'
+    rb'"https://dtd\.nlm\.nih\.gov/[^"<>\s\[]+\.dtd"\s*>'
+)
+_DOCTYPE_MARK_RE = re.compile(rb"<!DOCTYPE", re.IGNORECASE)
+_ENTITY_MARK_RE = re.compile(rb"<!ENTITY", re.IGNORECASE)
+_SYSTEM_FILE_RE = re.compile(rb"""SYSTEM\s+["']file:""", re.IGNORECASE)
+ESEARCH_PAYLOAD_INVALID = "FEED_ESEARCH_PAYLOAD_INVALID"
+EFETCH_PAYLOAD_INVALID = "FEED_EFETCH_PAYLOAD_INVALID"
+
+
+def _payload_error(code: str) -> AcquisitionError:
+    return AcquisitionError(code, code=code)
+
+
 def _parse_esearch(body: bytes) -> tuple[list[str], int]:
     try:
         result = json.loads(body)["esearchresult"]
@@ -854,10 +873,10 @@ def _parse_esearch(body: bytes) -> tuple[list[str], int]:
         count = int(result["count"])
         raw_ids = result["idlist"]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID") from None
+        raise _payload_error(ESEARCH_PAYLOAD_INVALID) from None
     too_many = not isinstance(raw_ids, list) or len(raw_ids) > MAX_ITEMS or count < len(raw_ids)
     if count < 0 or too_many:
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
+        raise _payload_error(ESEARCH_PAYLOAD_INVALID)
     pmids: list[str] = []
     for pmid in raw_ids:
         if not accepted_pmid(pmid):
@@ -867,20 +886,63 @@ def _parse_esearch(body: bytes) -> tuple[list[str], int]:
     return pmids, count
 
 
+def _doctype_declaration_span(body: bytes, start: int) -> tuple[int, int] | None:
+    """Span of one doctype declaration. An internal subset (`[`) has no span."""
+    quote: int | None = None
+    index = start
+    limit = len(body)
+    while index < limit:
+        current = body[index]
+        if quote is not None:
+            if current == quote:
+                quote = None
+            index += 1
+            continue
+        if current in (0x22, 0x27):
+            quote = current
+            index += 1
+            continue
+        if current == 0x5B:
+            return None
+        if current == 0x3E:
+            return start, index + 1
+        index += 1
+    return None
+
+
+def _efetch_without_doctype(body: bytes) -> bytes:
+    """Drop the one allowed NCBI doctype. Refuse entities, file URLs, and anything else."""
+    if _ENTITY_MARK_RE.search(body) or _SYSTEM_FILE_RE.search(body):
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    marks = list(_DOCTYPE_MARK_RE.finditer(body))
+    if not marks:
+        return body
+    if len(marks) != 1:
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    span = _doctype_declaration_span(body, marks[0].start())
+    if span is None:
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    start, end = span
+    declaration = body[start:end]
+    if _NCBI_DOCTYPE_RE.fullmatch(declaration) is None:
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    return body[:start] + body[end:]
+
+
 def _parse_efetch(body: bytes) -> list[_Record]:
-    if b"<!DOCTYPE" in body.upper() or b"<!ENTITY" in body.upper():
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
     try:
-        root = ET.fromstring(body)
+        root = ET.fromstring(_efetch_without_doctype(body))
     except ET.ParseError:
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID") from None
+        raise _payload_error(EFETCH_PAYLOAD_INVALID) from None
+    if root.tag != "PubmedArticleSet":
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
     records: list[_Record] = []
     for article in root.findall("PubmedArticle"):
         record = _record_from_article(article)
         if record is not None:
             records.append(record)
         if len(records) > BATCH_SIZE:
-            raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
+            raise _payload_error(EFETCH_PAYLOAD_INVALID)
     return records
 
 
