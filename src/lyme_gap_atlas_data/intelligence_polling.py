@@ -28,8 +28,10 @@ from .ingestion import intelligence_runtime
 from .ingestion.intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .ingestion.intelligence_daily_run_ids import daily_run_id
 from .ingestion.intelligence_entrez import (
+    PUBMED_PIPELINE_STEPS,
     RECEIPT_PATH,
     SOURCE_ORDER,
+    current_pubmed_step,
     execute_registered_entrez_daily,
     live_entrez_get,
     registered_entrez_sources,
@@ -86,6 +88,10 @@ _ALLOWLISTED_ERROR_CODE = re.compile(
     r"UNSUPPORTED_FEED_ENVELOPE|AMBIGUOUS_FEED_FIELD|XML_[A-Z0-9_]{3,80})$"
 )
 _EXCEPTION_CLASS_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,80}$")
+# Recorded on an unclassified PubMed failure. Digits are allowed; the cap is 80.
+_BOUNDED_EXCEPTION_CLASS = re.compile(r"^[A-Za-z0-9_]{1,80}$")
+_SQLSTATE = re.compile(r"^[0-9A-Z]{5}$")
+_MAX_DBAPI_ERRNO = 9_999_999
 _PARSE_FAILURE_CODES = frozenset(
     {
         "MALFORMED_FEED",
@@ -687,8 +693,10 @@ def open_entrez_daily_io(settings: Any) -> tuple[Any, Any, Any]:
     """PROD store and Snowflake checkpoint ledger for a registered Entrez daily run.
 
     Draft sources never reach this function. The store's write method is the same
-    MERGE path the RSS load stage uses. The raw-artifact lease still accepts only
-    RSS parser versions, so this opener does not bind Entrez response bytes there.
+    MERGE path the RSS load stage uses. Entrez may bind the raw lease for an
+    ``entrez-efetch-v1`` capture, but that lease commits and releases
+    ``INTELLIGENCE_WRITE_GUARD`` before the request and artifact inserts. Response
+    bytes are not written while the lease guard is held.
     """
     if settings.topx_env != "prod" or not settings.intelligence_daily_enabled:
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
@@ -852,17 +860,75 @@ def _pubmed_diagnostic_code(error: BaseException) -> str:
     return code
 
 
-def _pubmed_checkpoint_detail(http_status: int | None) -> dict[str, int]:
-    if http_status is None:
+def _dbapi_diagnostic(error: BaseException) -> dict[str, int | str]:
+    """Integer errno and 5-character sqlstate, and only when both are present."""
+    number = getattr(error, "errno", None)
+    state = getattr(error, "sqlstate", None)
+    if isinstance(number, bool) or not isinstance(number, int):
         return {}
-    return {"http_status": http_status}
+    if number < 0 or number > _MAX_DBAPI_ERRNO:
+        return {}
+    if not isinstance(state, str) or _SQLSTATE.fullmatch(state) is None:
+        return {}
+    return {"errno": number, "sqlstate": state}
+
+
+def _bounded_exception_class(error: BaseException) -> str:
+    name = type(error).__name__
+    if _BOUNDED_EXCEPTION_CLASS.fullmatch(name):
+        return name
+    return "Exception"
+
+
+def _pubmed_failure_detail(error: BaseException, http_status: int | None) -> dict[str, Any]:
+    """Checkpoint fields for one PubMed failure. Messages and SQL text stay out."""
+    detail: dict[str, Any] = {}
+    status = _pubmed_http_status_value(http_status)
+    if status is not None:
+        detail["http_status"] = status
+    if _pubmed_diagnostic_code(error) != PUBMED_DAILY_FAILED:
+        return detail
+    detail["exception_class"] = _bounded_exception_class(error)
+    detail.update(_dbapi_diagnostic(error))
+    step = current_pubmed_step()
+    if step is not None:
+        detail["step"] = step
+    return detail
+
+
+def _bounded_checkpoint_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep only the allowlisted diagnostic keys. Drop anything else."""
+    if not isinstance(detail, dict):
+        return {}
+    clean: dict[str, Any] = {}
+    exception_class = detail.get("exception_class")
+    if isinstance(exception_class, str) and _BOUNDED_EXCEPTION_CLASS.fullmatch(exception_class):
+        clean["exception_class"] = exception_class
+    number = detail.get("errno")
+    state = detail.get("sqlstate")
+    if (
+        isinstance(number, int)
+        and not isinstance(number, bool)
+        and 0 <= number <= _MAX_DBAPI_ERRNO
+        and isinstance(state, str)
+        and _SQLSTATE.fullmatch(state)
+    ):
+        clean["errno"] = number
+        clean["sqlstate"] = state
+    step = detail.get("step")
+    if isinstance(step, str) and step in PUBMED_PIPELINE_STEPS:
+        clean["step"] = step
+    status = _pubmed_http_status_value(detail.get("http_status"))
+    if status is not None:
+        clean["http_status"] = status
+    return clean
 
 
 def _save_claimed_pubmed_failures(
     checkpoints: Any,
     claimed: list[tuple[str, str]],
     error_code: str,
-    http_status: int | None,
+    detail: dict[str, Any],
 ) -> None:
     for run_id, source_id in claimed:
         with suppress(Exception):
@@ -871,7 +937,7 @@ def _save_claimed_pubmed_failures(
                 run_id,
                 source_id,
                 code=error_code,
-                http_status=http_status,
+                detail=detail,
             )
 
 
@@ -882,6 +948,7 @@ def fail_claimed_pubmed_run(
     *,
     code: str = PUBMED_DAILY_FAILED,
     http_status: int | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> None:
     """Save FAILED for one claimed PubMed run. RSS recovery does not accept these ids."""
     if source_id not in SOURCE_ORDER:
@@ -890,7 +957,11 @@ def fail_claimed_pubmed_run(
         diagnostic = code
     else:
         diagnostic = PUBMED_DAILY_FAILED
-    status = _pubmed_http_status_value(http_status)
+    stored = _bounded_checkpoint_detail(detail)
+    if "http_status" not in stored:
+        status = _pubmed_http_status_value(http_status)
+        if status is not None:
+            stored["http_status"] = status
     checkpoints.save(
         RunState(
             ingestion_run_id=run_id,
@@ -904,7 +975,7 @@ def fail_claimed_pubmed_run(
                     status=StageStatus.FAILED,
                     failure_category=FailureCategory.PROCESS,
                     redacted_diagnostic_code=diagnostic,
-                    detail=_pubmed_checkpoint_detail(status),
+                    detail=stored,
                 )
             ],
         )
@@ -912,10 +983,7 @@ def fail_claimed_pubmed_run(
 
 
 def _pubmed_error_class(error: BaseException) -> str:
-    name = type(error).__name__
-    if _EXCEPTION_CLASS_NAME.fullmatch(name):
-        return name
-    return "Exception"
+    return _bounded_exception_class(error)
 
 
 def _log_pubmed_failure(
@@ -924,10 +992,11 @@ def _log_pubmed_failure(
     *,
     error_code: str | None = None,
     http_status: int | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> None:
     """One line: source id, FAILED, class, and the redacted code. No message text."""
     safe_source = source_id if source_id in SOURCE_ORDER else "unknown"
-    safe_class = error_class if _EXCEPTION_CLASS_NAME.fullmatch(error_class) else "Exception"
+    safe_class = error_class if _BOUNDED_EXCEPTION_CLASS.fullmatch(error_class) else "Exception"
     payload: dict[str, Any] = {
         "error_class": safe_class,
         "source_id": safe_source,
@@ -940,6 +1009,10 @@ def _log_pubmed_failure(
     status = _pubmed_http_status_value(http_status)
     if status is not None:
         payload["http_status"] = status
+    if error_code == PUBMED_DAILY_FAILED:
+        diagnostic = _bounded_checkpoint_detail(detail)
+        diagnostic.pop("http_status", None)
+        payload.update(diagnostic)
     line = DAILY_OUTCOME_LOG_PREFIX + json.dumps(payload, separators=(",", ":"), sort_keys=True)
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
@@ -1014,13 +1087,14 @@ def _walk_registered_entrez_daily(
         error_class = _pubmed_error_class(error)
         error_code = _pubmed_diagnostic_code(error)
         http_status = _pubmed_http_status(error)
+        detail = _pubmed_failure_detail(error, http_status)
         if checkpoints is not None and claimed:
             _wait_bounded(
                 _save_claimed_pubmed_failures,
                 checkpoints,
                 claimed,
                 error_code,
-                http_status,
+                detail,
                 seconds=PUBMED_FAIL_SAVE_SECONDS,
             )
         source_ids = [source_id for _run_id, source_id in claimed] or list(tracked)
@@ -1034,12 +1108,17 @@ def _walk_registered_entrez_daily(
             }
             if http_status is not None:
                 row["http_status"] = http_status
+            if error_code == PUBMED_DAILY_FAILED:
+                for key in ("exception_class", "errno", "sqlstate", "step"):
+                    if key in detail:
+                        row[key] = detail[key]
             rows.append(row)
             _log_pubmed_failure(
                 source_id,
                 error_class,
                 error_code=error_code,
                 http_status=http_status,
+                detail=detail,
             )
         return rows
 
