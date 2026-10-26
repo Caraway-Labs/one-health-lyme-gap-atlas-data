@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
@@ -98,6 +100,42 @@ def test_pending_allow_list_values_are_unchanged() -> None:
         assert text.count(value) == 1
 
 
+def test_daily_reopen_choices_accept_pubmed_only_on_a_later_attempt() -> None:
+    path = ROOT / ".github" / "workflows" / "run-prod-intelligence-daily-once.yml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    source = document[True]["workflow_dispatch"]["inputs"]["source_id"]
+    rss = (
+        "cdc-eid-expedited",
+        "cdc-eid-ahead-of-print",
+        "cdc-outbreaks",
+        "nih-news-releases",
+        "cdc-mmwr",
+    )
+    pubmed = ("pubmed-tick-borne", "pubmed-lyme-borrelia")
+    assert source["type"] == "choice"
+    assert source["default"] == "none"
+    assert source["options"][:1] == ["none"]
+    assert tuple(source["options"][1:]) == (*rss, *pubmed)
+    build = next(
+        step["run"]
+        for step in document["jobs"]["run"]["steps"]
+        if step.get("name") == "Capture baseline and build one-shot spec"
+    )
+    rss_case = "|".join(rss) + ")"
+    pubmed_case_pattern = "|".join(pubmed) + ")"
+    assert build.count(rss_case) == 2
+    assert build.count(pubmed_case_pattern) == 1
+    assert "$rss_sources" not in build
+    assert "$pubmed_sources" not in build
+    reopen_at = build.find('REOPEN_ATTEMPT:-1}" -ge 2')
+    pubmed_case = build.find(pubmed_case_pattern)
+    attempt_one = build.find("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID", pubmed_case)
+    assert 0 <= reopen_at < pubmed_case < attempt_one
+    recovery_at = build.find("INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED")
+    assert recovery_at < reopen_at
+    assert pubmed_case_pattern not in build[recovery_at:reopen_at]
+
+
 def test_guard_calls_do_not_receive_secrets() -> None:
     for path in WORKFLOWS:
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -105,3 +143,144 @@ def test_guard_calls_do_not_receive_secrets() -> None:
                 continue
             for marker in _SECRET_MARKERS:
                 assert marker not in line, f"{path.name}:{line_no} contains {marker}"
+
+
+_DAILY_BUILD_STEP = "Capture baseline and build one-shot spec"
+_REVIEWED_COMMIT = "a" * 40
+_IMAGE_DIGEST = "sha256:" + "b" * 64
+_DOCTL_STUB = """#!/bin/bash
+set -euo pipefail
+kind="$1 ${2:-} ${3:-}"
+case "$kind" in
+  "registry repository list-manifests")
+    printf '[{"digest":"%s","tags":["sha-%s"]}]\\n' "$IMAGE_DIGEST" "$REVIEWED_COMMIT"
+    ;;
+  "apps spec get")
+    if [[ "${4:-}" == "$PROD_APP_ID" ]]; then
+      printf '{"jobs":[{"name":"intelligence-feed-daily","image":{"digest":"%s"}}]}\\n' \\
+        "$IMAGE_DIGEST"
+    else
+      printf '{"jobs":[{"image":{"digest":"%s"}}]}\\n' "$IMAGE_DIGEST"
+    fi
+    ;;
+  "apps get "*)
+    printf '%s\\n' '[{"active_deployment":{"id":"dep-1"}}]'
+    ;;
+  "apps get-deployment"*)
+    printf '%s\\n' '[{"phase":"ACTIVE"}]'
+    ;;
+  *)
+    printf 'unexpected doctl %s\\n' "$*" >&2
+    exit 1
+    ;;
+esac
+"""
+_GH_STUB = """#!/bin/bash
+printf '%s\\n' 1
+"""
+_PYTHON_STUB = """#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$@" > "$PYTHON_ARGS_FILE"
+output=""
+previous=""
+for arg in "$@"; do
+  if [[ "$previous" == "--output" ]]; then
+    output="$arg"
+  fi
+  previous="$arg"
+done
+if [[ -n "$output" ]]; then
+  printf '%s\\n' '{}' > "$output"
+fi
+"""
+
+
+def _daily_build_script() -> str:
+    path = ROOT / ".github" / "workflows" / "run-prod-intelligence-daily-once.yml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return next(
+        step["run"]
+        for step in document["jobs"]["run"]["steps"]
+        if step.get("name") == _DAILY_BUILD_STEP
+    )
+
+
+def _install_executable(path: Path, body: str) -> None:
+    path.write_text(body, encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+
+
+def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Path) -> None:
+    """Run the workflow step itself. A variable "|" in `case` rejects every real id."""
+    script = _daily_build_script()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_executable(bin_dir / "doctl", _DOCTL_STUB)
+    _install_executable(bin_dir / "gh", _GH_STUB)
+    _install_executable(bin_dir / "python", _PYTHON_STUB)
+    # Attempt 2 on the PubMed recover case: the attempt-1 elif must not hide a leak.
+    cases = (
+        ("none", "none", "1", "", True),
+        ("rss-reopen", "cdc-mmwr", "2", "", True),
+        ("pubmed-reopen", "pubmed-tick-borne", "2", "", True),
+        ("pubmed-first-attempt", "pubmed-tick-borne", "1", "", False),
+        ("rss-recover", "cdc-mmwr", "1", "recover-run", True),
+        ("pubmed-recover", "pubmed-tick-borne", "2", "recover-run", False),
+    )
+    for name, source_id, attempt, recover, accepted in cases:
+        work = tmp_path / name
+        work.mkdir()
+        args_file = work / "python-args"
+        env = {
+            "PATH": f"{bin_dir}{os.pathsep}/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "INTEL_DAILY_WORK": str(work),
+            "PROD_APP_ID": "prod-app",
+            "DEV_APP_ID": "dev-app",
+            "REVIEWED_COMMIT": _REVIEWED_COMMIT,
+            "IMAGE_DIGEST": _IMAGE_DIGEST,
+            "GITHUB_REPOSITORY": "example/atlas",
+            "PREFLIGHT_ONLY": "false",
+            "SOURCE_ID": source_id,
+            "REOPEN_ATTEMPT": attempt,
+            "RECOVER_INGESTION_RUN_ID": recover,
+            "PYTHON_ARGS_FILE": str(args_file),
+        }
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        if accepted:
+            assert result.returncode == 0, f"{name}: {output}"
+            assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" not in output
+            args = args_file.read_text(encoding="utf-8").splitlines()
+            assert (work / "ready").is_file(), name
+        else:
+            assert result.returncode != 0, name
+            assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" in output, output
+            assert not args_file.exists(), name
+            assert not (work / "ready").exists(), name
+            continue
+        if name == "none":
+            assert "--source" not in args
+            assert "--reopen-attempt" not in args
+            assert "--recover-ingestion-run-id" not in args
+        elif name == "rss-reopen":
+            assert args[args.index("--reopen-attempt") + 1] == "2"
+            assert args[args.index("--source") + 1] == "cdc-mmwr"
+            assert "--recover-ingestion-run-id" not in args
+        elif name == "pubmed-reopen":
+            assert args[args.index("--reopen-attempt") + 1] == "2"
+            assert args[args.index("--source") + 1] == "pubmed-tick-borne"
+            assert "--recover-ingestion-run-id" not in args
+        elif name == "rss-recover":
+            assert args[args.index("--recover-ingestion-run-id") + 1] == "recover-run"
+            assert args[args.index("--source") + 1] == "cdc-mmwr"
+            assert "--reopen-attempt" not in args
+        else:
+            raise AssertionError(name)
