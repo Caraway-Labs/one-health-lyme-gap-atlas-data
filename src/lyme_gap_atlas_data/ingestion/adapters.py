@@ -49,8 +49,15 @@ class AcquireResult:
 class AcquisitionError(RuntimeError):
     """A bounded provider/network failure safe to expose as a diagnostic code."""
 
-    def __init__(self, message: str, *, code: str) -> None:
+    def __init__(self, message: str, *, code: str, http_status: int | None = None) -> None:
         self.code = code
+        if (
+            isinstance(http_status, bool)
+            or not isinstance(http_status, int)
+            or not 100 <= http_status <= 599
+        ):
+            http_status = None
+        self.http_status = http_status
         super().__init__(message)
 
 

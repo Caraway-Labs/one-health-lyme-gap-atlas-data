@@ -416,11 +416,16 @@ def test_no_mesh_is_selected_by_the_later_refresh_pass() -> None:
 
 
 def test_provider_errors_do_not_retry() -> None:
-    for status, code in ((403, "FEED_HTTP_403"), (429, "FEED_RATE_LIMITED")):
+    for status, code in (
+        (403, "FEED_HTTP_403"),
+        (429, "FEED_RATE_LIMITED"),
+        (500, "FEED_HTTP_FAILED"),
+    ):
         transport = FixtureTransport(_search_file("esearch_overlap.json"), status=status)
         with pytest.raises(Exception, match=code) as caught:
             _run(transport)
         assert getattr(caught.value, "code", None) == code
+        assert getattr(caught.value, "http_status", None) == status
         assert len(transport.calls) == 1
     oversized = FixtureTransport(_search_file("esearch_overlap.json"), oversized=True)
     with pytest.raises(Exception, match="FEED_TOO_LARGE"):
@@ -625,7 +630,7 @@ def test_transport_error_hides_the_contact(caplog: pytest.LogCaptureFixture) -> 
             assert "api_key" not in params
             raise httpx.ConnectError(f"{url}?email={params['email']}")
 
-    with pytest.raises(Exception, match="FEED_HTTP_FAILED") as caught:
+    with pytest.raises(Exception, match="FEED_NETWORK_FAILED") as caught:
         _run(
             Boom(),
             settings=PipelineSettings(ncbi_email=email, ncbi_api_key=SecretStr(key)),
@@ -664,7 +669,7 @@ def test_transport_error_hides_the_contact(caplog: pytest.LogCaptureFixture) -> 
     monkeypatch.setattr(httpx, "Client", FakeClient)
     caplog.set_level(logging.DEBUG, logger="httpx")
     try:
-        with pytest.raises(Exception, match="FEED_HTTP_FAILED") as live:
+        with pytest.raises(Exception, match="FEED_TIMEOUT") as live:
             live_entrez_get(ESEARCH_URL, {"email": email, "api_key": key, "db": "pubmed"}, 5)
     finally:
         monkeypatch.undo()
@@ -738,6 +743,71 @@ def test_registered_daily_run_writes_without_an_api_key() -> None:
     assert all("api_key" not in call for call in second_sender.calls)
     assert writes[before:]
     assert all(added == 0 for _source_id, added in writes[before:])
+
+
+def test_pubmed_reopen_walks_one_source_with_the_same_bounds() -> None:
+    prepared = _activated_sources()
+    checkpoints = InMemoryCheckpointStore()
+    checkpoints.save(
+        RunState(
+            ingestion_run_id="prior-lyme",
+            resource_key="pubmed-lyme-borrelia",
+            source_definition_version=1,
+            tier=Tier.C,
+            status=RunStatus.SUCCEEDED,
+            stages=[
+                StageCheckpoint(
+                    stage=Stage.LOAD,
+                    status=StageStatus.COMPLETED,
+                    detail={
+                        "last_entry_date": {"pubmed-lyme-borrelia": "2026-10-01"},
+                        "sequence": 4,
+                    },
+                )
+            ],
+        )
+    )
+    writes: list[str] = []
+
+    class FakeStore:
+        def write(self, *, source_id: str, items: list[dict[str, Any]], **_kwargs: Any) -> int:
+            writes.append(source_id)
+            return len(items)
+
+    sender = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+    _sleeps, clock, sleep = _clock()
+    result = execute_registered_entrez_daily(
+        pinned=prepared["pinned"],
+        sender=sender,
+        settings=PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None),
+        budget=runtime.PilotBudget(clock, seconds=180, request_limit=5),
+        checkpoints=checkpoints,
+        store=FakeStore(),
+        today=TODAY,
+        run_id="unused",
+        fetched_at=FETCHED_AT,
+        clock=clock,
+        sleep=sleep,
+        sources=[prepared["sources"]["pubmed-tick-borne"]],
+        receipt_document=prepared["receipts"],
+        run_ids={"pubmed-tick-borne": "tick-reopen"},
+        only_source_id="pubmed-tick-borne",
+    )
+    tick_term = _queries()["pubmed-tick-borne"]
+    lyme_term = _queries()["pubmed-lyme-borrelia"]
+    assert result["walked"] is True
+    assert result["requests"] <= 5
+    assert result["windows"] == {"pubmed-tick-borne": ("2026/09/25", "2026/10/25")}
+    assert [call["term"] for call in sender.calls if "term" in call] == [tick_term]
+    assert lyme_term not in json.dumps(sender.calls)
+    assert writes == ["pubmed-tick-borne"]
+    assert len(sender.calls) <= 5
+    assert all(len(call.get("id", "").split(",")) <= BATCH_SIZE for call in sender.calls)
+    saved = checkpoints.load("tick-reopen")
+    assert saved is not None
+    dates = saved.stages[0].detail["last_entry_date"]
+    assert dates["pubmed-lyme-borrelia"] == "2026-10-01"
+    assert "pubmed-tick-borne" in dates
 
 
 def _daily(prepared, sender, checkpoints, store, settings, *, run_id: str) -> dict[str, Any]:
@@ -1141,8 +1211,10 @@ def test_swallowed_alarm_cannot_extend_the_pubmed_walk(
     monkeypatch.setattr(polling, "PUBMED_FAIL_SAVE_SECONDS", 0.3)
     saved: list[tuple[str, int]] = []
 
-    def slow_save(day: str, reopen_attempt: int) -> None:
-        saved.append((day, reopen_attempt))
+    def slow_save(
+        day: str, reopen_attempt: int, source_ids: tuple[str, ...] = SOURCE_ORDER
+    ) -> None:
+        saved.append((day, reopen_attempt, source_ids))
         time.sleep(30)
 
     monkeypatch.setattr(polling, "_record_isolated_pubmed_failure", slow_save)

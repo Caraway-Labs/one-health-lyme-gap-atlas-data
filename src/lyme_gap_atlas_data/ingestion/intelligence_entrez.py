@@ -1,16 +1,21 @@
 """Bounded PubMed Entrez capture for the two approved draft searches.
 
-Both searches run together. PMID duplicates collapse to one item. The transport
-is Entrez, stored on contract 2.0.0. This module does not register a PROD source,
-open Snowflake, or read a secret from the environment on its own.
+Both searches run together. A governed reopen may name one of them. PMID
+duplicates collapse to one item. The transport is Entrez, stored on contract
+2.0.0. This module does not register a PROD source, open Snowflake, or read a
+secret from the environment on its own.
 """
 
 from __future__ import annotations
 
+import errno
 import hashlib
+import http.client
 import json
 import logging
 import re
+import socket
+import ssl
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
@@ -233,6 +238,67 @@ class _DropRequestUrl(logging.Filter):
         return EUTILS_HOST not in message and "api_key" not in message and "email=" not in message
 
 
+_UNREACHABLE_ERRNOS = frozenset({errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EAFNOSUPPORT})
+
+
+def _exception_chain(error: BaseException) -> tuple[BaseException, ...]:
+    """Follow cause links only. Exception text is never read."""
+    chain: list[BaseException] = []
+    current: BaseException | None = error
+    while current is not None and current not in chain and len(chain) < 8:
+        chain.append(current)
+        nxt = current.__cause__
+        if nxt is None and not current.__suppress_context__:
+            nxt = current.__context__
+        current = nxt if isinstance(nxt, BaseException) else None
+    return tuple(chain)
+
+
+def redacted_transport_code(error: BaseException) -> str:
+    """Map a connector failure to an allowlisted code.
+
+    The exception message, URL, headers and body are not inspected.
+    """
+    chain = _exception_chain(error)
+    if any(isinstance(item, (httpx.TimeoutException, TimeoutError)) for item in chain):
+        return "FEED_TIMEOUT"
+    if any(isinstance(item, ssl.SSLCertVerificationError) for item in chain):
+        return "FEED_TLS_VERIFICATION_FAILED"
+    if any(isinstance(item, ssl.SSLError) for item in chain):
+        return "FEED_TLS_FAILED"
+    if any(isinstance(item, socket.gaierror) for item in chain):
+        return "FEED_DNS_FAILED"
+    if any(isinstance(item, ConnectionRefusedError) for item in chain):
+        return "FEED_CONNECTION_REFUSED"
+    if any(isinstance(item, (ConnectionResetError, BrokenPipeError)) for item in chain):
+        return "FEED_CONNECTION_RESET"
+    for item in chain:
+        if isinstance(item, OSError) and item.errno in _UNREACHABLE_ERRNOS:
+            return "FEED_NETWORK_UNREACHABLE"
+    if any(
+        isinstance(item, (httpx.RemoteProtocolError, http.client.HTTPException)) for item in chain
+    ):
+        return "FEED_HTTP_PROTOCOL_FAILED"
+    if any(isinstance(item, (httpx.NetworkError, OSError)) for item in chain):
+        return "FEED_NETWORK_FAILED"
+    return "FEED_HTTP_FAILED"
+
+
+def _transport_acquisition_error(error: BaseException) -> AcquisitionError:
+    code = redacted_transport_code(error)
+    return AcquisitionError(code, code=code)
+
+
+def _http_status_error(status: int) -> AcquisitionError:
+    if status == 403:
+        code = "FEED_HTTP_403"
+    elif status == 429:
+        code = "FEED_RATE_LIMITED"
+    else:
+        code = "FEED_HTTP_FAILED"
+    return AcquisitionError(code, code=code, http_status=status)
+
+
 def read_bounded(chunks: Iterable[bytes], limit: int = MAX_RESPONSE_BYTES) -> bytes:
     """Read a response until the byte cap. Further chunks are not pulled after the cap."""
     parts: list[bytes] = []
@@ -264,8 +330,8 @@ def live_entrez_get(url: str, params: Mapping[str, str], timeout: float) -> Entr
             status = response.status_code
     except AcquisitionError:
         raise
-    except Exception:
-        raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
+    except Exception as error:
+        raise _transport_acquisition_error(error) from None
     finally:
         logger.removeFilter(redaction)
     return EntrezResponse(status, body)
@@ -381,13 +447,29 @@ def run_pubmed_daily(
     receipt_document: dict[str, Any] | None = None,
     run_ids: Mapping[str, str] | None = None,
     artifact_ids: Mapping[str, str] | None = None,
+    allow_subset: bool = False,
 ) -> PubmedOutcome:
-    """Run both approved searches once, then efetch the deduped PMID union."""
+    """Run both approved searches once, then efetch the deduped PMID union.
+
+    ``allow_subset`` runs only the sources in ``sources``. The daily walk leaves
+    it false and still searches both.
+    """
     loaded = dict(sources) if sources is not None else _load_sources()
     if sources is not None:
-        _require_run_sources(loaded)
+        if allow_subset:
+            _require_run_sources(loaded, allow_subset=True)
+        else:
+            _require_run_sources(loaded)
+    order = (
+        tuple(source_id for source_id in SOURCE_ORDER if source_id in loaded)
+        if allow_subset
+        else SOURCE_ORDER
+    )
     queries = _load_queries()
-    policies = _load_policies(loaded, receipt_document)
+    if allow_subset:
+        policies = _load_policies(loaded, receipt_document, allow_subset=True)
+    else:
+        policies = _load_policies(loaded, receipt_document)
     if suppress_pmids is None or suppress_publishers is None:
         file_pmids, file_publishers = load_suppressions()
         suppress_pmids = file_pmids if suppress_pmids is None else suppress_pmids
@@ -395,7 +477,7 @@ def run_pubmed_daily(
             file_publishers if suppress_publishers is None else suppress_publishers
         )
     ledger = checkpoints or EntryDateLedger()
-    windows = {source_id: entry_window(ledger.get(source_id), today) for source_id in SOURCE_ORDER}
+    windows = {source_id: entry_window(ledger.get(source_id), today) for source_id in order}
     session = _EntrezSession(
         sender=sender,
         settings=settings,
@@ -406,13 +488,13 @@ def run_pubmed_daily(
     )
     found: dict[str, list[str]] = {}
     counts: dict[str, int] = {}
-    for source_id in SOURCE_ORDER:
+    for source_id in order:
         start, end = windows[source_id]
         pmids, count = session.esearch(queries[source_id], start, end)
         found[source_id] = pmids
         counts[source_id] = count
     ranked = _merge_pmids(found)
-    hidden = sum(max(0, counts[source_id] - len(found[source_id])) for source_id in SOURCE_ORDER)
+    hidden = sum(max(0, counts[source_id] - len(found[source_id])) for source_id in order)
     selected = ranked[:MAX_ITEMS]
     truncated = len(ranked) + hidden > MAX_ITEMS
     remaining = len(ranked) + hidden - len(selected)
@@ -599,17 +681,13 @@ class _EntrezSession:
             response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
         except AcquisitionError:
             raise
-        except Exception:
-            raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
+        except Exception as error:
+            raise _transport_acquisition_error(error) from None
         finally:
             note_step_deadline()
         self._budget.remaining()
-        if response.status == 403:
-            raise AcquisitionError("FEED_HTTP_403", code="FEED_HTTP_403")
-        if response.status == 429:
-            raise AcquisitionError("FEED_RATE_LIMITED", code="FEED_RATE_LIMITED")
         if response.status != 200:
-            raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED")
+            raise _http_status_error(response.status)
         if len(response.body) > MAX_RESPONSE_BYTES:
             raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
         self.bodies.append(response.body)
@@ -645,9 +723,15 @@ def _load_sources() -> dict[str, dict[str, Any]]:
     return sources
 
 
-def _require_run_sources(sources: Mapping[str, dict[str, Any]]) -> None:
+def _require_run_sources(
+    sources: Mapping[str, dict[str, Any]], *, allow_subset: bool = False
+) -> None:
     """Sources supplied by the daily walk. They stay Entrez and inside the same caps."""
-    if set(sources) != set(SOURCE_ORDER):
+    ids = set(sources)
+    if allow_subset:
+        if not ids or not ids <= set(SOURCE_ORDER):
+            raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
+    elif ids != set(SOURCE_ORDER):
         raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
     for source_id, source in sources.items():
         if (
@@ -685,16 +769,25 @@ def _load_queries() -> dict[str, str]:
 
 
 def _load_policies(
-    sources: Mapping[str, dict[str, Any]], document: dict[str, Any] | None = None
+    sources: Mapping[str, dict[str, Any]],
+    document: dict[str, Any] | None = None,
+    *,
+    allow_subset: bool = False,
 ) -> dict[str, NativeMetadataPolicy]:
     if document is None:
         document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
     receipts = document.get("receipts")
-    if not isinstance(receipts, list) or len(receipts) != len(SOURCE_ORDER):
+    expected = set(sources)
+    full_set = expected == set(SOURCE_ORDER)
+    if not isinstance(receipts, list) or (
+        (not allow_subset or full_set) and len(receipts) != len(SOURCE_ORDER)
+    ):
         raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
     policies: dict[str, NativeMetadataPolicy] = {}
     for receipt in receipts:
         source_id = receipt.get("source_id")
+        if allow_subset and not full_set and source_id not in expected:
+            continue
         source = sources.get(source_id)
         native = receipt.get("native_policy")
         if (
@@ -723,7 +816,7 @@ def _load_policies(
         ):
             raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
         policies[source_id] = policy
-    if set(policies) != set(SOURCE_ORDER):
+    if set(policies) != (expected if allow_subset else set(SOURCE_ORDER)):
         raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
     return policies
 
@@ -732,7 +825,10 @@ def _merge_pmids(found: Mapping[str, list[str]]) -> list[tuple[str, tuple[str, .
     rank: dict[str, int] = {}
     matched: dict[str, list[str]] = {}
     for source_id in SOURCE_ORDER:
-        for position, pmid in enumerate(found[source_id]):
+        pmids = found.get(source_id)
+        if pmids is None:
+            continue
+        for position, pmid in enumerate(pmids):
             matched.setdefault(pmid, [])
             if source_id not in matched[pmid]:
                 matched[pmid].append(source_id)
@@ -1186,13 +1282,19 @@ class RunLedger(Protocol):
     def list_runs_for_resources(self, resource_keys: Collection[str]) -> list[RunState]: ...
 
 
-def registered_entrez_sources(pinned: Mapping[str, str]) -> list[dict[str, Any]]:
+def registered_entrez_sources(
+    pinned: Mapping[str, str], *, only_source_id: str | None = None
+) -> list[dict[str, Any]]:
     """Both PubMed sources when each file is active and its hash is pinned.
 
-    Candidate drafts are not walked. One pinned search without the other is not a walk.
+    Candidate drafts are not walked. One pinned search without the other is not
+    a walk, unless ``only_source_id`` names that one governed reopen.
     """
+    if only_source_id is not None and only_source_id not in SOURCE_ORDER:
+        return []
+    order = SOURCE_ORDER if only_source_id is None else (only_source_id,)
     ready: list[dict[str, Any]] = []
-    for source_id in SOURCE_ORDER:
+    for source_id in order:
         path = CONFIG_DIR / f"{source_id}-source-v1.json"
         if not path.is_file():
             return []
@@ -1367,19 +1469,29 @@ def execute_registered_entrez_daily(
     sources: list[dict[str, Any]] | None = None,
     receipt_document: dict[str, Any] | None = None,
     run_ids: Mapping[str, str] | None = None,
+    only_source_id: str | None = None,
 ) -> dict[str, Any]:
     """Run both searches and write items through store.write when they are registered.
 
     Unregistered or candidate sources return without a request. store.write is
     IntelligenceStore.write, which MERGEs revisions in bulk_write_items.
     last_entry_date is stored on the LOAD checkpoint of this ledger.
+    ``only_source_id`` runs that one PubMed source and leaves the other unread.
     """
-    selected = sources if sources is not None else registered_entrez_sources(pinned)
+    if sources is not None:
+        selected = sources
+    elif only_source_id is None:
+        selected = registered_entrez_sources(pinned)
+    else:
+        selected = registered_entrez_sources(pinned, only_source_id=only_source_id)
+    if only_source_id is not None:
+        selected = [source for source in selected if source.get("source_id") == only_source_id]
     skipped: dict[str, Any] = {"walked": False, "requests": 0, "items": [], "windows": {}}
     if not selected:
         return skipped
     by_id = {source["source_id"]: source for source in selected}
-    if set(by_id) != set(SOURCE_ORDER):
+    single = only_source_id is not None and set(by_id) == {only_source_id}
+    if set(by_id) != set(SOURCE_ORDER) and not single:
         return skipped
     for source_id, source in by_id.items():
         if source.get("state") != "active" or pinned.get(source_id) != identity_hash(source):
@@ -1407,6 +1519,7 @@ def execute_registered_entrez_daily(
         receipt_document=receipt_document,
         run_ids=run_ids,
         artifact_ids=artifact_ids,
+        allow_subset=single,
     )
     grouped: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in SOURCE_ORDER}
     for item in outcome.items:
@@ -1450,7 +1563,14 @@ def execute_registered_entrez_daily(
         sequence = load.detail.get("sequence") if load is not None else None
         if isinstance(sequence, int):
             previous = max(previous, sequence)
-    detail = {"last_entry_date": outcome.watermarks, "sequence": previous + 1}
+    saved_dates = dict(outcome.watermarks)
+    if single:
+        # A one-source reopen must not drop the other search's watermark.
+        for source_id in SOURCE_ORDER:
+            previous_day = ledger.dates.get(source_id)
+            if previous_day is not None and source_id not in saved_dates:
+                saved_dates[source_id] = previous_day.isoformat()
+    detail = {"last_entry_date": saved_dates, "sequence": previous + 1}
     saved_runs = (
         [(run_ids[source_id], source_id) for source_id in SOURCE_ORDER if source_id in run_ids]
         if run_ids is not None

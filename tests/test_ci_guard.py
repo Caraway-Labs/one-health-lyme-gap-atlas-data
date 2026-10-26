@@ -98,6 +98,40 @@ def test_pending_allow_list_values_are_unchanged() -> None:
         assert text.count(value) == 1
 
 
+def test_daily_reopen_choices_accept_pubmed_only_on_a_later_attempt() -> None:
+    path = ROOT / ".github" / "workflows" / "run-prod-intelligence-daily-once.yml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    source = document[True]["workflow_dispatch"]["inputs"]["source_id"]
+    rss = (
+        "cdc-eid-expedited",
+        "cdc-eid-ahead-of-print",
+        "cdc-outbreaks",
+        "nih-news-releases",
+        "cdc-mmwr",
+    )
+    pubmed = ("pubmed-tick-borne", "pubmed-lyme-borrelia")
+    assert source["type"] == "choice"
+    assert source["default"] == "none"
+    assert source["options"][:1] == ["none"]
+    assert tuple(source["options"][1:]) == (*rss, *pubmed)
+    build = next(
+        step["run"]
+        for step in document["jobs"]["run"]["steps"]
+        if step.get("name") == "Capture baseline and build one-shot spec"
+    )
+    assert 'pubmed_sources="pubmed-tick-borne|pubmed-lyme-borrelia"' in build
+    assert (
+        "cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr" in build
+    )
+    reopen_at = build.find('REOPEN_ATTEMPT:-1}" -ge 2')
+    pubmed_case = build.find("$pubmed_sources")
+    attempt_one = build.find("INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID", pubmed_case)
+    assert 0 <= reopen_at < pubmed_case < attempt_one
+    recovery_at = build.find("INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED")
+    assert recovery_at < reopen_at
+    assert "$pubmed_sources" not in build[recovery_at:reopen_at]
+
+
 def test_guard_calls_do_not_receive_secrets() -> None:
     for path in WORKFLOWS:
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):

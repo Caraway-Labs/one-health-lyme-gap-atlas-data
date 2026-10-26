@@ -1,0 +1,280 @@
+"""PubMed failures keep a redacted code, and a second attempt can name one search."""
+
+from __future__ import annotations
+
+import json
+import socket
+import ssl
+from typing import Any
+
+import httpx
+import pytest
+
+from lyme_gap_atlas_data import intelligence_polling as polling
+from lyme_gap_atlas_data.ingestion import intelligence_entrez as entrez
+from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
+from lyme_gap_atlas_data.ingestion.adapters import AcquisitionError
+from lyme_gap_atlas_data.ingestion.intelligence_entrez import SOURCE_ORDER
+from lyme_gap_atlas_data.settings import PipelineSettings
+
+POISON = (
+    "user@example.test https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    "?email=user@example.test <html>blocked Secret-Header: no"
+)
+TICK = "pubmed-tick-borne"
+LYME = "pubmed-lyme-borrelia"
+
+
+def _settings() -> PipelineSettings:
+    return PipelineSettings(
+        topx_env="prod",
+        enable_production_execution=True,
+        snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+        intelligence_daily_enabled=True,
+        ncbi_email="fixture@example.test",
+    )
+
+
+class _Ledger:
+    def __init__(self) -> None:
+        self.saved: list[Any] = []
+        self.claims: list[str] = []
+
+    def claim_daily_run(self, _run_id: str, source_id: str, _sha: str) -> bool:
+        self.claims.append(source_id)
+        return True
+
+    def save(self, state: Any) -> None:
+        self.saved.append(state)
+
+
+def _succeeded(source_id: str, _path: str, **_kwargs: Any) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "outcome": "SUCCEEDED",
+        "status": "COMPLETED",
+        "failed_stage": None,
+        "stage_timings_ms": {},
+    }
+
+
+def _patch_walk(monkeypatch: pytest.MonkeyPatch, ledger: _Ledger, error: BaseException) -> None:
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+    monkeypatch.setattr(
+        polling,
+        "registered_entrez_sources",
+        lambda *_args, **_kwargs: [{"source_id": source_id} for source_id in SOURCE_ORDER],
+    )
+    monkeypatch.setattr(polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, None))
+
+    def boom(**_kwargs: Any) -> None:
+        raise error
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", boom)
+
+
+def _assert_redacted(text: str) -> None:
+    for marker in ("user@example.test", "esearch.fcgi", "<html>", "Secret-Header", POISON):
+        assert marker not in text
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "status"),
+    [
+        (AcquisitionError(POISON, code="FEED_HTTP_403", http_status=403), "FEED_HTTP_403", 403),
+        (
+            AcquisitionError(POISON, code="FEED_RATE_LIMITED", http_status=429),
+            "FEED_RATE_LIMITED",
+            429,
+        ),
+        (
+            AcquisitionError(POISON, code="FEED_HTTP_FAILED", http_status=500),
+            "FEED_HTTP_FAILED",
+            500,
+        ),
+        (AcquisitionError(POISON, code="FEED_TIMEOUT"), "FEED_TIMEOUT", None),
+        (AcquisitionError(POISON, code="FEED_DNS_FAILED"), "FEED_DNS_FAILED", None),
+        (AcquisitionError(POISON, code="FEED_TLS_FAILED"), "FEED_TLS_FAILED", None),
+        (
+            AcquisitionError(POISON, code="FEED_TLS_VERIFICATION_FAILED"),
+            "FEED_TLS_VERIFICATION_FAILED",
+            None,
+        ),
+        (TimeoutError(POISON), "FEED_TIMEOUT", None),
+        (PermissionError(POISON), "PUBMED_DAILY_FAILED", None),
+    ],
+)
+def test_pubmed_failure_records_code_and_status_without_message_text(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: BaseException,
+    code: str,
+    status: int | None,
+) -> None:
+    ledger = _Ledger()
+    _patch_walk(monkeypatch, ledger, error)
+    payload = polling.run_production_daily()
+    logged = capsys.readouterr().out
+    rendered = json.dumps(payload)
+    _assert_redacted(logged)
+    _assert_redacted(rendered)
+    assert payload["status"] == "SUCCEEDED"
+    assert [row["outcome"] for row in payload["sources"]] == ["SUCCEEDED"] * len(
+        runtime.PROD_SOURCE_DEFINITIONS
+    )
+    assert [row["error_code"] for row in payload["pubmed"]] == [code, code]
+    if status is None:
+        assert all("http_status" not in row for row in payload["pubmed"])
+    else:
+        assert [row["http_status"] for row in payload["pubmed"]] == [status, status]
+    assert len(ledger.saved) == 2
+    for state in ledger.saved:
+        checkpoint = state.stages[0]
+        assert checkpoint.redacted_diagnostic_code == code
+        assert checkpoint.detail == ({} if status is None else {"http_status": status})
+        _assert_redacted(json.dumps(state.to_dict()))
+    for line in logged.splitlines():
+        if not line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX):
+            continue
+        body = json.loads(line.removeprefix(polling.DAILY_OUTCOME_LOG_PREFIX))
+        if body.get("source_id") not in SOURCE_ORDER:
+            continue
+        assert body["error_code"] == code
+        assert body["status"] == "FAILED"
+        if status is None:
+            assert "http_status" not in body
+        else:
+            assert body["http_status"] == status
+
+
+def test_connector_exceptions_become_redacted_codes() -> None:
+    dns = httpx.ConnectError(POISON)
+    dns.__cause__ = socket.gaierror(8, POISON)
+    tls = httpx.ConnectError(POISON)
+    tls.__cause__ = ssl.SSLError(POISON)
+    verify = httpx.ConnectError(POISON)
+    verify.__cause__ = ssl.SSLCertVerificationError(POISON)
+    refused = httpx.ConnectError(POISON)
+    refused.__cause__ = ConnectionRefusedError(111, POISON)
+    cases = (
+        (httpx.ConnectTimeout(POISON), "FEED_TIMEOUT"),
+        (httpx.ReadTimeout(POISON), "FEED_TIMEOUT"),
+        (dns, "FEED_DNS_FAILED"),
+        (tls, "FEED_TLS_FAILED"),
+        (verify, "FEED_TLS_VERIFICATION_FAILED"),
+        (refused, "FEED_CONNECTION_REFUSED"),
+        (httpx.RemoteProtocolError(POISON), "FEED_HTTP_PROTOCOL_FAILED"),
+        (httpx.ConnectError(POISON), "FEED_NETWORK_FAILED"),
+        (RuntimeError(POISON), "FEED_HTTP_FAILED"),
+    )
+    for error, code in cases:
+        wrapped = entrez._transport_acquisition_error(error)
+        assert wrapped.code == code
+        assert wrapped.http_status is None
+        assert str(wrapped) == code
+        _assert_redacted(str(wrapped))
+
+
+def test_pubmed_reopen_accepts_one_search_only_from_attempt_two() -> None:
+    assert polling.daily_source_selection((TICK,), reopen_attempt=2) == frozenset({TICK})
+    assert polling.daily_source_selection((LYME,), reopen_attempt=3) == frozenset({LYME})
+    with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+        polling.daily_source_selection((TICK,), reopen_attempt=1)
+    with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+        polling.daily_source_selection((TICK, "cdc-mmwr"), reopen_attempt=2)
+    with pytest.raises(PermissionError, match="SOURCE_SELECTION_INVALID"):
+        polling.daily_source_selection((TICK, LYME), reopen_attempt=2)
+    assert polling.daily_source_selection(("cdc-mmwr",), reopen_attempt=2) == frozenset(
+        {"cdc-mmwr"}
+    )
+    assert polling.daily_source_selection(
+        ("cdc-mmwr", "cdc-outbreaks"), reopen_attempt=2
+    ) == frozenset({"cdc-mmwr", "cdc-outbreaks"})
+
+
+def test_pubmed_reopen_runs_only_that_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    rss: list[str] = []
+    monkeypatch.setattr(
+        polling,
+        "execute_daily_source",
+        lambda source_id, *_args, **_kwargs: rss.append(source_id),
+    )
+    seen: dict[str, Any] = {}
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, str]]:
+        seen.update(kwargs)
+        return [{"source_id": kwargs["only_source_id"], "status": "FAILED", "error_class": "x"}]
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(reopen_attempt=2, source_ids=(TICK,))
+    assert rss == []
+    assert seen["only_source_id"] == TICK
+    assert seen["reopen_attempt"] == 2
+    assert payload["status"] == "FAILED"
+    assert {row["outcome"] for row in payload["sources"]} == {"SKIPPED_NOT_SELECTED"}
+    assert [row["source_id"] for row in payload["pubmed"]] == [TICK]
+    assert LYME not in json.dumps(payload["pubmed"])
+
+
+def test_pubmed_reopen_rejects_a_prior_attempt_that_is_not_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(
+        polling,
+        "execute_daily_source",
+        lambda *_args, **_kwargs: pytest.fail("rss source ran"),
+    )
+    monkeypatch.setattr(
+        polling,
+        "registered_entrez_sources",
+        lambda *_args, **_kwargs: [{"source_id": TICK}],
+    )
+    monkeypatch.setattr(
+        polling,
+        "execute_registered_entrez_daily",
+        lambda **_kwargs: pytest.fail("pubmed fetch ran"),
+    )
+
+    class _Reject:
+        def claim_daily_run(self, *_args: Any) -> bool:
+            raise PermissionError("INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED")
+
+        def save(self, _state: Any) -> None:
+            raise AssertionError("checkpoint written")
+
+    monkeypatch.setattr(
+        polling, "open_entrez_daily_io", lambda _settings: ("store", _Reject(), None)
+    )
+    with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
+        polling.run_production_daily(reopen_attempt=2, source_ids=(TICK,))
+
+
+def test_rss_reopen_still_skips_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+    monkeypatch.setattr(
+        polling,
+        "_walk_registered_entrez_daily",
+        lambda *_args, **_kwargs: pytest.fail("pubmed walk"),
+    )
+    payload = polling.run_production_daily(reopen_attempt=2, source_ids=("cdc-mmwr",))
+    assert "pubmed" not in payload
+    by_id = {row["source_id"]: row["outcome"] for row in payload["sources"]}
+    assert by_id["cdc-mmwr"] == "SUCCEEDED"
+    assert all(
+        outcome == "SKIPPED_NOT_SELECTED"
+        for source_id, outcome in by_id.items()
+        if source_id != "cdc-mmwr"
+    )

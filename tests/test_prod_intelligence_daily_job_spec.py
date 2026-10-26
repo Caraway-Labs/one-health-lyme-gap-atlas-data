@@ -34,6 +34,16 @@ def test_pubmed_failed_class_name_is_reported() -> None:
     assert rows["pubmed-lyme-borrelia"] == "UNCLASSIFIED_EXCEPTION"
 
 
+def test_pubmed_outcome_prefers_the_redacted_error_code() -> None:
+    prefix = _MODULE["OUTCOME_LOG_PREFIX"]
+    text = (
+        prefix + '{"error_class":"AcquisitionError","error_code":"FEED_HTTP_403",'
+        '"http_status":403,"source_id":"pubmed-tick-borne","status":"FAILED"}'
+    )
+    rows = {row["source"]: row["error_code"] for row in _MODULE["parse_daily_outcomes"](text)}
+    assert rows["pubmed-tick-borne"] == "FEED_HTTP_403"
+
+
 def _baseline() -> dict:
     base_jobs = [
         {"name": n, "kind": "SCHEDULED", "image": {"digest": DIGEST}, "run_command": "x"}
