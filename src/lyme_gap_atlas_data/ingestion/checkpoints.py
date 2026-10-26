@@ -16,6 +16,7 @@ import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
+from lyme_gap_atlas_data.intelligence_daily_telemetry import record_checkpoint
 from lyme_gap_atlas_data.sql_sessions import connect
 
 from ..settings import PipelineSettings
@@ -920,7 +921,7 @@ class SnowflakeCheckpointStore:
 
     def save(self, state: RunState) -> None:
         database_status = "COMPLETED" if state.status is RunStatus.SUCCEEDED else state.status.value
-        with self._connection_factory() as connection:
+        with record_checkpoint("write"), self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -1007,7 +1008,11 @@ class SnowflakeCheckpointStore:
             connection.commit()
 
     def load(self, run_id: str) -> RunState | None:
-        with self._connection_factory() as connection, connection.cursor() as cursor:
+        with (
+            record_checkpoint("read"),
+            self._connection_factory() as connection,
+            connection.cursor() as cursor,
+        ):
             cursor.execute(
                 """SELECT ingestion_run_id, resource_key, trigger_type, status
                     FROM GOVERNANCE.INGESTION_RUNS WHERE ingestion_run_id=%s""",

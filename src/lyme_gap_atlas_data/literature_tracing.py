@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import Callable
 from contextlib import suppress
+from contextvars import copy_context
 from threading import Event, RLock, Thread, Timer
 
 import requests
@@ -159,7 +160,8 @@ class InvocationSpanProcessor(SpanProcessor):
                 context = span.get_span_context()
                 self._trace_id, self._root_id = context.trace_id, context.span_id
                 try:
-                    self._timer = Timer(self._max_duration, self._expire)
+                    copied = copy_context()
+                    self._timer = Timer(self._max_duration, copied.run, args=(self._expire,))
                     self._timer.daemon = True
                     self._timer.start()
                 except Exception:
@@ -207,7 +209,13 @@ class InvocationSpanProcessor(SpanProcessor):
                 completed.set()
 
         try:
-            thread = Thread(target=run, name="atlas-literature-telemetry", daemon=True)
+            copied = copy_context()
+            thread = Thread(
+                target=copied.run,
+                args=(run,),
+                name="atlas-literature-telemetry",
+                daemon=True,
+            )
             thread.start()
         except Exception:
             self._warn("flush_unavailable")

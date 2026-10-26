@@ -71,6 +71,27 @@ from .intelligence_daily_hard_kill import (
     log_source_process_exit,
     source_process_timeout,
 )
+from .intelligence_daily_telemetry import (
+    HEARTBEAT_SECONDS,
+    StageHeartbeat,
+    activate_observation,
+    bind_context,
+    carrier_from_current,
+    emit,
+    emit_run_summary,
+    emit_source_summary,
+    job_span,
+    observation_active,
+    parent_heartbeat_active,
+    prepare_worker,
+    reset_observation,
+    shutdown_daily_logs,
+    source_span,
+    spawn_observed,
+    stage_scope,
+    step_span,
+    transferred_bytes,
+)
 from .intelligence_items import canonical_url, identity_hash, validate_record
 from .intelligence_metadata import NativeMetadataPolicy
 from .intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
@@ -433,6 +454,7 @@ _CHILD_OUTCOMES = frozenset(
 
 def _daily_source_child(spec: dict[str, Any], result_queue: Any) -> None:
     """Child entry. A hard kill in this process leaves the parent and siblings alive."""
+    prepare_worker(spec)
     source_id = spec.get("source_id")
     safe_source = source_id if isinstance(source_id, str) else "unknown"
     try:
@@ -456,6 +478,8 @@ def _daily_source_child(spec: dict[str, Any], result_queue: Any) -> None:
                 explicit_stage="CLAIM",
             )
         )
+    finally:
+        shutdown_daily_logs()
 
 
 def _accept_child_result(source_id: str, payload: Any) -> dict[str, Any]:
@@ -511,8 +535,22 @@ def _run_isolated(
     source_id = source_value if isinstance(source_value, str) else "unknown"
     ctx = multiprocessing.get_context("spawn")
     result_queue: Any = ctx.Queue()
-    process = ctx.Process(target=target, args=(spec, result_queue), daemon=False)
+    child_spec = dict(spec)
+    stage_queue: Any = None
+    with suppress(Exception):
+        child_spec["_trace"] = carrier_from_current()
+        stage_queue = ctx.Queue(maxsize=32)
+        child_spec["_stage_queue"] = stage_queue
+    process = ctx.Process(target=target, args=(child_spec, result_queue), daemon=False)
     process.start()
+    heartbeat_stop = threading.Event()
+    heartbeat_thread = start_parent_stage_heartbeat(
+        process,
+        stage_queue,
+        source_id,
+        heartbeat_stop,
+        name="intelligence-daily-parent-heartbeat",
+    )
     try:
         process.join(timeout)
         if process.is_alive():
@@ -555,12 +593,66 @@ def _run_isolated(
             exit_code=code,
         )
     finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(1)
         if process.is_alive():
             process.kill()
             process.join(5)
         result_queue.close()
         result_queue.cancel_join_thread()
+        if stage_queue is not None:
+            with suppress(Exception):
+                stage_queue.close()
         process.close()
+
+
+def _drain_stage(stage_queue: Any, last: str | None) -> str | None:
+    if stage_queue is None:
+        return last
+    while True:
+        try:
+            item = stage_queue.get_nowait()
+        except Empty:
+            return last
+        if isinstance(item, str) and item:
+            last = item
+        elif item == "":
+            last = None
+
+
+def start_parent_stage_heartbeat(
+    process: Any,
+    stage_queue: Any,
+    source_id: str,
+    stop: threading.Event,
+    *,
+    name: str,
+    interval: float = HEARTBEAT_SECONDS,
+) -> threading.Thread:
+    """Parent heartbeat thread. Context is copied so observation stays active."""
+    return spawn_observed(
+        _parent_stage_heartbeat,
+        (process, stage_queue, source_id, stop, interval),
+        name=name,
+    )
+
+
+def _parent_stage_heartbeat(
+    process: Any,
+    stage_queue: Any,
+    source_id: str,
+    stop: threading.Event,
+    interval: float = HEARTBEAT_SECONDS,
+) -> None:
+    """Heartbeat from the parent so a stuck child still reports the open stage."""
+    last: str | None = None
+    while not stop.wait(interval):
+        last = _drain_stage(stage_queue, last)
+        if last is None or not process.is_alive():
+            continue
+        bind_context(source_id=source_id, stage=last)
+        with suppress(Exception):
+            emit("stage.heartbeat", step="heartbeat", stage=last)
 
 
 def execute_daily_source(
@@ -594,6 +686,60 @@ def execute_daily_source_in_process(
     day: str,
 ) -> dict[str, Any]:
     """Run one daily source in the current process. Tests use this seam."""
+    already = observation_active()
+    token = None if already else activate_observation()
+    bind_context(source_id=source_id, attempt=reopen_attempt)
+    started = time.monotonic()
+    heartbeat = None if parent_heartbeat_active() else StageHeartbeat()
+    if heartbeat is not None:
+        heartbeat.start()
+    try:
+        with source_span(source_id):
+            result = _execute_daily_source_observed(
+                source_id,
+                path,
+                preflight_only=preflight_only,
+                reopen_attempt=reopen_attempt,
+                day=day,
+            )
+        _summarize_source(result, started)
+        return result
+    finally:
+        if heartbeat is not None:
+            heartbeat.stop()
+        if token is not None:
+            reset_observation(token)
+
+
+def _summarize_source(result: dict[str, Any], started: float) -> None:
+    timings = result.get("stage_timings_ms")
+    seconds = 0.0
+    if isinstance(timings, dict):
+        seconds = sum(value for value in timings.values() if type(value) is int) / 1000
+    if seconds <= 0:
+        seconds = time.monotonic() - started
+    items = 0
+    for key, value in result.items():
+        if key.endswith("_count") and type(value) is int and value > 0:
+            items += value
+    failure = result.get("error_code")
+    emit_source_summary(
+        status=str(result.get("status") or result.get("outcome") or "FAILED"),
+        seconds=seconds,
+        items=items,
+        nbytes=transferred_bytes(),
+        failure_code=failure if isinstance(failure, str) else None,
+    )
+
+
+def _execute_daily_source_observed(
+    source_id: str,
+    path: str,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int,
+    day: str,
+) -> dict[str, Any]:
     kill_state = HardKillState()
     claim_clock = DailyStageClock()
     budget: Any = None
@@ -621,11 +767,13 @@ def execute_daily_source_in_process(
             run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
             # Set before claim so a hang after the RUNNING insert can still be recorded.
             kill_state.run_id = run_id
+            bind_context(source_id=source_id, run_id=run_id, attempt=reopen_attempt)
             claim_clock.begin("CLAIM")
             try:
-                claimed = cast(
-                    IntelligenceSnowflakeCheckpoints, orchestrator.store
-                ).claim_daily_run(run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id])
+                with stage_scope("CLAIM"):
+                    claimed = cast(
+                        IntelligenceSnowflakeCheckpoints, orchestrator.store
+                    ).claim_daily_run(run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id])
             finally:
                 claim_clock.end("CLAIM")
             timings_ms = _merged_timings(claim_clock, budget)
@@ -767,10 +915,7 @@ class _PubMedDeadline:
 
     def start(self) -> None:
         """Start only after the caller has installed the SIGALRM handler."""
-        self._thread = threading.Thread(
-            target=self._enforce, name="pubmed-walk-deadline", daemon=True
-        )
-        self._thread.start()
+        self._thread = spawn_observed(self._enforce, name="pubmed-walk-deadline")
 
     def remaining(self) -> float:
         return self.deadline - time.monotonic()
@@ -832,8 +977,7 @@ def _wait_bounded(fn: Callable[..., None], *args: Any, seconds: float) -> None:
         finally:
             finished.set()
 
-    worker = threading.Thread(target=attempt, name="pubmed-bounded-step", daemon=True)
-    worker.start()
+    spawn_observed(attempt, name="pubmed-bounded-step")
     finished.wait(seconds)
 
 
@@ -1050,6 +1194,7 @@ def _walk_registered_entrez_daily(
             for source in sources:
                 source_id = source["source_id"]
                 run_id = daily_run_id(source_id, day, reopen_attempt=reopen_attempt)
+                bind_context(source_id=source_id, run_id=run_id, attempt=reopen_attempt)
                 if not checkpoints.claim_daily_run(run_id, source_id, identity_hash(source)):
                     continue
                 claimed.append((run_id, source_id))
@@ -1064,22 +1209,23 @@ def _walk_registered_entrez_daily(
                         }
                     ]
                 return []
-            execute_registered_entrez_daily(
-                pinned=pins,
-                sender=live_entrez_get,
-                settings=settings,
-                budget=budget,
-                checkpoints=checkpoints,
-                store=store,
-                today=datetime.fromisoformat(day).date(),
-                run_id=next(iter(run_ids.values())),
-                fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                clock=time.monotonic,
-                sleep=time.sleep,
-                sources=sources,
-                run_ids=run_ids,
-                only_source_id=only_source_id,
-            )
+            with stage_scope("PUBMED"), step_span("pubmed.walk"):
+                execute_registered_entrez_daily(
+                    pinned=pins,
+                    sender=live_entrez_get,
+                    settings=settings,
+                    budget=budget,
+                    checkpoints=checkpoints,
+                    store=store,
+                    today=datetime.fromisoformat(day).date(),
+                    run_id=next(iter(run_ids.values())),
+                    fetched_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    clock=time.monotonic,
+                    sleep=time.sleep,
+                    sources=sources,
+                    run_ids=run_ids,
+                    only_source_id=only_source_id,
+                )
             return []
     except Exception as error:
         if isinstance(error, PermissionError) and str(error) == _REOPEN_PRIOR_NOT_FAILED:
@@ -1125,13 +1271,14 @@ def _walk_registered_entrez_daily(
 
 def _pubmed_walk_process(spec: dict[str, Any], queue: Any) -> None:
     """Child entry. A test hang ignores SIGALRM so only the parent kill stops it."""
-    if os.environ.get("ATLAS_PUBMED_WALK_HANG") == "swallow-alarm":
-        alarm = getattr(signal, "SIGALRM", None)
-        if alarm is not None:
-            signal.signal(alarm, signal.SIG_IGN)
-        time.sleep(3600)
-        return
+    prepare_worker(spec)
     try:
+        if os.environ.get("ATLAS_PUBMED_WALK_HANG") == "swallow-alarm":
+            alarm = getattr(signal, "SIGALRM", None)
+            if alarm is not None:
+                signal.signal(alarm, signal.SIG_IGN)
+            time.sleep(3600)
+            return
         named = spec.get("only_source_id")
         rows = _walk_registered_entrez_daily(
             pipeline_settings.PipelineSettings(),
@@ -1148,6 +1295,8 @@ def _pubmed_walk_process(spec: dict[str, Any], queue: Any) -> None:
         queue.put({"ok": False, "error_class": _pubmed_error_class(error)})
     except Exception as error:
         queue.put({"ok": False, "error_class": _pubmed_error_class(error)})
+    finally:
+        shutdown_daily_logs()
 
 
 def _record_isolated_pubmed_failure(
@@ -1216,20 +1365,31 @@ def _isolate_pubmed_walk(
     tracked = (only_source_id,) if only_source_id in SOURCE_ORDER else SOURCE_ORDER
     ctx = multiprocessing.get_context("spawn")
     result_queue: Any = ctx.Queue()
+    stage_queue: Any = None
+    child_spec: dict[str, Any] = {
+        "day": day,
+        "preflight_only": preflight_only,
+        "reopen_attempt": reopen_attempt,
+        "only_source_id": only_source_id,
+    }
+    with suppress(Exception):
+        child_spec["_trace"] = carrier_from_current()
+        stage_queue = ctx.Queue(maxsize=32)
+        child_spec["_stage_queue"] = stage_queue
     process = ctx.Process(
         target=_pubmed_walk_process,
-        args=(
-            {
-                "day": day,
-                "preflight_only": preflight_only,
-                "reopen_attempt": reopen_attempt,
-                "only_source_id": only_source_id,
-            },
-            result_queue,
-        ),
+        args=(child_spec, result_queue),
         daemon=False,
     )
     process.start()
+    heartbeat_stop = threading.Event()
+    heartbeat_thread = start_parent_stage_heartbeat(
+        process,
+        stage_queue,
+        only_source_id or "pubmed",
+        heartbeat_stop,
+        name="intelligence-daily-pubmed-heartbeat",
+    )
     try:
         process.join(PUBMED_WALK_DEADLINE_SECONDS)
         if process.is_alive():
@@ -1262,11 +1422,16 @@ def _isolate_pubmed_walk(
             return found
         return []
     finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(1)
         if process.is_alive():
             process.kill()
             process.join(5)
         result_queue.close()
         result_queue.cancel_join_thread()
+        if stage_queue is not None:
+            with suppress(Exception):
+                stage_queue.close()
         process.close()
 
 
@@ -1330,55 +1495,130 @@ def run_production_daily(
         return {"status": "DISABLED", "sources": [], "provider_requests": 0}
     if settings.topx_env != "prod":
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
-    day = datetime.now(UTC).date().isoformat()
-    results = []
-    for source_id, path in PROD_SOURCE_DEFINITIONS.items():
-        if selection is not None and source_id not in selection:
-            results.append(_source_outcome(source_id, "SKIPPED_NOT_SELECTED"))
-            continue
-        results.append(
-            execute_daily_source(
-                source_id,
-                path,
+    already = observation_active()
+    token = None if already else activate_observation()
+    started = time.monotonic()
+    try:
+        with job_span():
+            return _run_production_daily_observed(
+                settings,
                 preflight_only=preflight_only,
                 reopen_attempt=reopen_attempt,
-                day=day,
+                selection=selection,
+                pubmed_only=pubmed_only,
+                started=started,
             )
-        )
+    finally:
+        if token is not None:
+            reset_observation(token)
+
+
+def _failed_source_count(
+    results: list[dict[str, Any]],
+    pubmed: list[dict[str, Any]],
+    *,
+    preflight_only: bool,
+    reopen_attempt: int,
+    pubmed_only: str | None,
+) -> int:
+    """Count sources that failed. PubMed rows are included when their status failed."""
+    count = 0
     for row in results:
-        _log_daily_outcome(row)
+        outcome = row.get("outcome")
+        failed_outcome = outcome in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"}
+        preflight_miss = preflight_only and outcome not in {"READY", "SKIPPED_NOT_SELECTED"}
+        claimed_again = reopen_attempt >= 2 and outcome == "ALREADY_CLAIMED"
+        if failed_outcome or preflight_miss or claimed_again:
+            count += 1
+    for row in pubmed:
+        pubmed_status = row.get("status")
+        if pubmed_status == "FAILED" or (
+            pubmed_only is not None and pubmed_status == "ALREADY_CLAIMED"
+        ):
+            count += 1
+    return count
+
+
+def _run_production_daily_observed(
+    settings: Any,
+    *,
+    preflight_only: bool,
+    reopen_attempt: int,
+    selection: frozenset[str] | None,
+    pubmed_only: str | None,
+    started: float,
+) -> dict[str, Any]:
+    day = datetime.now(UTC).date().isoformat()
+    results: list[dict[str, Any]] = []
     pubmed: list[dict[str, Any]] = []
-    if selection is None or pubmed_only is not None:
-        walker = _isolate_pubmed_walk if PUBMED_WALK_ISOLATE else _walk_registered_entrez_daily
-        pubmed = walker(
-            settings,
-            day,
-            preflight_only=preflight_only,
-            reopen_attempt=reopen_attempt,
-            only_source_id=pubmed_only,
+    status = "FAILED"
+    failure_class: str | None = None
+    try:
+        for source_id, path in PROD_SOURCE_DEFINITIONS.items():
+            if selection is not None and source_id not in selection:
+                results.append(_source_outcome(source_id, "SKIPPED_NOT_SELECTED"))
+                continue
+            results.append(
+                execute_daily_source(
+                    source_id,
+                    path,
+                    preflight_only=preflight_only,
+                    reopen_attempt=reopen_attempt,
+                    day=day,
+                )
+            )
+        for row in results:
+            _log_daily_outcome(row)
+        if selection is None or pubmed_only is not None:
+            walker = _isolate_pubmed_walk if PUBMED_WALK_ISOLATE else _walk_registered_entrez_daily
+            pubmed = walker(
+                settings,
+                day,
+                preflight_only=preflight_only,
+                reopen_attempt=reopen_attempt,
+                only_source_id=pubmed_only,
+            )
+        failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
+        if pubmed_only is not None and any(
+            row.get("status") in {"FAILED", "ALREADY_CLAIMED"} for row in pubmed
+        ):
+            failed = True
+        if preflight_only and any(
+            row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results
+        ):
+            failed = True
+        # A second reopen finds the attempt row and must not look like a new success.
+        if reopen_attempt >= 2 and any(row["outcome"] == "ALREADY_CLAIMED" for row in results):
+            failed = True
+        status = "FAILED" if failed else "SUCCEEDED"
+        payload: dict[str, Any] = {
+            "status": status,
+            "day": day,
+            "preflight_only": preflight_only,
+            "reopen_attempt": reopen_attempt,
+            "sources": results,
+        }
+        if pubmed:
+            payload["pubmed"] = pubmed
+        return payload
+    except BaseException as exc:
+        failure_class = type(exc).__name__
+        status = "FAILED"
+        raise
+    finally:
+        emit_run_summary(
+            status=status,
+            seconds=time.monotonic() - started,
+            sources=len(results) + len(pubmed),
+            failed=_failed_source_count(
+                results,
+                pubmed,
+                preflight_only=preflight_only,
+                reopen_attempt=reopen_attempt,
+                pubmed_only=pubmed_only,
+            ),
+            failure_class=failure_class,
         )
-    failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
-    if pubmed_only is not None and any(
-        row.get("status") in {"FAILED", "ALREADY_CLAIMED"} for row in pubmed
-    ):
-        failed = True
-    if preflight_only and any(
-        row["outcome"] not in {"READY", "SKIPPED_NOT_SELECTED"} for row in results
-    ):
-        failed = True
-    # A second reopen finds the attempt row and must not look like a new success.
-    if reopen_attempt >= 2 and any(row["outcome"] == "ALREADY_CLAIMED" for row in results):
-        failed = True
-    payload: dict[str, Any] = {
-        "status": "FAILED" if failed else "SUCCEEDED",
-        "day": day,
-        "preflight_only": preflight_only,
-        "reopen_attempt": reopen_attempt,
-        "sources": results,
-    }
-    if pubmed:
-        payload["pubmed"] = pubmed
-    return payload
 
 
 @dataclass(frozen=True)

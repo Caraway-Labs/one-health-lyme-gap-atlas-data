@@ -26,6 +26,7 @@ from ..intelligence_activations import (
     load_registry_documents,
     source_is_active,
 )
+from ..intelligence_daily_telemetry import instrumented_execute
 from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
@@ -134,6 +135,7 @@ def pilot_watchdog(*, seconds: int = 300) -> Iterator[None]:
     warehouse or session is cancelled. The feed default is five minutes; the
     exact prerequisite batch uses fifty seconds.
     """
+    # os._exit ends the process, so there is no observation context to carry.
     timer = threading.Timer(seconds, os._exit, args=(124,))
     timer.daemon = True
     timer.start()
@@ -374,7 +376,10 @@ class _Cursor:
         # Connector cancellation is for this owned query, never the warehouse.
         kwargs["timeout"] = min(kwargs.get("timeout", 30), 30, math.ceil(remaining))
         try:
-            result = self.raw.execute(statement, *args, **kwargs)
+            if getattr(self.raw, "daily_observed", False):
+                result = self.raw.execute(statement, *args, **kwargs)
+            else:
+                result = instrumented_execute(self.raw, statement, args, kwargs)
         finally:
             # The connector disarms SIGALRM before returning, including on retry.
             note_step_deadline()

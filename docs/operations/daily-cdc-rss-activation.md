@@ -154,3 +154,32 @@ reported. Responses/specifications are not logged or saved. Final readback must
 confirm the app specification and active deployment are unchanged. No Update,
 deployment, source acquisition, SQL, image push or credential placement occurs.
 Passing Propose still does not establish Update-specific source resolution.
+
+## Where to look when a daily run fails
+
+Grafana, not the droplet. The daily job and the manual once-per-day job copy
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` from a sibling
+job that already exports traces. No new secret is required. Logs use the same
+headers against `/v1/logs` on that host (derived by replacing `/v1/traces`, or
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` if set). Without those variables the job
+still runs and writes JSON lines to stdout.
+
+Import `ops/grafana/intelligence-daily-dashboard.json`. Filter
+`service_name=data-job` and `component=intelligence-daily`.
+
+- Tempo: one trace per invocation. Spans are `atlas-data.cli`,
+  `intelligence-daily.job`, `intelligence-daily.source`,
+  `intelligence-daily.stage` (ACQUIRE, NORMALIZE, LOAD, PUBMED, CLAIM), and a
+  span per Snowflake statement and outbound HTTP call. Attributes include
+  `source_id`, `run_id`, `attempt`, `stage`, and `step`.
+- Loki: the same events as JSON, including `snowflake.statement`,
+  `http.client`, `checkpoint.read` / `checkpoint.write`, `ledger.read` /
+  `ledger.write`, `lease.acquire` / `lease.renew` / `lease.release`,
+  `guard.enter` / `guard.exit`, `stage.heartbeat` every 30 seconds while a
+  stage is open, and `source.summary` / `run.summary`.
+- A hang is the last `stage.heartbeat` for that source. The dashboard's open
+  stage panel is the stage that has had no heartbeat for 120 seconds.
+- Statement logs carry a fixed label such as `ledger.guard.update`, duration,
+  row count, exception class, errno, and sqlstate. They do not carry SQL
+  parameters, row text, or payloads. HTTP logs carry host and path, not the
+  query string.

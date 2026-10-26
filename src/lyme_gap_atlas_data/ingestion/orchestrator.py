@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
+from ..intelligence_daily_telemetry import stage_scope
 from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..settings import PipelineSettings
 from .adapters import AcquisitionError, SourceAdapter, StreamingSourceAdapter, get_adapter
@@ -379,270 +380,286 @@ class IngestionOrchestrator:
             checkpoint.redacted_diagnostic_code = None
             self.store.save(state)
 
-            try:
-                if retention is not None and checkpoint.stage is not Stage.ACQUIRE and restore_feed:
-                    retention.require_run(state.ingestion_run_id)
-                # fail_after_stage=X means X completed durably; failure is injected
-                # when entering the following stage so resume does not replay X.
-                if (
-                    fail_after_stage
-                    and _previous_stage_value(state, checkpoint.stage) == fail_after_stage
-                ):
-                    raise StageFailure(
-                        FailureCategory.QUALITY,
-                        "INJECTED_FAILURE",
-                        f"resume:{checkpoint.stage.value}",
-                    )
-                if checkpoint.stage is Stage.ACQUIRE:
-                    if recovered_acquisition is not None:
-                        checkpoint.artifact_id = recovered_acquisition["artifact_id"]
-                        checkpoint.artifact_sha256 = recovered_acquisition["artifact_sha256"]
-                        checkpoint.detail = recovered_acquisition
-                    elif state.dry_run and self.fixture_dir is None:
-                        checkpoint.detail = {
-                            "planned": True,
-                            "endpoint": definition.endpoint_template,
-                        }
-                        checkpoint.artifact_sha256 = "dry-run"
-                    else:
-                        acquired = adapter.acquire(definition, fixture_dir=self.fixture_dir)
-                        payload = acquired.payload
-                        source_members = _acquisition_artifacts(
-                            acquired, definition.endpoint_template
+            with stage_scope(checkpoint.stage.value):
+                try:
+                    if (
+                        retention is not None
+                        and checkpoint.stage is not Stage.ACQUIRE
+                        and restore_feed
+                    ):
+                        retention.require_run(state.ingestion_run_id)
+                    # fail_after_stage=X means X completed durably; failure is injected
+                    # when entering the following stage so resume does not replay X.
+                    if (
+                        fail_after_stage
+                        and _previous_stage_value(state, checkpoint.stage) == fail_after_stage
+                    ):
+                        raise StageFailure(
+                            FailureCategory.QUALITY,
+                            "INJECTED_FAILURE",
+                            f"resume:{checkpoint.stage.value}",
                         )
-                        artifact = effects.register_artifact(definition, state, acquired)
-                        if isinstance(payload, dict):
-                            payload["_acquisition_lineage"] = {
-                                "ingestion_run_id": state.ingestion_run_id,
-                                "artifact_id": artifact["artifact_id"],
-                                "retrieved_at": datetime.now(UTC).isoformat(),
+                    if checkpoint.stage is Stage.ACQUIRE:
+                        if recovered_acquisition is not None:
+                            checkpoint.artifact_id = recovered_acquisition["artifact_id"]
+                            checkpoint.artifact_sha256 = recovered_acquisition["artifact_sha256"]
+                            checkpoint.detail = recovered_acquisition
+                        elif state.dry_run and self.fixture_dir is None:
+                            checkpoint.detail = {
+                                "planned": True,
+                                "endpoint": definition.endpoint_template,
                             }
-                        if retention is not None:
-                            retention.bind(state.ingestion_run_id, payload)
-                            retention.register_buffer(
-                                self._raw_namespace + "/" + state.ingestion_run_id,
-                                lambda: (
-                                    self._payloads.pop(state.ingestion_run_id, None) is not None
-                                ),
-                            )
-                            with retention.copy_access(
-                                state.ingestion_run_id,
-                                "process_payload",
-                                self._raw_namespace + "/" + state.ingestion_run_id,
-                                write=True,
-                            ):
-                                self._payloads[state.ingestion_run_id] = payload
-                            restore_feed = True
+                            checkpoint.artifact_sha256 = "dry-run"
                         else:
-                            self._payloads[state.ingestion_run_id] = payload
-                        if len(source_members) > 1 and isinstance(self.store, ArtifactMemberWriter):
-                            metadata = validate_members(
-                                ArtifactMember.from_dict(item) for item in artifact["artifacts"]
+                            acquired = adapter.acquire(definition, fixture_dir=self.fixture_dir)
+                            payload = acquired.payload
+                            source_members = _acquisition_artifacts(
+                                acquired, definition.endpoint_template
                             )
-                            by_name = {item.name: item for item in source_members}
-                            for member in metadata:
-                                self.store.save_artifact_member(
-                                    member, by_name[member.name].payload
+                            artifact = effects.register_artifact(definition, state, acquired)
+                            if isinstance(payload, dict):
+                                payload["_acquisition_lineage"] = {
+                                    "ingestion_run_id": state.ingestion_run_id,
+                                    "artifact_id": artifact["artifact_id"],
+                                    "retrieved_at": datetime.now(UTC).isoformat(),
+                                }
+                            if retention is not None:
+                                retention.bind(state.ingestion_run_id, payload)
+                                retention.register_buffer(
+                                    self._raw_namespace + "/" + state.ingestion_run_id,
+                                    lambda: (
+                                        self._payloads.pop(state.ingestion_run_id, None) is not None
+                                    ),
                                 )
-                        elif (
-                            len(source_members) > 1
-                            and member_adapter
-                            and not isinstance(self.store, ArtifactMemberStore)
-                        ):
-                            raise TypeError("Named replay requires an artifact member store")
-                        if isinstance(payload, bytes) and len(source_members) == 1:
-                            if isinstance(self.store, BinaryArtifactStore):
-                                self.store.save_binary_artifact(
-                                    state.ingestion_run_id, payload, acquired.artifact_sha256
+                                with retention.copy_access(
+                                    state.ingestion_run_id,
+                                    "process_payload",
+                                    self._raw_namespace + "/" + state.ingestion_run_id,
+                                    write=True,
+                                ):
+                                    self._payloads[state.ingestion_run_id] = payload
+                                restore_feed = True
+                            else:
+                                self._payloads[state.ingestion_run_id] = payload
+                            if len(source_members) > 1 and isinstance(
+                                self.store, ArtifactMemberWriter
+                            ):
+                                metadata = validate_members(
+                                    ArtifactMember.from_dict(item) for item in artifact["artifacts"]
                                 )
-                            elif not isinstance(self.store, RawArtifactStore):
-                                raise TypeError(
-                                    "Binary replay requires an artifact checkpoint store"
+                                by_name = {item.name: item for item in source_members}
+                                for member in metadata:
+                                    self.store.save_artifact_member(
+                                        member, by_name[member.name].payload
+                                    )
+                            elif (
+                                len(source_members) > 1
+                                and member_adapter
+                                and not isinstance(self.store, ArtifactMemberStore)
+                            ):
+                                raise TypeError("Named replay requires an artifact member store")
+                            if isinstance(payload, bytes) and len(source_members) == 1:
+                                if isinstance(self.store, BinaryArtifactStore):
+                                    self.store.save_binary_artifact(
+                                        state.ingestion_run_id, payload, acquired.artifact_sha256
+                                    )
+                                elif not isinstance(self.store, RawArtifactStore):
+                                    raise TypeError(
+                                        "Binary replay requires an artifact checkpoint store"
+                                    )
+                            elif isinstance(self.store, PayloadStore) and not (
+                                member_adapter and len(source_members) > 1
+                            ):
+                                self.store.save_payload(state.ingestion_run_id, payload)
+                            checkpoint.artifact_id = str(artifact["artifact_id"])
+                            checkpoint.artifact_sha256 = str(artifact["artifact_sha256"])
+                            checkpoint.detail = {
+                                "row_count": acquired.row_count,
+                                "media_type": acquired.media_type,
+                                **(acquired.detail or {}),
+                                **artifact,
+                            }
+                            if member_adapter and len(source_members) > 1:
+                                has_members = True
+                                payload = None
+                                self._payloads.pop(state.ingestion_run_id, None)
+                    elif checkpoint.stage is Stage.VALIDATE:
+                        if member_adapter and has_members:
+                            payload = self._restore_member_payload(adapter, definition, state)
+                        if payload is None and not state.dry_run:
+                            raise RuntimeError("VALIDATE requires ACQUIRE payload")
+                        if payload is not None:
+                            result = adapter.validate_payload(definition, payload)
+                            if not result.ok:
+                                issue = result.issues[0]
+                                raise StageFailure(
+                                    issue.category,
+                                    issue.code,
+                                    f"resume:{Stage.VALIDATE.value}",
                                 )
-                        elif isinstance(self.store, PayloadStore) and not (
-                            member_adapter and len(source_members) > 1
-                        ):
-                            self.store.save_payload(state.ingestion_run_id, payload)
-                        checkpoint.artifact_id = str(artifact["artifact_id"])
-                        checkpoint.artifact_sha256 = str(artifact["artifact_sha256"])
-                        checkpoint.detail = {
-                            "row_count": acquired.row_count,
-                            "media_type": acquired.media_type,
-                            **(acquired.detail or {}),
-                            **artifact,
-                        }
-                        if member_adapter and len(source_members) > 1:
-                            has_members = True
-                            payload = None
-                            self._payloads.pop(state.ingestion_run_id, None)
-                elif checkpoint.stage is Stage.VALIDATE:
-                    if member_adapter and has_members:
-                        payload = self._restore_member_payload(adapter, definition, state)
-                    if payload is None and not state.dry_run:
-                        raise RuntimeError("VALIDATE requires ACQUIRE payload")
-                    if payload is not None:
-                        result = adapter.validate_payload(definition, payload)
-                        if not result.ok:
-                            issue = result.issues[0]
-                            raise StageFailure(
-                                issue.category,
-                                issue.code,
-                                f"resume:{Stage.VALIDATE.value}",
-                            )
-                    checkpoint.detail = {"ok": True}
-                elif checkpoint.stage is Stage.NORMALIZE:
-                    if payload is None and member_adapter and has_members:
-                        payload = self._restore_member_payload(adapter, definition, state)
-                    if state.dry_run and payload is None:
-                        checkpoint.transformation_version = "dry-run"
-                        checkpoint.detail = {"planned": True}
-                    else:
-                        if payload is None:
-                            raise RuntimeError("NORMALIZE requires ACQUIRE payload")
-                        if streaming:
-                            assert isinstance(self.store, PartitionStore)
-                            if not self.store.partitions_complete(state.ingestion_run_id):
-                                streamed = cast(StreamingSourceAdapter, adapter).normalize_iter(
-                                    definition, payload
+                        checkpoint.detail = {"ok": True}
+                    elif checkpoint.stage is Stage.NORMALIZE:
+                        if payload is None and member_adapter and has_members:
+                            payload = self._restore_member_payload(adapter, definition, state)
+                        if state.dry_run and payload is None:
+                            checkpoint.transformation_version = "dry-run"
+                            checkpoint.detail = {"planned": True}
+                        else:
+                            if payload is None:
+                                raise RuntimeError("NORMALIZE requires ACQUIRE payload")
+                            if streaming:
+                                assert isinstance(self.store, PartitionStore)
+                                if not self.store.partitions_complete(state.ingestion_run_id):
+                                    streamed = cast(StreamingSourceAdapter, adapter).normalize_iter(
+                                        definition, payload
+                                    )
+                                    checkpoint.transformation_version = (
+                                        streamed.transformation_version
+                                    )
+                                    self.store.save(state)
+                                    count = 0
+                                    pending: list[NormalizedPartition] = []
+                                    for part in partition_records(streamed.records):
+                                        if isinstance(self.store, SnowflakeCheckpointStore):
+                                            pending.append(part)
+                                            if len(pending) == 64:
+                                                self._save_partition_batch(
+                                                    state.ingestion_run_id, pending
+                                                )
+                                                pending = []
+                                        else:
+                                            self.store.save_partition(state.ingestion_run_id, part)
+                                        count += 1
+                                    self._save_partition_batch(state.ingestion_run_id, pending)
+                                    self._validate_partition_identities(
+                                        definition, state.ingestion_run_id
+                                    )
+                                    self.store.complete_partitions(state.ingestion_run_id, count)
+                                partition_count = 0
+                                record_count = 0
+                                pending_records: list[list[dict[str, Any]]] = []
+                                for part in self.store.iter_partitions(state.ingestion_run_id):
+                                    pending_records.append(list(part.records))
+                                    partition_count += 1
+                                    record_count += len(part.records)
+                                    if len(pending_records) == 64:
+                                        self._materialize_batch(
+                                            effects, definition, state, pending_records
+                                        )
+                                        pending_records = []
+                                self._materialize_batch(effects, definition, state, pending_records)
+                                checkpoint.detail = {
+                                    "partition_count": partition_count,
+                                    "record_count": record_count,
+                                    "mode": "bounded_partitions",
+                                }
+                            else:
+                                normalized_result = adapter.normalize(definition, payload)
+                                normalized = normalized_result.records
+                                self._normalized[state.ingestion_run_id] = normalized
+                                if isinstance(self.store, PayloadStore):
+                                    self.store.save_normalized(state.ingestion_run_id, normalized)
+                                checkpoint.transformation_version = (
+                                    normalized_result.transformation_version
                                 )
-                                checkpoint.transformation_version = streamed.transformation_version
-                                self.store.save(state)
-                                count = 0
-                                pending: list[NormalizedPartition] = []
-                                for part in partition_records(streamed.records):
-                                    if isinstance(self.store, SnowflakeCheckpointStore):
-                                        pending.append(part)
-                                        if len(pending) == 64:
-                                            self._save_partition_batch(
-                                                state.ingestion_run_id, pending
-                                            )
-                                            pending = []
-                                    else:
-                                        self.store.save_partition(state.ingestion_run_id, part)
-                                    count += 1
-                                self._save_partition_batch(state.ingestion_run_id, pending)
-                                self._validate_partition_identities(
-                                    definition, state.ingestion_run_id
-                                )
-                                self.store.complete_partitions(state.ingestion_run_id, count)
-                            partition_count = 0
-                            record_count = 0
-                            pending_records: list[list[dict[str, Any]]] = []
+                                checkpoint.detail = {
+                                    **(normalized_result.detail or {}),
+                                    **effects.materialize_normalized(definition, state, normalized),
+                                }
+                    elif checkpoint.stage is Stage.LOAD:
+                        if streaming and isinstance(self.store, PartitionStore):
+                            loaded = 0
+                            pending_records = []
                             for part in self.store.iter_partitions(state.ingestion_run_id):
                                 pending_records.append(list(part.records))
-                                partition_count += 1
-                                record_count += len(part.records)
+                                loaded += len(part.records)
                                 if len(pending_records) == 64:
-                                    self._materialize_batch(
-                                        effects, definition, state, pending_records
-                                    )
+                                    self._load_batch(effects, definition, state, pending_records)
                                     pending_records = []
-                            self._materialize_batch(effects, definition, state, pending_records)
+                            self._load_batch(effects, definition, state, pending_records)
                             checkpoint.detail = {
-                                "partition_count": partition_count,
-                                "record_count": record_count,
+                                "record_count": loaded,
                                 "mode": "bounded_partitions",
                             }
+                        elif normalized is None and not state.dry_run:
+                            raise RuntimeError("LOAD requires NORMALIZE payload")
                         else:
-                            normalized_result = adapter.normalize(definition, payload)
-                            normalized = normalized_result.records
-                            self._normalized[state.ingestion_run_id] = normalized
-                            if isinstance(self.store, PayloadStore):
-                                self.store.save_normalized(state.ingestion_run_id, normalized)
-                            checkpoint.transformation_version = (
-                                normalized_result.transformation_version
-                            )
+                            checkpoint.detail = effects.load(definition, state, normalized or [])
+                    elif checkpoint.stage is Stage.QUALITY:
+                        if state.dry_run and normalized is None:
                             checkpoint.detail = {
-                                **(normalized_result.detail or {}),
-                                **effects.materialize_normalized(definition, state, normalized),
+                                "planned": True,
+                                "rules_evaluated": [
+                                    rule.rule_id for rule in definition.quality_rules
+                                ],
+                                "wrote": False,
                             }
-                elif checkpoint.stage is Stage.LOAD:
-                    if streaming and isinstance(self.store, PartitionStore):
-                        loaded = 0
-                        pending_records = []
-                        for part in self.store.iter_partitions(state.ingestion_run_id):
-                            pending_records.append(list(part.records))
-                            loaded += len(part.records)
-                            if len(pending_records) == 64:
-                                self._load_batch(effects, definition, state, pending_records)
-                                pending_records = []
-                        self._load_batch(effects, definition, state, pending_records)
-                        checkpoint.detail = {"record_count": loaded, "mode": "bounded_partitions"}
-                    elif normalized is None and not state.dry_run:
-                        raise RuntimeError("LOAD requires NORMALIZE payload")
+                        elif streaming and isinstance(self.store, PartitionStore):
+                            records = (
+                                record
+                                for part in self.store.iter_partitions(state.ingestion_run_id)
+                                for record in part.records
+                            )
+                            checkpoint.detail = effects.quality_partitioned(
+                                definition, state, records
+                            )
+                        else:
+                            if normalized is None:
+                                raise RuntimeError("QUALITY requires NORMALIZE payload")
+                            checkpoint.detail = effects.quality(definition, state, normalized or [])
+                    elif checkpoint.stage is Stage.PUBLISH_STAGE:
+                        if streaming and isinstance(self.store, PartitionStore):
+                            record_count = sum(
+                                len(part.records)
+                                for part in self.store.iter_partitions(state.ingestion_run_id)
+                            )
+                            checkpoint.detail = effects.publish_partitioned(
+                                definition, state, record_count
+                            )
+                        elif normalized is None and not state.dry_run:
+                            raise RuntimeError("PUBLISH_STAGE requires NORMALIZE payload")
+                        else:
+                            checkpoint.detail = effects.publish(definition, state, normalized or [])
+                    elif checkpoint.stage is Stage.DISCOVER:
+                        checkpoint.status = StageStatus.SKIPPED
+                        checkpoint.detail = {"reason": "not_required_for_source"}
+                        self.store.save(state)
+                        continue
                     else:
-                        checkpoint.detail = effects.load(definition, state, normalized or [])
-                elif checkpoint.stage is Stage.QUALITY:
-                    if state.dry_run and normalized is None:
-                        checkpoint.detail = {
-                            "planned": True,
-                            "rules_evaluated": [rule.rule_id for rule in definition.quality_rules],
-                            "wrote": False,
-                        }
-                    elif streaming and isinstance(self.store, PartitionStore):
-                        records = (
-                            record
-                            for part in self.store.iter_partitions(state.ingestion_run_id)
-                            for record in part.records
-                        )
-                        checkpoint.detail = effects.quality_partitioned(definition, state, records)
-                    else:
-                        if normalized is None:
-                            raise RuntimeError("QUALITY requires NORMALIZE payload")
-                        checkpoint.detail = effects.quality(definition, state, normalized or [])
-                elif checkpoint.stage is Stage.PUBLISH_STAGE:
-                    if streaming and isinstance(self.store, PartitionStore):
-                        record_count = sum(
-                            len(part.records)
-                            for part in self.store.iter_partitions(state.ingestion_run_id)
-                        )
-                        checkpoint.detail = effects.publish_partitioned(
-                            definition, state, record_count
-                        )
-                    elif normalized is None and not state.dry_run:
-                        raise RuntimeError("PUBLISH_STAGE requires NORMALIZE payload")
-                    else:
-                        checkpoint.detail = effects.publish(definition, state, normalized or [])
-                elif checkpoint.stage is Stage.DISCOVER:
-                    checkpoint.status = StageStatus.SKIPPED
-                    checkpoint.detail = {"reason": "not_required_for_source"}
-                    self.store.save(state)
-                    continue
-                else:
-                    checkpoint.status = StageStatus.SKIPPED
-                    checkpoint.detail = {"reason": "unhandled_stage_skipped"}
-                    self.store.save(state)
-                    continue
+                        checkpoint.status = StageStatus.SKIPPED
+                        checkpoint.detail = {"reason": "unhandled_stage_skipped"}
+                        self.store.save(state)
+                        continue
 
-                checkpoint.status = StageStatus.COMPLETED
-                checkpoint.completed_at = datetime.now(UTC).isoformat()
-                self.store.save(state)
-            except StageFailure as error:
-                checkpoint.status = StageStatus.FAILED
-                checkpoint.failure_category = error.category
-                checkpoint.redacted_diagnostic_code = error.code
-                checkpoint.next_action = error.next_action
-                state.status = RunStatus.FAILED
-                state.next_action = error.next_action
-                self.store.save(state)
-                return state
-            except Exception as error:
-                if isinstance(error, PermissionError) and str(error).startswith(
-                    "INTELLIGENCE_RAW_"
-                ):
-                    return self._raw_failure(state, error)
-                if isinstance(error, PermissionError) and str(error).startswith(
-                    "INTELLIGENCE_PILOT_"
-                ):
-                    return self._pilot_failure(state, error)
-                checkpoint.status = StageStatus.FAILED
-                checkpoint.failure_category = _failure_category(error)
-                checkpoint.redacted_diagnostic_code = _diagnostic_code(error)
-                checkpoint.next_action = f"resume:{checkpoint.stage.value}"
-                state.status = RunStatus.FAILED
-                state.next_action = checkpoint.next_action
-                self.store.save(state)
-                return state
+                    checkpoint.status = StageStatus.COMPLETED
+                    checkpoint.completed_at = datetime.now(UTC).isoformat()
+                    self.store.save(state)
+                except StageFailure as error:
+                    checkpoint.status = StageStatus.FAILED
+                    checkpoint.failure_category = error.category
+                    checkpoint.redacted_diagnostic_code = error.code
+                    checkpoint.next_action = error.next_action
+                    state.status = RunStatus.FAILED
+                    state.next_action = error.next_action
+                    self.store.save(state)
+                    return state
+                except Exception as error:
+                    if isinstance(error, PermissionError) and str(error).startswith(
+                        "INTELLIGENCE_RAW_"
+                    ):
+                        return self._raw_failure(state, error)
+                    if isinstance(error, PermissionError) and str(error).startswith(
+                        "INTELLIGENCE_PILOT_"
+                    ):
+                        return self._pilot_failure(state, error)
+                    checkpoint.status = StageStatus.FAILED
+                    checkpoint.failure_category = _failure_category(error)
+                    checkpoint.redacted_diagnostic_code = _diagnostic_code(error)
+                    checkpoint.next_action = f"resume:{checkpoint.stage.value}"
+                    state.status = RunStatus.FAILED
+                    state.next_action = checkpoint.next_action
+                    self.store.save(state)
+                    return state
 
         state.status = RunStatus.SUCCEEDED
         state.next_action = "none"

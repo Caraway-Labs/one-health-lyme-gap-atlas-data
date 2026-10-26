@@ -51,6 +51,16 @@ KEYS = {
 # environment only, never from argv.
 NCBI_PLACEMENT_ALLOWLIST = ("NCBI_EMAIL", "NCBI_API_KEY")
 NCBI_EMAIL_REQUIRED = "INTELLIGENCE_DAILY_NCBI_EMAIL_REQUIRED"
+# Copied from a sibling job that already exports traces. Values stay in the
+# platform spec; this module never prints them.
+OTEL_ENV_KEYS = ("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS")
+OTEL_SOURCE_JOBS = (
+    "catalog-registration-01",
+    "catalog-registration-02",
+    "catalog-registration-03",
+    "approved-source-ingestion",
+    "catalog-discovery",
+)
 
 
 def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
@@ -108,6 +118,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
     # The preflight component is replaced by the standing job on activate.
     # Both phases place contact settings on the component this phase writes.
     _apply_ncbi_placement(new, keep_existing_email=False)
+    place_daily_otel(new, result)
     new["image"] = {
         "registry_type": "DOCR",
         "registry": "oh-lyme-data",
@@ -171,6 +182,47 @@ def sync_daily_job_schedule(spec: dict[str, Any]) -> dict[str, Any]:
         if job.get("name") == NAME and job.get("schedule") != DAILY_SCHEDULE:
             job["schedule"] = dict(DAILY_SCHEDULE)
     return result
+
+
+def otel_entries(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Copy the sibling OTLP endpoint and headers. Missing keys leave the job unchanged."""
+    jobs = spec.get("jobs", [])
+    if not isinstance(jobs, list):
+        return []
+    for name in OTEL_SOURCE_JOBS:
+        job = next(
+            (item for item in jobs if isinstance(item, dict) and item.get("name") == name),
+            None,
+        )
+        if job is None:
+            continue
+        found: dict[str, dict[str, Any]] = {}
+        for entry in job.get("envs", []):
+            if isinstance(entry, dict) and entry.get("key") in OTEL_ENV_KEYS:
+                value = entry.get("value")
+                if isinstance(value, str) and value.strip():
+                    found[str(entry["key"])] = entry
+        if set(OTEL_ENV_KEYS) <= set(found):
+            copied: list[dict[str, Any]] = []
+            for key in OTEL_ENV_KEYS:
+                item = copy.deepcopy(found[key])
+                item["scope"] = "RUN_TIME"
+                copied.append(item)
+            return copied
+    return []
+
+
+def place_daily_otel(job: dict[str, Any], spec: dict[str, Any]) -> None:
+    """Add OTEL settings the sibling jobs already carry. Do not replace existing values."""
+    wanted = otel_entries(spec)
+    if not wanted:
+        return
+    envs = [entry for entry in job.get("envs", []) if isinstance(entry, dict)]
+    present = {entry.get("key") for entry in envs}
+    for entry in wanted:
+        if entry.get("key") not in present:
+            envs.append(entry)
+    job["envs"] = envs
 
 
 def _nonempty_process_env(name: str) -> str | None:
@@ -372,6 +424,7 @@ def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, 
     aligned = sync_daily_job_schedule(with_baseline_digests(spec, digest))
     daily = next(job for job in aligned.get("jobs", []) if job.get("name") == NAME)
     _apply_ncbi_placement(daily, keep_existing_email=True)
+    place_daily_otel(daily, aligned)
     # A stored EV[...] value is the provider form of a secret already on the job.
     # Rewriting that ciphertext as plaintext is not a separate deployment.
     if _same_except_encrypted_ncbi(spec, aligned):

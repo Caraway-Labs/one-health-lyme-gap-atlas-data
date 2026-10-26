@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ..intelligence_daily_telemetry import record_checkpoint
 from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..intelligence_retention import CopyKind
 from .artifact_replay import ArtifactMember, resolve_member
@@ -218,7 +219,11 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
             raise PermissionError("INTELLIGENCE_DAILY_CLAIM_SCOPE_REQUIRED")
         if attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":
             raise PermissionError("INTELLIGENCE_DAILY_REOPEN_REQUIRED")
-        with self._connection_factory() as connection, connection.cursor() as cursor:
+        with (
+            record_checkpoint("write"),
+            self._connection_factory() as connection,
+            connection.cursor() as cursor,
+        ):
             connection.autocommit(False)
             try:
                 cursor.execute("BEGIN TRANSACTION")
@@ -279,7 +284,11 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         Never inserts. A run that was never claimed, or already finished,
         keeps its row and its LOAD checkpoint unchanged.
         """
-        with self._connection_factory() as connection, connection.cursor() as cursor:
+        with (
+            record_checkpoint("write"),
+            self._connection_factory() as connection,
+            connection.cursor() as cursor,
+        ):
             connection.autocommit(False)
             try:
                 cursor.execute(

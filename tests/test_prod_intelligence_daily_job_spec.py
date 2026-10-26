@@ -70,6 +70,29 @@ def _baseline() -> dict:
     return {"jobs": base_jobs}
 
 
+def test_manual_and_scheduled_jobs_copy_sibling_otel_settings() -> None:
+    baseline = _baseline()
+    sentinel = "DUMMY_OPAQUE_HEADER_SENTINEL"
+    endpoint = "https://otel.example.invalid/v1/traces"
+    registration = next(job for job in baseline["jobs"] if job["name"] == "catalog-registration-01")
+    registration["envs"] = [
+        {"key": "OTEL_EXPORTER_OTLP_ENDPOINT", "scope": "RUN_TIME", "value": endpoint},
+        {
+            "key": "OTEL_EXPORTER_OTLP_HEADERS",
+            "scope": "RUN_TIME",
+            "type": "SECRET",
+            "value": sentinel,
+        },
+    ]
+    spec = build_operation_spec(baseline, preflight_only=False)
+    for name in ("intelligence-feed-daily", _MODULE["MANUAL_JOB"]):
+        job = next(item for item in spec["jobs"] if item["name"] == name)
+        envs = {entry["key"]: entry for entry in job["envs"]}
+        assert envs["OTEL_EXPORTER_OTLP_ENDPOINT"]["value"] == endpoint
+        assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["value"] == sentinel
+        assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["type"] == "SECRET"
+
+
 def test_builds_manual_predeploy_from_daily_template() -> None:
     baseline = _baseline()
     spec = build_operation_spec(baseline, preflight_only=False)

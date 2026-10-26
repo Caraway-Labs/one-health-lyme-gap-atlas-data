@@ -16,6 +16,7 @@ from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
 from .ingestion.intelligence_entrez import verify_entrez_item
+from .intelligence_daily_telemetry import guard_scope, warn_open_transaction
 from .intelligence_items import (
     IDENTITY_VERSION,
     canonical_json,
@@ -175,6 +176,8 @@ class IntelligenceStore:
     def _context(self, cursor: Any) -> None:
         cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_TRANSACTION()")
         rows = cursor.fetchall()
+        if len(rows) == 1 and rows[0][2] is not None:
+            warn_open_transaction()
         expected = (
             f"OH_LYME_{self.settings.topx_env.upper()}_RUNTIME",
             self.settings.snowflake_database,
@@ -323,7 +326,7 @@ class IntelligenceStore:
     @contextmanager
     def capture_session(self) -> Iterator[Any]:
         """Owned transaction for Entrez request and artifact inserts."""
-        with self._session() as (connection, cursor):
+        with guard_scope(nested=False), self._session() as (connection, cursor):
             self._context(cursor)
             try:
                 self._begin(cursor)
@@ -346,7 +349,7 @@ class IntelligenceStore:
         context: dict[str, Any],
     ) -> None:
         frozen = json.loads(canonical_json(context))
-        with self._session() as (connection, cursor):
+        with guard_scope(nested=False), self._session() as (connection, cursor):
             self._context(cursor)
             try:
                 self._begin(cursor)
@@ -388,7 +391,7 @@ class IntelligenceStore:
         frozen: list[dict[str, Any]] = json.loads(serialized)
         for item in frozen:
             validate_record("item", item)
-        with self._session() as (connection, cursor):
+        with guard_scope(nested=False), self._session() as (connection, cursor):
             self._context(cursor)
             try:
                 self._begin(cursor)
