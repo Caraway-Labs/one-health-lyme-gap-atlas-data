@@ -44,6 +44,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     live_entrez_get,
     load_suppressions,
     mesh_refresh_candidates,
+    prepare_entrez_source_capture,
     read_bounded,
     refresh_pubmed_mesh,
     registered_entrez_sources,
@@ -51,6 +52,7 @@ from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
     sanitize_abstract_text,
 )
 from lyme_gap_atlas_data.ingestion.intelligence_feed import adapter_for_source
+from lyme_gap_atlas_data.ingestion.intelligence_runtime import PilotBudget, _Connection
 from lyme_gap_atlas_data.ingestion.types import (
     RunState,
     RunStatus,
@@ -60,9 +62,13 @@ from lyme_gap_atlas_data.ingestion.types import (
     Tier,
 )
 from lyme_gap_atlas_data.intelligence_items import identity_hash
-from lyme_gap_atlas_data.intelligence_raw_runtime import FeedRawRetention, SQLiteRawLedger
+from lyme_gap_atlas_data.intelligence_raw_runtime import (
+    FeedRawRetention,
+    SnowflakeRawLedger,
+    SQLiteRawLedger,
+)
 from lyme_gap_atlas_data.intelligence_retention import PROD_METADATA_FEED_IDS
-from lyme_gap_atlas_data.intelligence_storage import IntelligenceStorageError
+from lyme_gap_atlas_data.intelligence_storage import IntelligenceStorageError, IntelligenceStore
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 FIXTURES = Path("tests/fixtures/pubmed")
@@ -1628,3 +1634,240 @@ def test_watermark_scan_reads_only_pubmed_resources(tmp_path: Path) -> None:
     assert set(captured["params"]) == {ENTREZ_DAILY_RESOURCE, *SOURCE_ORDER}
     assert snowflake_ledger.get("pubmed-tick-borne") == date(2026, 10, 3)
     assert snowflake_ledger.get("pubmed-lyme-borrelia") == date(2026, 10, 4)
+
+
+class _GuardProgrammingError(Exception):
+    """Snowflake lock-wait shape. errno 625 and sqlstate 57014 are the lock timeout."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD failed; "
+            "bound value secret-do-not-store and SQL text stay on this object only"
+        )
+        self.errno = 625
+        self.sqlstate = "57014"
+
+
+class _GuardWarehouse:
+    """One write-guard row. A second session's UPDATE is a ProgrammingError."""
+
+    def __init__(self) -> None:
+        self.owner: int | None = None
+        self.holders = 0
+        self.max_holders = 0
+        self.next_id = 0
+        self.documents: dict[tuple[str, str], tuple[str, str]] = {}
+        self.requests: list[tuple[Any, ...]] = []
+        self.artifacts: list[tuple[Any, ...]] = []
+        self.programming_errors = 0
+
+
+class _GuardConnection:
+    def __init__(self, warehouse: _GuardWarehouse) -> None:
+        warehouse.next_id += 1
+        self.conn_id = warehouse.next_id
+        self.warehouse = warehouse
+        self.in_tx = False
+        self.holds = False
+
+    def __enter__(self) -> _GuardConnection:
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        return False
+
+    def cursor(self) -> _GuardCursor:
+        return _GuardCursor(self)
+
+    def autocommit(self, _value: bool) -> None:
+        return None
+
+    def commit(self) -> None:
+        self._release()
+        self.in_tx = False
+
+    def rollback(self) -> None:
+        self._release()
+        self.in_tx = False
+
+    def _release(self) -> None:
+        if not self.holds:
+            return
+        self.holds = False
+        self.warehouse.holders -= 1
+        if self.warehouse.owner == self.conn_id:
+            self.warehouse.owner = None
+
+
+class _GuardCursor:
+    def __init__(self, connection: _GuardConnection) -> None:
+        self.connection = connection
+        self.rows: list[tuple[Any, ...]] = []
+        self.rowcount = 0
+
+    def __enter__(self) -> _GuardCursor:
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        return False
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self.rows
+
+    def execute(self, statement: str, params: tuple[Any, ...] = (), **_kwargs: Any) -> None:
+        sql = " ".join(statement.split()).upper()
+        warehouse = self.connection.warehouse
+        self.rows = []
+        self.rowcount = 0
+        if sql.startswith("SELECT CURRENT_ROLE"):
+            self.rows = [
+                (
+                    "OH_LYME_PROD_RUNTIME",
+                    "ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+                    1 if self.connection.in_tx else None,
+                )
+            ]
+            return
+        if sql.startswith("ALTER SESSION") or sql.startswith("BEGIN"):
+            if sql.startswith("BEGIN"):
+                self.connection.in_tx = True
+            return
+        if "INTELLIGENCE_WRITE_GUARD" in sql and sql.startswith("UPDATE"):
+            owner = warehouse.owner
+            if owner is not None and owner != self.connection.conn_id:
+                warehouse.programming_errors += 1
+                raise _GuardProgrammingError
+            warehouse.owner = self.connection.conn_id
+            if not self.connection.holds:
+                self.connection.holds = True
+                warehouse.holders += 1
+                warehouse.max_holders = max(warehouse.max_holders, warehouse.holders)
+            self.rowcount = 1
+            return
+        if "INTELLIGENCE_RAW_RETENTION_DOCUMENTS" in sql and sql.startswith("SELECT"):
+            if len(params) == 2:
+                found = warehouse.documents.get((str(params[0]), str(params[1])))
+                self.rows = [found] if found is not None else []
+            else:
+                kind = str(params[0])
+                self.rows = [
+                    warehouse.documents[key]
+                    for key in sorted(warehouse.documents)
+                    if key[0] == kind
+                ]
+            return
+        if "INTELLIGENCE_RAW_RETENTION_DOCUMENTS" in sql and sql.startswith("INSERT"):
+            warehouse.documents[(str(params[0]), str(params[1]))] = (str(params[2]), str(params[3]))
+            self.rowcount = 1
+            return
+        if "INGESTION_REQUESTS" in sql and sql.startswith("INSERT"):
+            assert "PARSE_JSON(%S)" in sql
+            warehouse.requests.append(params)
+            self.rowcount = 1
+            return
+        if "RAW_ARTIFACTS" in sql and sql.startswith("INSERT"):
+            assert "APPLICATION/XML" in sql
+            warehouse.artifacts.append(params)
+            self.rowcount = 1
+            return
+        raise AssertionError("unexpected statement")
+
+
+def _guard_factory(warehouse: _GuardWarehouse) -> Any:
+    budget = PilotBudget(seconds=30, request_limit=5)
+
+    @contextmanager
+    def factory() -> Any:
+        yield _Connection(_GuardConnection(warehouse), budget)
+
+    return factory
+
+
+def _prod_capture_stack(
+    warehouse: _GuardWarehouse,
+) -> tuple[FeedRawRetention, IntelligenceStore, dict[str, Any]]:
+    source = json.loads(Path("config/intelligence/pubmed-tick-borne-source-v1.json").read_text())
+    factory = _guard_factory(warehouse)
+    retention = FeedRawRetention(
+        SnowflakeRawLedger(factory, "PROD"),
+        environment="PROD",
+        source_lookup=lambda _source_id, _version: source,
+        policy_lookup=lambda selected: selected["access_use"]["content_retention_policy_ref"],
+        clock=lambda: FETCHED_AT,
+    )
+    store = IntelligenceStore(
+        connection_factory=factory,
+        retention_allowed=lambda ref: str(ref).endswith("metadata-raw-30d-v1"),
+        settings=PipelineSettings(
+            topx_env="prod",
+            enable_production_execution=True,
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+            intelligence_daily_enabled=True,
+        ),
+    )
+    return retention, store, source
+
+
+def test_overlapping_lease_and_capture_is_a_write_guard_programming_error() -> None:
+    """The defect: lease_access holds the guard while capture_session updates it."""
+    warehouse = _GuardWarehouse()
+    retention, store, source = _prod_capture_stack(warehouse)
+    run_id = "entrez-overlap-868"
+    retention.bind_source(
+        run_id, source, parser_version="entrez-efetch-v1", fetch_version="entrez-eutils-v1"
+    )
+    requested = source["fetch_location"]
+    context = {
+        "context_version": "intelligence-acquisition-v1",
+        "attempt_id": "a" * 32,
+        "source_id": source["source_id"],
+        "registry_version": source["registry_version"],
+        "registry_sha256": identity_hash(source),
+        "requested_url": requested,
+        "effective_url": requested,
+        "capture_mode": "https",
+        "fetch_status": 200,
+        "fetched_at": FETCHED_AT,
+        "artifact_sha256": "b" * 64,
+    }
+    lease_sha = retention.capture(source, context)
+    locator = "memory://entrez/overlap"
+    with (
+        pytest.raises(_GuardProgrammingError) as caught,
+        retention.lease_access(lease_sha, "raw_object", locator, write=True),
+        store.capture_session(),
+    ):
+        pass
+    assert caught.value.errno == 625
+    assert caught.value.sqlstate == "57014"
+    assert warehouse.programming_errors == 1
+    assert warehouse.max_holders == 1
+    assert "secret-do-not-store" not in json.dumps(
+        {"errno": caught.value.errno, "sqlstate": caught.value.sqlstate}
+    )
+
+
+def test_entrez_capture_releases_the_write_guard_before_artifact_insert() -> None:
+    warehouse = _GuardWarehouse()
+    retention, store, source = _prod_capture_stack(warehouse)
+    body = b"<PubmedArticleSet>fixture</PubmedArticleSet>"
+    context = prepare_entrez_source_capture(
+        retention=retention,
+        source=source,
+        run_id="entrez-capture-868",
+        body=body,
+        fetched_at=FETCHED_AT,
+        capture_session=store.capture_session,
+    )
+    assert warehouse.programming_errors == 0
+    assert warehouse.max_holders == 1
+    assert warehouse.holders == 0
+    assert context["effective_url"] == source["fetch_location"]
+    assert len(warehouse.requests) == 1
+    assert warehouse.requests[0][3] == "{}"
+    assert len(warehouse.artifacts) == 1
+    artifact = warehouse.artifacts[0]
+    assert artifact[6] == source["access_use"]["content_retention_policy_ref"]
+    assert artifact[6].endswith("metadata-raw-30d-v1")
+    assert entrez.current_pubmed_step() == "CAPTURE"
+    entrez._PUBMED_STEP.set(None)
