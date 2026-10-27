@@ -89,12 +89,17 @@ INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION = {
     "filename": "V174__intelligence_feed_v2_entrez_dedupe.sql",
     "sha256": "056ef4d57cbde1fd851d0fe0e5af1b79264bf619274562c930a8998e0fd815d7",
 }
-# V170, V173, and V174 replace the feed view in both databases. V171 creates
-# the topic tables in both databases. The protected path is required on DEV
-# and PROD. The routine migration path cannot apply these versions. V171
-# requires recorded V170 and may apply after V174. There is no ordering check
-# between V171 and V174.
-BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V171", "V173", "V174"})
+INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION = {
+    "version": "V175",
+    "filename": "V175__intelligence_abstract_suppressions_feed_v2.sql",
+    "sha256": "3dcdff4a16127e31778e47e787b38b3275a265770cf17b29280cb1f2c4f2dada",
+}
+# V170, V173, V174, and V175 replace the feed view in both databases. V171
+# creates the topic tables in both databases. The protected path is required
+# on DEV and PROD. The routine migration path cannot apply these versions.
+# V171 requires recorded V170 and may apply after V174. There is no ordering
+# check between V171 and V174. V175 requires recorded V174. V176 stays reserved.
+BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V171", "V173", "V174", "V175"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -109,6 +114,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_ITEM_TOPICS_MIGRATION,
     INTELLIGENCE_FEED_DESCRIPTION_MIGRATION,
     INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION,
+    INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -1181,6 +1187,10 @@ def apply_migrations(
         "V173" not in applied
     ):
         raise PermissionError("V174 requires recorded V173 before the entrez feed dedupe")
+    if any(item.version == "V175" and item.version not in applied for item in plan) and (
+        "V174" not in applied
+    ):
+        raise PermissionError("V175 requires recorded V174 before abstract fields on the feed")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

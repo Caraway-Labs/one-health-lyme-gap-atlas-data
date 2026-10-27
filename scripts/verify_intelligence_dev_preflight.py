@@ -322,7 +322,7 @@ def view_matches(name: str, actual: str) -> bool:
         source = (
             Path(__file__).parents[1]
             / "migrations"
-            / "V174__intelligence_feed_v2_entrez_dedupe.sql"
+            / "V175__intelligence_abstract_suppressions_feed_v2.sql"
         ).read_text()
         proposal = source.split("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2", 1)[1]
         proposal = "CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2" + proposal

@@ -1,0 +1,781 @@
+"""FEED_V2 abstract projection and the suppression table. Offline only."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from contextlib import nullcontext
+from pathlib import Path
+from typing import Any
+from unittest.mock import Mock
+
+import pytest
+
+from lyme_gap_atlas_data import migrations
+from lyme_gap_atlas_data.migrations import (
+    BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS,
+    DEV_DATABASE,
+    DEV_ONLY_MIGRATION_VERSIONS,
+    INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION,
+    PROD_DATABASE,
+    PROD_ONLY_MIGRATION_VERSIONS,
+    PROTECTED_INTELLIGENCE_MIGRATIONS,
+    is_intelligence_prerequisite_batch,
+    load_migrations,
+    migration_plan,
+)
+
+ROOT = Path(__file__).parents[1]
+V175 = ROOT / "migrations" / "V175__intelligence_abstract_suppressions_feed_v2.sql"
+LIVE_SOURCES = (
+    "cdc-eid-ahead-of-print",
+    "cdc-eid-expedited",
+    "cdc-mmwr",
+    "cdc-outbreaks",
+    "nih-news-releases",
+)
+SUPPRESSED_ABSTRACT = {"text": None, "state": "suppressed", "copyright_line": None}
+COPYRIGHT = "Copyright National Library of Medicine."
+PUBMED_ORGANIZATION = "U.S. National Library of Medicine"
+_PMID = re.compile(r"^[1-9][0-9]{0,9}$")
+
+
+def _is_suppressed(publisher: dict[str, Any], rows: list[dict[str, Any]]) -> bool:
+    if publisher.get("source_family") != "pubmed":
+        return False
+    source_item_id = publisher.get("source_item_id")
+    journal = publisher.get("journal")
+    pmid_hits = {
+        row["pmid"] for row in rows if row.get("scope") == "PMID" and row.get("pmid") is not None
+    }
+    journal_hits = {
+        row["publisher"]
+        for row in rows
+        if row.get("scope") == "PUBLISHER" and row.get("publisher") is not None
+    }
+    pmid_match = (
+        isinstance(source_item_id, str)
+        and _PMID.fullmatch(source_item_id) is not None
+        and source_item_id in pmid_hits
+    )
+    journal_match = isinstance(journal, str) and journal in journal_hits
+    return pmid_match or journal_match
+
+
+def _project(document: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    publisher = document["publisher_metadata"]
+    states = document["field_states"]
+    suppressed = _is_suppressed(publisher, rows)
+    abstract = SUPPRESSED_ABSTRACT if suppressed else publisher.get("abstract")
+    return {
+        "publisher": publisher.get("publisher"),
+        "source_family": publisher.get("source_family"),
+        "source_item_id": publisher.get("source_item_id"),
+        "authors": publisher.get("authors"),
+        "categories": publisher.get("categories"),
+        "language": publisher.get("language"),
+        "media": publisher.get("media"),
+        "date_states": {
+            "published_at": states.get("published_at"),
+            "updated_at": states.get("updated_at"),
+        },
+        "description": publisher.get("description"),
+        "abstract": abstract,
+        "mesh": publisher.get("mesh"),
+        "publication_types": publisher.get("publication_types"),
+        "matched_queries": publisher.get("matched_queries"),
+        "abstract_suppressed": suppressed,
+    }
+
+
+def _version(source_id: str, registry_version: int = 1) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "registry_version": registry_version,
+        "registry_sha256": f"{registry_version:064x}"[-64:],
+        "document": {
+            "state": "active",
+            "approval": {"status": "approved"},
+            "trust_review": {"status": "approved"},
+        },
+    }
+
+
+def _capture(
+    source_id: str,
+    publisher: dict[str, Any],
+    *,
+    item_id: str | None = None,
+    revision_id: str = "revision",
+    registry_version: int = 1,
+    retrieved_at: str = "2026-10-25T00:00:00Z",
+    capture_id: str = "current",
+    transport: str = "api",
+    contract_version: str = "2.0.0",
+) -> dict[str, Any]:
+    return {
+        "item_id": item_id or f"{source_id}-item",
+        "revision_id": revision_id,
+        "source_id": source_id,
+        "registry_version": registry_version,
+        "transport": transport,
+        "retrieved_at": retrieved_at,
+        "capture_id": capture_id,
+        "item_document": {
+            "contract_version": contract_version,
+            "publisher_metadata": publisher,
+            "field_states": {"published_at": "present", "updated_at": "not_provided"},
+        },
+    }
+
+
+def _admit(
+    captures: list[dict[str, Any]],
+    versions: list[dict[str, Any]],
+    activations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates = []
+    for capture in captures:
+        document = capture["item_document"]
+        if document.get("contract_version") != "2.0.0":
+            continue
+        version = next(
+            (
+                item
+                for item in versions
+                if item["source_id"] == capture["source_id"]
+                and item["registry_version"] == capture["registry_version"]
+            ),
+            None,
+        )
+        if version is None:
+            continue
+        registry = version["document"]
+        if (
+            registry["approval"]["status"] != "approved"
+            or registry["trust_review"]["status"] != "approved"
+            or registry["state"] not in {"active", "manual"}
+        ):
+            continue
+        admitted = any(
+            row["state"] == "ACTIVE"
+            and row["source_id"] == version["source_id"]
+            and row["registry_version"] == version["registry_version"]
+            and row["registry_sha256"] == version["registry_sha256"]
+            for row in activations
+        )
+        if admitted:
+            candidates.append(capture)
+    winners: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for capture in candidates:
+        key = _partition_key(capture)
+        current = winners.get(key)
+        if current is None or _outranks(capture, current):
+            winners[key] = capture
+    return list(winners.values())
+
+
+def _partition_key(capture: dict[str, Any]) -> tuple[Any, ...]:
+    """V174 QUALIFY partition. Entrez collapses to one row per item_id."""
+    if capture["transport"] == "entrez":
+        return (capture["item_id"], None, None, capture["transport"])
+    return (
+        capture["item_id"],
+        capture["revision_id"],
+        capture["source_id"],
+        capture["transport"],
+    )
+
+
+def _outranks(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """True when left wins the V174 order: retrieved_at DESC, entrez capture_id DESC."""
+    if left["retrieved_at"] != right["retrieved_at"]:
+        return left["retrieved_at"] > right["retrieved_at"]
+    left_entrez = left["capture_id"] if left["transport"] == "entrez" else None
+    right_entrez = right["capture_id"] if right["transport"] == "entrez" else None
+    if left_entrez != right_entrez:
+        if left_entrez is None or right_entrez is None:
+            return left_entrez is None
+        return left_entrez > right_entrez
+    return left["capture_id"] < right["capture_id"]
+
+
+def _activations(versions: list[dict[str, Any]], *, blocked: set[str] | None = None) -> list[dict]:
+    blocked = blocked or set()
+    rows = []
+    for version in versions:
+        state = "BLOCKED" if version["source_id"] in blocked else "ACTIVE"
+        rows.append(
+            {
+                "source_id": version["source_id"],
+                "registry_version": version["registry_version"],
+                "registry_sha256": version["registry_sha256"],
+                "state": state,
+            }
+        )
+    return rows
+
+
+def _publisher(
+    source_family: str,
+    source_item_id: str,
+    publisher: str,
+    abstract: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    document = {
+        "publisher": publisher,
+        "source_family": source_family,
+        "source_item_id": source_item_id,
+        "authors": ["Test Author"],
+        "categories": ["Lyme disease"],
+        "language": "en",
+        "media": [],
+    }
+    if abstract is not None:
+        document["abstract"] = abstract
+    document.update(extra)
+    return document
+
+
+def _feed(
+    captures: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    *,
+    blocked: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    versions = _unique_versions(captures)
+    admitted = _admit(captures, versions, _activations(versions, blocked=blocked))
+    projected = []
+    for capture in admitted:
+        projected.append(
+            {
+                "item_id": capture["item_id"],
+                "source_id": capture["source_id"],
+                "abstract_suppressed": _is_suppressed(
+                    capture["item_document"]["publisher_metadata"], rows
+                ),
+                "publisher_metadata": _project(capture["item_document"], rows),
+            }
+        )
+    return projected
+
+
+def _unique_versions(captures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, int]] = set()
+    versions = []
+    for capture in captures:
+        key = (capture["source_id"], capture["registry_version"])
+        if key in seen:
+            continue
+        seen.add(key)
+        versions.append(_version(capture["source_id"], capture["registry_version"]))
+    return versions
+
+
+def _counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["source_id"]] = counts.get(row["source_id"], 0) + 1
+    return counts
+
+
+def test_suppressed_pmid_hides_captured_abstract_without_dropping_the_row() -> None:
+    captured = {
+        "text": "Lyme disease abstract text.",
+        "state": "present",
+        "copyright_line": COPYRIGHT,
+        "format": "plain_text",
+    }
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "12345678", "National Library of Medicine", captured),
+        )
+    ]
+    rows = [{"scope": "PMID", "pmid": "12345678", "publisher": None}]
+    feed = _feed(captures, rows)
+    assert len(feed) == 1
+    row = feed[0]
+    assert row["abstract_suppressed"] is True
+    assert row["publisher_metadata"]["abstract"] == SUPPRESSED_ABSTRACT
+    assert row["publisher_metadata"]["abstract_suppressed"] is True
+    assert "format" not in row["publisher_metadata"]["abstract"]
+
+
+def test_suppressed_journal_hides_every_pubmed_item_from_that_journal() -> None:
+    captured = {"text": "Visible until the journal is suppressed.", "state": "present"}
+    journal = "Emerging Infectious Diseases"
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal=journal),
+            item_id="pmid-one",
+        ),
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "87654321", PUBMED_ORGANIZATION, dict(captured), journal=journal),
+            item_id="pmid-two",
+        ),
+        _capture(
+            "pubmed",
+            _publisher(
+                "pubmed",
+                "11111111",
+                PUBMED_ORGANIZATION,
+                dict(captured),
+                journal="Other Journal",
+            ),
+            item_id="other-journal",
+        ),
+    ]
+    rows = [{"scope": "PUBLISHER", "pmid": None, "publisher": journal}]
+    feed = _feed(captures, rows)
+    assert len(feed) == 3
+    hidden = [row for row in feed if row["item_id"] != "other-journal"]
+    assert len(hidden) == 2
+    assert all(row["abstract_suppressed"] is True for row in hidden)
+    assert all(row["publisher_metadata"]["abstract"] == SUPPRESSED_ABSTRACT for row in hidden)
+    kept = next(row for row in feed if row["item_id"] == "other-journal")
+    assert kept["abstract_suppressed"] is False
+    assert kept["publisher_metadata"]["abstract"]["text"] == captured["text"]
+
+
+def test_unsuppressed_abstract_is_the_captured_object() -> None:
+    captured = {
+        "text": "Lyme disease abstract text.",
+        "state": "present",
+        "copyright_line": COPYRIGHT,
+        "language": "eng",
+    }
+    mesh = ["Lyme Disease"]
+    publication_types = ["Journal Article"]
+    matched_queries = ["lyme"]
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher(
+                "pubmed",
+                "12345678",
+                "National Library of Medicine",
+                captured,
+                mesh=mesh,
+                publication_types=publication_types,
+                matched_queries=matched_queries,
+            ),
+        )
+    ]
+    feed = _feed(captures, [])
+    abstract = feed[0]["publisher_metadata"]["abstract"]
+    assert abstract == captured
+    assert abstract["text"] == captured["text"]
+    assert abstract["state"] == "present"
+    assert abstract["copyright_line"] == COPYRIGHT
+    assert feed[0]["abstract_suppressed"] is False
+    metadata = feed[0]["publisher_metadata"]
+    assert metadata["mesh"] == mesh
+    assert metadata["publication_types"] == publication_types
+    assert metadata["matched_queries"] == matched_queries
+    assert metadata["abstract_suppressed"] is False
+
+
+@pytest.mark.parametrize(
+    "captured",
+    [
+        {"text": None, "state": "withheld", "copyright_line": COPYRIGHT},
+        {"text": "", "state": "empty", "copyright_line": None},
+        {"text": None, "state": "not_provided", "copyright_line": None},
+    ],
+)
+def test_captured_abstract_states_pass_through_without_invented_text(
+    captured: dict[str, Any],
+) -> None:
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "12345678", "National Library of Medicine", captured),
+        )
+    ]
+    feed = _feed(captures, [])
+    assert feed[0]["publisher_metadata"]["abstract"] == captured
+    assert feed[0]["abstract_suppressed"] is False
+    assert feed[0]["publisher_metadata"]["abstract"]["text"] == captured["text"]
+
+
+def test_pmid_and_journal_matches_still_project_one_row() -> None:
+    captured = {"text": "Captured text.", "state": "present", "copyright_line": COPYRIGHT}
+    journal = "Emerging Infectious Diseases"
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal=journal),
+        ),
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal=journal),
+            retrieved_at="2026-10-24T00:00:00Z",
+            capture_id="older",
+        ),
+    ]
+    rows = [
+        {"scope": "PMID", "pmid": "12345678", "publisher": None},
+        {"scope": "PMID", "pmid": "12345678", "publisher": None},
+        {"scope": "PUBLISHER", "pmid": None, "publisher": journal},
+    ]
+    feed = _feed(captures, rows)
+    assert len(feed) == 1
+    assert feed[0]["abstract_suppressed"] is True
+    assert feed[0]["publisher_metadata"]["abstract"] == SUPPRESSED_ABSTRACT
+
+
+def test_existing_source_row_counts_stay_identical_and_non_pubmed_abstracts_stay_null() -> None:
+    captures = []
+    for source_id in LIVE_SOURCES:
+        captures.append(
+            _capture(
+                source_id,
+                _publisher("cdc_other", f"{source_id}-id", "Centers for Disease Control"),
+            )
+        )
+    captures.append(
+        _capture(
+            "pubmed",
+            _publisher(
+                "pubmed",
+                "12345678",
+                "National Library of Medicine",
+                {"text": "PubMed abstract.", "state": "present", "copyright_line": COPYRIGHT},
+            ),
+        )
+    )
+    before = _feed(captures, [])
+    after = _feed(
+        captures,
+        [{"scope": "PMID", "pmid": "12345678", "publisher": None}],
+    )
+    assert _counts(before) == _counts(after)
+    assert _counts(before) == {source_id: 1 for source_id in (*LIVE_SOURCES, "pubmed")}
+    for row in before:
+        if row["source_id"] == "pubmed":
+            continue
+        assert row["publisher_metadata"]["abstract"] is None
+        assert row["abstract_suppressed"] is False
+        assert row["publisher_metadata"]["abstract_suppressed"] is False
+    pubmed = next(row for row in after if row["source_id"] == "pubmed")
+    assert pubmed["abstract_suppressed"] is True
+    assert _counts(before)[pubmed["source_id"]] == 1
+
+
+def test_organization_or_rss_publisher_does_not_suppress_an_rss_row() -> None:
+    captured = {"text": "Feed item text.", "state": "present", "copyright_line": COPYRIGHT}
+    captures = [
+        _capture(
+            "nih-news-releases",
+            _publisher(
+                "nih_niaid",
+                "nih-release",
+                "National Institutes of Health",
+                captured,
+            ),
+            item_id="nih-rss",
+        ),
+        _capture(
+            "cdc-mmwr",
+            _publisher(
+                "cdc_mmwr",
+                "mmwr-guid",
+                "Centers for Disease Control and Prevention",
+                dict(captured),
+            ),
+            item_id="cdc-rss",
+        ),
+        _capture(
+            "pubmed",
+            _publisher(
+                "pubmed",
+                "12345678",
+                PUBMED_ORGANIZATION,
+                dict(captured),
+                journal="The Lancet",
+            ),
+            item_id="pubmed-item",
+        ),
+    ]
+    rows = [
+        {"scope": "PUBLISHER", "pmid": None, "publisher": PUBMED_ORGANIZATION},
+        {"scope": "PUBLISHER", "pmid": None, "publisher": "National Institutes of Health"},
+        {
+            "scope": "PUBLISHER",
+            "pmid": None,
+            "publisher": "Centers for Disease Control and Prevention",
+        },
+    ]
+    feed = _feed(captures, rows)
+    by_id = {row["item_id"]: row for row in feed}
+    assert by_id["nih-rss"]["abstract_suppressed"] is False
+    assert by_id["nih-rss"]["publisher_metadata"]["abstract"] == captured
+    assert by_id["cdc-rss"]["abstract_suppressed"] is False
+    assert by_id["cdc-rss"]["publisher_metadata"]["abstract"]["text"] == captured["text"]
+    assert by_id["pubmed-item"]["abstract_suppressed"] is False
+    assert by_id["pubmed-item"]["publisher_metadata"]["abstract"]["text"] == captured["text"]
+
+
+def test_non_pmid_source_item_id_is_not_suppressed_as_a_pmid() -> None:
+    captured = {"text": "Still visible.", "state": "present"}
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher("pubmed", "01234567", PUBMED_ORGANIZATION, captured, journal="The Lancet"),
+        )
+    ]
+    rows = [{"scope": "PMID", "pmid": "01234567", "publisher": None}]
+    feed = _feed(captures, rows)
+    assert feed[0]["abstract_suppressed"] is False
+    assert feed[0]["publisher_metadata"]["abstract"] == captured
+
+
+def test_v175_keeps_v174_entrez_dedupe_and_rss_partition() -> None:
+    captured = {"text": "Newest abstract.", "state": "present", "copyright_line": COPYRIGHT}
+    older = {"text": "Older abstract.", "state": "present", "copyright_line": COPYRIGHT}
+    captures = [
+        _capture(
+            "pubmed-tick-borne",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, older, journal="The Lancet"),
+            item_id="pmid-shared",
+            revision_id="rev-old",
+            retrieved_at="2026-10-20T04:28:00Z",
+            capture_id="a",
+            transport="entrez",
+        ),
+        _capture(
+            "pubmed-lyme-borrelia",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal="The Lancet"),
+            item_id="pmid-shared",
+            revision_id="rev-new",
+            retrieved_at="2026-10-20T04:37:00Z",
+            capture_id="b",
+            transport="entrez",
+        ),
+        _capture(
+            "pubmed-lyme-borrelia",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, older, journal="The Lancet"),
+            item_id="pmid-tie",
+            revision_id="rev-low",
+            retrieved_at="2026-10-20T04:37:00Z",
+            capture_id="m",
+            transport="entrez",
+        ),
+        _capture(
+            "pubmed-tick-borne",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal="The Lancet"),
+            item_id="pmid-tie",
+            revision_id="rev-high",
+            retrieved_at="2026-10-20T04:37:00Z",
+            capture_id="z",
+            transport="entrez",
+        ),
+        _capture(
+            "cdc-mmwr",
+            _publisher("cdc_mmwr", "mmwr-guid", "Centers for Disease Control and Prevention"),
+            item_id="rss-shared",
+            revision_id="rev-mmwr",
+            transport="rss",
+        ),
+        _capture(
+            "cdc-eid-ahead-of-print",
+            _publisher("cdc_eid", "eid-guid", "Centers for Disease Control and Prevention"),
+            item_id="rss-shared",
+            revision_id="rev-eid",
+            transport="rss",
+        ),
+    ]
+    feed = _feed(captures, [])
+    by_item = {}
+    for row in feed:
+        by_item.setdefault(row["item_id"], []).append(row)
+    assert len(by_item["pmid-shared"]) == 1
+    assert by_item["pmid-shared"][0]["source_id"] == "pubmed-lyme-borrelia"
+    assert by_item["pmid-shared"][0]["publisher_metadata"]["abstract"]["text"] == "Newest abstract."
+    assert len(by_item["pmid-tie"]) == 1
+    assert by_item["pmid-tie"][0]["source_id"] == "pubmed-tick-borne"
+    assert by_item["pmid-tie"][0]["publisher_metadata"]["abstract"]["text"] == "Newest abstract."
+    assert {row["source_id"] for row in by_item["rss-shared"]} == {
+        "cdc-mmwr",
+        "cdc-eid-ahead-of-print",
+    }
+    view = V175.read_text(encoding="utf-8")
+    outer = view.split("FROM (", 1)[0]
+    columns = [
+        line.strip().rstrip(",").split(" AS ")[-1]
+        for line in outer.split("SELECT", 1)[1].splitlines()
+        if line.strip()
+    ]
+    assert columns[-2:] == ["FEED_SORT_AT", "ABSTRACT_SUPPRESSED"]
+    assert "FEED_SORT_AT" in view
+    assert view.index("AS FEED_SORT_AT") < view.index("AS ABSTRACT_SUPPRESSED")
+    v173 = (ROOT / "migrations" / "V173__intelligence_feed_v2_description.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "c.item_document:publisher_metadata:abstract" in v173
+    assert "c.item_document:publisher_metadata:abstract_suppressed" in v173
+    assert "OBJECT_CONSTRUCT_KEEP_NULL" in v173
+
+
+def test_blocked_activation_stays_out_of_the_feed() -> None:
+    captures = [
+        _capture(
+            "pubmed",
+            _publisher(
+                "pubmed",
+                "12345678",
+                "National Library of Medicine",
+                {"text": "Hidden by activation.", "state": "present"},
+            ),
+        )
+    ]
+    assert _feed(captures, [], blocked={"pubmed"}) == []
+
+
+def test_v175_is_one_protected_step_for_both_databases() -> None:
+    pinned = INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION
+    migration = next(item for item in load_migrations() if item.version == pinned["version"])
+    assert migrations._migration_metadata(migration) == pinned
+    digest = hashlib.sha256(V175.read_text(encoding="utf-8").encode()).hexdigest()
+    assert pinned["sha256"] == digest
+    assert pinned["filename"] == V175.name
+    assert pinned["version"] == "V175"
+    assert all(item.version != "V172" for item in load_migrations())
+    assert not list((ROOT / "migrations").glob("V172*"))
+    assert pinned["version"] in BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS
+    assert pinned in PROTECTED_INTELLIGENCE_MIGRATIONS
+    assert pinned["version"] not in DEV_ONLY_MIGRATION_VERSIONS
+    assert pinned["version"] not in PROD_ONLY_MIGRATION_VERSIONS
+    assert pinned in migration_plan(DEV_DATABASE)
+    assert pinned in migration_plan(PROD_DATABASE)
+    assert is_intelligence_prerequisite_batch([pinned])
+    versions = [item.version for item in load_migrations()]
+    assert versions.index("V170") < versions.index("V173") < versions.index("V174")
+    assert versions.index("V174") < versions.index("V175")
+    assert "V171" in versions
+    assert "V176" not in versions
+    allow_list = json.dumps([pinned], separators=(",", ":"))
+    workflow = (ROOT / ".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    guard = (ROOT / "tests/test_ci_guard.py").read_text(encoding="utf-8")
+    assert workflow.count(allow_list) == 1
+    assert allow_list in guard
+    sql = migration.source
+    table, view = sql.split("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2", 1)
+    assert "CREATE TABLE IF NOT EXISTS GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS" in table
+    for column in ("scope", "pmid", "publisher", "reason", "decision_id", "created_at"):
+        assert column in table
+    assert "scope = 'PMID'" in table and "pmid IS NOT NULL" in table
+    assert "publisher IS NULL" in table
+    assert "scope = 'PUBLISHER'" in table and "publisher IS NOT NULL" in table
+    assert "pmid IS NULL" in table
+    assert "reason VARCHAR NOT NULL" in table
+    assert "decision_id VARCHAR(200) NOT NULL" in table
+    assert "DEFAULT CURRENT_TIMESTAMP()" in table
+    assert table.count("GRANT SELECT ON TABLE GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS") == 2
+    assert "OH_LYME_{{ ENV }}_RUNTIME" in table
+    assert "OH_LYME_{{ ENV }}_READ" in table
+    assert "GRANT INSERT" not in sql and "GRANT UPDATE" not in sql and "GRANT DELETE" not in sql
+    assert "MERGE " not in sql and "INSERT INTO" not in sql
+    assert view.count("COPY GRANTS") == 1
+    assert "GRANT" not in view.replace("COPY GRANTS", "")
+    assert "REVOKE" not in view
+    assert "QUERY_TEXT" not in sql.upper() and "ERROR_MESSAGE" not in sql.upper()
+    assert "reason" not in view.lower()
+    for key in (
+        "description",
+        "abstract",
+        "categories",
+        "authors",
+        "source_family",
+        "source_item_id",
+        "abstract_suppressed",
+        "mesh",
+        "publication_types",
+        "matched_queries",
+    ):
+        assert f"'{key}'" in view
+    assert "c.item_document:publisher_metadata:abstract" in view
+    assert "publisher_metadata:journal::VARCHAR" in view
+    assert view.count("publisher_metadata:publisher") == 1
+    assert view.count("source_family::VARCHAR = 'pubmed'") == 2
+    assert "RLIKE '^[1-9][0-9]{0,9}$'" in view
+    assert "CASE" not in view
+    assert sql.count("{{ ENV }}") == 2
+    assert "{{ ENV }}" not in view
+    preflight = (ROOT / "scripts/verify_intelligence_dev_preflight.py").read_text(encoding="utf-8")
+    daily = (ROOT / "scripts/verify_intelligence_daily_view_dev.py").read_text(encoding="utf-8")
+    assert pinned["filename"] in preflight
+    assert f'MIGRATION = "{pinned["filename"]}"' in daily
+
+
+def _cursor(ledger: list[tuple[str, str]]) -> Mock:
+    cursor = Mock()
+    cursor.fetchall.side_effect = [ledger, []]
+    return cursor
+
+
+def _apply(
+    monkeypatch: pytest.MonkeyPatch,
+    database: str,
+    planned: list[migrations.Migration],
+    ledger: list[tuple[str, str]],
+    *,
+    protected: bool,
+) -> tuple[Mock, list[str]]:
+    monkeypatch.setattr(migrations, "load_migrations", lambda: planned)
+    cursor = _cursor(ledger)
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *_, **__: nullcontext(connection))
+    executed = migrations.apply_migrations(
+        Mock(),
+        database,
+        expected_pending=[INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION],
+        protected_intelligence_prerequisite=protected,
+    )
+    return connection, executed
+
+
+@pytest.mark.parametrize("database", [DEV_DATABASE, PROD_DATABASE])
+def test_v175_requires_recorded_v174_and_the_protected_path(
+    monkeypatch: pytest.MonkeyPatch, database: str
+) -> None:
+    loaded = load_migrations()
+    v173 = next(item for item in loaded if item.version == "V173")
+    v174 = next(item for item in loaded if item.version == "V174")
+    v175 = next(item for item in loaded if item.version == "V175")
+    with pytest.raises(PermissionError, match="V175 requires recorded V174"):
+        _apply(monkeypatch, database, [v175], [("V173", v173.sha256)], protected=True)
+
+    with pytest.raises(PermissionError, match="protected intelligence prerequisite"):
+        _apply(
+            monkeypatch,
+            database,
+            [v174, v175],
+            [("V174", v174.sha256)],
+            protected=False,
+        )
+
+    connection, executed_versions = _apply(
+        monkeypatch,
+        database,
+        [v174, v175],
+        [("V174", v174.sha256)],
+        protected=True,
+    )
+    assert executed_versions == ["V175"]
+    executed = connection.execute_string.call_args.args[0]
+    assert database in executed
+    assert "{{ DATABASE }}" not in executed and "{{ ENV }}" not in executed
+    environment = "DEV" if database == DEV_DATABASE else "PROD"
+    assert f"OH_LYME_{environment}_RUNTIME" in executed
+    assert f"OH_LYME_{environment}_READ" in executed
+    assert "INTELLIGENCE_ABSTRACT_SUPPRESSIONS" in executed
+    assert "COPY GRANTS" in executed
+    assert "a.state = 'ACTIVE'" in executed
+    assert "c.item_document:publisher_metadata:abstract" in executed
