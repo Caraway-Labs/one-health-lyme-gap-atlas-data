@@ -125,9 +125,9 @@ def _rehearsal_pilot(definition: Any, *, budget_seconds: int) -> tuple[Any, Any]
             (CDC_MMWR_SOURCE_ID,),
         )
         rows = cursor.fetchall()
-        if len(rows) == 1 and rows[0][0] in {1, 2}:
+        if len(rows) == 1 and rows[0][0] in {1, 2, 3}:
             version = rows[0][0]
-    if version == 2:
+    if version in {2, 3}:
         receipts = receipts + json.loads(DAILY_RECEIPTS.read_text(encoding="utf-8"))["receipts"]
     # compose_pilot only filters receipts by registry_version in PROD, so in DEV keep exactly the
     # receipt for the version under test; otherwise v1 and v2 both match and it rejects the run.

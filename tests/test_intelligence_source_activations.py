@@ -335,7 +335,7 @@ def test_backfill_keeps_every_version_the_current_feed_serves() -> None:
     assert _pairs(current) == _pin_pairs(migration)
     assert "'{{ ENV }}' = 'PROD'" in _using_sql(migration)
     pairs = _pairs(current)
-    versions = _live_versions()
+    versions = [version for version in _live_versions() if version["registry_version"] < 3]
     assert {version["registry_version"] for version in versions} == {1, 2}
     for source_id in LIVE_SOURCES:
         assert pairs[source_id] == (
@@ -377,7 +377,7 @@ def test_backfill_keeps_every_version_the_current_feed_serves() -> None:
 def test_new_view_returns_the_same_live_source_items_as_the_case_logic() -> None:
     current = (ROOT / "migrations/V167__prod_cdc_mmwr_daily_activation_view.sql").read_text()
     pairs = _pairs(current)
-    versions = _live_versions()
+    versions = [version for version in _live_versions() if version["registry_version"] < 3]
     captures = _captures_for(versions)
     prod_items = _feed_items(
         captures,
@@ -578,3 +578,92 @@ def test_backfill_using_has_no_correlated_case_subquery() -> None:
         "s.registry_document:approval:decision_ref::VARCHAR IS NOT NULL",
     ):
         assert check in using
+
+
+def test_v3_registration_keeps_v2_captures_until_the_same_revision_is_superseded() -> None:
+    documents = load_registry_documents()
+    current = next(
+        document
+        for document in documents
+        if document["source_id"] == "cdc-mmwr" and document["registry_version"] == 3
+    )
+    previous = next(
+        document
+        for document in documents
+        if document["source_id"] == "cdc-mmwr" and document["registry_version"] == 2
+    )
+    assert prior_stays_active(previous, current)
+    prod_rows = rows_for_reviewed_registration(
+        current, previous, database="ONE_HEALTH_LYME_GAP_ATLAS_PROD"
+    )
+    assert [(row.registry_version, row.state) for row in prod_rows] == [(3, "ACTIVE")]
+    dev_rows = rows_for_reviewed_registration(
+        current, previous, database="ONE_HEALTH_LYME_GAP_ATLAS_DEV"
+    )
+    assert [(row.registry_version, row.state) for row in dev_rows] == [
+        (3, "ACTIVE"),
+        (2, "BLOCKED"),
+    ]
+    versions = [
+        {
+            "source_id": "cdc-mmwr",
+            "registry_version": version,
+            "registry_sha256": identity_hash(document),
+            "document": document,
+        }
+        for version, document in ((2, previous), (3, current))
+    ]
+    activations = [
+        {
+            "source_id": "cdc-mmwr",
+            "registry_version": 2,
+            "registry_sha256": identity_hash(previous),
+            "state": "ACTIVE",
+        },
+        {
+            "source_id": "cdc-mmwr",
+            "registry_version": 3,
+            "registry_sha256": identity_hash(current),
+            "state": "ACTIVE",
+        },
+    ]
+    captures = [
+        {
+            "item_id": "mmwr-only-v2",
+            "revision_id": "revision-v2",
+            "source_id": "cdc-mmwr",
+            "registry_version": 2,
+            "transport": "rss",
+            "contract_version": "2.0.0",
+            "retrieved_at": "2026-10-24T00:00:00Z",
+            "capture_id": "v2-only",
+        },
+        {
+            "item_id": "mmwr-shared",
+            "revision_id": "same-revision",
+            "source_id": "cdc-mmwr",
+            "registry_version": 2,
+            "transport": "rss",
+            "contract_version": "2.0.0",
+            "retrieved_at": "2026-10-24T00:00:00Z",
+            "capture_id": "shared-v2",
+        },
+        {
+            "item_id": "mmwr-shared",
+            "revision_id": "same-revision",
+            "source_id": "cdc-mmwr",
+            "registry_version": 3,
+            "transport": "rss",
+            "contract_version": "2.0.0",
+            "retrieved_at": "2026-10-25T00:00:00Z",
+            "capture_id": "shared-v3",
+        },
+    ]
+    published = _feed_items(
+        captures,
+        versions,
+        mode="activation",
+        pairs={},
+        activations=activations,
+    )
+    assert published["cdc-mmwr"] == {("mmwr-only-v2", 2), ("mmwr-shared", 3)}

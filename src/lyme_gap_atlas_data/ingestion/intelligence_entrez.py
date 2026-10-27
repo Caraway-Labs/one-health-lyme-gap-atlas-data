@@ -1,16 +1,22 @@
 """Bounded PubMed Entrez capture for the two approved draft searches.
 
-Both searches run together. PMID duplicates collapse to one item. The transport
-is Entrez, stored on contract 2.0.0. This module does not register a PROD source,
-open Snowflake, or read a secret from the environment on its own.
+Both searches run together. A governed reopen may name one of them. PMID
+duplicates collapse to one item. The transport is Entrez, stored on contract
+2.0.0. This module does not register a PROD source, open Snowflake, or read a
+secret from the environment on its own.
 """
 
 from __future__ import annotations
 
+import contextvars
+import errno
 import hashlib
+import http.client
 import json
 import logging
 import re
+import socket
+import ssl
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
@@ -21,6 +27,11 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
+from ..intelligence_daily_telemetry import (
+    http_observation,
+    note_pmid_merge,
+    note_pubmed_run_counters,
+)
 from ..intelligence_items import (
     ACQUISITION_VERSION,
     TOKEN,
@@ -57,8 +68,39 @@ EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 ENTREZ_TOOL = "one_health_lyme_gap_atlas"
 PARSER = "entrez-efetch-v1"
 FETCH = "entrez-eutils-v1"
+# Fixed names for an unclassified PubMed failure. Free-text stages are rejected.
+PUBMED_PIPELINE_STEPS = frozenset(
+    {
+        "ESEARCH",
+        "EFETCH",
+        "PARSE",
+        "CAPTURE",
+        "ACQUISITION_CONTEXT",
+        "ITEM_WRITE",
+        "CHECKPOINT_SAVE",
+    }
+)
+_PUBMED_STEP: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "pubmed_pipeline_step", default=None
+)
 NLM_ATTRIBUTION = "Courtesy of the U.S. National Library of Medicine"
 NLM_POLICY_URL = "https://www.ncbi.nlm.nih.gov/home/about/policies/"
+
+
+def note_pubmed_step(step: str) -> None:
+    """Remember the fixed pipeline step that is running. Unknown names are ignored."""
+    if step in PUBMED_PIPELINE_STEPS:
+        _PUBMED_STEP.set(step)
+
+
+def current_pubmed_step() -> str | None:
+    """The step noted on this walk, or None before the first noted step."""
+    step = _PUBMED_STEP.get()
+    if step in PUBMED_PIPELINE_STEPS:
+        return step
+    return None
+
+
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "intelligence"
 SELECTION_PATH = CONFIG_DIR / "feed-selection-v1.json"
 RECEIPT_PATH = CONFIG_DIR / "pubmed-policy-receipts.json"
@@ -233,6 +275,67 @@ class _DropRequestUrl(logging.Filter):
         return EUTILS_HOST not in message and "api_key" not in message and "email=" not in message
 
 
+_UNREACHABLE_ERRNOS = frozenset({errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EAFNOSUPPORT})
+
+
+def _exception_chain(error: BaseException) -> tuple[BaseException, ...]:
+    """Follow cause links only. Exception text is never read."""
+    chain: list[BaseException] = []
+    current: BaseException | None = error
+    while current is not None and current not in chain and len(chain) < 8:
+        chain.append(current)
+        nxt = current.__cause__
+        if nxt is None and not current.__suppress_context__:
+            nxt = current.__context__
+        current = nxt if isinstance(nxt, BaseException) else None
+    return tuple(chain)
+
+
+def redacted_transport_code(error: BaseException) -> str:
+    """Map a connector failure to an allowlisted code.
+
+    The exception message, URL, headers and body are not inspected.
+    """
+    chain = _exception_chain(error)
+    if any(isinstance(item, (httpx.TimeoutException, TimeoutError)) for item in chain):
+        return "FEED_TIMEOUT"
+    if any(isinstance(item, ssl.SSLCertVerificationError) for item in chain):
+        return "FEED_TLS_VERIFICATION_FAILED"
+    if any(isinstance(item, ssl.SSLError) for item in chain):
+        return "FEED_TLS_FAILED"
+    if any(isinstance(item, socket.gaierror) for item in chain):
+        return "FEED_DNS_FAILED"
+    if any(isinstance(item, ConnectionRefusedError) for item in chain):
+        return "FEED_CONNECTION_REFUSED"
+    if any(isinstance(item, (ConnectionResetError, BrokenPipeError)) for item in chain):
+        return "FEED_CONNECTION_RESET"
+    for item in chain:
+        if isinstance(item, OSError) and item.errno in _UNREACHABLE_ERRNOS:
+            return "FEED_NETWORK_UNREACHABLE"
+    if any(
+        isinstance(item, (httpx.RemoteProtocolError, http.client.HTTPException)) for item in chain
+    ):
+        return "FEED_HTTP_PROTOCOL_FAILED"
+    if any(isinstance(item, (httpx.NetworkError, OSError)) for item in chain):
+        return "FEED_NETWORK_FAILED"
+    return "FEED_HTTP_FAILED"
+
+
+def _transport_acquisition_error(error: BaseException) -> AcquisitionError:
+    code = redacted_transport_code(error)
+    return AcquisitionError(code, code=code)
+
+
+def _http_status_error(status: int) -> AcquisitionError:
+    if status == 403:
+        code = "FEED_HTTP_403"
+    elif status == 429:
+        code = "FEED_RATE_LIMITED"
+    else:
+        code = "FEED_HTTP_FAILED"
+    return AcquisitionError(code, code=code, http_status=status)
+
+
 def read_bounded(chunks: Iterable[bytes], limit: int = MAX_RESPONSE_BYTES) -> bytes:
     """Read a response until the byte cap. Further chunks are not pulled after the cap."""
     parts: list[bytes] = []
@@ -264,8 +367,8 @@ def live_entrez_get(url: str, params: Mapping[str, str], timeout: float) -> Entr
             status = response.status_code
     except AcquisitionError:
         raise
-    except Exception:
-        raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
+    except Exception as error:
+        raise _transport_acquisition_error(error) from None
     finally:
         logger.removeFilter(redaction)
     return EntrezResponse(status, body)
@@ -381,13 +484,29 @@ def run_pubmed_daily(
     receipt_document: dict[str, Any] | None = None,
     run_ids: Mapping[str, str] | None = None,
     artifact_ids: Mapping[str, str] | None = None,
+    allow_subset: bool = False,
 ) -> PubmedOutcome:
-    """Run both approved searches once, then efetch the deduped PMID union."""
+    """Run both approved searches once, then efetch the deduped PMID union.
+
+    ``allow_subset`` runs only the sources in ``sources``. The daily walk leaves
+    it false and still searches both.
+    """
     loaded = dict(sources) if sources is not None else _load_sources()
     if sources is not None:
-        _require_run_sources(loaded)
+        if allow_subset:
+            _require_run_sources(loaded, allow_subset=True)
+        else:
+            _require_run_sources(loaded)
+    order = (
+        tuple(source_id for source_id in SOURCE_ORDER if source_id in loaded)
+        if allow_subset
+        else SOURCE_ORDER
+    )
     queries = _load_queries()
-    policies = _load_policies(loaded, receipt_document)
+    if allow_subset:
+        policies = _load_policies(loaded, receipt_document, allow_subset=True)
+    else:
+        policies = _load_policies(loaded, receipt_document)
     if suppress_pmids is None or suppress_publishers is None:
         file_pmids, file_publishers = load_suppressions()
         suppress_pmids = file_pmids if suppress_pmids is None else suppress_pmids
@@ -395,7 +514,7 @@ def run_pubmed_daily(
             file_publishers if suppress_publishers is None else suppress_publishers
         )
     ledger = checkpoints or EntryDateLedger()
-    windows = {source_id: entry_window(ledger.get(source_id), today) for source_id in SOURCE_ORDER}
+    windows = {source_id: entry_window(ledger.get(source_id), today) for source_id in order}
     session = _EntrezSession(
         sender=sender,
         settings=settings,
@@ -406,13 +525,13 @@ def run_pubmed_daily(
     )
     found: dict[str, list[str]] = {}
     counts: dict[str, int] = {}
-    for source_id in SOURCE_ORDER:
+    for source_id in order:
         start, end = windows[source_id]
         pmids, count = session.esearch(queries[source_id], start, end)
         found[source_id] = pmids
         counts[source_id] = count
     ranked = _merge_pmids(found)
-    hidden = sum(max(0, counts[source_id] - len(found[source_id])) for source_id in SOURCE_ORDER)
+    hidden = sum(max(0, counts[source_id] - len(found[source_id])) for source_id in order)
     selected = ranked[:MAX_ITEMS]
     truncated = len(ranked) + hidden > MAX_ITEMS
     remaining = len(ranked) + hidden - len(selected)
@@ -420,7 +539,9 @@ def run_pubmed_daily(
     records: dict[str, _Record] = {}
     withheld = 0
     for batch in _chunks([pmid for pmid, _queries in selected], BATCH_SIZE):
-        for record in _parse_efetch(session.efetch(batch)):
+        fetched = session.efetch(batch)
+        note_pubmed_step("PARSE")
+        for record in _parse_efetch(fetched):
             if record.pmid in by_query and record.pmid not in records:
                 records[record.pmid] = record
     artifact_sha = hashlib.sha256(b"".join(session.bodies)).hexdigest()
@@ -538,6 +659,7 @@ class _EntrezSession:
         self.bodies: list[bytes] = []
 
     def esearch(self, term: str, start: date, end: date) -> tuple[list[str], int]:
+        note_pubmed_step("ESEARCH")
         body = self._get(
             ESEARCH_URL,
             {
@@ -553,9 +675,11 @@ class _EntrezSession:
                 "sort": "most recent",
             },
         )
+        note_pubmed_step("PARSE")
         return _parse_esearch(body)
 
     def efetch(self, pmids: list[str]) -> bytes:
+        note_pubmed_step("EFETCH")
         if not pmids or len(pmids) > BATCH_SIZE:
             raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
         return self._get(
@@ -595,25 +719,24 @@ class _EntrezSession:
         if self._budget.requests >= min(self._budget.request_limit, self._request_cap):
             raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
         remaining = self._budget.reserve()
-        try:
-            response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
-        except AcquisitionError:
-            raise
-        except Exception:
-            raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED") from None
-        finally:
-            note_step_deadline()
-        self._budget.remaining()
-        if response.status == 403:
-            raise AcquisitionError("FEED_HTTP_403", code="FEED_HTTP_403")
-        if response.status == 429:
-            raise AcquisitionError("FEED_RATE_LIMITED", code="FEED_RATE_LIMITED")
-        if response.status != 200:
-            raise AcquisitionError("FEED_HTTP_FAILED", code="FEED_HTTP_FAILED")
-        if len(response.body) > MAX_RESPONSE_BYTES:
-            raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
-        self.bodies.append(response.body)
-        return response.body
+        with http_observation(url) as observed:
+            try:
+                response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
+            except AcquisitionError:
+                raise
+            except Exception as error:
+                raise _transport_acquisition_error(error) from None
+            finally:
+                note_step_deadline()
+            self._budget.remaining()
+            observed["status"] = response.status
+            observed["bytes"] = len(response.body)
+            if response.status != 200:
+                raise _http_status_error(response.status)
+            if len(response.body) > MAX_RESPONSE_BYTES:
+                raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
+            self.bodies.append(response.body)
+            return response.body
 
 
 def _load_sources() -> dict[str, dict[str, Any]]:
@@ -645,9 +768,15 @@ def _load_sources() -> dict[str, dict[str, Any]]:
     return sources
 
 
-def _require_run_sources(sources: Mapping[str, dict[str, Any]]) -> None:
+def _require_run_sources(
+    sources: Mapping[str, dict[str, Any]], *, allow_subset: bool = False
+) -> None:
     """Sources supplied by the daily walk. They stay Entrez and inside the same caps."""
-    if set(sources) != set(SOURCE_ORDER):
+    ids = set(sources)
+    if allow_subset:
+        if not ids or not ids <= set(SOURCE_ORDER):
+            raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
+    elif ids != set(SOURCE_ORDER):
         raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
     for source_id, source in sources.items():
         if (
@@ -685,16 +814,25 @@ def _load_queries() -> dict[str, str]:
 
 
 def _load_policies(
-    sources: Mapping[str, dict[str, Any]], document: dict[str, Any] | None = None
+    sources: Mapping[str, dict[str, Any]],
+    document: dict[str, Any] | None = None,
+    *,
+    allow_subset: bool = False,
 ) -> dict[str, NativeMetadataPolicy]:
     if document is None:
         document = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
     receipts = document.get("receipts")
-    if not isinstance(receipts, list) or len(receipts) != len(SOURCE_ORDER):
+    expected = set(sources)
+    full_set = expected == set(SOURCE_ORDER)
+    if not isinstance(receipts, list) or (
+        (not allow_subset or full_set) and len(receipts) != len(SOURCE_ORDER)
+    ):
         raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
     policies: dict[str, NativeMetadataPolicy] = {}
     for receipt in receipts:
         source_id = receipt.get("source_id")
+        if allow_subset and not full_set and source_id not in expected:
+            continue
         source = sources.get(source_id)
         native = receipt.get("native_policy")
         if (
@@ -723,7 +861,7 @@ def _load_policies(
         ):
             raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
         policies[source_id] = policy
-    if set(policies) != set(SOURCE_ORDER):
+    if set(policies) != (expected if allow_subset else set(SOURCE_ORDER)):
         raise PermissionError("INTELLIGENCE_PUBMED_RECEIPT_REQUIRED")
     return policies
 
@@ -732,7 +870,10 @@ def _merge_pmids(found: Mapping[str, list[str]]) -> list[tuple[str, tuple[str, .
     rank: dict[str, int] = {}
     matched: dict[str, list[str]] = {}
     for source_id in SOURCE_ORDER:
-        for position, pmid in enumerate(found[source_id]):
+        pmids = found.get(source_id)
+        if pmids is None:
+            continue
+        for position, pmid in enumerate(pmids):
             matched.setdefault(pmid, [])
             if source_id not in matched[pmid]:
                 matched[pmid].append(source_id)
@@ -750,6 +891,25 @@ def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
 
 
+# One NCBI efetch header. The system id is not opened: the declaration is removed
+# before ElementTree sees the body. Internal subsets still expand entities, so any
+# other declaration is rejected first.
+_NCBI_DOCTYPE_RE = re.compile(
+    rb"<!DOCTYPE\s+PubmedArticleSet\s+PUBLIC\s+"
+    rb'"[^"<>\[]*NLM//DTD PubMedArticle[^"<>\[]*"\s+'
+    rb'"https://dtd\.nlm\.nih\.gov/[^"<>\s\[]+\.dtd"\s*>'
+)
+_DOCTYPE_MARK_RE = re.compile(rb"<!DOCTYPE", re.IGNORECASE)
+_ENTITY_MARK_RE = re.compile(rb"<!ENTITY", re.IGNORECASE)
+_SYSTEM_FILE_RE = re.compile(rb"""SYSTEM\s+["']file:""", re.IGNORECASE)
+ESEARCH_PAYLOAD_INVALID = "FEED_ESEARCH_PAYLOAD_INVALID"
+EFETCH_PAYLOAD_INVALID = "FEED_EFETCH_PAYLOAD_INVALID"
+
+
+def _payload_error(code: str) -> AcquisitionError:
+    return AcquisitionError(code, code=code)
+
+
 def _parse_esearch(body: bytes) -> tuple[list[str], int]:
     try:
         result = json.loads(body)["esearchresult"]
@@ -758,10 +918,10 @@ def _parse_esearch(body: bytes) -> tuple[list[str], int]:
         count = int(result["count"])
         raw_ids = result["idlist"]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID") from None
+        raise _payload_error(ESEARCH_PAYLOAD_INVALID) from None
     too_many = not isinstance(raw_ids, list) or len(raw_ids) > MAX_ITEMS or count < len(raw_ids)
     if count < 0 or too_many:
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
+        raise _payload_error(ESEARCH_PAYLOAD_INVALID)
     pmids: list[str] = []
     for pmid in raw_ids:
         if not accepted_pmid(pmid):
@@ -771,20 +931,63 @@ def _parse_esearch(body: bytes) -> tuple[list[str], int]:
     return pmids, count
 
 
+def _doctype_declaration_span(body: bytes, start: int) -> tuple[int, int] | None:
+    """Span of one doctype declaration. An internal subset (`[`) has no span."""
+    quote: int | None = None
+    index = start
+    limit = len(body)
+    while index < limit:
+        current = body[index]
+        if quote is not None:
+            if current == quote:
+                quote = None
+            index += 1
+            continue
+        if current in (0x22, 0x27):
+            quote = current
+            index += 1
+            continue
+        if current == 0x5B:
+            return None
+        if current == 0x3E:
+            return start, index + 1
+        index += 1
+    return None
+
+
+def _efetch_without_doctype(body: bytes) -> bytes:
+    """Drop the one allowed NCBI doctype. Refuse entities, file URLs, and anything else."""
+    if _ENTITY_MARK_RE.search(body) or _SYSTEM_FILE_RE.search(body):
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    marks = list(_DOCTYPE_MARK_RE.finditer(body))
+    if not marks:
+        return body
+    if len(marks) != 1:
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    span = _doctype_declaration_span(body, marks[0].start())
+    if span is None:
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    start, end = span
+    declaration = body[start:end]
+    if _NCBI_DOCTYPE_RE.fullmatch(declaration) is None:
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
+    return body[:start] + body[end:]
+
+
 def _parse_efetch(body: bytes) -> list[_Record]:
-    if b"<!DOCTYPE" in body.upper() or b"<!ENTITY" in body.upper():
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
     try:
-        root = ET.fromstring(body)
+        root = ET.fromstring(_efetch_without_doctype(body))
     except ET.ParseError:
-        raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID") from None
+        raise _payload_error(EFETCH_PAYLOAD_INVALID) from None
+    if root.tag != "PubmedArticleSet":
+        raise _payload_error(EFETCH_PAYLOAD_INVALID)
     records: list[_Record] = []
     for article in root.findall("PubmedArticle"):
         record = _record_from_article(article)
         if record is not None:
             records.append(record)
         if len(records) > BATCH_SIZE:
-            raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
+            raise _payload_error(EFETCH_PAYLOAD_INVALID)
     return records
 
 
@@ -984,7 +1187,9 @@ def _build_item(
     suppress_publishers: frozenset[str],
     artifact_id: str = "pubmed-efetch",
 ) -> dict[str, Any]:
-    source_id = matched[0]
+    # One deterministic set: deduped, SOURCE_ORDER, every search that matched.
+    ordered = tuple(source_id for source_id in SOURCE_ORDER if source_id in matched)
+    source_id = ordered[0]
     source = sources[source_id]
     policy = policies[source_id]
     # Publisher suppression matches the journal title exactly, not the publisher organization.
@@ -1055,7 +1260,7 @@ def _build_item(
             "published_at": item["field_states"]["published_at"],
             "updated_at": item["field_states"]["updated_at"],
         },
-        "matched_queries": list(matched),
+        "matched_queries": list(ordered),
         "mesh": record.mesh,
         "publication_types": record.publication_types,
         "journal": record.journal,
@@ -1186,13 +1391,19 @@ class RunLedger(Protocol):
     def list_runs_for_resources(self, resource_keys: Collection[str]) -> list[RunState]: ...
 
 
-def registered_entrez_sources(pinned: Mapping[str, str]) -> list[dict[str, Any]]:
+def registered_entrez_sources(
+    pinned: Mapping[str, str], *, only_source_id: str | None = None
+) -> list[dict[str, Any]]:
     """Both PubMed sources when each file is active and its hash is pinned.
 
-    Candidate drafts are not walked. One pinned search without the other is not a walk.
+    Candidate drafts are not walked. One pinned search without the other is not
+    a walk, unless ``only_source_id`` names that one governed reopen.
     """
+    if only_source_id is not None and only_source_id not in SOURCE_ORDER:
+        return []
+    order = SOURCE_ORDER if only_source_id is None else (only_source_id,)
     ready: list[dict[str, Any]] = []
-    for source_id in SOURCE_ORDER:
+    for source_id in order:
         path = CONFIG_DIR / f"{source_id}-source-v1.json"
         if not path.is_file():
             return []
@@ -1312,7 +1523,14 @@ def prepare_entrez_source_capture(
     requested_url is the esearch fetch_location. effective_url is that same endpoint,
     which is the INGESTION_REQUESTS.endpoint value. The lease policy is the source's
     30-day raw retention reference.
+
+    The raw-ledger guard and the artifact insert both update
+    ``GOVERNANCE.INTELLIGENCE_WRITE_GUARD``. Holding the lease across that insert
+    makes the second session wait out ``LOCK_TIMEOUT`` and raise a Snowflake
+    ``ProgrammingError``. The lease claim is committed first. No response bytes
+    are written while that guard is held.
     """
+    note_pubmed_step("CAPTURE")
     artifact_id = entrez_artifact_id(run_id)
     digest = hashlib.sha256(body).hexdigest()
     requested = canonical_url(source["fetch_location"])
@@ -1334,10 +1552,10 @@ def prepare_entrez_source_capture(
     retention.bind_source(run_id, source, parser_version=PARSER, fetch_version=FETCH)
     lease_sha = retention.capture(source, context)
     locator = f"memory://entrez/{artifact_id}"
-    with (
-        retention.lease_access(lease_sha, "raw_object", locator, write=True),
-        capture_session() as cursor,
-    ):
+    with retention.lease_access(lease_sha, "raw_object", locator, write=True):
+        # Commit the copy claim and release the write guard before the insert.
+        pass
+    with capture_session() as cursor:
         insert_entrez_capture_rows(
             cursor,
             run_id=run_id,
@@ -1349,6 +1567,84 @@ def prepare_entrez_source_capture(
             fetched_at=context["fetched_at"],
         )
     return context
+
+
+def select_existing_entrez_captures(
+    cursor: Any, item_ids: tuple[str, ...]
+) -> list[tuple[str, str, str]]:
+    """One bounded read of entrez captures for the PMIDs already in hand.
+
+    The statement is a single SELECT. Item identifiers are bind parameters.
+    The walk does not issue a second lookup.
+    """
+    if not item_ids:
+        return []
+    unique = tuple(dict.fromkeys(item_ids))
+    if len(unique) > MAX_ITEMS:
+        raise PermissionError("INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_UNBOUNDED")
+    item_marks = ", ".join(["%s"] * len(unique))
+    source_marks = ", ".join(["%s"] * len(SOURCE_ORDER))
+    cursor.execute(
+        f"""SELECT item_id, revision_id, source_id
+        FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
+        WHERE transport = 'entrez'
+          AND source_id IN ({source_marks})
+          AND item_id IN ({item_marks})""",
+        (*SOURCE_ORDER, *unique),
+    )
+    found: list[tuple[str, str, str]] = []
+    for row in cursor.fetchall():
+        if row is None or len(row) != 3:
+            continue
+        item_id, revision_id, source_id = row
+        if isinstance(item_id, str) and isinstance(revision_id, str) and source_id in SOURCE_ORDER:
+            found.append((item_id, revision_id, source_id))
+    return found
+
+
+def pmid_merge_decision(
+    item: Mapping[str, Any], prior: Iterable[tuple[str, str]]
+) -> tuple[str, bool]:
+    """Classify one article against captures already stored for its item id.
+
+    ``prior`` is ``(revision_id, source_id)`` for that item. The same revision
+    stored under the other PubMed source is not written again. A same-source
+    repeat stays on the existing capture merge. A different revision is a real
+    content change and is written.
+    """
+    revision_id = item["revision_id"]
+    source_id = item["source_id"]
+    if not prior:
+        return "new_item", False
+    same_revision = [captured for revision, captured in prior if revision == revision_id]
+    if not same_revision:
+        return "new_revision_content_changed", False
+    same_source = any(captured == source_id for captured in same_revision)
+    other_source = any(captured != source_id for captured in same_revision)
+    if other_source and not same_source:
+        return "same_revision_skipped", True
+    return "same_revision_skipped", False
+
+
+def partition_pubmed_items(
+    items: list[dict[str, Any]], prior: Iterable[tuple[str, str, str]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Keep items to write, and count cross-source skips. Emits one decision each."""
+    by_item: dict[str, list[tuple[str, str]]] = {}
+    for item_id, revision_id, source_id in prior:
+        by_item.setdefault(item_id, []).append((revision_id, source_id))
+    kept: list[dict[str, Any]] = []
+    skipped = 0
+    for item in items:
+        decision, drop = pmid_merge_decision(item, by_item.get(item["item_id"], []))
+        queries = item.get("publisher_metadata", {}).get("matched_queries")
+        matched_count = len(queries) if isinstance(queries, list) else 0
+        note_pmid_merge(decision, matched_count)
+        if drop:
+            skipped += 1
+            continue
+        kept.append(item)
+    return kept, skipped
 
 
 def execute_registered_entrez_daily(
@@ -1367,19 +1663,29 @@ def execute_registered_entrez_daily(
     sources: list[dict[str, Any]] | None = None,
     receipt_document: dict[str, Any] | None = None,
     run_ids: Mapping[str, str] | None = None,
+    only_source_id: str | None = None,
 ) -> dict[str, Any]:
     """Run both searches and write items through store.write when they are registered.
 
     Unregistered or candidate sources return without a request. store.write is
     IntelligenceStore.write, which MERGEs revisions in bulk_write_items.
     last_entry_date is stored on the LOAD checkpoint of this ledger.
+    ``only_source_id`` runs that one PubMed source and leaves the other unread.
     """
-    selected = sources if sources is not None else registered_entrez_sources(pinned)
+    if sources is not None:
+        selected = sources
+    elif only_source_id is None:
+        selected = registered_entrez_sources(pinned)
+    else:
+        selected = registered_entrez_sources(pinned, only_source_id=only_source_id)
+    if only_source_id is not None:
+        selected = [source for source in selected if source.get("source_id") == only_source_id]
     skipped: dict[str, Any] = {"walked": False, "requests": 0, "items": [], "windows": {}}
     if not selected:
         return skipped
     by_id = {source["source_id"]: source for source in selected}
-    if set(by_id) != set(SOURCE_ORDER):
+    single = only_source_id is not None and set(by_id) == {only_source_id}
+    if set(by_id) != set(SOURCE_ORDER) and not single:
         return skipped
     for source_id, source in by_id.items():
         if source.get("state") != "active" or pinned.get(source_id) != identity_hash(source):
@@ -1407,9 +1713,22 @@ def execute_registered_entrez_daily(
         receipt_document=receipt_document,
         run_ids=run_ids,
         artifact_ids=artifact_ids,
+        allow_subset=single,
+    )
+    prior: tuple[tuple[str, str, str], ...] = ()
+    reader = getattr(store, "existing_entrez_captures", None)
+    if callable(reader) and outcome.items:
+        looked_up = reader(tuple(item["item_id"] for item in outcome.items))
+        prior = tuple(looked_up)
+    kept, cross_source_skipped = partition_pubmed_items(outcome.items, prior)
+    note_pubmed_run_counters(
+        items_fetched=len(outcome.items),
+        items_written=len(kept),
+        cross_source_skipped=cross_source_skipped,
+        ncbi_requests=outcome.requests,
     )
     grouped: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in SOURCE_ORDER}
-    for item in outcome.items:
+    for item in kept:
         grouped.setdefault(item["source_id"], []).append(item)
     writers = run_ids if run_ids is not None else {source_id: run_id for source_id in SOURCE_ORDER}
     if retention is not None:
@@ -1424,6 +1743,7 @@ def execute_registered_entrez_daily(
                 fetched_at=fetched_at,
                 capture_session=store.capture_session,
             )
+            note_pubmed_step("ACQUISITION_CONTEXT")
             store.record_acquisition(
                 source_id=source_id,
                 registry_version=int(by_id[source_id]["registry_version"]),
@@ -1437,6 +1757,7 @@ def execute_registered_entrez_daily(
         write_run = writers.get(source_id)
         if not rows or write_run is None:
             continue
+        note_pubmed_step("ITEM_WRITE")
         store.write(
             source_id=source_id,
             registry_version=int(by_id[source_id]["registry_version"]),
@@ -1450,12 +1771,20 @@ def execute_registered_entrez_daily(
         sequence = load.detail.get("sequence") if load is not None else None
         if isinstance(sequence, int):
             previous = max(previous, sequence)
-    detail = {"last_entry_date": outcome.watermarks, "sequence": previous + 1}
+    saved_dates = dict(outcome.watermarks)
+    if single:
+        # A one-source reopen must not drop the other search's watermark.
+        for source_id in SOURCE_ORDER:
+            previous_day = ledger.dates.get(source_id)
+            if previous_day is not None and source_id not in saved_dates:
+                saved_dates[source_id] = previous_day.isoformat()
+    detail = {"last_entry_date": saved_dates, "sequence": previous + 1}
     saved_runs = (
         [(run_ids[source_id], source_id) for source_id in SOURCE_ORDER if source_id in run_ids]
         if run_ids is not None
         else [(run_id, ENTREZ_DAILY_RESOURCE)]
     )
+    note_pubmed_step("CHECKPOINT_SAVE")
     for saved_run, resource_key in saved_runs:
         checkpoints.save(
             RunState(
@@ -1479,4 +1808,8 @@ def execute_registered_entrez_daily(
         "items": outcome.items,
         "windows": outcome.windows,
         "watermarks": outcome.watermarks,
+        "pubmed.items_fetched": len(outcome.items),
+        "pubmed.items_written": len(kept),
+        "pubmed.cross_source_skipped": cross_source_skipped,
+        "pubmed.ncbi_requests": outcome.requests,
     }

@@ -17,6 +17,9 @@ NAME = "intelligence-feed-daily"
 CHECK = "intelligence-feed-preflight"
 COMMAND = "/app/.venv/bin/atlas-data pipeline run-intelligence-daily"
 DAILY_SCHEDULE = {"cron": "15 18 * * *", "time_zone": "America/Denver"}
+# Only the standing daily job runs on 1 GB (approved 2026-10-26, #862).
+# Every other job keeps the size it already has in the platform spec.
+DAILY_JOB_INSTANCE_SIZE_SLUG = "apps-s-1vcpu-1gb"
 BASE = {
     "catalog-discovery",
     "approved-source-ingestion",
@@ -51,6 +54,16 @@ KEYS = {
 # environment only, never from argv.
 NCBI_PLACEMENT_ALLOWLIST = ("NCBI_EMAIL", "NCBI_API_KEY")
 NCBI_EMAIL_REQUIRED = "INTELLIGENCE_DAILY_NCBI_EMAIL_REQUIRED"
+# Copied from a sibling job that already exports traces. Values stay in the
+# platform spec; this module never prints them.
+OTEL_ENV_KEYS = ("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS")
+OTEL_SOURCE_JOBS = (
+    "catalog-registration-01",
+    "catalog-registration-02",
+    "catalog-registration-03",
+    "approved-source-ingestion",
+    "catalog-discovery",
+)
 
 
 def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
@@ -108,6 +121,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
     # The preflight component is replaced by the standing job on activate.
     # Both phases place contact settings on the component this phase writes.
     _apply_ncbi_placement(new, keep_existing_email=False)
+    place_daily_otel(new, result)
     new["image"] = {
         "registry_type": "DOCR",
         "registry": "oh-lyme-data",
@@ -118,6 +132,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
         new.pop("schedule", None)
     else:
         new["schedule"] = dict(DAILY_SCHEDULE)
+        new["instance_size_slug"] = DAILY_JOB_INSTANCE_SIZE_SLUG
     removed = {CHECK} if phase == "preflight" else {CHECK, NAME}
     result["jobs"] = [j for j in result["jobs"] if j["name"] not in removed] + [new]
     assert [j for j in result["jobs"] if j["name"] in BASE] == [
@@ -171,6 +186,70 @@ def sync_daily_job_schedule(spec: dict[str, Any]) -> dict[str, Any]:
         if job.get("name") == NAME and job.get("schedule") != DAILY_SCHEDULE:
             job["schedule"] = dict(DAILY_SCHEDULE)
     return result
+
+
+def sync_daily_job_size(spec: dict[str, Any]) -> dict[str, Any]:
+    """Set the reviewed size on the active daily job only. Other jobs are untouched."""
+    result = copy.deepcopy(spec)
+    for job in result.get("jobs", []):
+        if job.get("name") == NAME:
+            job["instance_size_slug"] = DAILY_JOB_INSTANCE_SIZE_SLUG
+    return result
+
+
+def other_job_sizes(spec: dict[str, Any]) -> dict[str, Any]:
+    """Map every job except the daily job to its size, to prove they never change."""
+    return {
+        job.get("name"): job.get("instance_size_slug")
+        for job in spec.get("jobs", [])
+        if isinstance(job, dict) and job.get("name") != NAME
+    }
+
+
+def daily_job_size(spec: dict[str, Any]) -> Any:
+    job = next((j for j in spec.get("jobs", []) if j.get("name") == NAME), None)
+    return (job or {}).get("instance_size_slug")
+
+
+def otel_entries(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Copy the sibling OTLP endpoint and headers. Missing keys leave the job unchanged."""
+    jobs = spec.get("jobs", [])
+    if not isinstance(jobs, list):
+        return []
+    for name in OTEL_SOURCE_JOBS:
+        job = next(
+            (item for item in jobs if isinstance(item, dict) and item.get("name") == name),
+            None,
+        )
+        if job is None:
+            continue
+        found: dict[str, dict[str, Any]] = {}
+        for entry in job.get("envs", []):
+            if isinstance(entry, dict) and entry.get("key") in OTEL_ENV_KEYS:
+                value = entry.get("value")
+                if isinstance(value, str) and value.strip():
+                    found[str(entry["key"])] = entry
+        if set(OTEL_ENV_KEYS) <= set(found):
+            copied: list[dict[str, Any]] = []
+            for key in OTEL_ENV_KEYS:
+                item = copy.deepcopy(found[key])
+                item["scope"] = "RUN_TIME"
+                copied.append(item)
+            return copied
+    return []
+
+
+def place_daily_otel(job: dict[str, Any], spec: dict[str, Any]) -> None:
+    """Add OTEL settings the sibling jobs already carry. Do not replace existing values."""
+    wanted = otel_entries(spec)
+    if not wanted:
+        return
+    envs = [entry for entry in job.get("envs", []) if isinstance(entry, dict)]
+    present = {entry.get("key") for entry in envs}
+    for entry in wanted:
+        if entry.get("key") not in present:
+            envs.append(entry)
+    job["envs"] = envs
 
 
 def _nonempty_process_env(name: str) -> str | None:
@@ -369,9 +448,12 @@ def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, 
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_ACTIVE_JOB")
     if any(job.get("name") == CHECK for job in spec.get("jobs", [])):
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_NO_PREFLIGHT_JOB")
-    aligned = sync_daily_job_schedule(with_baseline_digests(spec, digest))
+    aligned = sync_daily_job_size(sync_daily_job_schedule(with_baseline_digests(spec, digest)))
+    if other_job_sizes(aligned) != other_job_sizes(spec):
+        raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
     daily = next(job for job in aligned.get("jobs", []) if job.get("name") == NAME)
     _apply_ncbi_placement(daily, keep_existing_email=True)
+    place_daily_otel(daily, aligned)
     # A stored EV[...] value is the provider form of a secret already on the job.
     # Rewriting that ciphertext as plaintext is not a separate deployment.
     if _same_except_encrypted_ncbi(spec, aligned):
@@ -690,6 +772,7 @@ def main() -> None:
     if app.get("in_progress_deployment"):
         raise PermissionError("INTELLIGENCE_DAILY_COMPETING_DEPLOYMENT")
     if args.phase == "refresh-digest":
+        sizes_before = other_job_sizes(app["spec"])
         spec = refresh_operational_digests(app["spec"], args.image_digest)
         if spec != app["spec"]:
             align = platform_update(spec, update_sources=False)
@@ -702,6 +785,10 @@ def main() -> None:
                 raise PermissionError("INTELLIGENCE_DAILY_BASELINE_ALIGNMENT_INCOMPLETE")
         if baseline_needs_digest_alignment(app["spec"], args.image_digest):
             raise PermissionError("INTELLIGENCE_DAILY_REFRESH_DIGEST_INCOMPLETE")
+        if daily_job_size(app["spec"]) != DAILY_JOB_INSTANCE_SIZE_SLUG:
+            raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_SIZE_MISMATCH")
+        if other_job_sizes(app["spec"]) != sizes_before:
+            raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
         print(
             json.dumps(
                 {
@@ -709,6 +796,7 @@ def main() -> None:
                     "app_id": APP_ID,
                     "deployment_id": app["active_deployment"]["id"],
                     "operational_jobs_aligned": True,
+                    "daily_instance_size_slug": DAILY_JOB_INSTANCE_SIZE_SLUG,
                     "credential_provisioning": False,
                     **ncbi_presence(app["spec"]),
                 }

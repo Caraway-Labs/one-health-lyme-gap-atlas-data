@@ -343,6 +343,42 @@ def test_raising_topic_hook_leaves_the_source_write_successful() -> None:
     assert "commit" in database.events
 
 
+def test_failed_topic_merge_leaves_the_committed_item_write_unchanged() -> None:
+    """A topic MERGE failure is counted after the item commit and does not undo it."""
+    database = Ledger()
+    effects = _effects(database)
+    document = item()
+
+    def hook(cursor: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
+        original = cursor.execute
+
+        def execute(statement: str, params: tuple[Any, ...] = ()) -> None:
+            compact = " ".join(statement.split()).upper()
+            if compact.startswith("SELECT COUNT(*)") and "INTELLIGENCE_ITEM_TOPICS" in compact:
+                cursor.rows = [(1,)]
+                return
+            if compact.startswith("MERGE INTO CONFORMED.INTELLIGENCE_ITEM_TOPICS"):
+                raise RuntimeError("TOPIC_MERGE_FAILED")
+            original(statement, params)
+
+        cursor.execute = execute
+        return runtime.record_topics_after_merge(cursor, items)
+
+    effects.store.after_merge = hook
+    detail = effects.load(_definition(database), _state(), [document])
+    assert detail["wrote"] is True
+    assert detail["items_new"] == 1
+    assert detail["items_changed"] == 0
+    assert detail["items_unchanged"] == 0
+    assert detail["topic_warnings"] == 1
+    assert effects.store.topic_report["status"] == "skipped"
+    assert effects.store.topic_report["reason"] == "topics_merge_failed"
+    assert effects.store.topic_report["rows"] == 0
+    assert len(database.revisions) == 1
+    assert len(database.captures) == 1
+    assert database.events.count("commit") == 2
+
+
 def test_explicit_flag_attempts_recording_when_the_table_probe_is_empty() -> None:
     cursor = _TopicCursor(table_exists=False)
     result = runtime.record_topics_after_merge(
@@ -425,7 +461,10 @@ def test_topic_migration_is_protected_on_both_environments() -> None:
     assert pinned in PROTECTED_INTELLIGENCE_MIGRATIONS
     assert "V171" not in DEV_ONLY_MIGRATION_VERSIONS
     assert "V171" not in PROD_ONLY_MIGRATION_VERSIONS
+    assert frozenset({"V170", "V171", "V173", "V174"}) == BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS
     assert "CREATE SCHEMA" not in migration.source.upper()
+    assert "INTELLIGENCE_FEED_V2" not in migration.source
+    assert "FEED_SORT_AT" not in migration.source
     for database, environment in ((DEV_DATABASE, "DEV"), (PROD_DATABASE, "PROD")):
         rendered = render_migration(migration, database)
         assert f"USE DATABASE {database};" in rendered
@@ -499,6 +538,24 @@ def test_routine_migration_path_refuses_v171(
     ) == ["V171"]
     connection.execute_string.assert_called_once()
     assert "INTELLIGENCE_ITEM_TOPICS" in connection.execute_string.call_args.args[0]
+    assert "INTELLIGENCE_FEED_V2" not in connection.execute_string.call_args.args[0]
+    v173 = next(item for item in loaded if item.version == "V173")
+    v174 = next(item for item in loaded if item.version == "V174")
+    connection = _install_topic_apply(
+        monkeypatch,
+        [migration],
+        [
+            ("V170", v170.sha256),
+            ("V173", v173.sha256),
+            ("V174", v174.sha256),
+        ],
+    )
+    assert apply_migrations(
+        Mock(),
+        database,
+        expected_pending=[pinned],
+        protected_intelligence_prerequisite=True,
+    ) == ["V171"]
 
 
 def test_v171_vocabulary_rows_equal_the_json_exactly() -> None:
@@ -512,8 +569,19 @@ def test_v171_vocabulary_rows_equal_the_json_exactly() -> None:
 
 
 def test_daily_hook_records_topics_for_a_recorded_pubmed_item() -> None:
-    """The recorded efetch fixture stores MeSH as name/ui objects, not strings."""
-    item = _recorded_pubmed_items()["12345678"]
+    """The recorded efetch fixture stores MeSH as name/ui objects, not strings.
+
+    Overlap PMIDs become one item. The source is the first entry in the fixed
+    order, tick-borne before Lyme/Borrelia.
+    """
+    items = _recorded_pubmed_items()
+    assert set(items) == {"12345678", "23456789"}
+    item = items["12345678"]
+    assert item["source_id"] == "pubmed-tick-borne"
+    assert item["publisher_metadata"]["matched_queries"] == [
+        "pubmed-tick-borne",
+        "pubmed-lyme-borrelia",
+    ]
     mesh = item["publisher_metadata"]["mesh"]
     abstract = item["publisher_metadata"]["abstract"]
     assert mesh == [{"name": "Lyme Disease", "ui": "D008193"}]

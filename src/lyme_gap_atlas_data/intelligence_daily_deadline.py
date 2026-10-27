@@ -8,10 +8,11 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from .ingestion.intelligence_runtime import (
     DEADLINE_GRACE_SECONDS,
-    PROD_DAILY_SOURCE_SHA256,
     PROD_SOURCE_DEFINITIONS,
+    prod_daily_config_sha256_allowed,
 )
 from .ingestion.types import FailureCategory
+from .intelligence_daily_telemetry import observed
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -33,7 +34,7 @@ def terminalize_daily_pilot_deadline(ingestion_run_id: str) -> dict[str, Any]:
     if ingestion_run_id.strip() != ingestion_run_id or len(ingestion_run_id) != 36:
         raise ValueError("INTELLIGENCE_DAILY_DEADLINE_RUN_ID_REQUIRED")
     snowflake = SnowflakeSettings()
-    with connect(snowflake) as connection, connection.cursor() as cursor:
+    with observed(), connect(snowflake) as connection, connection.cursor() as cursor:
         cursor.execute(
             "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=%s",
             (GRACE_SECONDS,),
@@ -63,7 +64,7 @@ def terminalize_daily_pilot_deadline(ingestion_run_id: str) -> dict[str, Any]:
             status != "RUNNING"
             or code_version != DAILY_CODE_VERSION
             or resource_key not in PROD_SOURCE_DEFINITIONS
-            or config_sha256 != PROD_DAILY_SOURCE_SHA256[resource_key]
+            or not prod_daily_config_sha256_allowed(resource_key, config_sha256)
         ):
             raise PermissionError("INTELLIGENCE_DAILY_DEADLINE_SCOPE_REQUIRED")
         cursor.execute(

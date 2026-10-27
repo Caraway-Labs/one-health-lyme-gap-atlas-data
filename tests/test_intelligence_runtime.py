@@ -218,7 +218,7 @@ def test_prod_eid_composition_requires_exact_storage_identity_and_receipt() -> N
     selected_receipt["native_policy"] = dict(selected_receipt["native_policy"])
     selected_receipt["native_policy"]["permitted_paths"] = [
         *selected_receipt["native_policy"]["permitted_paths"],
-        "item/description",
+        "item/enclosure/@url",
     ]
     with pytest.raises(PermissionError, match="NATIVE_POLICY_REQUIRED"):
         runtime.compose_pilot(

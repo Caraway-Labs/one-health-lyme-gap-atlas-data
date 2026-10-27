@@ -34,6 +34,16 @@ def test_pubmed_failed_class_name_is_reported() -> None:
     assert rows["pubmed-lyme-borrelia"] == "UNCLASSIFIED_EXCEPTION"
 
 
+def test_pubmed_outcome_prefers_the_redacted_error_code() -> None:
+    prefix = _MODULE["OUTCOME_LOG_PREFIX"]
+    text = (
+        prefix + '{"error_class":"AcquisitionError","error_code":"FEED_HTTP_403",'
+        '"http_status":403,"source_id":"pubmed-tick-borne","status":"FAILED"}'
+    )
+    rows = {row["source"]: row["error_code"] for row in _MODULE["parse_daily_outcomes"](text)}
+    assert rows["pubmed-tick-borne"] == "FEED_HTTP_403"
+
+
 def _baseline() -> dict:
     base_jobs = [
         {"name": n, "kind": "SCHEDULED", "image": {"digest": DIGEST}, "run_command": "x"}
@@ -58,6 +68,29 @@ def _baseline() -> dict:
         }
     )
     return {"jobs": base_jobs}
+
+
+def test_manual_and_scheduled_jobs_copy_sibling_otel_settings() -> None:
+    baseline = _baseline()
+    sentinel = "DUMMY_OPAQUE_HEADER_SENTINEL"
+    endpoint = "https://otel.example.invalid/v1/traces"
+    registration = next(job for job in baseline["jobs"] if job["name"] == "catalog-registration-01")
+    registration["envs"] = [
+        {"key": "OTEL_EXPORTER_OTLP_ENDPOINT", "scope": "RUN_TIME", "value": endpoint},
+        {
+            "key": "OTEL_EXPORTER_OTLP_HEADERS",
+            "scope": "RUN_TIME",
+            "type": "SECRET",
+            "value": sentinel,
+        },
+    ]
+    spec = build_operation_spec(baseline, preflight_only=False)
+    for name in ("intelligence-feed-daily", _MODULE["MANUAL_JOB"]):
+        job = next(item for item in spec["jobs"] if item["name"] == name)
+        envs = {entry["key"]: entry for entry in job["envs"]}
+        assert envs["OTEL_EXPORTER_OTLP_ENDPOINT"]["value"] == endpoint
+        assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["value"] == sentinel
+        assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["type"] == "SECRET"
 
 
 def test_builds_manual_predeploy_from_daily_template() -> None:

@@ -111,7 +111,7 @@ def test_daily_claim_precedes_io_and_failure_does_not_retry_or_block_other_sourc
     second = polling.run_production_daily()
     assert first["status"] == "FAILED"
     assert [e for e in events if e[0] == "run"] == [
-        ("run", s) for s in runtime.PROD_SOURCE_DEFINITIONS
+        ("run", s) for s in runtime.DAILY_SOURCE_RUN_ORDER
     ]
     assert all(row["outcome"] == "ALREADY_CLAIMED" for row in second["sources"])
     assert len([e for e in events if e[0] == "run"]) == len(runtime.PROD_SOURCE_DEFINITIONS)
