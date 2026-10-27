@@ -207,14 +207,14 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         A crash or failed acquisition consumes the claim. Scheduled invocations
         never reopen it or retry a provider request on the same day.
         """
-        from .intelligence_runtime import PROD_DAILY_SOURCE_SHA256
+        from .intelligence_runtime import prod_daily_config_sha256_allowed
 
         day = datetime.now(UTC).date()
         attempt = reopen_attempt_for_run_id(source_id, day, run_id)
         if (
             self.feed_retention.environment != "PROD"
             or attempt is None
-            or PROD_DAILY_SOURCE_SHA256.get(source_id) != source_sha256
+            or not prod_daily_config_sha256_allowed(source_id, source_sha256)
         ):
             raise PermissionError("INTELLIGENCE_DAILY_CLAIM_SCOPE_REQUIRED")
         if attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":

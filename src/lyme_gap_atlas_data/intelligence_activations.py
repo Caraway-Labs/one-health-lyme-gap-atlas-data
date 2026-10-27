@@ -51,7 +51,9 @@ def prior_stays_active(
         documents = load_registry_documents()
     if prior["source_id"] != successor["source_id"]:
         return False
-    if int(prior["registry_version"]) != 1 or int(successor["registry_version"]) != 2:
+    pair = (int(prior["registry_version"]), int(successor["registry_version"]))
+    # v1 stays beside v2, and v2 stays beside v3, while each pair is the checked-in feed.
+    if pair not in {(1, 2), (2, 3)}:
         return False
     if successor.get("state") != "active":
         return False
@@ -63,9 +65,9 @@ def prior_stays_active(
         (str(document["source_id"]), int(document["registry_version"])): identity_hash(document)
         for document in documents
     }
-    return recorded.get((str(prior["source_id"]), 1)) == identity_hash(prior) and recorded.get(
-        (str(successor["source_id"]), 2)
-    ) == identity_hash(successor)
+    prior_hash = recorded.get((str(prior["source_id"]), pair[0]))
+    successor_hash = recorded.get((str(successor["source_id"]), pair[1]))
+    return prior_hash == identity_hash(prior) and successor_hash == identity_hash(successor)
 
 
 def activation_for_registration(

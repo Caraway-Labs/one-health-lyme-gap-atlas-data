@@ -41,9 +41,9 @@ from .ingestion.intelligence_runtime import (
     DAILY_SOURCE_BUDGET_SECONDS,
     DAILY_SOURCE_WATCHDOG_SECONDS,
     ORCHESTRATOR_STAGE_TO_DAILY,
-    PROD_DAILY_SOURCE_SHA256,
     PROD_SOURCE_DEFINITIONS,
     DailyStageClock,
+    reviewed_prod_source_sha256,
 )
 from .ingestion.source_definition import load_source_definition
 from .ingestion.step_deadline import (
@@ -756,10 +756,11 @@ def _execute_daily_source_observed(
             source = definition.extra["intelligence_registry"]
             if source["state"] != "active":
                 return _source_outcome(source_id, "SCHEDULE_SUPPRESSED")
+            version = source["registry_version"]
             if (
-                source["registry_version"] != 2
+                version not in {2, 3}
                 or source["cadence"]["poll_seconds"] != DAILY_POLL_SECONDS
-                or identity_hash(source) != PROD_DAILY_SOURCE_SHA256[source_id]
+                or identity_hash(source) != reviewed_prod_source_sha256(source_id, version)
             ):
                 raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
             if preflight_only:
@@ -773,7 +774,9 @@ def _execute_daily_source_observed(
                 with stage_scope("CLAIM"):
                     claimed = cast(
                         IntelligenceSnowflakeCheckpoints, orchestrator.store
-                    ).claim_daily_run(run_id, source_id, PROD_DAILY_SOURCE_SHA256[source_id])
+                    ).claim_daily_run(
+                        run_id, source_id, reviewed_prod_source_sha256(source_id, version)
+                    )
             finally:
                 claim_clock.end("CLAIM")
             timings_ms = _merged_timings(claim_clock, budget)

@@ -77,6 +77,29 @@ PROD_DAILY_SOURCE_SHA256 = {
     "pubmed-tick-borne": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244",
     "pubmed-lyme-borrelia": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6",
 }
+PROD_V3_DECISION = "DATA-816-D3R-2026-10-25"
+# Reviewed receipt paths must stay inside this set. Description, category and guid
+# are the only additions to the six daily paths. Enclosure, media and copyright stay out.
+PROD_NATIVE_PATH_SUPERSET = frozenset(
+    {
+        "feed/language",
+        "feed/link",
+        "feed/title",
+        "item/category",
+        "item/description",
+        "item/guid",
+        "item/link",
+        "item/pubDate",
+        "item/title",
+    }
+)
+PROD_V3_SOURCE_SHA256 = {
+    "cdc-eid-expedited": "fb2190ab42aa713bb2465d8ff0ca579acacb3728b52a8cc87a846916f5a3cb5c",
+    "cdc-eid-ahead-of-print": "25ccc477071e581eede7c0f28cb334209b98fde74d667f16ee738adc35812a8d",
+    "cdc-outbreaks": "ed53f0d002393558848d99e5ca5b47f182cdc98d897097b1ffd4d49d40af81fb",
+    "nih-news-releases": "840572dc7933ec80b52207deec5b8dedfb9247f41070050ec155146a075f3540",
+    "cdc-mmwr": "e171c1b053227b5187ace15a38c5f7d61bfe1a2e012735615191491f77c1cff7",
+}
 PROD_EID_SHA256 = "51705ebb4c82d7fc8e992f2e5793c45f79f202578ba487747aa2109e695f33a4"
 PROD_SOURCE_SHA256 = {
     "cdc-eid-expedited": PROD_EID_SHA256,
@@ -116,6 +139,40 @@ DAILY_OPERATOR_STAGES = (
     "PUBLISH",
 )
 DAILY_OPERATOR_STAGE_NAMES = frozenset(DAILY_OPERATOR_STAGES)
+
+
+def reviewed_prod_source_sha256(source_id: str, registry_version: int) -> str:
+    """Pinned registry hash for one reviewed production version."""
+    pins = {
+        1: PROD_SOURCE_SHA256,
+        2: PROD_DAILY_SOURCE_SHA256,
+        3: PROD_V3_SOURCE_SHA256,
+    }
+    try:
+        return pins[registry_version][source_id]
+    except KeyError as error:
+        raise PermissionError("INTELLIGENCE_PROD_REVIEWED_EID_REQUIRED") from error
+
+
+def reviewed_prod_decision_ref(source_id: str, registry_version: int) -> str:
+    """Pinned decision reference for one reviewed production version."""
+    if registry_version == 1:
+        return PROD_SOURCE_DECISIONS[source_id]
+    if registry_version == 2:
+        return DAILY_DECISION
+    if registry_version == 3:
+        return PROD_V3_DECISION
+    raise PermissionError("INTELLIGENCE_PROD_REVIEWED_EID_REQUIRED")
+
+
+def prod_daily_config_sha256_allowed(source_id: str, config_sha256: str) -> bool:
+    """True for the v2 daily pin or the v3 registry pin of one live source."""
+    return config_sha256 in {
+        PROD_DAILY_SOURCE_SHA256.get(source_id),
+        PROD_V3_SOURCE_SHA256.get(source_id),
+    }
+
+
 ORCHESTRATOR_STAGE_TO_DAILY = {
     "ACQUIRE": "FETCH",
     "VALIDATE": "PARSE",
@@ -473,8 +530,13 @@ def compose_pilot(
     if settings.topx_env not in {"dev", "prod"}:
         raise PermissionError("INTELLIGENCE_PILOT_ENVIRONMENT_REQUIRED")
     environment: Literal["DEV", "PROD"] = "PROD" if settings.topx_env == "prod" else "DEV"
-    dev_versions = {1, 2} if definition.source_id == "cdc-mmwr" else {1}
-    if registry_version not in ({1, 2} if environment == "PROD" else dev_versions):
+    if environment == "PROD" or definition.source_id == "cdc-mmwr":
+        allowed_versions = {1, 2, 3}
+    elif definition.source_id in PROD_DAILY_SOURCE_SHA256:
+        allowed_versions = {1, 3}
+    else:
+        allowed_versions = {1}
+    if registry_version not in allowed_versions:
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
     if definition.source_id in PUBMED_DRAFT_SOURCE_IDS:
         raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
@@ -514,13 +576,9 @@ def compose_pilot(
     if environment == "PROD" and (
         receipt["registry_version"] != registry_version
         or receipt["source_sha256"]
-        != (PROD_SOURCE_SHA256 if registry_version == 1 else PROD_DAILY_SOURCE_SHA256)[
-            definition.source_id
-        ]
+        != reviewed_prod_source_sha256(definition.source_id, registry_version)
         or receipt["decision_ref"]
-        != (
-            PROD_SOURCE_DECISIONS[definition.source_id] if registry_version == 1 else DAILY_DECISION
-        )
+        != reviewed_prod_decision_ref(definition.source_id, registry_version)
         or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
         or receipt["artifact_policy"] != "CDC_EID_RESTRICTED_RAW_30D_V1"
     ):
@@ -536,17 +594,7 @@ def compose_pilot(
     )
     if environment == "PROD" and (
         native.policy_ref != definition.source_id + "-native-metadata-v1"
-        or native.permitted_paths
-        != frozenset(
-            {
-                "feed/language",
-                "feed/link",
-                "feed/title",
-                "item/link",
-                "item/pubDate",
-                "item/title",
-            }
-        )
+        or not native.permitted_paths <= PROD_NATIVE_PATH_SUPERSET
         or native.updated_path is not None
         or native.published_path != "item/pubDate"
         or native.published_format != "rfc822"
@@ -597,12 +645,17 @@ def compose_pilot(
     if (
         source["registry_version"] != receipt["registry_version"]
         or identity_hash(source) != receipt["source_sha256"]
-        or source["fetch_location"] != definition.endpoint_template
+        or source["fetch_location"]
+        != (
+            definition.endpoint_template + "?max=250"
+            if registry_version == 3 and definition.source_id == "cdc-mmwr"
+            else definition.endpoint_template
+        )
     ):
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
     if (
         environment == "PROD"
-        and registry_version == 2
+        and registry_version in {2, 3}
         and (source["state"] != "active" or source["cadence"]["poll_seconds"] != 86400)
     ):
         raise PermissionError("INTELLIGENCE_DAILY_ACTIVE_SOURCE_REQUIRED")
@@ -615,6 +668,7 @@ def compose_pilot(
     definition = replace(
         definition,
         definition_version=source["registry_version"],
+        endpoint_template=source["fetch_location"],
         artifact_policy=receipt["artifact_policy"],
         extra={"intelligence_registry": source},
     )
@@ -670,7 +724,7 @@ def canonical_pilot(
                 (definition.source_id,),
             )
             rows = cursor.fetchall()
-            if len(rows) != 1 or rows[0][0] not in {1, 2}:
+            if len(rows) != 1 or rows[0][0] not in {1, 2, 3}:
                 raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
             version = rows[0][0]
     return compose_pilot(
