@@ -641,3 +641,55 @@ def test_plan_file_is_a_token_not_a_free_text_window(tmp_path: Path) -> None:
     assert loaded.find("week").day_count() == 7
     with pytest.raises(PermissionError, match="INTELLIGENCE_PUBMED_BACKFILL_PLAN_INVALID"):
         backfill.load_backfill_plan("../dev-proof", root=tmp_path)
+
+
+W1_PLAN_ID = "pubmed-w1-31-365d"
+# R is the PROD watermark (last_entry_date 2026-10-26 for both sources) when
+# Matthew approved the plan, 2026-10-27 8:18 AM MT.
+W1_ANCHOR = date(2026, 10, 26)
+
+
+def test_w1_plan_tiles_days_31_to_365_and_passes_the_prod_loader() -> None:
+    path = backfill.BACKFILL_DIR / f"{W1_PLAN_ID}.json"
+    assert path == ROOT / "config" / "intelligence" / "backfill" / f"{W1_PLAN_ID}.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    plan = backfill.load_backfill_plan(W1_PLAN_ID)
+    backfill.validate_backfill_approval(plan, "prod")
+    assert plan.approved_by == "Matthew Caraway"
+    assert plan.approved_at == "2026-10-27T08:18:00-06:00"
+    assert plan.approved_request_limit == 5
+    assert plan.request_limit == 5
+    assert plan.item_limit == 200
+    assert document["sources"] == ["pubmed-tick-borne", "pubmed-lyme-borrelia"]
+
+    slices = plan.slices
+    assert len(slices) == 12
+    assert [item.slice_id for item in slices] == [f"w1-{n:02d}" for n in range(1, 13)]
+    # Newest first, each slice ends the day before the next newer one starts.
+    assert slices[0].maxdate == W1_ANCHOR - timedelta(days=31)
+    assert slices[-1].mindate == W1_ANCHOR - timedelta(days=365)
+    for newer, older in zip(slices, slices[1:], strict=False):
+        assert older.maxdate == newer.mindate - timedelta(days=1)
+    assert all(1 <= item.day_count() <= backfill.MAX_SLICE_DAYS for item in slices)
+    assert sum(item.day_count() for item in slices) == 365 - 31 + 1
+
+    # The newest slice sits just outside the daily run's first 30-day window.
+    assert slices[0].maxdate == backfill.daily_first_window_start(W1_ANCHOR) - timedelta(days=1)
+
+    def explode(url: str, params: Mapping[str, str], timeout: float) -> EntrezResponse:
+        raise AssertionError("dry run called the provider")
+
+    for item in slices:
+        outcome, _sleeps = _run(
+            explode,  # type: ignore[arg-type]
+            plan,
+            _seed(W1_ANCHOR),
+            slice_id=item.slice_id,
+            environment="prod",
+            dry_run=True,
+        )
+        assert outcome["requests"] == 0
+        assert outcome["writes"] == 0
+        assert outcome["planned_request_count"] == 5
+        assert outcome["mindate"] == item.mindate.isoformat()
+        assert outcome["maxdate"] == item.maxdate.isoformat()

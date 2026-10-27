@@ -1,0 +1,74 @@
+{
+  "plan_id": "pubmed-w1-31-365d",
+  "approved_by": "Matthew Caraway",
+  "approved_at": "2026-10-27T08:18:00-06:00",
+  "approved_request_limit": 5,
+  "request_limit": 5,
+  "item_limit": 200,
+  "sources": [
+    "pubmed-tick-borne",
+    "pubmed-lyme-borrelia"
+  ],
+  "slices": [
+    {
+      "slice_id": "w1-01",
+      "mindate": "2026-08-27",
+      "maxdate": "2026-09-25"
+    },
+    {
+      "slice_id": "w1-02",
+      "mindate": "2026-07-28",
+      "maxdate": "2026-08-26"
+    },
+    {
+      "slice_id": "w1-03",
+      "mindate": "2026-06-28",
+      "maxdate": "2026-07-27"
+    },
+    {
+      "slice_id": "w1-04",
+      "mindate": "2026-05-29",
+      "maxdate": "2026-06-27"
+    },
+    {
+      "slice_id": "w1-05",
+      "mindate": "2026-04-29",
+      "maxdate": "2026-05-28"
+    },
+    {
+      "slice_id": "w1-06",
+      "mindate": "2026-03-30",
+      "maxdate": "2026-04-28"
+    },
+    {
+      "slice_id": "w1-07",
+      "mindate": "2026-02-28",
+      "maxdate": "2026-03-29"
+    },
+    {
+      "slice_id": "w1-08",
+      "mindate": "2026-01-29",
+      "maxdate": "2026-02-27"
+    },
+    {
+      "slice_id": "w1-09",
+      "mindate": "2025-12-30",
+      "maxdate": "2026-01-28"
+    },
+    {
+      "slice_id": "w1-10",
+      "mindate": "2025-11-30",
+      "maxdate": "2025-12-29"
+    },
+    {
+      "slice_id": "w1-11",
+      "mindate": "2025-10-31",
+      "maxdate": "2025-11-29"
+    },
+    {
+      "slice_id": "w1-12",
+      "mindate": "2025-10-26",
+      "maxdate": "2025-10-30"
+    }
+  ]
+}
