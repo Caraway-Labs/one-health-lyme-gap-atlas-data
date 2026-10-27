@@ -327,15 +327,21 @@ def test_reopen_attempt_pattern_and_manual_window_execute(tmp_path: Path) -> Non
     _install_executable(bin_dir / "python", _PYTHON_STUB)
     _install_executable(bin_dir / "date", _DATE_STUB)
     cases = (
-        ("zero", "0", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
-        ("padded", "01", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
-        ("decimal", "2.0", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
-        ("window-start", "1", "1700", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
-        ("window-cron", "1", "1815", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
-        ("before-window", "1", "1659", ""),
-        ("after-window", "1", "1816", ""),
+        ("zero", "0", "none", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("padded", "01", "none", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("decimal", "2.0", "none", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("full-before", "1", "none", "1639", ""),
+        ("full-start", "1", "none", "1640", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("full-old-edge", "1", "none", "1659", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("full-cron", "1", "none", "1815", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("full-after", "1", "none", "1816", ""),
+        ("reopen-during-full-only", "2", "cdc-mmwr", "1640", ""),
+        ("reopen-before", "2", "cdc-mmwr", "1659", ""),
+        ("reopen-start", "2", "cdc-mmwr", "1700", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("reopen-cron", "2", "cdc-mmwr", "1815", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("reopen-after", "2", "cdc-mmwr", "1816", ""),
     )
-    for name, attempt, hhmm, token in cases:
+    for name, attempt, source_id, hhmm, token in cases:
         work = tmp_path / name
         work.mkdir()
         env = {
@@ -348,7 +354,7 @@ def test_reopen_attempt_pattern_and_manual_window_execute(tmp_path: Path) -> Non
             "IMAGE_DIGEST": _IMAGE_DIGEST,
             "GITHUB_REPOSITORY": "example/atlas",
             "PREFLIGHT_ONLY": "false",
-            "SOURCE_ID": "none",
+            "SOURCE_ID": source_id,
             "REOPEN_ATTEMPT": attempt,
             "RECOVER_INGESTION_RUN_ID": "",
             "PYTHON_ARGS_FILE": str(work / "python-args"),

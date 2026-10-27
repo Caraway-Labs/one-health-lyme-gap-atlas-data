@@ -95,10 +95,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          # 17:00 through 18:15 America/Denver. Covers the 18:15 cron and the
-          # hour the old 18:00 MDT instant moves to after the November clock change.
+          # Full pass: 16:40 through 18:15 America/Denver, so a 1h35m run started
+          # at 16:39 ends before the 18:15 cron. A single-source re-run (attempt
+          # 2 or 3) keeps 17:00 through 18:15. Local clock, including November.
           denver_hm="$(TZ=America/Denver date +%H%M)"
-          if [[ "$denver_hm" -ge 1700 && "$denver_hm" -le 1815 ]]; then
+          window_start=1640
+          if [[ "${REOPEN_ATTEMPT:-1}" =~ ^[2-3]$ && -n "${SOURCE_ID}" && "$SOURCE_ID" != "none" ]]; then
+            window_start=1700
+          fi
+          if [[ "$denver_hm" -ge "$window_start" && "$denver_hm" -le 1815 ]]; then
             echo "::error::INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"
             exit 1
           fi

@@ -468,6 +468,63 @@ def test_scheduled_pubmed_retry_success_clears_the_failure(
     assert payload["status"] == "SUCCEEDED"
 
 
+def test_pubmed_retry_permission_error_keeps_the_first_pass(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "operator note user@example.test"
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["reopen_attempt"] == 1:
+            return [
+                {
+                    "source_id": TICK,
+                    "status": "FAILED",
+                    "error_class": "TimeoutError",
+                    "error_code": "FEED_TIMEOUT",
+                }
+            ]
+        raise PermissionError(secret)
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(scheduled_retry=True)
+    logged = capsys.readouterr().out
+    assert payload["status"] == "SUCCEEDED"
+    assert payload["pubmed"] == [
+        {
+            "source_id": TICK,
+            "status": "FAILED",
+            "error_class": "TimeoutError",
+            "error_code": "FEED_TIMEOUT",
+        }
+    ]
+    assert polling.SCHEDULED_RETRY_SKIPPED in logged
+    assert secret not in logged
+    assert "PermissionError" not in logged
+
+
+def test_pubmed_retry_prior_not_failed_is_recorded_not_skipped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["reopen_attempt"] == 1:
+            return [{"source_id": TICK, "status": "FAILED", "error_class": "TimeoutError"}]
+        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED")
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(scheduled_retry=True)
+    logged = capsys.readouterr().out
+    assert payload["status"] == "SUCCEEDED"
+    assert payload["pubmed"][0]["error_code"] == "INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED"
+    assert polling.SCHEDULED_RETRY_SKIPPED not in logged
+
+
 def test_rss_reopen_still_skips_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
     monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)

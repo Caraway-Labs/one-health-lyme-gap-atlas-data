@@ -121,7 +121,7 @@ def test_rejects_competing_predeploy() -> None:
         build_operation_spec(baseline, preflight_only=False)
 
 
-def test_reopen_attempt_appends_flag_and_not_an_env() -> None:
+def test_reopen_attempt_sets_the_flag_and_the_legacy_env() -> None:
     spec = build_operation_spec(
         _baseline(),
         preflight_only=False,
@@ -131,9 +131,17 @@ def test_reopen_attempt_appends_flag_and_not_an_env() -> None:
     manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
     assert manual["run_command"] == COMMAND + " --reopen-attempt 2 --source cdc-mmwr"
     assert "--scheduled-same-day-retry" not in manual["run_command"]
-    assert not any(
-        entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" for entry in manual.get("envs", [])
-    )
+    reopen = [
+        entry for entry in manual.get("envs", []) if entry.get("key") == "INTELLIGENCE_DAILY_REOPEN"
+    ]
+    assert reopen == [
+        {
+            "key": "INTELLIGENCE_DAILY_REOPEN",
+            "scope": "RUN_TIME",
+            "type": "GENERAL",
+            "value": "true",
+        }
+    ]
 
 
 def test_default_manual_spec_never_sets_reopen_env_or_flag() -> None:
@@ -186,6 +194,10 @@ def test_reopen_attempt_three_is_admitted_for_rss_and_pubmed() -> None:
         )
         manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
         assert manual["run_command"] == COMMAND + f" --reopen-attempt 3 --source {source_id}"
+        assert any(
+            entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" and entry.get("value") == "true"
+            for entry in manual.get("envs", [])
+        )
 
 
 def test_manual_full_run_drops_the_scheduled_retry_flag_and_sets_timeout() -> None:

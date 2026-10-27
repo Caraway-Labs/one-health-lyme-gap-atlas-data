@@ -165,6 +165,20 @@ def build_operation_spec(
         timeout=MANUAL_JOB_TIMEOUT,
     )
     manual.pop("schedule", None)
+    # The image currently in PROD admits attempt >= 2 only when this variable
+    # is set. The new image uses claim_daily_run(reopen=True) and ignores it.
+    if reopen_attempt >= 2:
+        envs = [entry for entry in manual.get("envs", []) if isinstance(entry, dict)]
+        if not any(entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" for entry in envs):
+            envs.append(
+                {
+                    "key": "INTELLIGENCE_DAILY_REOPEN",
+                    "scope": "RUN_TIME",
+                    "type": "GENERAL",
+                    "value": "true",
+                }
+            )
+        manual["envs"] = envs
     if daily.SCHEDULED_RETRY_FLAG in run_command:
         raise PermissionError("INTELLIGENCE_DAILY_SCHEDULED_RETRY_INVALID")
     result = copy.deepcopy(baseline)

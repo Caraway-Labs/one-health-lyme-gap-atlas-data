@@ -152,11 +152,24 @@ PUBMED_DAILY_FAILED = "PUBMED_DAILY_FAILED"
 _REOPEN_PRIOR_NOT_FAILED = "INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED"
 # The scheduled job's one automatic re-run. Manual attempts 2 and 3 stay explicit.
 SCHEDULED_RETRY_ATTEMPT = 2
-# One RSS parent wait plus one PubMed walk. Later FAILED sources keep their
-# first outcome so a scheduled retry cannot double the whole pass.
-SCHEDULED_RETRY_BUDGET_SECONDS = (
-    int(source_process_timeout(DAILY_SOURCE_WATCHDOG_SECONDS)) + PUBMED_WALK_DEADLINE_SECONDS
+# Parent join after a killed PubMed walk, then the bounded FAILED save.
+# 180 + 5 + 30. The isolated walk uses these same bounds.
+PUBMED_KILL_JOIN_SECONDS = 5
+PUBMED_RETRY_CAP_SECONDS = (
+    PUBMED_WALK_DEADLINE_SECONDS + PUBMED_KILL_JOIN_SECONDS + PUBMED_FAIL_SAVE_SECONDS
 )
+# RSS parent wait: watchdog, ledger bound, and join buffer (1020s).
+RSS_RETRY_CAP_SECONDS = int(source_process_timeout(DAILY_SOURCE_WATCHDOG_SECONDS))
+# One deadline for retry admission. The platform job timeout is set outside this
+# module; override this with INTELLIGENCE_DAILY_JOB_DEADLINE_SECONDS when that
+# timeout changes. The default is the platform's 30 minute job allowance.
+# It is not a pre-shrunk 25 minute budget. A first pass that already exceeds
+# the deadline is left intact and simply does not retry.
+DAILY_JOB_DEADLINE_ENV = "INTELLIGENCE_DAILY_JOB_DEADLINE_SECONDS"
+DAILY_JOB_DEADLINE_SECONDS = 30 * 60
+DAILY_JOB_DEADLINE_MARGIN_SECONDS = 60
+SCHEDULED_RETRY_SKIPPED = "INTELLIGENCE_DAILY_SCHEDULED_RETRY_SKIPPED"
+RETRY_SKIPPED_LOG_PREFIX = "ATLAS_INTEL_DAILY_RETRY_SKIPPED "
 # These denials are not a consumed provider failure, so the scheduled job does not
 # spend another attempt on them.
 _NO_SAME_DAY_RETRY = frozenset(
@@ -494,6 +507,37 @@ _CHILD_OUTCOMES = frozenset(
 
 def _retry_clock() -> float:
     return time.monotonic()
+
+
+def daily_job_deadline_seconds() -> int:
+    """Return the job deadline a scheduled retry must finish inside.
+
+    Unset or blank uses ``DAILY_JOB_DEADLINE_SECONDS``. A positive integer in
+    ``INTELLIGENCE_DAILY_JOB_DEADLINE_SECONDS`` overrides it, up to 24 hours.
+    Any other value keeps the named default so a bad override cannot drop the bound.
+    """
+    raw = os.environ.get(DAILY_JOB_DEADLINE_ENV)
+    if raw is None or raw.strip() == "":
+        return DAILY_JOB_DEADLINE_SECONDS
+    token = raw.strip()
+    if token.isdigit():
+        value = int(token)
+        if 0 < value <= 24 * 60 * 60:
+            return value
+    return DAILY_JOB_DEADLINE_SECONDS
+
+
+def _retry_within_job_deadline(job_started: float, cap_seconds: int) -> bool:
+    """True when this retry's cap still finishes under the deadline minus margin.
+
+    ``job_started`` is the monotonic clock captured at the start of
+    ``run_production_daily``. The first pass does not consult this predicate.
+    """
+    limit = daily_job_deadline_seconds() - DAILY_JOB_DEADLINE_MARGIN_SECONDS
+    if cap_seconds <= 0 or limit <= 0:
+        return False
+    elapsed = _retry_clock() - job_started
+    return elapsed + cap_seconds < limit
 
 
 def _retriable_same_day_failure(error_code: object) -> bool:
@@ -1650,7 +1694,7 @@ def _isolate_pubmed_walk(
         process.join(PUBMED_WALK_DEADLINE_SECONDS)
         if process.is_alive():
             process.kill()
-            process.join(5)
+            process.join(PUBMED_KILL_JOIN_SECONDS)
             return _pubmed_timeout_rows(day, reopen_attempt, tracked)
         if process.exitcode != 0:
             return _pubmed_timeout_rows(day, reopen_attempt, tracked)
@@ -1685,7 +1729,7 @@ def _isolate_pubmed_walk(
         heartbeat_thread.join(1)
         if process.is_alive():
             process.kill()
-            process.join(5)
+            process.join(PUBMED_KILL_JOIN_SECONDS)
         result_queue.close()
         result_queue.cancel_join_thread()
         if stage_queue is not None:
@@ -1729,12 +1773,8 @@ def daily_source_selection(
     return frozenset(selected)
 
 
-def _retry_budget_open(deadline: float) -> bool:
-    return _retry_clock() < deadline
-
-
 def _retry_failed_rss_once(
-    results: list[dict[str, Any]], *, day: str, deadline: float
+    results: list[dict[str, Any]], *, day: str, job_started: float
 ) -> list[dict[str, Any]]:
     updated = list(results)
     for index, row in enumerate(updated):
@@ -1746,8 +1786,8 @@ def _retry_failed_rss_once(
         path = PROD_SOURCE_DEFINITIONS.get(source_id)
         if path is None:
             continue
-        if not _retry_budget_open(deadline):
-            break
+        if not _retry_within_job_deadline(job_started, RSS_RETRY_CAP_SECONDS):
+            continue
         replacement = execute_daily_source(
             source_id,
             path,
@@ -1777,13 +1817,33 @@ def _log_pubmed_retry_success(source_id: str, stage_timings_ms: dict[str, int]) 
     )
 
 
+def _log_scheduled_retry_skipped(source_id: str, permission_code: str) -> None:
+    """One structured warning. The permission text is kept only when it is a code."""
+    safe_source = (
+        source_id
+        if source_id in SOURCE_ORDER or source_id in PROD_SOURCE_DEFINITIONS
+        else "unknown"
+    )
+    payload: dict[str, Any] = {
+        "code": SCHEDULED_RETRY_SKIPPED,
+        "daily_attempt": SCHEDULED_RETRY_ATTEMPT,
+        "source_id": safe_source,
+    }
+    if _ALLOWLISTED_ERROR_CODE.fullmatch(permission_code):
+        payload["permission_code"] = permission_code
+    sys.stdout.write(
+        RETRY_SKIPPED_LOG_PREFIX + json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
+    )
+    sys.stdout.flush()
+
+
 def _retry_failed_pubmed_once(
     rows: list[dict[str, Any]],
     walker: Callable[..., list[dict[str, Any]]],
     settings: Any,
     day: str,
     *,
-    deadline: float,
+    job_started: float,
 ) -> list[dict[str, Any]]:
     """Retry each failed PubMed source alone so a success is not an empty walk."""
     failed_ids = [
@@ -1793,11 +1853,15 @@ def _retry_failed_pubmed_once(
         and row.get("source_id") in SOURCE_ORDER
         and _retriable_same_day_failure(row.get("error_code"))
     ]
+    by_id = {row.get("source_id"): row for row in rows}
     ordered = [source_id for source_id in SOURCE_ORDER if source_id in failed_ids]
     recorded: list[dict[str, Any]] = []
     for source_id in ordered:
-        if not _retry_budget_open(deadline):
-            break
+        if not _retry_within_job_deadline(job_started, PUBMED_RETRY_CAP_SECONDS):
+            original = by_id.get(source_id)
+            if isinstance(original, dict):
+                recorded.append(original)
+            continue
         try:
             retried = walker(
                 settings,
@@ -1809,7 +1873,11 @@ def _retry_failed_pubmed_once(
             )
         except PermissionError as error:
             if str(error) != _REOPEN_PRIOR_NOT_FAILED:
-                raise
+                _log_scheduled_retry_skipped(source_id, str(error))
+                original = by_id.get(source_id)
+                if isinstance(original, dict):
+                    recorded.append(original)
+                continue
             retried = [
                 {
                     "source_id": source_id,
@@ -1852,7 +1920,9 @@ def run_production_daily(
     claim them. Re-run attempts require that selector. A PubMed re-run names one
     PubMed source and does not run the RSS sources. Only the scheduled full run
     (``scheduled_retry``) retries each FAILED source once, as attempt 2, after
-    the other sources finish, and only until the retry budget is spent.
+    the other sources finish, and only when that retry's cap still fits under
+    the job deadline measured from this function's start. The first pass is
+    not shortened to make a retry fit.
     """
     # Selector checks precede settings and any Snowflake connection.
     selection = daily_source_selection(source_ids, reopen_attempt=reopen_attempt)
@@ -1868,7 +1938,7 @@ def run_production_daily(
         raise PermissionError("INTELLIGENCE_DAILY_PROD_REQUIRED")
     already = observation_active()
     token = None if already else activate_observation()
-    started = time.monotonic()
+    started = _retry_clock()
     try:
         with job_span():
             return _run_production_daily_observed(
@@ -1970,10 +2040,11 @@ def _run_production_daily_observed(
                 only_source_id=pubmed_only,
             )
         if scheduled_retry:
-            deadline = _retry_clock() + SCHEDULED_RETRY_BUDGET_SECONDS
-            results = _retry_failed_rss_once(results, day=day, deadline=deadline)
+            results = _retry_failed_rss_once(results, day=day, job_started=started)
             if pubmed and walker is not None:
-                pubmed = _retry_failed_pubmed_once(pubmed, walker, settings, day, deadline=deadline)
+                pubmed = _retry_failed_pubmed_once(
+                    pubmed, walker, settings, day, job_started=started
+                )
         failed = any(row["outcome"] in {"FAILED", "PREFLIGHT_OR_RUNTIME_FAILED"} for row in results)
         if pubmed_only is not None and any(
             row.get("status") in {"FAILED", "ALREADY_CLAIMED"} for row in pubmed
@@ -2004,7 +2075,7 @@ def _run_production_daily_observed(
     finally:
         emit_run_summary(
             status=status,
-            seconds=time.monotonic() - started,
+            seconds=_retry_clock() - started,
             sources=len(results) + len(pubmed),
             failed=_failed_source_count(
                 results,
