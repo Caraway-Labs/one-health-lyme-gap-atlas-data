@@ -14,6 +14,7 @@ on:
           - config/sources/usda_ers_rucc_2023.yml
           - config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml
           - config/sources/noaa_nclimgrid_daily_202501_prod.yml
+          - config/sources/census_county_adjacency_2025.yml
       identity_verification_only:
         description: One protected January runtime identity SELECT; no source capture
         required: false
@@ -64,7 +65,7 @@ jobs:
             test "${{ inputs.source_definition }}" = config/sources/noaa_nclimgrid_daily_202501_prod.yml
           fi
           case "${{ inputs.source_definition }}" in
-            config/sources/cdc_atsdr_svi_2022_county.yml|config/sources/usda_ers_rucc_2023.yml|config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml|config/sources/noaa_nclimgrid_daily_202501_prod.yml) ;;
+            config/sources/cdc_atsdr_svi_2022_county.yml|config/sources/usda_ers_rucc_2023.yml|config/sources/mrlc_annual_nlcd_c1v2_2025_demo_cohort.yml|config/sources/noaa_nclimgrid_daily_202501_prod.yml|config/sources/census_county_adjacency_2025.yml) ;;
             *) echo "::error::Definition is not admitted to this protected evidence path"; exit 1 ;;
           esac
       - uses: astral-sh/setup-uv@v6
