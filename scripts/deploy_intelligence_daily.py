@@ -12,6 +12,11 @@ import subprocess
 from typing import Any
 from urllib.parse import quote, quote_plus
 
+from lyme_gap_atlas_data.intelligence_daily_job_timeout import (
+    DAILY_JOB_TIMEOUT,
+    duration_seconds,
+)
+
 APP_ID = "5d8966ed-d152-4a78-bdd6-14553dbc1483"
 NAME = "intelligence-feed-daily"
 CHECK = "intelligence-feed-preflight"
@@ -24,12 +29,8 @@ DAILY_SCHEDULE = {"cron": "15 18 * * *", "time_zone": "America/Denver"}
 # Only the standing daily job runs on 1 GB (approved 2026-10-26, #862).
 # Every other job keeps the size it already has in the platform spec.
 DAILY_JOB_INSTANCE_SIZE_SLUG = "apps-s-1vcpu-1gb"
-# jobs[].timeout is a duration string. DigitalOcean's AppJobSpec says an unset
-# timeout defaults to 30 minutes and documents the example `1h30m`. A normal
-# daily pass is about 40 minutes; a first pass where every source hits its
-# watchdog is about 89 minutes. A stuck run can hold its claim until this
-# deadline. Termination is left at the platform default.
-DAILY_JOB_TIMEOUT = "1h30m"
+# DAILY_JOB_TIMEOUT is 1h30m, imported above so the retry deadline reads it too.
+# Termination is left at the platform default.
 BASE = {
     "catalog-discovery",
     "approved-source-ingestion",
@@ -249,24 +250,6 @@ def other_job_timeouts(spec: dict[str, Any]) -> dict[str, Any]:
         for job in spec.get("jobs", [])
         if isinstance(job, dict) and job.get("name") != NAME
     }
-
-
-_DURATION_PART = re.compile(r"(\d+)([hms])")
-_DURATION_SECONDS = {"h": 3600, "m": 60, "s": 1}
-
-
-def duration_seconds(value: Any) -> int | None:
-    """Parse a DigitalOcean duration such as 1h30m or 5400s into seconds.
-
-    DigitalOcean stores the submitted 1h30m as 5400s, so equal durations must compare equal.
-    Returns None for anything that is not a plain h/m/s duration.
-    """
-    if not isinstance(value, str) or not value:
-        return None
-    parts = _DURATION_PART.findall(value)
-    if not parts or "".join(f"{n}{u}" for n, u in parts) != value:
-        return None
-    return sum(int(n) * _DURATION_SECONDS[u] for n, u in parts)
 
 
 def daily_job_timeout_matches(spec: dict[str, Any]) -> bool:

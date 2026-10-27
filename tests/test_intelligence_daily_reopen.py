@@ -27,6 +27,10 @@ from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import (
     reopen_attempt_for_run_id,
 )
 from lyme_gap_atlas_data.ingestion.types import RunStatus
+from lyme_gap_atlas_data.intelligence_daily_job_timeout import (
+    DAILY_JOB_TIMEOUT,
+    duration_seconds,
+)
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 ROOT = Path(__file__).parents[1]
@@ -709,6 +713,7 @@ def test_scheduled_retry_budget_stops_before_a_second_failed_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _settings(monkeypatch)
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "2000")
     clock = {"now": 0.0}
     monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
     calls: list[tuple[str, int]] = []
@@ -732,14 +737,16 @@ def test_job_deadline_is_one_named_value_with_an_env_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(polling.DAILY_JOB_DEADLINE_ENV, raising=False)
-    assert polling.daily_job_deadline_seconds() == polling.DAILY_JOB_DEADLINE_SECONDS == 30 * 60
+    assert duration_seconds(DAILY_JOB_TIMEOUT) == 5400
+    assert DAILY_JOB_TIMEOUT == "1h30m"
+    assert polling.daily_job_deadline_seconds() == polling.DAILY_JOB_DEADLINE_SECONDS == 5400
     assert polling.DAILY_JOB_DEADLINE_MARGIN_SECONDS == 60
     assert polling.RSS_RETRY_CAP_SECONDS == 1020
     assert polling.PUBMED_RETRY_CAP_SECONDS == 215
     monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "6610")
     assert polling.daily_job_deadline_seconds() == 6610
     monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "not-a-number")
-    assert polling.daily_job_deadline_seconds() == 30 * 60
+    assert polling.daily_job_deadline_seconds() == 5400
 
 
 def test_pubmed_retry_fits_when_the_rss_cap_does_not(monkeypatch: pytest.MonkeyPatch) -> None:

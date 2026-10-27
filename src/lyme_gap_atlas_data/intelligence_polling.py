@@ -79,6 +79,7 @@ from .intelligence_daily_hard_kill import (
     source_process_timeout,
     valid_run_id,
 )
+from .intelligence_daily_job_timeout import DAILY_JOB_DEADLINE_SECONDS
 from .intelligence_daily_telemetry import (
     HEARTBEAT_SECONDS,
     StageHeartbeat,
@@ -160,13 +161,11 @@ PUBMED_RETRY_CAP_SECONDS = (
 )
 # RSS parent wait: watchdog, ledger bound, and join buffer (1020s).
 RSS_RETRY_CAP_SECONDS = int(source_process_timeout(DAILY_SOURCE_WATCHDOG_SECONDS))
-# One deadline for retry admission. The platform job timeout is set outside this
-# module; override this with INTELLIGENCE_DAILY_JOB_DEADLINE_SECONDS when that
-# timeout changes. The default is the platform's 30 minute job allowance.
-# It is not a pre-shrunk 25 minute budget. A first pass that already exceeds
-# the deadline is left intact and simply does not retry.
+# One deadline for retry admission. The default is the standing job's 1h30m
+# DigitalOcean timeout (5400s), the same value as DAILY_JOB_TIMEOUT. Override
+# it with INTELLIGENCE_DAILY_JOB_DEADLINE_SECONDS when that timeout changes.
+# A first pass that already exceeds the deadline is left intact and does not retry.
 DAILY_JOB_DEADLINE_ENV = "INTELLIGENCE_DAILY_JOB_DEADLINE_SECONDS"
-DAILY_JOB_DEADLINE_SECONDS = 30 * 60
 DAILY_JOB_DEADLINE_MARGIN_SECONDS = 60
 SCHEDULED_RETRY_SKIPPED = "INTELLIGENCE_DAILY_SCHEDULED_RETRY_SKIPPED"
 RETRY_SKIPPED_LOG_PREFIX = "ATLAS_INTEL_DAILY_RETRY_SKIPPED "
