@@ -198,8 +198,9 @@ def test_daily_only_promote_writes_the_timeout_and_proves_readback(
     [
         None,
         "30m",
-        "90m",
         "1h",
+        "5401s",
+        "garbage",
     ],
 )
 def test_refresh_main_fails_when_the_live_timeout_is_missing_or_different(
@@ -218,3 +219,28 @@ def test_refresh_main_fails_when_the_live_timeout_is_missing_or_different(
 
     with pytest.raises(PermissionError, match="POST_DEPLOY_TIMEOUT_MISMATCH"):
         _run_refresh_main(module, monkeypatch, _live_spec(module), mutate=revert)
+
+
+@pytest.mark.parametrize("installed", ["1h30m", "5400s", "90m", "1h29m60s"])
+def test_equal_durations_compare_equal_whatever_unit_digitalocean_stores(
+    monkeypatch: pytest.MonkeyPatch, installed: str
+) -> None:
+    monkeypatch.setenv("NCBI_EMAIL", EMAIL)
+    module = _module()
+    spec = _live_spec(module)
+    for job in spec["jobs"]:
+        if job["name"] == module.NAME:
+            job["timeout"] = installed
+    assert module.daily_job_timeout_matches(spec)
+
+    def store_as_seconds(live: dict[str, Any]) -> None:
+        for job in live["jobs"]:
+            if job["name"] == module.NAME:
+                job["timeout"] = "5400s"
+
+    _run_refresh_main(module, monkeypatch, _live_spec(module), mutate=store_as_seconds)
+
+
+@pytest.mark.parametrize("value", [None, "", "abc", "1h30", "-5m", "1.5h", 5400])
+def test_duration_seconds_rejects_non_durations(value: Any) -> None:
+    assert _module().duration_seconds(value) is None

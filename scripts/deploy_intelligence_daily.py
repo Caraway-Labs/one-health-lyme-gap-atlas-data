@@ -236,6 +236,29 @@ def other_job_timeouts(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_DURATION_PART = re.compile(r"(\d+)([hms])")
+_DURATION_SECONDS = {"h": 3600, "m": 60, "s": 1}
+
+
+def duration_seconds(value: Any) -> int | None:
+    """Parse a DigitalOcean duration such as 1h30m or 5400s into seconds.
+
+    DigitalOcean stores the submitted 1h30m as 5400s, so equal durations must compare equal.
+    Returns None for anything that is not a plain h/m/s duration.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    parts = _DURATION_PART.findall(value)
+    if not parts or "".join(f"{n}{u}" for n, u in parts) != value:
+        return None
+    return sum(int(n) * _DURATION_SECONDS[u] for n, u in parts)
+
+
+def daily_job_timeout_matches(spec: dict[str, Any]) -> bool:
+    actual = duration_seconds(daily_job_timeout(spec))
+    return actual is not None and actual == duration_seconds(DAILY_JOB_TIMEOUT)
+
+
 def daily_job_timeout(spec: dict[str, Any]) -> Any:
     job = next((j for j in spec.get("jobs", []) if j.get("name") == NAME), None)
     return (job or {}).get("timeout")
@@ -824,7 +847,7 @@ def main() -> None:
             raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_SIZE_MISMATCH")
         if other_job_sizes(app["spec"]) != sizes_before:
             raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
-        if daily_job_timeout(app["spec"]) != DAILY_JOB_TIMEOUT:
+        if not daily_job_timeout_matches(app["spec"]):
             raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_TIMEOUT_MISMATCH")
         if other_job_timeouts(app["spec"]) != timeouts_before:
             raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_TIMEOUT_CHANGED")
