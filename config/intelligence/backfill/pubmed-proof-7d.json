@@ -1,0 +1,19 @@
+{
+  "plan_id": "pubmed-proof-7d",
+  "approved_by": "Matthew Caraway",
+  "approved_at": "2026-10-27T10:41:00-06:00",
+  "approved_request_limit": 5,
+  "request_limit": 5,
+  "item_limit": 200,
+  "sources": [
+    "pubmed-tick-borne",
+    "pubmed-lyme-borrelia"
+  ],
+  "slices": [
+    {
+      "slice_id": "proof-7d",
+      "mindate": "2026-09-19",
+      "maxdate": "2026-09-25"
+    }
+  ]
+}
