@@ -472,12 +472,25 @@ def test_unchanged_bytes_cannot_be_relabelled_during_replay(drift: str) -> None:
         adapter.normalize(target, captured.payload)
 
 
-def _peak_rss_kib(mode: str) -> int:
-    """Peak RSS for one large feed. ``hold`` keeps the tree and copies."""
+def _retained_feed_memory_kib(mode: str) -> tuple[int, int]:
+    """Incremental RSS and traced peak while a large feed is still retained.
+
+    ``hold`` keeps the document tree and a serialized copy of every item.
+    ``stream`` keeps only the parsed records. RSS is sampled before those
+    objects are released, so a process high-water mark shared with the parent
+    suite cannot hide the difference.
+    """
     code = f"""
-import resource
+import tracemalloc
 import xml.etree.ElementTree as ET
 from lyme_gap_atlas_data.ingestion.intelligence_feed import parse_feed
+
+def rss_kib():
+    for line in open("/proc/self/status", encoding="ascii"):
+        if line.startswith("VmRSS:"):
+            return int(line.split()[1])
+    raise SystemExit("missing VmRSS")
+
 parts = []
 for index in range(400):
     text = ("tick-borne surveillance note ") * 2500
@@ -491,6 +504,8 @@ source = {{
     "limits": {{"maximum_bytes": 80_000_000, "maximum_items": 5000}},
     "fetch_location": "https://example.invalid/feed.xml",
 }}
+baseline = rss_kib()
+tracemalloc.start()
 mode = {mode!r}
 if mode == "hold":
     root = ET.fromstring(raw)
@@ -500,8 +515,9 @@ if mode == "hold":
     retained.append(parse_feed(raw, source))
 else:
     retained = parse_feed(raw, source)
-del retained
-print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+held = rss_kib() - baseline
+_current, traced = tracemalloc.get_traced_memory()
+print("MEASURE", held, traced // 1024)
 """
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -511,16 +527,23 @@ print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    return int(result.stdout.strip().splitlines()[-1])
+    line = next(row for row in result.stdout.splitlines() if row.startswith("MEASURE "))
+    _label, held, traced = line.split()
+    return int(held), int(traced)
 
 
 def test_streaming_mmwr_parse_peak_rss_is_below_holding_the_tree() -> None:
-    """Measured peak RSS for 400 items with long descriptions.
+    """Measured retained RSS for 400 items with long descriptions.
 
     The holding parser keeps the document tree plus a serialized copy of every
     item. The streaming parser releases each item element after its fields
     are copied into the result.
     """
-    holding = _peak_rss_kib("hold")
-    streaming = _peak_rss_kib("stream")
-    assert holding > streaming + 1024, f"peak rss hold={holding} stream={streaming}"
+    holding_rss, holding_traced = _retained_feed_memory_kib("hold")
+    streaming_rss, streaming_traced = _retained_feed_memory_kib("stream")
+    assert holding_rss > streaming_rss + 8192, (
+        f"retained rss hold={holding_rss} stream={streaming_rss}"
+    )
+    assert holding_traced > streaming_traced + 8192, (
+        f"traced kib hold={holding_traced} stream={streaming_traced}"
+    )

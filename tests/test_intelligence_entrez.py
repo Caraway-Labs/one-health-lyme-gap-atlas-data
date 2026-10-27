@@ -1294,7 +1294,7 @@ def test_pubmed_failure_leaves_the_rss_payload(
     rendered = json.dumps(payload)
     logged = capsys.readouterr().out
     assert payload["status"] == "SUCCEEDED"
-    assert [row["source_id"] for row in payload["sources"]] == list(runtime.PROD_SOURCE_DEFINITIONS)
+    assert [row["source_id"] for row in payload["sources"]] == list(runtime.DAILY_SOURCE_RUN_ORDER)
     assert all(row["outcome"] == "SUCCEEDED" for row in payload["sources"])
     assert secret not in rendered
     assert secret not in logged

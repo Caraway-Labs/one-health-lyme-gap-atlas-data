@@ -232,7 +232,7 @@ def test_reopen_attempt_uses_suffixed_run_id_with_env(monkeypatch) -> None:
     )
     assert result["reopen_attempt"] == 2 and result["status"] == "SUCCEEDED"
     assert seen == [
-        daily_run_id(source, TODAY, reopen_attempt=2) for source in runtime.PROD_SOURCE_DEFINITIONS
+        daily_run_id(source, TODAY, reopen_attempt=2) for source in runtime.DAILY_SOURCE_RUN_ORDER
     ]
 
 
@@ -242,7 +242,7 @@ def test_default_invocation_uses_base_run_id_and_ignores_reopen_env(monkeypatch)
     seen: list[str] = []
     _compose_recording(monkeypatch, seen)
     polling.run_production_daily()
-    assert seen == [daily_run_id(source, TODAY) for source in runtime.PROD_SOURCE_DEFINITIONS]
+    assert seen == [daily_run_id(source, TODAY) for source in runtime.DAILY_SOURCE_RUN_ORDER]
 
 
 def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch) -> None:
@@ -254,7 +254,7 @@ def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch)
     result = polling.run_production_daily()
     assert [row["outcome"] for row in result["sources"]] == [
         "FAILED" if source_id == "cdc-eid-ahead-of-print" else "SUCCEEDED"
-        for source_id in runtime.PROD_SOURCE_DEFINITIONS
+        for source_id in runtime.DAILY_SOURCE_RUN_ORDER
     ]
     assert result["status"] == "FAILED"
     assert terminalized == [daily_run_id("cdc-eid-ahead-of-print", TODAY)]
