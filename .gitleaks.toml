@@ -47,6 +47,18 @@ regexTarget = "secret"
 regexes = ['''^cdc_lyme_qtbi_xd4i$''']
 
 [[allowlists]]
+description = "Public Census county adjacency resource identifier, not an authentication secret"
+condition = "AND"
+paths = [
+  '''^config/sources/census_county_adjacency_2025\.yml$''',
+  '''^src/lyme_gap_atlas_data/ingestion/source_definition\.py$''',
+  '''^src/lyme_gap_atlas_data/source_evidence\.py$''',
+  '''^src/lyme_gap_atlas_data/county_adjacency\.py$''',
+]
+regexTarget = "secret"
+regexes = ['''^census_county_adjacency_2025$''']
+
+[[allowlists]]
 description = "Reviewed PEM-formatting source code, not a private key; exact introducing commit and script"
 condition = "AND"
 commits = ["22691520f5cd9cdab3c30374eaff2ae4fd41f1c5"]

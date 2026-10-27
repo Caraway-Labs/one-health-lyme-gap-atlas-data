@@ -1,0 +1,53 @@
+resource_key: census_county_adjacency_2025
+source_id: census_bureau
+dataset_id: county-adjacency-2025
+definition_version: 1
+profile_version: 1
+platform_type: HTTP_CSV
+endpoint_template: https://www2.census.gov/geo/docs/reference/county_adjacency/county_adjacency2025.txt
+deterministic_order_clause: "County GEOID ASC, Neighbor GEOID ASC"
+incremental_strategy: FULL_REFRESH
+onboarding_environments: [dev, prod]
+onboarding_mode: ROUTINE_PUBLIC
+expected_refresh_cadence: static_vintage
+sample_limit: 25
+maximum_rows: 100000
+page_size: 5000
+destination: RAW.CENSUS_COUNTY_ADJACENCY_2025
+geography_semantics: COUNTY_FIPS_5
+temporal_semantics: CENSUS_COUNTY_ADJACENCY_2025
+required_columns:
+  - County Name
+  - County GEOID
+  - Neighbor Name
+  - Neighbor GEOID
+  - Length
+encoding: utf-8
+delimiter: "|"
+reject_extra_fields: true
+artifact_sha256: 8233d2aed342f62eb02bae9f9002ad1d8fc6bd82d739185eba8bad832bf8fc87
+source_file_name: county_adjacency2025.txt
+source_vintage: "2025"
+license_basis: "U.S. federal government work, public domain. Cite the U.S. Census Bureau. Same basis as ADR 0036."
+quality_rules:
+  - rule_id: census_adjacency_required_fields
+    severity: BLOCKING
+  - rule_id: census_adjacency_identity
+    severity: BLOCKING
+  - rule_id: census_adjacency_symmetry
+    severity: BLOCKING
+  - rule_id: census_adjacency_scope
+    severity: BLOCKING
+  - rule_id: census_adjacency_checksum
+    severity: BLOCKING
+  - rule_id: census_adjacency_islands
+    severity: BLOCKING
+restrictions:
+  - Vintage 2025 is pinned to sha256 8233d2aed342f62eb02bae9f9002ad1d8fc6bd82d739185eba8bad832bf8fc87. A publisher revision is a new reviewed release.
+  - Adjacent means a shared edge or a point contact, including boundaries in water, as defined by the Census Bureau. Length 0 is point contact.
+  - Pairs are undirected. FIPS_A is less than FIPS_B. Counties are not adjacent to themselves.
+  - Puerto Rico and island areas (state FIPS 60, 66, 69, 72, and 78) stay in the raw landing table and are excluded from the governed pairs.
+  - The three Hawaii counties with no neighbor are reported as islands and are not stored as fake pairs.
+  - Join on the five-character FIPS only. County names are not join keys.
+  - Connecticut uses the nine 2025 planning regions. Legacy Connecticut counties are out of scope.
+  - This table has no geometry.

@@ -75,6 +75,21 @@ def _definition_payload(definition: SourceDefinition) -> dict[str, object]:
             }
         )
         payload["maximum_rows"] = definition.maximum_rows
+    if definition.resource_key == "census_county_adjacency_2025":
+        payload.update(
+            {
+                key: definition.extra[key]
+                for key in (
+                    "delimiter",
+                    "encoding",
+                    "artifact_sha256",
+                    "source_file_name",
+                    "source_vintage",
+                    "license_basis",
+                    "reject_extra_fields",
+                )
+            }
+        )
     if definition.adapter_kind is AdapterKind.NCLIMGRID_DAILY:
         payload.update(
             {
