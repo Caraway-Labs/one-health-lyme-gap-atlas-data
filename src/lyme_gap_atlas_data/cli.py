@@ -52,6 +52,7 @@ from .intelligence_daily_telemetry import (
     configure_daily_log_export,
     shutdown_daily_logs,
 )
+from .intelligence_topics import backfill_topics
 from .literature_preflight import literature_preflight
 from .literature_status import literature_status
 from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
@@ -98,6 +99,7 @@ from .semantic_release import (
     rollback_semantic_release,
 )
 from .settings import PipelineSettings
+from .sql_sessions import connect
 from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 from .tick_surveillance import collect_tick_surveillance_evidence, ingest_restricted_tick
 
@@ -243,10 +245,12 @@ app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 source_app = typer.Typer(no_args_is_help=True)
 runs_app = typer.Typer(no_args_is_help=True)
+topics_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(source_app, name="source")
 app.add_typer(runs_app, name="runs")
 app.add_typer(metadata_app, name="metadata")
+app.add_typer(topics_app, name="topics")
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUN_STORE = Path(".atlas-ingestion-runs")
@@ -1598,3 +1602,14 @@ def cdc_consumer_readback_command(
         typer.echo(str(error))
         raise typer.Exit(1) from None
     typer.echo(json.dumps(result, sort_keys=True))
+
+
+@topics_app.command("backfill")
+def topics_backfill(
+    vocabulary_version: str = typer.Option("v1", "--vocabulary-version"),
+) -> None:
+    """Merge vocabulary topic rows for stored intelligence revisions."""
+    with connect(_settings()) as connection, connection.cursor() as cursor:
+        summary = backfill_topics(cursor, vocabulary_version=vocabulary_version)
+        connection.commit()
+    typer.echo(json.dumps({"vocabulary_version": vocabulary_version, **summary}, sort_keys=True))
