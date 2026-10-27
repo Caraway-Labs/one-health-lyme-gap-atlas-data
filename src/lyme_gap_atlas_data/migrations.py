@@ -102,13 +102,25 @@ COUNTY_ADJACENCY_MIGRATION = {
     "filename": "V177__county_adjacency_governed.sql",
     "sha256": "7bb13da306dd03ae44772092718e5da8f4fd93a798e0709638a7ff2464a9a25f",
 }
-# V170, V173, V174, and V175 replace the feed view in both databases. V171
-# creates the topic tables in both databases. The protected path is required
-# on DEV and PROD. The routine migration path cannot apply these versions.
-# V171 requires recorded V170 and may apply after V174. There is no ordering
-# check between V171 and V174. V175 requires recorded V174. V176 stays reserved.
-# V177 is checked against COUNTY_ADJACENCY_MIGRATION and is not in that chain.
-BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V171", "V173", "V174", "V175"})
+# V178 is the next free number after V177. V172 stays reserved by #728 and V176
+# by #858. V178 replaces the feed view in both databases and does not wait for
+# V176 or V177. It requires recorded V175 because the view still reads the
+# abstract suppression table from that migration.
+INTELLIGENCE_FEED_ENTRY_DATE_SORT_MIGRATION = {
+    "version": "V178",
+    "filename": "V178__intelligence_feed_v2_entry_date_sort.sql",
+    "sha256": "ade01121a9c7c7d363ab4e3c2b7de5c1bc545e6e19553f60176f38658516ee57",
+}
+# V170, V173, V174, V175, and V178 replace the feed view in both databases.
+# V171 creates the topic tables in both databases. The protected path is
+# required on DEV and PROD. The routine migration path cannot apply these
+# versions. V171 requires recorded V170 and may apply after V174. There is no
+# ordering check between V171 and V174. V175 requires recorded V174. V178
+# requires recorded V175. V176 stays reserved. V177 is checked against
+# COUNTY_ADJACENCY_MIGRATION and is not in that chain.
+BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset(
+    {"V170", "V171", "V173", "V174", "V175", "V178"}
+)
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -124,6 +136,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_FEED_DESCRIPTION_MIGRATION,
     INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION,
     INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION,
+    INTELLIGENCE_FEED_ENTRY_DATE_SORT_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -1200,6 +1213,10 @@ def apply_migrations(
         "V174" not in applied
     ):
         raise PermissionError("V175 requires recorded V174 before abstract fields on the feed")
+    if any(item.version == "V178" and item.version not in applied for item in plan) and (
+        "V175" not in applied
+    ):
+        raise PermissionError("V178 requires recorded V175 before the entry-date feed sort")
     if any(item.version == "V177" and item.version not in applied for item in plan):
         actual = next(item for item in plan if item.version == "V177")
         if _migration_metadata(actual) != COUNTY_ADJACENCY_MIGRATION:

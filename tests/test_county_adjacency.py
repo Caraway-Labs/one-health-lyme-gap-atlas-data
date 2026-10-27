@@ -294,7 +294,9 @@ def test_v177_is_the_next_free_migration_for_both_databases() -> None:
     digest = hashlib.sha256((ROOT / "migrations" / pinned["filename"]).read_bytes()).hexdigest()
     assert pinned["sha256"] == digest == migration.sha256
     versions = [item.version for item in load_migrations()]
-    assert versions[-1] == "V177"
+    assert "V177" in versions
+    assert "V178" in versions
+    assert versions.index("V175") < versions.index("V177") < versions.index("V178")
     assert "V176" not in versions
     assert "V172" not in versions
     assert pinned["version"] not in DEV_ONLY_MIGRATION_VERSIONS
