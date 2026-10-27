@@ -312,6 +312,8 @@ def test_refresh_is_a_no_op_when_only_the_encrypted_email_differs(monkeypatch):
     )
     for job in spec["jobs"]:
         job["image"]["digest"] = DIGEST
+    # The standing job already carries the reviewed size after its first refresh.
+    spec["jobs"][-1]["instance_size_slug"] = module.DAILY_JOB_INSTANCE_SIZE_SLUG
     before = copy.deepcopy(spec)
     rendered = module.refresh_operational_digests(spec, DIGEST)
     assert rendered == before
