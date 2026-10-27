@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -17,6 +18,8 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 VOCABULARY_ROOT = Path(__file__).resolve().parents[2] / "config" / "intelligence"
 FALLBACK_TOPIC_ID = "other-public-health"
+# The daily topic hook is opt-in. Any other value, including unset, leaves it off.
+TOPICS_FLAG = "ATLAS_INTELLIGENCE_TOPICS"
 VOCABULARY_VERSION_V1 = "v1"
 MAX_TOPICS = 10
 MAX_FIELD_CHARS = 4096
@@ -208,6 +211,17 @@ def map_topics(
             }
         )
     return matches
+
+
+def topics_hook_enabled(enabled: bool | None = None) -> bool:
+    """Return whether the topic hook may run.
+
+    The daily job does not pass ``enabled``. The hook runs only when
+    ``ATLAS_INTELLIGENCE_TOPICS`` is exactly ``on``.
+    """
+    if enabled is not None:
+        return enabled
+    return os.environ.get(TOPICS_FLAG) == "on"
 
 
 def topics_table_exists(cursor: Any) -> bool:
