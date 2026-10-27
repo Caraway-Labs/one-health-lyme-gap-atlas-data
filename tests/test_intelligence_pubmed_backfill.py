@@ -693,3 +693,48 @@ def test_w1_plan_tiles_days_31_to_365_and_passes_the_prod_loader() -> None:
         assert outcome["planned_request_count"] == 5
         assert outcome["mindate"] == item.mindate.isoformat()
         assert outcome["maxdate"] == item.maxdate.isoformat()
+
+
+PROOF_PLAN_ID = "pubmed-proof-7d"
+
+
+def test_proof_plan_is_one_7_day_slice_inside_w1_01_and_passes_the_prod_loader() -> None:
+    path = backfill.BACKFILL_DIR / f"{PROOF_PLAN_ID}.json"
+    assert path == ROOT / "config" / "intelligence" / "backfill" / f"{PROOF_PLAN_ID}.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    plan = backfill.load_backfill_plan(PROOF_PLAN_ID)
+    backfill.validate_backfill_approval(plan, "prod")
+    assert plan.approved_by == "Matthew Caraway"
+    assert plan.approved_at == "2026-10-27T10:41:00-06:00"
+    assert plan.approved_request_limit == 5
+    assert plan.request_limit == 5
+    assert plan.item_limit == 200
+    assert document["sources"] == ["pubmed-tick-borne", "pubmed-lyme-borrelia"]
+
+    assert len(plan.slices) == 1
+    proof = plan.find("proof-7d")
+    assert proof.mindate == date(2026, 9, 19)
+    assert proof.maxdate == date(2026, 9, 25)
+    assert proof.day_count() == 7
+    # The latest maxdate the runner allows with the 2026-10-26 watermark.
+    assert proof.maxdate == backfill.daily_first_window_start(W1_ANCHOR) - timedelta(days=1)
+    # The proof window lies inside w1-01 of the 31-365 day plan.
+    w1_01 = backfill.load_backfill_plan(W1_PLAN_ID).find("w1-01")
+    assert w1_01.mindate <= proof.mindate and proof.maxdate == w1_01.maxdate
+
+    def explode(url: str, params: Mapping[str, str], timeout: float) -> EntrezResponse:
+        raise AssertionError("dry run called the provider")
+
+    outcome, _sleeps = _run(
+        explode,  # type: ignore[arg-type]
+        plan,
+        _seed(W1_ANCHOR),
+        slice_id="proof-7d",
+        environment="prod",
+        dry_run=True,
+    )
+    assert outcome["requests"] == 0
+    assert outcome["writes"] == 0
+    assert outcome["planned_request_count"] == 5
+    assert outcome["mindate"] == "2026-09-19"
+    assert outcome["maxdate"] == "2026-09-25"
