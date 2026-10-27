@@ -228,7 +228,7 @@ def test_completed_outcome_records_stage_timings_ms(
         for stage, milliseconds in expected.items():
             assert timings[stage] == milliseconds
     payloads = _payloads(_lines(capsys))
-    assert [row["source_id"] for row in payloads] == list(runtime.PROD_SOURCE_DEFINITIONS)
+    assert [row["source_id"] for row in payloads] == list(runtime.DAILY_SOURCE_RUN_ORDER)
     for payload in payloads:
         assert payload["status"] == "COMPLETED"
         for stage in expected:

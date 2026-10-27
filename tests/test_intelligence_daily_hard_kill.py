@@ -17,6 +17,7 @@ from lyme_gap_atlas_data import intelligence_daily_hard_kill as hard_kill
 from lyme_gap_atlas_data import intelligence_polling as polling
 from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import daily_run_id
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
+    DAILY_SOURCE_RUN_ORDER,
     PROD_DAILY_SOURCE_SHA256,
     PROD_SOURCE_DEFINITIONS,
 )
@@ -557,7 +558,9 @@ def test_one_hard_killed_source_does_not_starve_the_others(monkeypatch: pytest.M
         ),
     )
     result = polling.run_production_daily()
-    assert order == list(PROD_SOURCE_DEFINITIONS)
+    assert order == list(DAILY_SOURCE_RUN_ORDER)
+    assert DAILY_SOURCE_RUN_ORDER[0] == "cdc-mmwr"
+    assert set(DAILY_SOURCE_RUN_ORDER) == set(PROD_SOURCE_DEFINITIONS)
     assert [row["source_id"] for row in result["sources"]] == order
     killed = next(row for row in result["sources"] if row["source_id"] == "cdc-outbreaks")
     assert killed["exit_code"] == 124
@@ -567,3 +570,94 @@ def test_one_hard_killed_source_does_not_starve_the_others(monkeypatch: pytest.M
         for row in result["sources"]
         if row["source_id"] != "cdc-outbreaks"
     )
+
+
+def _probe_stall(spec: dict[str, Any], queue: object) -> None:
+    stage_queue = spec.get("_stage_queue")
+    deadline = time.monotonic() + 0.2
+    while time.monotonic() < deadline:
+        if stage_queue is not None:
+            stage_queue.put("ACQUIRE")
+        time.sleep(0.05)
+    time.sleep(30)
+
+
+def test_parent_watchdog_kills_a_stalled_child_records_failure_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """A child that stops pulsing is killed by the parent, which writes FAILED."""
+    rows: list[tuple[str, str]] = []
+    secret = "https://secret.example/mmwr-item-body"
+
+    def execute(
+        source_id: str,
+        path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+    ) -> dict[str, Any]:
+        del path, preflight_only, reopen_attempt
+        if source_id == "cdc-mmwr":
+            return polling._run_isolated(
+                _probe_stall,
+                {"source_id": source_id, "run_id": RUN_ID, "body": secret},
+                timeout=10,
+                inactivity_seconds=0.8,
+                ledger_fn=lambda run_id, stage: rows.append((run_id, stage)) or "recorded",
+            )
+        return {
+            "source_id": source_id,
+            "outcome": "SUCCEEDED",
+            "run_id": daily_run_id(source_id, day),
+        }
+
+    monkeypatch.setattr(polling, "execute_daily_source", execute)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.settings.PipelineSettings",
+        lambda: PipelineSettings(
+            topx_env="prod",
+            enable_production_execution=True,
+            snowflake_database="ONE_HEALTH_LYME_GAP_ATLAS_PROD",
+            intelligence_daily_enabled=True,
+        ),
+    )
+    started = time.monotonic()
+    result = polling.run_production_daily()
+    assert time.monotonic() - started < 8
+    assert [row["source_id"] for row in result["sources"]] == list(DAILY_SOURCE_RUN_ORDER)
+    stalled = result["sources"][0]
+    assert stalled["source_id"] == "cdc-mmwr"
+    assert stalled["outcome"] == "FAILED"
+    assert stalled["error_code"] == "INTELLIGENCE_DAILY_HARD_KILL"
+    assert stalled["run_id"] == RUN_ID
+    assert rows == [(RUN_ID, "ACQUIRE")]
+    assert all(row["outcome"] == "SUCCEEDED" for row in result["sources"][1:])
+    captured = capfd.readouterr()
+    assert "intelligence_daily_parent_watchdog" in captured.err
+    assert "reason=inactivity" in captured.err
+    assert "rss_kib=" in captured.err
+    assert "ledger=recorded" in captured.err
+    assert secret not in captured.err
+    assert secret not in captured.out
+    assert "http" not in captured.err
+
+
+def test_parent_watchdog_log_drops_free_text() -> None:
+    line = hard_kill.format_parent_watchdog_log(
+        source_id="cdc-mmwr\nhttps://secret.example/feed",
+        stage="ACQUIRE https://secret.example/item",
+        rss=128,
+        peak=256,
+        ledger="recorded",
+        run_id=RUN_ID,
+        reason="inactivity; password=secret",
+    )
+    assert line == (
+        "intelligence_daily_parent_watchdog "
+        f"source_id=unknown stage=UNKNOWN reason=timeout "
+        f"rss_kib=128 peak_rss_kib=256 ledger=recorded run_id={RUN_ID}"
+    )
+    assert "http" not in line
+    assert "password" not in line

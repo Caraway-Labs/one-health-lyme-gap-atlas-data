@@ -66,6 +66,10 @@ DEADLINE_GRACE_SECONDS = 30
 # used when a budget expiry records FAILED. The daily runner's hard-kill path
 # records FAILED on a fresh connection before exiting (intelligence_daily_hard_kill).
 DAILY_SOURCE_WATCHDOG_SECONDS = DAILY_SOURCE_BUDGET_SECONDS + 2 * DEADLINE_GRACE_SECONDS
+# Parent-side stall limit. A frozen child cannot run its own timer or heartbeat,
+# so the parent kills it after this long without a progress pulse. Healthy
+# sources pulse about once a second and still have the 900s budget.
+DAILY_SOURCE_INACTIVITY_SECONDS = 120
 PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
     "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",
@@ -127,6 +131,15 @@ PROD_SOURCE_DEFINITIONS = {
     "nih-news-releases": "config/sources/intelligence_nih_news_releases.yml",
     "cdc-mmwr": "config/sources/intelligence_cdc_mmwr.yml",
 }
+# cdc-mmwr is the large feed (~250 items). Run it before the smaller feeds so
+# their processes do not overlap its peak. The set matches PROD_SOURCE_DEFINITIONS.
+DAILY_SOURCE_RUN_ORDER = (
+    "cdc-mmwr",
+    "cdc-eid-expedited",
+    "cdc-eid-ahead-of-print",
+    "cdc-outbreaks",
+    "nih-news-releases",
+)
 # Operator stages for one daily source. Checkpoint names stay on the orchestrator;
 # these are the boundaries a daily outcome is allowed to name.
 DAILY_OPERATOR_STAGES = (

@@ -5,6 +5,8 @@ No scheduler deployment, source approval, policy creation or warehouse writes.
 
 from __future__ import annotations
 
+import ctypes
+import gc
 import json
 import multiprocessing
 import os
@@ -39,6 +41,8 @@ from .ingestion.intelligence_entrez import (
 from .ingestion.intelligence_runtime import (
     DAILY_OPERATOR_STAGE_NAMES,
     DAILY_SOURCE_BUDGET_SECONDS,
+    DAILY_SOURCE_INACTIVITY_SECONDS,
+    DAILY_SOURCE_RUN_ORDER,
     DAILY_SOURCE_WATCHDOG_SECONDS,
     ORCHESTRATOR_STAGE_TO_DAILY,
     PROD_SOURCE_DEFINITIONS,
@@ -68,8 +72,12 @@ from .intelligence_daily_hard_kill import (
     HardKillState,
     daily_hard_kill_watchdog,
     install_stage_memory,
+    log_parent_watchdog,
     log_source_process_exit,
+    record_parent_hard_kill,
+    sanitize_stage,
     source_process_timeout,
+    valid_run_id,
 )
 from .intelligence_daily_telemetry import (
     HEARTBEAT_SECONDS,
@@ -82,8 +90,8 @@ from .intelligence_daily_telemetry import (
     emit_source_summary,
     job_span,
     observation_active,
-    parent_heartbeat_active,
     prepare_worker,
+    process_memory_fields,
     reset_observation,
     shutdown_daily_logs,
     source_span,
@@ -529,10 +537,21 @@ def _run_isolated(
     spec: dict[str, Any],
     *,
     timeout: float,
+    inactivity_seconds: float | None = None,
+    ledger_fn: Callable[[str, str], str] | None = None,
 ) -> dict[str, Any]:
-    """Run ``target`` in a spawned process so ``os._exit`` cannot stop later sources."""
+    """Run ``target`` in a spawned process so ``os._exit`` cannot stop later sources.
+
+    The parent watchdog does not run inside the child. If the child stops
+    sending progress, the parent kills it, writes the FAILED row, and returns
+    so the next source can start.
+    """
     source_value = spec.get("source_id")
     source_id = source_value if isinstance(source_value, str) else "unknown"
+    if inactivity_seconds is None:
+        inactivity_seconds = float(DAILY_SOURCE_INACTIVITY_SECONDS)
+    if inactivity_seconds <= 0:
+        raise ValueError("inactivity_seconds must be positive")
     ctx = multiprocessing.get_context("spawn")
     result_queue: Any = ctx.Queue()
     child_spec = dict(spec)
@@ -544,26 +563,68 @@ def _run_isolated(
     process = ctx.Process(target=target, args=(child_spec, result_queue), daemon=False)
     process.start()
     heartbeat_stop = threading.Event()
+    stall_lock = threading.Lock()
+    stall: dict[str, str | None] = {"reason": None, "stage": None}
+
+    def on_inactive(stage: str | None) -> None:
+        with stall_lock:
+            if stall["reason"] is not None:
+                return
+            stall["reason"] = "inactivity"
+            if isinstance(stage, str) and stage:
+                stall["stage"] = stage
+            reason = "inactivity"
+            noted = stall["stage"]
+        log_parent_watchdog(
+            source_id=source_id,
+            stage=noted,
+            ledger="pending",
+            run_id=_spec_run_id(spec),
+            reason=reason,
+        )
+        if process.is_alive():
+            process.kill()
+
     heartbeat_thread = start_parent_stage_heartbeat(
         process,
         stage_queue,
         source_id,
         heartbeat_stop,
         name="intelligence-daily-parent-heartbeat",
+        inactivity_seconds=inactivity_seconds,
+        on_inactive=on_inactive,
+        stage_holder=stall,
+        stage_lock=stall_lock,
     )
     try:
         process.join(timeout)
-        if process.is_alive():
-            process.kill()
-            process.join(5)
-            log_source_process_exit(source_id, process.exitcode)
-            code = process.exitcode if isinstance(process.exitcode, int) else HARD_KILL_EXIT_CODE
-            return _source_outcome(
+        with stall_lock:
+            reason = stall["reason"]
+            stage = stall["stage"]
+            if reason is None and process.is_alive():
+                stall["reason"] = "timeout"
+                reason = "timeout"
+        if reason == "timeout":
+            log_parent_watchdog(
+                source_id=source_id,
+                stage=stage,
+                ledger="pending",
+                run_id=_spec_run_id(spec),
+                reason="timeout",
+            )
+            if process.is_alive():
+                process.kill()
+                process.join(5)
+            with stall_lock:
+                stage = stall["stage"]
+        if reason is not None:
+            return _parent_hard_kill_outcome(
                 source_id,
-                "FAILED",
-                error_code="INTELLIGENCE_DAILY_HARD_KILL",
-                stage_timings_ms={},
-                exit_code=code,
+                spec,
+                process.exitcode,
+                stage,
+                reason,
+                ledger_fn,
             )
         exit_code = process.exitcode
         if exit_code == 0:
@@ -606,14 +667,70 @@ def _run_isolated(
         process.close()
 
 
-def _drain_stage(stage_queue: Any, last: str | None) -> str | None:
+def _spec_run_id(spec: dict[str, Any]) -> str | None:
+    return valid_run_id(spec.get("run_id"))
+
+
+def _operator_failed_stage(stage: str | None) -> str | None:
+    safe = sanitize_stage(stage) if isinstance(stage, str) else None
+    if safe in DAILY_OPERATOR_STAGE_NAMES:
+        return safe
+    if isinstance(stage, str) and stage in ORCHESTRATOR_STAGE_TO_DAILY:
+        return ORCHESTRATOR_STAGE_TO_DAILY[stage]
+    return None
+
+
+def _parent_hard_kill_outcome(
+    source_id: str,
+    spec: dict[str, Any],
+    exit_code: int | None,
+    stage: str | None,
+    reason: str,
+    ledger_fn: Callable[[str, str], str] | None,
+) -> dict[str, Any]:
+    """Record FAILED on the parent, then return the source outcome."""
+    run_id = _spec_run_id(spec)
+    safe_stage = sanitize_stage(stage)
+    writer = ledger_fn or record_parent_hard_kill
+    try:
+        ledger = writer(run_id or "", safe_stage)
+    except Exception:
+        ledger = "failed"
+    if ledger not in {"pending", "recorded", "failed", "timed_out", "skipped"}:
+        ledger = "failed"
+    log_parent_watchdog(
+        source_id=source_id,
+        stage=safe_stage,
+        ledger=ledger,
+        run_id=run_id,
+        reason=reason,
+    )
+    log_source_process_exit(source_id, exit_code)
+    code = exit_code if isinstance(exit_code, int) else HARD_KILL_EXIT_CODE
+    return _source_outcome(
+        source_id,
+        "FAILED",
+        run_id=run_id,
+        error_code="INTELLIGENCE_DAILY_HARD_KILL",
+        failed_stage=_operator_failed_stage(stage),
+        stage_timings_ms={},
+        exit_code=code,
+    )
+
+
+def _drain_stage(stage_queue: Any, last: str | None) -> tuple[str | None, bool]:
+    """Return the latest stage and whether the child sent any progress token."""
     if stage_queue is None:
-        return last
+        return last, False
+    progressed = False
     while True:
         try:
             item = stage_queue.get_nowait()
         except Empty:
-            return last
+            return last, progressed
+        progressed = True
+        if item == "LIVE":
+            continue
         if isinstance(item, str) and item:
             last = item
         elif item == "":
@@ -628,11 +745,25 @@ def start_parent_stage_heartbeat(
     *,
     name: str,
     interval: float = HEARTBEAT_SECONDS,
+    inactivity_seconds: float | None = None,
+    on_inactive: Callable[[str | None], None] | None = None,
+    stage_holder: dict[str, str | None] | None = None,
+    stage_lock: threading.Lock | None = None,
 ) -> threading.Thread:
     """Parent heartbeat thread. Context is copied so observation stays active."""
     return spawn_observed(
         _parent_stage_heartbeat,
-        (process, stage_queue, source_id, stop, interval),
+        (
+            process,
+            stage_queue,
+            source_id,
+            stop,
+            interval,
+            inactivity_seconds,
+            on_inactive,
+            stage_holder,
+            stage_lock,
+        ),
         name=name,
     )
 
@@ -643,16 +774,50 @@ def _parent_stage_heartbeat(
     source_id: str,
     stop: threading.Event,
     interval: float = HEARTBEAT_SECONDS,
+    inactivity_seconds: float | None = None,
+    on_inactive: Callable[[str | None], None] | None = None,
+    stage_holder: dict[str, str | None] | None = None,
+    stage_lock: threading.Lock | None = None,
 ) -> None:
-    """Heartbeat from the parent so a stuck child still reports the open stage."""
+    """Heartbeat and stall detection in the parent, independent of the child."""
     last: str | None = None
-    while not stop.wait(interval):
-        last = _drain_stage(stage_queue, last)
-        if last is None or not process.is_alive():
+    last_progress = time.monotonic()
+    last_emit = time.monotonic()
+    wait = min(interval, 1.0)
+    while not stop.wait(wait):
+        last, progressed = _drain_stage(stage_queue, last)
+        now = time.monotonic()
+        if progressed:
+            last_progress = now
+        if stage_holder is not None and last:
+            if stage_lock is None:
+                stage_holder["stage"] = last
+            else:
+                with stage_lock:
+                    stage_holder["stage"] = last
+        if not process.is_alive():
+            return
+        if (
+            inactivity_seconds is not None
+            and on_inactive is not None
+            and now - last_progress >= inactivity_seconds
+        ):
+            with suppress(Exception):
+                on_inactive(last)
+            return
+        if last is None or now - last_emit < interval:
             continue
+        last_emit = now
         bind_context(source_id=source_id, stage=last)
         with suppress(Exception):
-            emit("stage.heartbeat", step="heartbeat", stage=last)
+            memory = process_memory_fields()
+            emit(
+                "stage.heartbeat",
+                step="heartbeat",
+                stage=last,
+                rss_kib=memory["rss_kib"],
+                peak_rss_kib=memory["peak_rss_kib"],
+            )
 
 
 def execute_daily_source(
@@ -672,6 +837,7 @@ def execute_daily_source(
             "preflight_only": preflight_only,
             "reopen_attempt": reopen_attempt,
             "day": day,
+            "run_id": daily_run_id(source_id, day, reopen_attempt=reopen_attempt),
         },
         timeout=source_process_timeout(DAILY_SOURCE_WATCHDOG_SECONDS),
     )
@@ -690,9 +856,10 @@ def execute_daily_source_in_process(
     token = None if already else activate_observation()
     bind_context(source_id=source_id, attempt=reopen_attempt)
     started = time.monotonic()
-    heartbeat = None if parent_heartbeat_active() else StageHeartbeat()
-    if heartbeat is not None:
-        heartbeat.start()
+    # Pulse even when the parent emits the visible heartbeat. A frozen child
+    # stops pulsing, which is what the parent inactivity cap measures.
+    heartbeat = StageHeartbeat()
+    heartbeat.start()
     try:
         with source_span(source_id):
             result = _execute_daily_source_observed(
@@ -705,8 +872,7 @@ def execute_daily_source_in_process(
         _summarize_source(result, started)
         return result
     finally:
-        if heartbeat is not None:
-            heartbeat.stop()
+        heartbeat.stop()
         if token is not None:
             reset_observation(token)
 
@@ -1542,6 +1708,20 @@ def _failed_source_count(
     return count
 
 
+def release_source_memory() -> None:
+    """Drop parent allocations between source processes.
+
+    Each source already runs in its own process. ``malloc_trim`` asks glibc to
+    return freed arenas to the OS so the next child does not start on top of
+    the parent's high-water mark.
+    """
+    gc.collect()
+    if sys.platform != "linux":
+        return
+    with suppress(OSError, AttributeError):
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+
+
 def _run_production_daily_observed(
     settings: Any,
     *,
@@ -1557,9 +1737,11 @@ def _run_production_daily_observed(
     status = "FAILED"
     failure_class: str | None = None
     try:
-        for source_id, path in PROD_SOURCE_DEFINITIONS.items():
+        for source_id in DAILY_SOURCE_RUN_ORDER:
+            path = PROD_SOURCE_DEFINITIONS[source_id]
             if selection is not None and source_id not in selection:
                 results.append(_source_outcome(source_id, "SKIPPED_NOT_SELECTED"))
+                release_source_memory()
                 continue
             results.append(
                 execute_daily_source(
@@ -1570,6 +1752,7 @@ def _run_production_daily_observed(
                     day=day,
                 )
             )
+            release_source_memory()
         for row in results:
             _log_daily_outcome(row)
         if selection is None or pubmed_only is not None:

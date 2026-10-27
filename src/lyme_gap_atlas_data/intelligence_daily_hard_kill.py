@@ -22,6 +22,7 @@ from typing import Any
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from .ingestion.intelligence_runtime import (
+    DAILY_OPERATOR_STAGE_NAMES,
     DEADLINE_GRACE_SECONDS,
     PROD_SOURCE_DEFINITIONS,
     prod_daily_config_sha256_allowed,
@@ -39,7 +40,8 @@ HARD_KILL_EXIT_CODE = 124
 LEDGER_TIMEOUT_SECONDS = DEADLINE_GRACE_SECONDS
 STATEMENT_TIMEOUT_SECONDS = 15
 PROCESS_JOIN_BUFFER_SECONDS = 30
-_STAGE_NAMES = frozenset(stage.value for stage in Stage)
+_STAGE_NAMES = frozenset(stage.value for stage in Stage) | DAILY_OPERATOR_STAGE_NAMES
+_PARENT_REASONS = frozenset({"inactivity", "timeout"})
 _LEDGER_OUTCOMES = frozenset({"pending", "recorded", "failed", "timed_out", "skipped"})
 _KIB = re.compile(r"(\d+)")
 
@@ -168,6 +170,70 @@ def format_hard_kill_log(
         f"stage={safe_stage} rss_kib={rss_text} peak_rss_kib={peak_text} "
         f"ledger={safe_ledger} run_id={run_text}"
     )
+
+
+def format_parent_watchdog_log(
+    *,
+    source_id: str,
+    stage: str | None,
+    rss: int | None,
+    peak: int | None,
+    ledger: str,
+    run_id: str | None,
+    reason: str,
+) -> str:
+    """Parent watchdog line. Fields are allowlisted; callers cannot add free text."""
+    safe_source = source_id if source_id in PROD_SOURCE_DEFINITIONS else "unknown"
+    safe_stage = sanitize_stage(stage)
+    safe_reason = reason if reason in _PARENT_REASONS else "timeout"
+    safe_ledger = ledger if ledger in _LEDGER_OUTCOMES else "failed"
+    rss_text = str(rss) if isinstance(rss, int) and rss >= 0 else "unknown"
+    peak_text = str(peak) if isinstance(peak, int) and peak >= 0 else "unknown"
+    run_text = valid_run_id(run_id) or "none"
+    return (
+        "intelligence_daily_parent_watchdog "
+        f"source_id={safe_source} stage={safe_stage} reason={safe_reason} "
+        f"rss_kib={rss_text} peak_rss_kib={peak_text} "
+        f"ledger={safe_ledger} run_id={run_text}"
+    )
+
+
+def log_parent_watchdog(
+    *,
+    source_id: str,
+    stage: str | None,
+    ledger: str,
+    run_id: str | None,
+    reason: str,
+    memory_fn: Callable[[], tuple[int | None, int | None]] | None = None,
+    writer: Callable[[str], None] | None = None,
+) -> None:
+    """Log from the parent process. Memory is the parent's RSS, not the child's."""
+    emit = writer or _write_stderr
+    try:
+        rss, peak = (memory_fn or read_process_memory_kib)()
+    except Exception:
+        rss, peak = None, None
+    _safe_emit(
+        emit,
+        format_parent_watchdog_log(
+            source_id=source_id,
+            stage=stage,
+            rss=rss,
+            peak=peak,
+            ledger=ledger,
+            run_id=run_id,
+            reason=reason,
+        ),
+    )
+
+
+def record_parent_hard_kill(run_id: str | None, stage: str | None) -> str:
+    """Write the FAILED row from the parent. A frozen child never reaches this."""
+    safe_run = valid_run_id(run_id)
+    if safe_run is None:
+        return "skipped"
+    return _ledger_with_timeout(safe_run, sanitize_stage(stage), LEDGER_TIMEOUT_SECONDS)
 
 
 def log_source_process_exit(source_id: str, exit_code: int | None) -> None:
