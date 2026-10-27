@@ -28,6 +28,7 @@ on:
         options:
           - "1"
           - "2"
+          - "3"
       expected_pending_json:
         description: Must be the empty migration set
         required: true

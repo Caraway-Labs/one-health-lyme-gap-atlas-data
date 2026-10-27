@@ -251,15 +251,15 @@ def test_registration_workflows_list_pubmed_ids_and_still_require_an_empty_pendi
     prod_inputs = trigger_map(prod)["workflow_dispatch"]["inputs"]
     dev_inputs = trigger_map(dev)["workflow_dispatch"]["inputs"]
     assert prod_inputs["source_id"]["default"] == "cdc-eid-expedited"
-    assert prod_inputs["registry_version"]["options"] == ["1", "2"]
-    assert dev_inputs["intelligence_register_registry_version"]["options"] == ["1", "2"]
+    assert prod_inputs["registry_version"]["options"] == ["1", "2", "3"]
+    assert dev_inputs["intelligence_register_registry_version"]["options"] == ["1", "2", "3"]
     for source_id in _PUBMED_IDS:
         assert source_id in prod_inputs["source_id"]["options"]
         assert source_id in dev_inputs["intelligence_register_source_id"]["options"]
     dev_text = (root / ".github/workflows/deploy-dev.yml").read_text(encoding="utf-8")
     assert "pubmed-tick-borne|pubmed-lyme-borrelia) ;;" in dev_text
     assert "Unsupported intelligence registration source" in dev_text
-    assert "1|2) ;;" in dev_text
+    assert "1|2|3) ;;" in dev_text
     assert "test \"$EXPECTED_PENDING_JSON\" = '[]'" in dev_text
     prod_text = (root / ".github/workflows/register-prod-eid.yml").read_text(encoding="utf-8")
     assert "guard_eq expected_pending_json '[]'" in prod_text
