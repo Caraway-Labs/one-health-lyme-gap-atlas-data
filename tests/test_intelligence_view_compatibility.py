@@ -109,6 +109,102 @@ def test_cdc_mmwr_activation_extends_v166_predicate_without_projection_drift():
     assert prior.split("SELECT c.item_id", 1)[1] == updated.split("SELECT c.item_id", 1)[1]
 
 
+_OUTER_COLUMN = """,
+       abstract_suppressed AS ABSTRACT_SUPPRESSED"""
+_INNER_FLAG = """,
+       (
+           pmid_suppression.pmid IS NOT NULL
+           OR publisher_suppression.publisher IS NOT NULL
+       ) AS abstract_suppressed"""
+_V174_ABSTRACT_KEYS = """           'abstract', c.item_document:publisher_metadata:abstract,
+           'abstract_suppressed', c.item_document:publisher_metadata:abstract_suppressed
+"""
+_ABSTRACT_KEYS = """           'abstract', IFF(
+               pmid_suppression.pmid IS NOT NULL
+               OR publisher_suppression.publisher IS NOT NULL,
+               OBJECT_CONSTRUCT_KEEP_NULL(
+                   'text', NULL,
+                   'state', 'suppressed',
+                   'copyright_line', NULL
+               ),
+               c.item_document:publisher_metadata:abstract
+           ),
+           'abstract_suppressed',
+               pmid_suppression.pmid IS NOT NULL
+               OR publisher_suppression.publisher IS NOT NULL,
+           'mesh', c.item_document:publisher_metadata:mesh,
+           'publication_types', c.item_document:publisher_metadata:publication_types,
+           'matched_queries', c.item_document:publisher_metadata:matched_queries
+"""
+_SUPPRESSION_JOINS = """LEFT JOIN (
+    SELECT pmid
+    FROM GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS
+    WHERE scope = 'PMID'
+      AND pmid IS NOT NULL
+    GROUP BY pmid
+) pmid_suppression
+  ON pmid_suppression.pmid = c.item_document:publisher_metadata:source_item_id::VARCHAR
+ AND c.item_document:publisher_metadata:source_family::VARCHAR = 'pubmed'
+ AND c.item_document:publisher_metadata:source_item_id::VARCHAR RLIKE '^[1-9][0-9]{0,9}$'
+LEFT JOIN (
+    SELECT publisher
+    FROM GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS
+    WHERE scope = 'PUBLISHER'
+      AND publisher IS NOT NULL
+    GROUP BY publisher
+) publisher_suppression
+  ON publisher_suppression.publisher = c.item_document:publisher_metadata:journal::VARCHAR
+ AND c.item_document:publisher_metadata:source_family::VARCHAR = 'pubmed'
+"""
+
+
+def _feed_view(filename: str) -> str:
+    source = (ROOT / "migrations" / filename).read_text(encoding="utf-8")
+    return source[source.index("CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2") :]
+
+
+def test_v175_view_keeps_v174_dedupe_and_appends_abstract_suppressed():
+    previous = _feed_view("V174__intelligence_feed_v2_entrez_dedupe.sql")
+    updated = _feed_view("V175__intelligence_abstract_suppressions_feed_v2.sql")
+    assert updated.count("JOIN GOVERNANCE.INTELLIGENCE_SOURCE_ACTIVATIONS") == 1
+    assert updated.count("a.state = 'ACTIVE'") == 1
+    assert "COPY GRANTS" in updated
+    assert updated.count(_OUTER_COLUMN) == 1
+    assert updated.count(_INNER_FLAG) == 1
+    assert updated.count(_ABSTRACT_KEYS) == 1
+    assert updated.count(_SUPPRESSION_JOINS) == 1
+    stripped = (
+        updated.replace(_OUTER_COLUMN, "", 1)
+        .replace(_ABSTRACT_KEYS, _V174_ABSTRACT_KEYS, 1)
+        .replace(_INNER_FLAG, "", 1)
+        .replace(_SUPPRESSION_JOINS, "", 1)
+    )
+    assert stripped == previous
+    outer = updated.split("FROM (", 1)[0]
+    assert outer.index("reviewed_trust_classification") < outer.index("AS FEED_SORT_AT")
+    assert outer.index("AS FEED_SORT_AT") < outer.index("AS ABSTRACT_SUPPRESSED")
+    assert "PARTITION BY c.item_id, c.revision_id, c.source_id, c.transport" not in updated
+    assert "IFF(c.transport = 'entrez', NULL, c.revision_id)" in updated
+    assert "IFF(c.transport = 'entrez', NULL, c.source_id)" in updated
+    assert "IFF(c.transport = 'entrez', c.capture_id, NULL) DESC" in updated
+    assert (
+        "IFF(published_at IS NULL\n"
+        "           OR TRY_TO_TIMESTAMP_TZ(published_at) > first_loaded_at,\n"
+        "           first_loaded_at,\n"
+        "           TRY_TO_TIMESTAMP_TZ(published_at))::TIMESTAMP_TZ AS FEED_SORT_AT"
+    ) in updated
+    assert "c.item_document:publisher_metadata:abstract" in updated
+    assert "c.item_document:publisher_metadata:description" in updated
+    assert "OBJECT_CONSTRUCT_KEEP_NULL" in updated
+    assert "6000" not in updated
+    assert "SUBSTR" not in updated.upper()
+    assert "QUERY_TEXT" not in updated.upper()
+    assert "ERROR_MESSAGE" not in updated.upper()
+    assert "'suppressed'" in updated
+    for invented in ("'present'", "'withheld'", "'empty'", "'not_provided'"):
+        assert invented not in updated
+
+
 def test_cdc_mmwr_activation_migration_is_append_only_pinned_and_prod_only():
     expected = PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION
     path = ROOT / "migrations" / expected["filename"]

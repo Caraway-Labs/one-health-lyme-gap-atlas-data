@@ -461,7 +461,9 @@ def test_topic_migration_is_protected_on_both_environments() -> None:
     assert pinned in PROTECTED_INTELLIGENCE_MIGRATIONS
     assert "V171" not in DEV_ONLY_MIGRATION_VERSIONS
     assert "V171" not in PROD_ONLY_MIGRATION_VERSIONS
-    assert frozenset({"V170", "V171", "V173", "V174"}) == BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS
+    assert frozenset({"V170", "V171", "V173", "V174", "V175"}) == (
+        BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS
+    )
     assert "CREATE SCHEMA" not in migration.source.upper()
     assert "INTELLIGENCE_FEED_V2" not in migration.source
     assert "FEED_SORT_AT" not in migration.source
