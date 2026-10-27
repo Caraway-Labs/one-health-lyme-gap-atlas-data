@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = (
     "scripts/deploy_intelligence_daily.py",
     "scripts/prod_intelligence_daily_job_spec.py",
+    "scripts/prod_intelligence_pubmed_backfill.py",
 )
 
 
