@@ -642,6 +642,73 @@ def publish_progress(stage: str | None) -> None:
         stage_queue.put_nowait(marker)
 
 
+_PMID_MERGE_DECISIONS = frozenset(
+    {"new_item", "same_revision_skipped", "new_revision_content_changed"}
+)
+
+
+def note_pmid_merge(decision: str, matched_count: int) -> None:
+    """One merge decision. Labels stay counts and decision names, never article text."""
+    if decision not in _PMID_MERGE_DECISIONS:
+        return
+    if type(matched_count) is not int or isinstance(matched_count, bool):
+        return
+    if not 0 <= matched_count <= 20:
+        return
+    fields: dict[str, Any] = {
+        "pmid_merge.decision": decision,
+        "pmid_merge.matched_count": matched_count,
+    }
+    emit("pmid_merge", **fields)
+    _span_event("pmid_merge", fields)
+
+
+def note_pubmed_run_counters(
+    *,
+    items_fetched: int,
+    items_written: int,
+    cross_source_skipped: int,
+    ncbi_requests: int,
+) -> None:
+    """Per-run PubMed counts. NCBI requests stay the walk's existing request total."""
+    values = (items_fetched, items_written, cross_source_skipped, ncbi_requests)
+    if any(type(value) is not int or isinstance(value, bool) for value in values):
+        return
+    if any(value < 0 or value > MAX_ITEMS_BOUND for value in values[:3]):
+        return
+    if not 0 <= ncbi_requests <= 20:
+        return
+    fields: dict[str, Any] = {
+        "pubmed.items_fetched": items_fetched,
+        "pubmed.items_written": items_written,
+        "pubmed.cross_source_skipped": cross_source_skipped,
+        "pubmed.ncbi_requests": ncbi_requests,
+    }
+    emit("pubmed.run", **{key: value for key, value in fields.items()})
+    _span_attributes(fields)
+
+
+def _span_event(name: str, fields: Mapping[str, Any]) -> None:
+    with suppress(Exception):
+        span = trace.get_current_span()
+        if span is None or not span.is_recording():
+            return
+        span.add_event(name, dict(fields))
+
+
+def _span_attributes(fields: Mapping[str, Any]) -> None:
+    with suppress(Exception):
+        span = trace.get_current_span()
+        if span is None or not span.is_recording():
+            return
+        for key, value in fields.items():
+            span.set_attribute(key, value)
+
+
+# PubMed walks are bounded by the adapter item cap. Counters never carry identities.
+MAX_ITEMS_BOUND = 200
+
+
 def emit_source_summary(
     *,
     status: str,

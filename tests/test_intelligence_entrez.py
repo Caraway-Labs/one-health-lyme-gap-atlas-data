@@ -15,6 +15,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from lyme_gap_atlas_data import intelligence_daily_telemetry as telemetry
 from lyme_gap_atlas_data import intelligence_polling as polling
 from lyme_gap_atlas_data.ingestion import intelligence_entrez as entrez
 from lyme_gap_atlas_data.ingestion import intelligence_runtime as runtime
@@ -1871,3 +1872,249 @@ def test_entrez_capture_releases_the_write_guard_before_artifact_insert() -> Non
     assert artifact[6].endswith("metadata-raw-30d-v1")
     assert entrez.current_pubmed_step() == "CAPTURE"
     entrez._PUBMED_STEP.set(None)
+
+
+def _subset_outcome(source_ids: tuple[str, ...]) -> entrez.PubmedOutcome:
+    prepared = _activated_sources()
+    sources = {source_id: prepared["sources"][source_id] for source_id in source_ids}
+    _sleeps, clock, sleep = _clock()
+    budget = runtime.PilotBudget(clock, seconds=180, request_limit=5)
+    return run_pubmed_daily(
+        today=TODAY,
+        sender=FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML),
+        settings=PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None),
+        budget=budget,
+        fetched_at=FETCHED_AT,
+        run_id=RUN_ID,
+        clock=clock,
+        sleep=sleep,
+        checkpoints=EntryDateLedger(),
+        revisions=RevisionLedger(),
+        suppress_pmids=frozenset(),
+        suppress_publishers=frozenset(),
+        sources=sources,
+        receipt_document=prepared["receipts"],
+        allow_subset=set(source_ids) != set(SOURCE_ORDER),
+    )
+
+
+def _pmid(outcome: entrez.PubmedOutcome, pmid: str) -> dict[str, Any]:
+    return next(
+        item for item in outcome.items if item["publisher_metadata"]["source_item_id"] == pmid
+    )
+
+
+def test_one_pmid_has_one_hash_for_either_search_and_either_order() -> None:
+    combined = _subset_outcome(SOURCE_ORDER)
+    tick = _subset_outcome(("pubmed-tick-borne",))
+    lyme = _subset_outcome(("pubmed-lyme-borrelia",))
+    shared = _pmid(combined, "12345678")
+    tick_item = _pmid(tick, "12345678")
+    lyme_item = _pmid(lyme, "12345678")
+    identity = (shared["item_id"], shared["content_sha256"], shared["revision_id"])
+    assert identity == (tick_item["item_id"], tick_item["content_sha256"], tick_item["revision_id"])
+    assert identity == (lyme_item["item_id"], lyme_item["content_sha256"], lyme_item["revision_id"])
+    assert shared["publisher_metadata"]["matched_queries"] == list(SOURCE_ORDER)
+    assert tick_item["publisher_metadata"]["matched_queries"] == ["pubmed-tick-borne"]
+    assert lyme_item["publisher_metadata"]["matched_queries"] == ["pubmed-lyme-borrelia"]
+    assert shared["source_id"] == "pubmed-tick-borne"
+    assert lyme_item["source_id"] == "pubmed-lyme-borrelia"
+    assert combined.requests == 3
+    assert tick.requests == 2
+    assert lyme.requests == 2
+    prepared = _activated_sources()
+    policies = entrez._load_policies(prepared["sources"], prepared["receipts"])
+    for item in (shared, tick_item, lyme_item):
+        entrez.verify_entrez_item(
+            item, policies[item["source_id"]], prepared["sources"][item["source_id"]]
+        )
+    merged = entrez._merge_pmids(
+        {
+            "pubmed-lyme-borrelia": ["12345678", "12345678"],
+            "pubmed-tick-borne": ["12345678", "23456789"],
+        }
+    )
+    assert merged[0] == ("12345678", ("pubmed-tick-borne", "pubmed-lyme-borrelia"))
+    assert entrez.pmid_merge_decision(
+        {"revision_id": "new", "source_id": "pubmed-tick-borne"}, []
+    ) == ("new_item", False)
+    assert entrez.pmid_merge_decision(
+        {"revision_id": "new", "source_id": "pubmed-tick-borne"},
+        [("old", "pubmed-lyme-borrelia")],
+    ) == ("new_revision_content_changed", False)
+    assert entrez.pmid_merge_decision(
+        {"revision_id": identity[2], "source_id": "pubmed-lyme-borrelia"},
+        [(identity[2], "pubmed-tick-borne")],
+    ) == ("same_revision_skipped", True)
+    assert entrez.pmid_merge_decision(
+        {"revision_id": identity[2], "source_id": "pubmed-tick-borne"},
+        [(identity[2], "pubmed-tick-borne")],
+    ) == ("same_revision_skipped", False)
+
+
+def test_capture_lookup_is_one_bounded_select() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.executions = 0
+            self.sql = ""
+            self.params: tuple[Any, ...] = ()
+
+        def execute(self, sql: str, params: tuple[Any, ...]) -> None:
+            self.executions += 1
+            self.sql = sql
+            self.params = params
+
+        def fetchall(self) -> list[tuple[str, str, str]]:
+            return [("item", "revision", "pubmed-tick-borne")]
+
+    cursor = Cursor()
+    found = entrez.select_existing_entrez_captures(cursor, ("pmid-a", "pmid-a", "pmid-b"))
+    assert cursor.executions == 1
+    assert cursor.sql.lstrip().upper().startswith("SELECT")
+    assert "INSERT" not in cursor.sql.upper()
+    assert cursor.params == (*SOURCE_ORDER, "pmid-a", "pmid-b")
+    assert "pmid-a" not in cursor.sql
+    assert found == [("item", "revision", "pubmed-tick-borne")]
+    quiet = Cursor()
+    assert entrez.select_existing_entrez_captures(quiet, ()) == []
+    assert quiet.executions == 0
+    with pytest.raises(PermissionError, match="INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_UNBOUNDED"):
+        entrez.select_existing_entrez_captures(Cursor(), tuple(f"p{index}" for index in range(201)))
+
+
+def test_union_walk_records_five_ncbi_requests() -> None:
+    prepared = _activated_sources()
+    sender = FixtureTransport(_search_file("esearch_union_195.json"))
+    result = _daily(
+        prepared,
+        sender,
+        InMemoryCheckpointStore(),
+        _MemoryStore(),
+        PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None),
+        run_id="union-195",
+    )
+    assert result["requests"] == 5
+    assert result["pubmed.ncbi_requests"] == 5
+    assert len(sender.calls) == 5
+    assert result["pubmed.items_fetched"] == 195
+    assert result["pubmed.items_written"] == 195
+    assert result["pubmed.cross_source_skipped"] == 0
+
+
+class _MemoryStore:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+        self.lookups: list[tuple[str, ...]] = []
+        self.writes: list[str] = []
+
+    def existing_entrez_captures(self, item_ids: tuple[str, ...]) -> list[tuple[str, str, str]]:
+        self.lookups.append(item_ids)
+        assert len(item_ids) <= 200
+        wanted = set(item_ids)
+        return [
+            (item["item_id"], item["revision_id"], item["source_id"])
+            for item in self.rows
+            if item["item_id"] in wanted
+        ]
+
+    def write(self, *, source_id: str, items: list[dict[str, Any]], **_kwargs: Any) -> int:
+        assert items
+        self.writes.append(source_id)
+        self.rows.extend(items)
+        return len(items)
+
+
+def test_single_source_reopen_skips_an_existing_revision_in_either_order() -> None:
+    prepared = _activated_sources()
+    settings = PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None)
+    orders = (
+        ("pubmed-tick-borne", "pubmed-lyme-borrelia"),
+        ("pubmed-lyme-borrelia", "pubmed-tick-borne"),
+    )
+    for first, second in orders:
+        store = _MemoryStore()
+        checkpoints = InMemoryCheckpointStore()
+        _sleeps, clock, sleep = _clock()
+
+        def walk(
+            source_id: str,
+            run_id: str,
+            *,
+            store: _MemoryStore = store,
+            checkpoints: InMemoryCheckpointStore = checkpoints,
+            clock: Any = clock,
+            sleep: Any = sleep,
+        ) -> tuple[dict[str, Any], FixtureTransport]:
+            sender = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+            result = execute_registered_entrez_daily(
+                pinned=prepared["pinned"],
+                sender=sender,
+                settings=settings,
+                budget=runtime.PilotBudget(clock, seconds=180, request_limit=5),
+                checkpoints=checkpoints,
+                store=store,
+                today=TODAY,
+                run_id="unused",
+                fetched_at=FETCHED_AT,
+                clock=clock,
+                sleep=sleep,
+                sources=[prepared["sources"][source_id]],
+                receipt_document=prepared["receipts"],
+                run_ids={source_id: run_id},
+                only_source_id=source_id,
+            )
+            return result, sender
+
+        first_result, first_sender = walk(first, "run-1")
+        second_result, second_sender = walk(second, "run-2")
+        overlap = [
+            item
+            for item in store.rows
+            if item["publisher_metadata"]["source_item_id"] == "12345678"
+        ]
+        assert len(overlap) == 1
+        assert overlap[0]["source_id"] == first
+        assert overlap[0]["publisher_metadata"]["matched_queries"] == [first]
+        assert second_result["pubmed.cross_source_skipped"] >= 1
+        assert all(
+            item["source_id"] != second
+            or item["publisher_metadata"]["source_item_id"] != "12345678"
+            for item in store.rows
+        )
+        assert first_result["pubmed.ncbi_requests"] == len(first_sender.calls)
+        assert second_result["pubmed.ncbi_requests"] == len(second_sender.calls)
+        assert len(store.lookups) == 2
+        assert all(len(lookup) <= 200 for lookup in store.lookups)
+
+
+def test_pmid_merge_telemetry_omits_pmids_and_abstracts() -> None:
+    prepared = _activated_sources()
+    store = _MemoryStore()
+    sender = FixtureTransport(_search_file("esearch_overlap.json"), overlap_xml=OVERLAP_XML)
+    telemetry.reset_captured_events()
+    with telemetry.observed():
+        result = _daily(
+            prepared,
+            sender,
+            InMemoryCheckpointStore(),
+            store,
+            PipelineSettings(ncbi_email=EMAIL, ncbi_api_key=None),
+            run_id="telemetry-overlap",
+        )
+    events = telemetry.captured_events()
+    decisions = [item for item in events if item["event"] == "pmid_merge"]
+    assert decisions
+    assert {item["pmid_merge.decision"] for item in decisions} <= {
+        "new_item",
+        "same_revision_skipped",
+        "new_revision_content_changed",
+    }
+    assert all(isinstance(item["pmid_merge.matched_count"], int) for item in decisions)
+    summary = next(item for item in events if item["event"] == "pubmed.run")
+    assert summary["pubmed.ncbi_requests"] == result["requests"] == 3
+    assert summary["pubmed.items_fetched"] == len(result["items"])
+    assert summary["pubmed.cross_source_skipped"] == 0
+    blob = json.dumps(events)
+    assert "12345678" not in blob
+    assert "Borrelia burgdorferi" not in blob
+    assert "matched_queries" not in blob

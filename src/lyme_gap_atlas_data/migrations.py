@@ -76,9 +76,17 @@ INTELLIGENCE_FEED_DESCRIPTION_MIGRATION = {
     "filename": "V173__intelligence_feed_v2_description.sql",
     "sha256": "d1f1e2cd54980e20a44141e63b263696fd77c88e881012c9befcab955afc8fcf",
 }
-# V170 and V173 replace the feed view in both databases. The protected path is
-# required on DEV and PROD; the historical feed-view migrations stay PROD-only.
-BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V173"})
+# V174 is the next free number after the V173 file and the open V171, V172,
+# V175, and V176 reservations. It replaces the feed view in both databases.
+INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION = {
+    "version": "V174",
+    "filename": "V174__intelligence_feed_v2_entrez_dedupe.sql",
+    "sha256": "056ef4d57cbde1fd851d0fe0e5af1b79264bf619274562c930a8998e0fd815d7",
+}
+# V170, V173, and V174 replace the feed view in both databases. The protected
+# path is required on DEV and PROD; the historical feed-view migrations stay
+# PROD-only.
+BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V173", "V174"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -91,6 +99,7 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
     INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
     INTELLIGENCE_FEED_DESCRIPTION_MIGRATION,
+    INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
     "V034",
@@ -1155,6 +1164,10 @@ def apply_migrations(
         raise PermissionError(
             "V173 requires recorded V170 before the publisher description projection"
         )
+    if any(item.version == "V174" and item.version not in applied for item in plan) and (
+        "V173" not in applied
+    ):
+        raise PermissionError("V174 requires recorded V173 before the entrez feed dedupe")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)

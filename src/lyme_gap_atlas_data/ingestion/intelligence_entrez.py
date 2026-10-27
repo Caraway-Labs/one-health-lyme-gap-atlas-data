@@ -27,7 +27,11 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
-from ..intelligence_daily_telemetry import http_observation
+from ..intelligence_daily_telemetry import (
+    http_observation,
+    note_pmid_merge,
+    note_pubmed_run_counters,
+)
 from ..intelligence_items import (
     ACQUISITION_VERSION,
     TOKEN,
@@ -1183,7 +1187,9 @@ def _build_item(
     suppress_publishers: frozenset[str],
     artifact_id: str = "pubmed-efetch",
 ) -> dict[str, Any]:
-    source_id = matched[0]
+    # One deterministic set: deduped, SOURCE_ORDER, every search that matched.
+    ordered = tuple(source_id for source_id in SOURCE_ORDER if source_id in matched)
+    source_id = ordered[0]
     source = sources[source_id]
     policy = policies[source_id]
     # Publisher suppression matches the journal title exactly, not the publisher organization.
@@ -1254,7 +1260,7 @@ def _build_item(
             "published_at": item["field_states"]["published_at"],
             "updated_at": item["field_states"]["updated_at"],
         },
-        "matched_queries": list(matched),
+        "matched_queries": list(ordered),
         "mesh": record.mesh,
         "publication_types": record.publication_types,
         "journal": record.journal,
@@ -1563,6 +1569,84 @@ def prepare_entrez_source_capture(
     return context
 
 
+def select_existing_entrez_captures(
+    cursor: Any, item_ids: tuple[str, ...]
+) -> list[tuple[str, str, str]]:
+    """One bounded read of entrez captures for the PMIDs already in hand.
+
+    The statement is a single SELECT. Item identifiers are bind parameters.
+    The walk does not issue a second lookup.
+    """
+    if not item_ids:
+        return []
+    unique = tuple(dict.fromkeys(item_ids))
+    if len(unique) > MAX_ITEMS:
+        raise PermissionError("INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_UNBOUNDED")
+    item_marks = ", ".join(["%s"] * len(unique))
+    source_marks = ", ".join(["%s"] * len(SOURCE_ORDER))
+    cursor.execute(
+        f"""SELECT item_id, revision_id, source_id
+        FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES
+        WHERE transport = 'entrez'
+          AND source_id IN ({source_marks})
+          AND item_id IN ({item_marks})""",
+        (*SOURCE_ORDER, *unique),
+    )
+    found: list[tuple[str, str, str]] = []
+    for row in cursor.fetchall():
+        if row is None or len(row) != 3:
+            continue
+        item_id, revision_id, source_id = row
+        if isinstance(item_id, str) and isinstance(revision_id, str) and source_id in SOURCE_ORDER:
+            found.append((item_id, revision_id, source_id))
+    return found
+
+
+def pmid_merge_decision(
+    item: Mapping[str, Any], prior: Iterable[tuple[str, str]]
+) -> tuple[str, bool]:
+    """Classify one article against captures already stored for its item id.
+
+    ``prior`` is ``(revision_id, source_id)`` for that item. The same revision
+    stored under the other PubMed source is not written again. A same-source
+    repeat stays on the existing capture merge. A different revision is a real
+    content change and is written.
+    """
+    revision_id = item["revision_id"]
+    source_id = item["source_id"]
+    if not prior:
+        return "new_item", False
+    same_revision = [captured for revision, captured in prior if revision == revision_id]
+    if not same_revision:
+        return "new_revision_content_changed", False
+    same_source = any(captured == source_id for captured in same_revision)
+    other_source = any(captured != source_id for captured in same_revision)
+    if other_source and not same_source:
+        return "same_revision_skipped", True
+    return "same_revision_skipped", False
+
+
+def partition_pubmed_items(
+    items: list[dict[str, Any]], prior: Iterable[tuple[str, str, str]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Keep items to write, and count cross-source skips. Emits one decision each."""
+    by_item: dict[str, list[tuple[str, str]]] = {}
+    for item_id, revision_id, source_id in prior:
+        by_item.setdefault(item_id, []).append((revision_id, source_id))
+    kept: list[dict[str, Any]] = []
+    skipped = 0
+    for item in items:
+        decision, drop = pmid_merge_decision(item, by_item.get(item["item_id"], []))
+        queries = item.get("publisher_metadata", {}).get("matched_queries")
+        matched_count = len(queries) if isinstance(queries, list) else 0
+        note_pmid_merge(decision, matched_count)
+        if drop:
+            skipped += 1
+            continue
+        kept.append(item)
+    return kept, skipped
+
+
 def execute_registered_entrez_daily(
     *,
     pinned: Mapping[str, str],
@@ -1631,8 +1715,20 @@ def execute_registered_entrez_daily(
         artifact_ids=artifact_ids,
         allow_subset=single,
     )
+    prior: tuple[tuple[str, str, str], ...] = ()
+    reader = getattr(store, "existing_entrez_captures", None)
+    if callable(reader) and outcome.items:
+        looked_up = reader(tuple(item["item_id"] for item in outcome.items))
+        prior = tuple(looked_up)
+    kept, cross_source_skipped = partition_pubmed_items(outcome.items, prior)
+    note_pubmed_run_counters(
+        items_fetched=len(outcome.items),
+        items_written=len(kept),
+        cross_source_skipped=cross_source_skipped,
+        ncbi_requests=outcome.requests,
+    )
     grouped: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in SOURCE_ORDER}
-    for item in outcome.items:
+    for item in kept:
         grouped.setdefault(item["source_id"], []).append(item)
     writers = run_ids if run_ids is not None else {source_id: run_id for source_id in SOURCE_ORDER}
     if retention is not None:
@@ -1712,4 +1808,8 @@ def execute_registered_entrez_daily(
         "items": outcome.items,
         "windows": outcome.windows,
         "watermarks": outcome.watermarks,
+        "pubmed.items_fetched": len(outcome.items),
+        "pubmed.items_written": len(kept),
+        "pubmed.cross_source_skipped": cross_source_skipped,
+        "pubmed.ncbi_requests": outcome.requests,
     }
