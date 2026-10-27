@@ -17,7 +17,7 @@ from uuid import uuid4
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = "V170__intelligence_source_activations.sql"
+MIGRATION = "V173__intelligence_feed_v2_description.sql"
 DATABASE = "ONE_HEALTH_LYME_GAP_ATLAS_DEV"
 LIVE_SOURCES = (
     "cdc-eid-expedited",

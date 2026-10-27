@@ -30,6 +30,12 @@ def test_v142_is_dev_only_and_uses_reviewed_shapes() -> None:
             else "CREATE VIEW IF NOT EXISTS PRESENTATION.INTELLIGENCE_FEED_V2 AS"
         )
         reviewed = projection.split(start, 1)[1].split(";", 1)[0]
+        if view == "INTELLIGENCE_FEED_V2":
+            reviewed = reviewed.replace(
+                "           ),\n"
+                "           'description', c.item_document:publisher_metadata:description\n",
+                "           )\n",
+            )
         assert f"{start}{reviewed};" in sql
 
     grants = [line for line in sql.splitlines() if line.startswith("GRANT ")]
