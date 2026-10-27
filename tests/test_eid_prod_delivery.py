@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +105,20 @@ def test_cli_rejects_generic_tier_c_rss_and_alternate_eid_path(
             fail_after_stage=None,
             run_id=None,
         )
+
+
+def test_changed_pubmed_registry_hash_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = json.loads(
+        (ROOT / "config/intelligence/pubmed-tick-borne-source-v1.json").read_text(encoding="utf-8")
+    )
+    source["state"] = "paused"
+    changed = tmp_path / "pubmed-tick-borne-source-v1.json"
+    changed.write_text(json.dumps(source), encoding="utf-8")
+    monkeypatch.setattr(registration, "registry_document_path", lambda source_id, version: changed)
+    with pytest.raises(PermissionError, match="EID_PROD_SOURCE_HASH_CHANGED"):
+        registration.guard_prod_registry_hash("pubmed-tick-borne", 1)
 
 
 def test_prod_workflows_pin_eid_and_keep_registry_write_separate() -> None:

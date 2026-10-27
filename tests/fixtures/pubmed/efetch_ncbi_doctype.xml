@@ -1,0 +1,96 @@
+<?xml version="1.0" ?>
+<!DOCTYPE PubmedArticleSet PUBLIC "-//NLM//DTD PubMedArticle, 1st January 2025//EN" "https://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_250101.dtd">
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation Status="PubMed" Owner="NLM">
+      <PMID Version="1">31000001</PMID>
+      <Article PubModel="Print-Electronic">
+        <Journal>
+          <Title>Wilderness &amp; Environmental Medicine</Title>
+          <JournalIssue CitedMedium="Internet">
+            <PubDate><Year>2026</Year><Month>Oct</Month><Day>23</Day></PubDate>
+          </JournalIssue>
+        </Journal>
+        <ArticleTitle>Tick <i>Ixodes</i> CO<sub>2</sub> assay</ArticleTitle>
+        <Abstract>
+          <AbstractText Label="BACKGROUND" NlmCategory="BACKGROUND">Caused by <i>Borrelia</i> when p &lt; 0.05.</AbstractText>
+          <AbstractText Label="METHODS" NlmCategory="METHODS">Given CO<sub>2</sub> daily.</AbstractText>
+          <CopyrightInformation>Copyright 2026 Holder</CopyrightInformation>
+        </Abstract>
+        <AuthorList CompleteYN="Y">
+          <Author ValidYN="Y"><LastName>Ng</LastName><ForeName>Kai</ForeName></Author>
+        </AuthorList>
+        <Language>eng</Language>
+        <PublicationTypeList>
+          <PublicationType UI="D016428">Journal Article</PublicationType>
+        </PublicationTypeList>
+      </Article>
+      <KeywordList Owner="NOTNLM">
+        <Keyword MajorTopicYN="N">lyme</Keyword>
+      </KeywordList>
+      <MeshHeadingList>
+        <MeshHeading>
+          <DescriptorName UI="D008193" MajorTopicYN="Y">Lyme Disease</DescriptorName>
+        </MeshHeading>
+      </MeshHeadingList>
+    </MedlineCitation>
+    <PubmedData>
+      <History>
+        <PubMedPubDate PubStatus="entrez">
+          <Year>2026</Year><Month>10</Month><Day>24</Day><Hour>6</Hour><Minute>0</Minute>
+        </PubMedPubDate>
+      </History>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">31000001</ArticleId>
+        <ArticleId IdType="doi">10.1000/fixture.1</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID Version="1">31000002</PMID>
+      <Article>
+        <Journal>
+          <Title>Journal of Fixture Studies</Title>
+          <JournalIssue>
+            <PubDate><MedlineDate>2024 Jan-Feb</MedlineDate></PubDate>
+          </JournalIssue>
+        </Journal>
+        <ArticleTitle>Medline date without an abstract</ArticleTitle>
+        <Language>eng</Language>
+      </Article>
+    </MedlineCitation>
+    <PubmedData>
+      <History>
+        <PubMedPubDate PubStatus="pubmed">
+          <Year>2026</Year><Month>10</Month><Day>20</Day><Hour>1</Hour><Minute>2</Minute>
+        </PubMedPubDate>
+        <PubMedPubDate PubStatus="entrez">
+          <Year>2026</Year><Month>10</Month><Day>22</Day><Hour>3</Hour><Minute>4</Minute>
+        </PubMedPubDate>
+      </History>
+    </PubmedData>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID Version="1">31000003</PMID>
+      <Article>
+        <Journal>
+          <Title>Journal of Fixture Studies</Title>
+          <JournalIssue>
+            <PubDate><Year>2025</Year><Month>Jan</Month></PubDate>
+          </JournalIssue>
+        </Journal>
+        <ArticleTitle>Range of <i>Ixodes</i> ticks</ArticleTitle>
+        <Language>eng</Language>
+      </Article>
+    </MedlineCitation>
+    <PubmedData>
+      <History>
+        <PubMedPubDate PubStatus="entrez">
+          <Year>2026</Year><Month>10</Month><Day>21</Day><Hour>5</Hour><Minute>6</Minute>
+        </PubMedPubDate>
+      </History>
+    </PubmedData>
+  </PubmedArticle>
+</PubmedArticleSet>

@@ -30,6 +30,7 @@ from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 from xml.parsers import expat
 
+from ..intelligence_daily_telemetry import http_observation, spawn_observed, spawn_observed_timer
 from ..intelligence_items import (
     ACQUISITION_VERSION,
     canonical_timestamp,
@@ -52,6 +53,16 @@ XML_BASE = "{http://www.w3.org/XML/1998/namespace}base"
 
 def _failure(code: str) -> AcquisitionError:
     return AcquisitionError(code, code=code)
+
+
+def adapter_for_source(source: dict[str, Any]) -> str:
+    """Dispatch RSS/Atom parsing and the Entrez adapter. Entrez is not an RSS feed."""
+    transport = source.get("transport")
+    if transport == "entrez":
+        return "entrez"
+    if transport in {"rss", "atom"}:
+        return "rss_atom"
+    raise _failure("INTELLIGENCE_SOURCE_MISMATCH")
 
 
 def parse_feed(
@@ -297,7 +308,7 @@ def _resolve(host: str, timeout: float) -> tuple[str, ...]:
 
     # A platform resolver may block beyond socket timeouts. Only one bounded
     # lookup per request is started; daemon threads never prevent worker exit.
-    threading.Thread(target=lookup, daemon=True).start()
+    spawn_observed(lookup, name="intelligence-feed-dns")
     try:
         reply = replies.get(timeout=timeout)
     except queue.Empty as error:
@@ -320,14 +331,29 @@ def _request(
             with suppress(OSError):
                 connection.sock.shutdown(socket.SHUT_RDWR)
 
+    with http_observation(url) as observed:
+        return _request_observed(
+            url, parts, connection, headers, deadline, timer, interrupt, budget, observed
+        )
+
+
+def _request_observed(
+    url: str,
+    parts: Any,
+    connection: _PinnedHTTPS,
+    headers: dict[str, str],
+    deadline: float,
+    timer: threading.Timer | None,
+    interrupt: Callable[[], None],
+    budget: int,
+    observed: dict[str, Any],
+) -> FeedResponse:
     try:
         connection.connect()
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise _failure("FEED_TIMEOUT")
-        timer = threading.Timer(remaining, interrupt)
-        timer.daemon = True
-        timer.start()
+        timer = spawn_observed_timer(remaining, interrupt)
         connection.request(
             "GET", (parts.path or "/") + ("?" + parts.query if parts.query else ""), headers=headers
         )
@@ -343,6 +369,8 @@ def _request(
             raise _failure("FEED_TOO_LARGE")
         if time.monotonic() >= deadline:
             raise _failure("FEED_TIMEOUT")
+        observed["status"] = response.status
+        observed["bytes"] = len(body)
         return FeedResponse(response.status, metadata, body)
     except TimeoutError:
         raise _failure("FEED_TIMEOUT") from None

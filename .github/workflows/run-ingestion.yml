@@ -155,7 +155,7 @@ jobs:
           test "$REQUESTED_RECAPTURE" = false
           [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed_checks" -gt 0
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
@@ -204,7 +204,7 @@ jobs:
           test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
           test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
           case "$PHASE" in inspect|register-pending) ;; *) exit 1 ;; esac
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" \
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" \
             --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed_checks" -gt 0
       - uses: astral-sh/setup-uv@v6

@@ -251,7 +251,13 @@ def normalize_item(
     topics: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Project permitted publisher metadata without inventing dates or relevance."""
-    if source["transport"] != transport or transport not in {"rss", "atom", "email", "web"}:
+    if source["transport"] != transport or transport not in {
+        "rss",
+        "atom",
+        "email",
+        "web",
+        "entrez",
+    }:
         raise ValueError("TRANSPORT_SOURCE_MISMATCH")
     fields: dict[str, str | None] = {}
     states: dict[str, str] = {}
