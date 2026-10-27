@@ -65,95 +65,258 @@ def adapter_for_source(source: dict[str, Any]) -> str:
     raise _failure("INTELLIGENCE_SOURCE_MISMATCH")
 
 
-def parse_feed(
-    raw: bytes, source: dict[str, Any], *, base_url: str | None = None
-) -> list[dict[str, Any]]:
-    """Reject DTD/entities, excessive depth/nodes/items and unsupported envelopes."""
+class _ElementBuilder:
+    """One-element stack. Completed entries can be dropped instead of kept."""
+
+    def __init__(self) -> None:
+        self._data: list[str] = []
+        self._tail = False
+        self._last: ET.Element | None = None
+        self.stack: list[ET.Element] = []
+        self.root: ET.Element | None = None
+
+    def _flush(self) -> None:
+        if self._data and self._last is not None:
+            text = "".join(self._data)
+            if self._tail:
+                self._last.tail = text
+            else:
+                self._last.text = text
+        self._data = []
+
+    def data(self, data: str) -> None:
+        self._data.append(data)
+
+    def start(self, tag: str, attrs: dict[str, str]) -> ET.Element:
+        self._flush()
+        elem = ET.Element(tag, attrs)
+        if self.stack:
+            self.stack[-1].append(elem)
+        elif self.root is None:
+            self.root = elem
+        self.stack.append(elem)
+        self._last = elem
+        self._tail = False
+        return elem
+
+    def end(self, tag: str) -> ET.Element:
+        self._flush()
+        elem = self.stack.pop()
+        self._last = elem
+        self._tail = True
+        return elem
+
+    def close(self) -> ET.Element | None:
+        self._flush()
+        return self.root
+
+
+def _clark(name: str) -> str:
+    """Expat ``uri}local`` names use ElementTree's ``{uri}local`` form."""
+    if name.startswith("{") or "}" not in name:
+        return name
+    uri, local = name.rsplit("}", 1)
+    if not uri:
+        return local
+    return "{" + uri + "}" + local
+
+
+def _attribute_map(attrs: Any) -> dict[str, str]:
+    raw_pairs: list[tuple[Any, Any]]
+    if isinstance(attrs, dict):
+        raw_pairs = list(attrs.items())
+    elif isinstance(attrs, list):
+        raw_pairs = [(attrs[index], attrs[index + 1]) for index in range(0, len(attrs), 2)]
+    else:
+        return {}
+    return {_clark(str(key)): str(value) for key, value in raw_pairs}
+
+
+def _is_feed_entry(transport: str, parent: ET.Element, elem: ET.Element) -> bool:
+    if transport == "rss":
+        return parent.tag == "channel" and elem.tag == "item"
+    if transport == "atom":
+        return parent.tag == ATOM + "feed" and elem.tag == ATOM + "entry"
+    return False
+
+
+def walk_feed(
+    raw: bytes,
+    source: dict[str, Any],
+    on_entry: Callable[[ET.Element, str], None],
+    *,
+    base_url: str | None = None,
+) -> ET.Element:
+    """Parse one feed, invoking ``on_entry`` per item and then dropping that item.
+
+    The returned element is the channel or feed with entry children removed.
+    Security limits match the previous full-tree parse: no DTD, depth 32,
+    100_000 nodes, and the reviewed item cap.
+    """
     limits = source["limits"]
     if len(raw) > limits["maximum_bytes"]:
         raise _failure("FEED_TOO_LARGE")
-    guard = expat.ParserCreate()
-    depth = nodes = 0
+    transport = source["transport"]
+    if transport not in {"rss", "atom"}:
+        raise _failure("INTELLIGENCE_SOURCE_MISMATCH")
+    maximum_items = limits["maximum_items"]
+    feed_base = base_url or source.get("fetch_location") or ""
+    builder = _ElementBuilder()
+    depth = 0
+    nodes = 0
+    kept = 0
+    pending: tuple[ET.Element, ET.Element] | None = None
 
-    def start(name: str, attrs: dict[str, str]) -> None:
+    def deliver() -> None:
+        nonlocal pending, kept
+        if pending is None:
+            return
+        parent, elem = pending
+        pending = None
+        inherited = feed_base
+        if transport == "atom" and builder.root is not None:
+            inherited = _xml_base(builder.root, feed_base)
+        try:
+            if kept < maximum_items:
+                on_entry(elem, inherited)
+        finally:
+            kept += 1
+            parent.remove(elem)
+            elem.clear()
+
+    def start(name: str, attrs: Any) -> None:
         nonlocal depth, nodes
         depth += 1
         nodes += 1
         if depth > 32 or nodes > 100_000:
             raise _failure("XML_COMPLEXITY_LIMIT")
+        builder.start(_clark(name), _attribute_map(attrs))
+        deliver()
 
     def end(name: str) -> None:
-        nonlocal depth
+        nonlocal depth, pending
+        elem = builder.end(_clark(name))
         depth -= 1
+        parent = builder.stack[-1] if builder.stack else None
+        if parent is not None and _is_feed_entry(transport, parent, elem):
+            pending = (parent, elem)
 
-    def doctype(*args: Any) -> None:
+    def characters(data: str) -> None:
+        builder.data(data)
+
+    def doctype(*_args: Any) -> None:
         raise _failure("XML_DTD_FORBIDDEN")
 
-    guard.StartElementHandler = start
-    guard.EndElementHandler = end
-    guard.StartDoctypeDeclHandler = doctype
-    guard.ExternalEntityRefHandler = lambda *args: 0
+    parser = expat.ParserCreate(None, "}")
+    parser.ordered_attributes = True
+    parser.buffer_text = True
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = characters
+    parser.StartDoctypeDeclHandler = doctype
+    parser.ExternalEntityRefHandler = lambda *_args: 0
     try:
-        guard.Parse(raw, True)
-        root = ET.fromstring(raw)
-    except (expat.ExpatError, ET.ParseError) as error:
+        parser.Parse(raw, True)
+        builder.close()
+        deliver()
+    except AcquisitionError:
+        raise
+    except (expat.ExpatError, AssertionError, ET.ParseError, IndexError) as error:
         raise _failure("MALFORMED_FEED") from error
-    transport = source["transport"]
+    root = builder.root
+    if root is None:
+        raise _failure("MALFORMED_FEED")
+    _require_feed_envelope(root, transport)
+    return root
+
+
+def _require_feed_envelope(root: ET.Element, transport: str) -> ET.Element:
     if transport == "rss" and root.tag == "rss" and root.get("version") == "2.0":
-        channels = root.findall("channel")
+        channels = [child for child in list(root) if child.tag == "channel"]
         if len(channels) != 1:
             raise _failure("UNSUPPORTED_FEED_ENVELOPE")
-        entries = channels[0].findall("item")
-    elif transport == "atom" and root.tag == ATOM + "feed":
-        entries = root.findall(ATOM + "entry")
+        return channels[0]
+    if transport == "atom" and root.tag == ATOM + "feed":
+        return root
+    raise _failure("UNSUPPORTED_FEED_ENVELOPE")
+
+
+def feed_parent(root: ET.Element, source: dict[str, Any]) -> ET.Element:
+    """Channel or feed element after entries have been released."""
+    return _require_feed_envelope(root, source["transport"])
+
+
+def entry_record(entry: ET.Element, source: dict[str, Any], inherited_base: str) -> dict[str, Any]:
+    """One item's public fields. The caller can drop ``entry`` after this returns."""
+    transport = source["transport"]
+    if transport == "rss":
+        item: dict[str, Any] = {
+            "publisher_identity": _text(entry, "guid"),
+            "url": _text(entry, "link"),
+            "title": _text(entry, "title"),
+            "excerpt": _text(entry, "description"),
+            "published_at": _publisher_date(_text(entry, "pubDate"), rss=True),
+            "updated_at": None,
+            "topics": tuple(_element_text(node) for node in entry.findall("category")),
+        }
+        feed_base = inherited_base
     else:
-        raise _failure("UNSUPPORTED_FEED_ENVELOPE")
-    maximum_items = limits["maximum_items"]
-    if len(entries) > maximum_items:
-        entries = entries[:maximum_items]
+        entry_base = _xml_base(entry, inherited_base)
+        links = [
+            None
+            if node.get("href") in {None, ""}
+            else urljoin(_xml_base(node, entry_base), node.attrib["href"])
+            for node in entry.findall(ATOM + "link")
+            if node.get("rel", "alternate") == "alternate"
+            and node.get("type", "text/html") in {"text/html", "application/xhtml+xml"}
+        ]
+        # Atom requires href. An empty RFC3986 reference identifies the
+        # feed document, not an evidenced publication; abstain in both cases.
+        # Ambiguous alternatives stay unknown rather than choosing a publisher URL.
+        item = {
+            "publisher_identity": _text(entry, ATOM + "id"),
+            "url": links[0] if len(links) == 1 else None,
+            "title": _text(entry, ATOM + "title"),
+            "excerpt": _text(entry, ATOM + "summary"),
+            "published_at": _publisher_date(_text(entry, ATOM + "published")),
+            "updated_at": _publisher_date(_text(entry, ATOM + "updated")),
+            "topics": tuple(node.get("term", "") for node in entry.findall(ATOM + "category")),
+        }
+        feed_base = inherited_base
+    if item["url"] and feed_base:
+        item["url"] = urljoin(feed_base, item["url"])
+    if len(item["topics"]) > 100:
+        raise _failure("FEED_TOPIC_LIMIT")
+    return item
+
+
+def parse_feed(
+    raw: bytes, source: dict[str, Any], *, base_url: str | None = None
+) -> list[dict[str, Any]]:
+    """Reject DTD/entities, excessive depth/nodes/items and unsupported envelopes."""
     result: list[dict[str, Any]] = []
-    feed_base = base_url or source["fetch_location"] or ""
-    if transport == "atom":
-        feed_base = _xml_base(root, feed_base)
-    for entry in entries:
-        if transport == "rss":
-            item: dict[str, Any] = {
-                "publisher_identity": _text(entry, "guid"),
-                "url": _text(entry, "link"),
-                "title": _text(entry, "title"),
-                "excerpt": _text(entry, "description"),
-                "published_at": _publisher_date(_text(entry, "pubDate"), rss=True),
-                "updated_at": None,
-                "topics": tuple(_element_text(node) for node in entry.findall("category")),
-            }
-        else:
-            entry_base = _xml_base(entry, feed_base)
-            links = [
-                None
-                if node.get("href") in {None, ""}
-                else urljoin(_xml_base(node, entry_base), node.attrib["href"])
-                for node in entry.findall(ATOM + "link")
-                if node.get("rel", "alternate") == "alternate"
-                and node.get("type", "text/html") in {"text/html", "application/xhtml+xml"}
-            ]
-            # Atom requires href. An empty RFC3986 reference identifies the
-            # feed document, not an evidenced publication; abstain in both cases.
-            # Ambiguous alternatives stay unknown rather than choosing a publisher URL.
-            item = {
-                "publisher_identity": _text(entry, ATOM + "id"),
-                "url": links[0] if len(links) == 1 else None,
-                "title": _text(entry, ATOM + "title"),
-                "excerpt": _text(entry, ATOM + "summary"),
-                "published_at": _publisher_date(_text(entry, ATOM + "published")),
-                "updated_at": _publisher_date(_text(entry, ATOM + "updated")),
-                "topics": tuple(node.get("term", "") for node in entry.findall(ATOM + "category")),
-            }
-        if item["url"] and feed_base:
-            item["url"] = urljoin(feed_base, item["url"])
-        if len(item["topics"]) > 100:
-            raise _failure("FEED_TOPIC_LIMIT")
-        result.append(item)
+
+    def on_entry(entry: ET.Element, inherited: str) -> None:
+        result.append(entry_record(entry, source, inherited))
+
+    walk_feed(raw, source, on_entry, base_url=base_url)
     return result
+
+
+def count_feed_entries(raw: bytes, source: dict[str, Any], *, base_url: str | None = None) -> int:
+    """Validate entries one at a time and return how many were kept.
+
+    The item dict is discarded before the next item is built.
+    """
+    count = 0
+
+    def on_entry(entry: ET.Element, inherited: str) -> None:
+        nonlocal count
+        entry_record(entry, source, inherited)
+        count += 1
+
+    walk_feed(raw, source, on_entry, base_url=base_url)
+    return count
 
 
 def _xml_base(node: ET.Element, inherited: str) -> str:
@@ -484,7 +647,7 @@ class IntelligenceFeedAdapter:
             else datetime.now(UTC).isoformat().replace("+00:00", "Z")
         )
         effective_url = response.effective_url or definition.endpoint_template
-        entries = parse_feed(raw, source, base_url=effective_url)
+        row_count = count_feed_entries(raw, source, base_url=effective_url)
         digest = hashlib.sha256(raw).hexdigest()
         payload: dict[str, Any] = {
             "xml_base64": base64.b64encode(raw).decode("ascii"),
@@ -528,13 +691,13 @@ class IntelligenceFeedAdapter:
                     payload=raw,
                     media_type="application/xml",
                     source_uri=effective_url,
-                    row_count=len(entries),
+                    row_count=row_count,
                 ),
             ),
-            row_count=len(entries),
+            row_count=row_count,
             detail={
                 "fetch_status": response.status,
-                "outcome": "quiet" if not entries else "fetched",
+                "outcome": "quiet" if row_count == 0 else "fetched",
                 "parser_version": PARSER_VERSION,
             },
         )
@@ -583,7 +746,7 @@ class IntelligenceFeedAdapter:
                 or cache.source_context["effective_url"] != source["fetch_location"]
             ):
                 raise _failure("FEED_CACHE_SOURCE_MISMATCH")
-            parse_feed(cache.body, source, base_url=cache.source_context["effective_url"])
+            count_feed_entries(cache.body, source, base_url=cache.source_context["effective_url"])
             for name, value in (
                 ("If-None-Match", cache.etag),
                 ("If-Modified-Since", cache.last_modified),
@@ -714,8 +877,11 @@ class IntelligenceFeedAdapter:
             raise _failure("FEED_SOURCE_CONTEXT_MISMATCH")
         if self.native_policy_lookup is not None:
             policy = self.native_policy_lookup(source["source_id"], source["registry_version"])
-            return parse_native_feed(raw, source, policy, base_url=context["effective_url"])
-        return parse_feed(raw, source, base_url=context["effective_url"])
+            entries = parse_native_feed(raw, source, policy, base_url=context["effective_url"])
+        else:
+            entries = parse_feed(raw, source, base_url=context["effective_url"])
+        del raw
+        return entries
 
     def retained_cache(self, payload: dict[str, Any], artifact_id: str) -> FeedCache:
         if self.feed_retention is None:

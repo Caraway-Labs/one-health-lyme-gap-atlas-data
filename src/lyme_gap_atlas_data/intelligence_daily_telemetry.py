@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar, Token, copy_context
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -528,12 +529,12 @@ def stage_scope(stage: str) -> Iterator[None]:
         return
     publish_stage(stage)
     token = _STAGE.set(stage if _IDENTIFIER.fullmatch(stage) else None)
-    emit("stage.open", step=stage, stage=stage)
+    _emit_with_memory("stage.open", step=stage, stage=stage)
     try:
-        with _span("intelligence-daily.stage", stage=stage, step=stage):
+        with _span("intelligence-daily.stage", stage=stage, step=stage, **process_memory_fields()):
             yield
     finally:
-        emit("stage.close", step=stage, stage=stage)
+        _emit_with_memory("stage.close", step=stage, stage=stage)
         publish_stage(None)
         _STAGE.reset(token)
 
@@ -544,8 +545,12 @@ def source_span(source_id: str) -> Iterator[None]:
         yield
         return
     bind_context(source_id=source_id)
-    with _span("intelligence-daily.source", source_id=source_id, step="source"):
-        yield
+    _emit_with_memory("source.open", step="source")
+    try:
+        with _span("intelligence-daily.source", source_id=source_id, step="source"):
+            yield
+    finally:
+        _emit_with_memory("source.close", step="source")
 
 
 @contextmanager
@@ -592,7 +597,7 @@ class StageHeartbeat:
         if now - self._last + 1e-9 < self.interval:
             return
         self._last = now
-        emit("stage.heartbeat", step="heartbeat", stage=stage)
+        _emit_with_memory("stage.heartbeat", step="heartbeat", stage=stage)
 
     def start(self) -> None:
         current = _HEARTBEAT.get()
@@ -613,18 +618,28 @@ class StageHeartbeat:
     def _loop(self) -> None:
         while not self._stop.wait(min(self.interval, 1)):
             with suppress(Exception):
+                publish_progress(self._open)
                 self.poll()
 
 
 def publish_stage(stage: str | None) -> None:
+    heartbeat = _HEARTBEAT.get()
+    if heartbeat is not None:
+        heartbeat.set_open(stage)
     stage_queue = _STAGE_QUEUE.get()
     if stage_queue is not None:
         with suppress(Exception):
             stage_queue.put_nowait("" if stage is None else stage)
+
+
+def publish_progress(stage: str | None) -> None:
+    """Queue a liveness pulse. The parent treats it as progress, not as content."""
+    stage_queue = _STAGE_QUEUE.get()
+    if stage_queue is None:
         return
-    heartbeat = _HEARTBEAT.get()
-    if heartbeat is not None:
-        heartbeat.set_open(stage)
+    marker = stage if isinstance(stage, str) and _IDENTIFIER.fullmatch(stage) else "LIVE"
+    with suppress(Exception):
+        stage_queue.put_nowait(marker)
 
 
 def emit_source_summary(
@@ -795,6 +810,49 @@ def emit(event: str, *, level: str = "INFO", **fields: Any) -> None:
         _enqueue_export(payload)
     except Exception:
         return
+
+
+def _emit_with_memory(event: str, **fields: Any) -> None:
+    memory = process_memory_fields()
+    emit(
+        event,
+        rss_kib=memory["rss_kib"],
+        peak_rss_kib=memory["peak_rss_kib"],
+        **fields,
+    )
+
+
+def process_memory_fields() -> dict[str, int]:
+    """Current and peak RSS in kibibytes. No other process fields."""
+    rss, peak = _proc_rss_kib()
+    return {
+        "rss_kib": rss if isinstance(rss, int) and rss >= 0 else 0,
+        "peak_rss_kib": peak if isinstance(peak, int) and peak >= 0 else peak_rss_kb(),
+    }
+
+
+def _proc_rss_kib() -> tuple[int | None, int | None]:
+    rss: int | None = None
+    peak: int | None = None
+    try:
+        status = Path("/proc/self/status").read_text(encoding="utf-8")
+    except OSError:
+        status = ""
+    for line in status.splitlines():
+        if line.startswith("VmRSS:"):
+            rss = _status_kib(line)
+        elif line.startswith("VmHWM:"):
+            peak = _status_kib(line)
+    if peak is None:
+        peak = peak_rss_kb() or None
+    return rss, peak
+
+
+def _status_kib(line: str) -> int | None:
+    digits = "".join(char for char in line if char.isdigit())
+    if not digits:
+        return None
+    return int(digits)
 
 
 def peak_rss_kb() -> int:
@@ -987,6 +1045,8 @@ def _apply_span_attributes(span: Any, attributes: Mapping[str, Any]) -> None:
         "retry_count",
         "status",
         "failure_code",
+        "rss_kib",
+        "peak_rss_kib",
     ):
         if key in base and base[key] is not None:
             span.set_attribute(key, base[key])

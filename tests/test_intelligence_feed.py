@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -468,3 +470,57 @@ def test_unchanged_bytes_cannot_be_relabelled_during_replay(drift: str) -> None:
         target = replace(target, resource_key="unrelated-resource")
     with pytest.raises(AcquisitionError, match="CONTEXT_MISMATCH|RESOURCE_SOURCE_MISMATCH"):
         adapter.normalize(target, captured.payload)
+
+
+def _peak_rss_kib(mode: str) -> int:
+    """Peak RSS for one large feed. ``hold`` keeps the tree and copies."""
+    code = f"""
+import resource
+import xml.etree.ElementTree as ET
+from lyme_gap_atlas_data.ingestion.intelligence_feed import parse_feed
+parts = []
+for index in range(400):
+    text = ("tick-borne surveillance note ") * 2500
+    parts.append(
+        "<item><guid>%s</guid><title>t%s</title><description>%s</description></item>"
+        % (index, index, text)
+    )
+raw = ("<rss version='2.0'><channel>" + "".join(parts) + "</channel></rss>").encode()
+source = {{
+    "transport": "rss",
+    "limits": {{"maximum_bytes": 80_000_000, "maximum_items": 5000}},
+    "fetch_location": "https://example.invalid/feed.xml",
+}}
+mode = {mode!r}
+if mode == "hold":
+    root = ET.fromstring(raw)
+    channel = root.find("channel")
+    retained = [ET.tostring(item) for item in channel.findall("item")]
+    retained.append(root)
+    retained.append(parse_feed(raw, source))
+else:
+    retained = parse_feed(raw, source)
+del retained
+print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return int(result.stdout.strip().splitlines()[-1])
+
+
+def test_streaming_mmwr_parse_peak_rss_is_below_holding_the_tree() -> None:
+    """Measured peak RSS for 400 items with long descriptions.
+
+    The holding parser keeps the document tree plus a serialized copy of every
+    item. The streaming parser releases each item element after its fields
+    are copied into the result.
+    """
+    holding = _peak_rss_kib("hold")
+    streaming = _peak_rss_kib("stream")
+    assert holding > streaming + 1024, f"peak rss hold={holding} stream={streaming}"

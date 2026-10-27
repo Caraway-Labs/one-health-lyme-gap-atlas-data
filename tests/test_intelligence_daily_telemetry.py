@@ -229,6 +229,37 @@ def test_stage_span_opens_and_closes() -> None:
         pass
     events = [item["event"] for item in telemetry.captured_events()]
     assert events == ["stage.open", "stage.close"]
+    for item in telemetry.captured_events():
+        assert item["rss_kib"] >= 0
+        assert item["peak_rss_kib"] >= 0
+
+
+def test_stage_and_source_rss_lines_do_not_leak_feed_content() -> None:
+    marker = "https://tools.cdc.gov/api/secret-item"
+    title = "MMWR secret title body"
+    with (
+        telemetry.observed(),
+        telemetry.source_span("cdc-mmwr"),
+        telemetry.stage_scope("NORMALIZE"),
+    ):
+        telemetry.emit(
+            "stage.note",
+            description=title,
+            url=marker,
+            body=title,
+        )
+    blob = json.dumps(telemetry.captured_events())
+    assert marker not in blob
+    assert title not in blob
+    assert "http" not in blob
+    names = [item["event"] for item in telemetry.captured_events()]
+    assert names[:2] == ["source.open", "stage.open"]
+    assert "source.close" in names
+    assert "stage.close" in names
+    for item in telemetry.captured_events():
+        if item["event"] in {"source.open", "source.close", "stage.open", "stage.close"}:
+            assert item["rss_kib"] >= 0
+            assert item["peak_rss_kib"] >= 0
 
 
 def test_telemetry_failure_does_not_fail_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -426,6 +457,8 @@ def test_parent_heartbeat_thread_emits_stage_heartbeat() -> None:
     assert beats
     assert beats[0]["stage"] == "FETCH"
     assert beats[0]["source_id"] == "cdc-mmwr"
+    assert beats[0]["rss_kib"] >= 0
+    assert beats[0]["peak_rss_kib"] >= beats[0]["rss_kib"]
 
 
 def test_pubmed_failure_checkpoint_save_is_instrumented() -> None:
