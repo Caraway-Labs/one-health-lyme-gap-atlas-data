@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from semantic_contracts import load_workflow, workflow_runs
+from semantic_contracts import load_workflow, trigger_map, workflow_runs
 
 from lyme_gap_atlas_data.ingestion.adapters import AcquireResult
 from lyme_gap_atlas_data.ingestion.source_definition import load_source_definition
@@ -145,3 +145,17 @@ def test_protected_evidence_workflow_is_narrow_and_never_ingests_rows() -> None:
     assert "usda_ers_rucc_2023.yml" in runs
     assert "capture-routine-public-evidence" in runs
     assert "source run" not in runs
+    choice = "config/sources/census_county_adjacency_2025.yml"
+    options = trigger_map(document)["workflow_dispatch"]["inputs"]["source_definition"]["options"]
+    assert choice in options
+    verify = next(step for step in job["steps"] if step.get("name") == "Verify reviewed definition")
+    assert choice in verify["run"]
+    assert choice not in job["env"]["SNOWFLAKE_WAREHOUSE"]
+    assert choice not in job["env"]["ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS"]
+    january_limits = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Set reviewed January connection limits"
+    )
+    assert choice not in january_limits["if"]
+    assert "noaa_nclimgrid_daily_202501_prod.yml" in january_limits["if"]

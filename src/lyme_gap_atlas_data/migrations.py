@@ -236,6 +236,8 @@ PROD_ONLY_MIGRATION_VERSIONS = {
     "V165",
     "V166",
     "V167",
+    # V179 replaces the PROD steward procedure only. DEV keeps its own procedure.
+    "V179",
 }
 # Scoped PROD operators still review the complete pending metadata, and they
 # exclude these versions so a narrower operator cannot execute them. Routine

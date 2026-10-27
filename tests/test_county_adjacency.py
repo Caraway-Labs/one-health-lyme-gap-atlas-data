@@ -324,6 +324,61 @@ def test_v177_is_the_next_free_migration_for_both_databases() -> None:
     assert "{{ ENV }}" not in rendered and "{{ DATABASE }}" not in rendered
 
 
+def test_v179_admits_only_the_county_adjacency_source() -> None:
+    migration = next(item for item in load_migrations() if item.version == "V179")
+    digest = hashlib.sha256(migration.source.encode()).hexdigest()
+    assert migration.filename == "V179__prod_county_adjacency_source_admission.sql"
+    assert migration.sha256 == digest
+    assert "V179" in PROD_ONLY_MIGRATION_VERSIONS
+    assert "V179" not in DEV_ONLY_MIGRATION_VERSIONS
+    assert "V179" not in HELD_BACK_DEV_MIGRATION_VERSIONS
+    assert migration.version not in {item["version"] for item in migration_plan(DEV_DATABASE)}
+    prod_plan = migration_plan(PROD_DATABASE)
+    assert {"version": "V179", "filename": migration.filename, "sha256": digest} in prod_plan
+    allow_list = json.dumps(
+        [{"version": "V179", "filename": migration.filename, "sha256": digest}],
+        separators=(",", ":"),
+    )
+    workflow = (ROOT / ".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    guard = (ROOT / "tests/test_ci_guard.py").read_text(encoding="utf-8")
+    assert workflow.count(allow_list) == 1
+    assert allow_list in guard
+    prior = (ROOT / "migrations/V151__prod_january_climate_source_admission.sql").read_text(
+        encoding="utf-8"
+    )
+    for resource_key in (
+        "cdc_lyme_x5j9_wybp",
+        "cdc_lyme_qtbi_xd4i",
+        "cdc_atsdr_svi_2022_county",
+        "usda_ers_rucc_2023",
+        "mrlc_annual_nlcd_c1v2_2025_demo_cohort",
+        "noaa_nclimgrid_daily_202501",
+        "census_tiger_2025_us_county_analysis",
+    ):
+        assert resource_key in migration.source
+        assert prior.count(resource_key) <= migration.source.count(resource_key)
+    assert migration.source.count("census_county_adjacency_2025") >= 1
+    assert "census_county_adjacency_2025" not in prior
+    assert prior.count("JANUARY_2025_ONLY") == migration.source.count("JANUARY_2025_ONLY") == 1
+    assert prior.count("REUSE_OWNER_ACCEPTANCE_DATA443") == migration.source.count(
+        "REUSE_OWNER_ACCEPTANCE_DATA443"
+    )
+    assert "COPY GRANTS" in migration.source
+    assert "CREATE OR REPLACE PROCEDURE GOVERNANCE.SP_RECORD_SOURCE_REVIEW_DECISION" in (
+        migration.source
+    )
+    assert "GRANT " not in migration.source
+    assert "DELETE " not in migration.source.upper()
+    assert "MERGE " not in migration.source.upper()
+    assert "COUNTY_ADJACENCY_V1" not in migration.source
+    assert "RAW.CENSUS_COUNTY_ADJACENCY_2025" not in migration.source
+    assert PINNED_SHA256 in migration.source
+    assert "1062648" in migration.source
+    rendered = render_migration(migration, PROD_DATABASE)
+    assert "ONE_HEALTH_LYME_GAP_ATLAS_PROD" in rendered
+    assert "{{ DATABASE }}" not in rendered
+
+
 def test_v177_apply_uses_the_reviewed_pin(monkeypatch: pytest.MonkeyPatch) -> None:
     migration = next(item for item in load_migrations() if item.version == "V177")
     monkeypatch.setattr(migrations, "load_migrations", lambda: [migration])
