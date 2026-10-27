@@ -17,6 +17,9 @@ NAME = "intelligence-feed-daily"
 CHECK = "intelligence-feed-preflight"
 COMMAND = "/app/.venv/bin/atlas-data pipeline run-intelligence-daily"
 DAILY_SCHEDULE = {"cron": "15 18 * * *", "time_zone": "America/Denver"}
+# Only the standing daily job runs on 1 GB (approved 2026-10-26, #862).
+# Every other job keeps the size it already has in the platform spec.
+DAILY_JOB_INSTANCE_SIZE_SLUG = "apps-s-1vcpu-1gb"
 BASE = {
     "catalog-discovery",
     "approved-source-ingestion",
@@ -129,6 +132,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
         new.pop("schedule", None)
     else:
         new["schedule"] = dict(DAILY_SCHEDULE)
+        new["instance_size_slug"] = DAILY_JOB_INSTANCE_SIZE_SLUG
     removed = {CHECK} if phase == "preflight" else {CHECK, NAME}
     result["jobs"] = [j for j in result["jobs"] if j["name"] not in removed] + [new]
     assert [j for j in result["jobs"] if j["name"] in BASE] == [
@@ -182,6 +186,29 @@ def sync_daily_job_schedule(spec: dict[str, Any]) -> dict[str, Any]:
         if job.get("name") == NAME and job.get("schedule") != DAILY_SCHEDULE:
             job["schedule"] = dict(DAILY_SCHEDULE)
     return result
+
+
+def sync_daily_job_size(spec: dict[str, Any]) -> dict[str, Any]:
+    """Set the reviewed size on the active daily job only. Other jobs are untouched."""
+    result = copy.deepcopy(spec)
+    for job in result.get("jobs", []):
+        if job.get("name") == NAME:
+            job["instance_size_slug"] = DAILY_JOB_INSTANCE_SIZE_SLUG
+    return result
+
+
+def other_job_sizes(spec: dict[str, Any]) -> dict[str, Any]:
+    """Map every job except the daily job to its size, to prove they never change."""
+    return {
+        job.get("name"): job.get("instance_size_slug")
+        for job in spec.get("jobs", [])
+        if isinstance(job, dict) and job.get("name") != NAME
+    }
+
+
+def daily_job_size(spec: dict[str, Any]) -> Any:
+    job = next((j for j in spec.get("jobs", []) if j.get("name") == NAME), None)
+    return (job or {}).get("instance_size_slug")
 
 
 def otel_entries(spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -421,7 +448,9 @@ def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, 
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_ACTIVE_JOB")
     if any(job.get("name") == CHECK for job in spec.get("jobs", [])):
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_NO_PREFLIGHT_JOB")
-    aligned = sync_daily_job_schedule(with_baseline_digests(spec, digest))
+    aligned = sync_daily_job_size(sync_daily_job_schedule(with_baseline_digests(spec, digest)))
+    if other_job_sizes(aligned) != other_job_sizes(spec):
+        raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
     daily = next(job for job in aligned.get("jobs", []) if job.get("name") == NAME)
     _apply_ncbi_placement(daily, keep_existing_email=True)
     place_daily_otel(daily, aligned)
@@ -743,6 +772,7 @@ def main() -> None:
     if app.get("in_progress_deployment"):
         raise PermissionError("INTELLIGENCE_DAILY_COMPETING_DEPLOYMENT")
     if args.phase == "refresh-digest":
+        sizes_before = other_job_sizes(app["spec"])
         spec = refresh_operational_digests(app["spec"], args.image_digest)
         if spec != app["spec"]:
             align = platform_update(spec, update_sources=False)
@@ -755,6 +785,10 @@ def main() -> None:
                 raise PermissionError("INTELLIGENCE_DAILY_BASELINE_ALIGNMENT_INCOMPLETE")
         if baseline_needs_digest_alignment(app["spec"], args.image_digest):
             raise PermissionError("INTELLIGENCE_DAILY_REFRESH_DIGEST_INCOMPLETE")
+        if daily_job_size(app["spec"]) != DAILY_JOB_INSTANCE_SIZE_SLUG:
+            raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_SIZE_MISMATCH")
+        if other_job_sizes(app["spec"]) != sizes_before:
+            raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
         print(
             json.dumps(
                 {
@@ -762,6 +796,7 @@ def main() -> None:
                     "app_id": APP_ID,
                     "deployment_id": app["active_deployment"]["id"],
                     "operational_jobs_aligned": True,
+                    "daily_instance_size_slug": DAILY_JOB_INSTANCE_SIZE_SLUG,
                     "credential_provisioning": False,
                     **ncbi_presence(app["spec"]),
                 }
