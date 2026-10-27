@@ -41,7 +41,7 @@ class _Ledger:
         self.saved: list[Any] = []
         self.claims: list[str] = []
 
-    def claim_daily_run(self, _run_id: str, source_id: str, _sha: str) -> bool:
+    def claim_daily_run(self, _run_id: str, source_id: str, _sha: str, **_kwargs: Any) -> bool:
         self.claims.append(source_id)
         return True
 
@@ -116,6 +116,7 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
     code: str,
     status: int | None,
 ) -> None:
+    entrez._PUBMED_STEP.set(None)
     ledger = _Ledger()
     _patch_walk(monkeypatch, ledger, error)
     payload = polling.run_production_daily()
@@ -132,11 +133,14 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
         assert all("http_status" not in row for row in payload["pubmed"])
     else:
         assert [row["http_status"] for row in payload["pubmed"]] == [status, status]
-    assert len(ledger.saved) == 4
+    assert len(ledger.saved) == 2
     for state in ledger.saved:
         checkpoint = state.stages[0]
         assert checkpoint.redacted_diagnostic_code == code
-        assert checkpoint.detail == ({} if status is None else {"http_status": status})
+        if code == "PUBMED_DAILY_FAILED":
+            assert checkpoint.detail == {"exception_class": type(error).__name__}
+        else:
+            assert checkpoint.detail == ({} if status is None else {"http_status": status})
         _assert_redacted(json.dumps(state.to_dict()))
     for line in logged.splitlines():
         if not line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX):
@@ -150,6 +154,91 @@ def test_pubmed_failure_records_code_and_status_without_message_text(
             assert "http_status" not in body
         else:
             assert body["http_status"] == status
+
+
+class ProgrammingError(Exception):
+    """Stand-in for the Snowflake DB-API error. The message must never be stored."""
+
+    def __init__(self, message: str, *, errno: object, sqlstate: object) -> None:
+        super().__init__(message)
+        self.errno = errno
+        self.sqlstate = sqlstate
+
+
+def test_unclassified_programming_error_records_step_errno_and_sqlstate(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    message = (
+        "UPDATE GOVERNANCE.INTELLIGENCE_WRITE_GUARD SET write_sequence=write_sequence+1 "
+        "WHERE note='user@example.test' AND sql='SELECT secret FROM RAW_ARTIFACTS'"
+    )
+    error = ProgrammingError(message, errno=625, sqlstate="57014")
+    ledger = _Ledger()
+    _patch_walk(monkeypatch, ledger, error)
+
+    def boom(**_kwargs: Any) -> None:
+        entrez.note_pubmed_step("CAPTURE")
+        raise error
+
+    monkeypatch.setattr(polling, "execute_registered_entrez_daily", boom)
+    payload = polling.run_production_daily()
+    logged = capsys.readouterr().out
+    rendered = json.dumps(payload)
+    _assert_redacted(logged)
+    _assert_redacted(rendered)
+    assert "INTELLIGENCE_WRITE_GUARD" not in logged
+    assert "RAW_ARTIFACTS" not in logged
+    assert "SELECT" not in logged
+    expected = {
+        "errno": 625,
+        "exception_class": "ProgrammingError",
+        "sqlstate": "57014",
+        "step": "CAPTURE",
+    }
+    assert [row["error_code"] for row in payload["pubmed"]] == ["PUBMED_DAILY_FAILED"] * 2
+    for row in payload["pubmed"]:
+        assert {key: row[key] for key in expected} == expected
+        assert "http_status" not in row
+    for state in ledger.saved:
+        assert state.stages[0].detail == expected
+        _assert_redacted(json.dumps(state.to_dict()))
+    for line in logged.splitlines():
+        if not line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX):
+            continue
+        body = json.loads(line.removeprefix(polling.DAILY_OUTCOME_LOG_PREFIX))
+        if body.get("source_id") not in SOURCE_ORDER:
+            continue
+        assert {key: body[key] for key in expected} == expected
+        assert body["error_class"] == "ProgrammingError"
+        assert body["error_code"] == "PUBMED_DAILY_FAILED"
+        assert set(body) <= {
+            "errno",
+            "error_class",
+            "error_code",
+            "exception_class",
+            "source_id",
+            "sqlstate",
+            "status",
+            "step",
+        }
+    entrez._PUBMED_STEP.set(None)
+
+
+def test_unclassified_failure_drops_partial_or_free_text_dbapi_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    entrez._PUBMED_STEP.set(None)
+    error = ProgrammingError(POISON, errno=True, sqlstate="not a state")
+    ledger = _Ledger()
+    _patch_walk(monkeypatch, ledger, error)
+    payload = polling.run_production_daily()
+    capsys.readouterr()
+    assert ledger.saved[0].stages[0].detail == {"exception_class": "ProgrammingError"}
+    assert "errno" not in payload["pubmed"][0]
+    assert "sqlstate" not in payload["pubmed"][0]
+    assert "step" not in payload["pubmed"][0]
 
 
 def test_connector_exceptions_become_redacted_codes() -> None:
@@ -178,6 +267,51 @@ def test_connector_exceptions_become_redacted_codes() -> None:
         assert wrapped.http_status is None
         assert str(wrapped) == code
         _assert_redacted(str(wrapped))
+
+
+def test_pubmed_failure_log_keeps_detail_and_uses_daily_attempt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    polling._log_pubmed_failure(
+        TICK,
+        "ProgrammingError",
+        error_code="PUBMED_DAILY_FAILED",
+        daily_attempt=2,
+        detail={
+            "errno": 625,
+            "exception_class": "ProgrammingError",
+            "sqlstate": "57014",
+            "step": "CAPTURE",
+        },
+    )
+    polling._log_pubmed_retry_success(TICK, {"FETCH": 12})
+    polling._log_pubmed_retry_success(LYME, {})
+    lines = [
+        json.loads(line.removeprefix(polling.DAILY_OUTCOME_LOG_PREFIX))
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX)
+    ]
+    failure, measured, unknown = lines
+    assert failure["daily_attempt"] == 2
+    assert "attempt" not in failure
+    assert failure["errno"] == 625
+    assert failure["step"] == "CAPTURE"
+    assert set(failure) <= {
+        "daily_attempt",
+        "errno",
+        "error_class",
+        "error_code",
+        "exception_class",
+        "source_id",
+        "sqlstate",
+        "status",
+        "step",
+    }
+    assert measured["stage_timings_ms"] == {"FETCH": 12}
+    assert measured["daily_attempt"] == 2
+    assert "attempt" not in measured
+    assert "stage_timings_ms" not in unknown
+    assert unknown["daily_attempt"] == 2
 
 
 def test_pubmed_reopen_accepts_one_search_only_from_attempt_two() -> None:
@@ -249,7 +383,7 @@ def test_pubmed_reopen_rejects_a_prior_attempt_that_is_not_failed(
     )
 
     class _Reject:
-        def claim_daily_run(self, *_args: Any) -> bool:
+        def claim_daily_run(self, *_args: Any, **_kwargs: Any) -> bool:
             raise PermissionError("INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED")
 
         def save(self, _state: Any) -> None:
@@ -295,7 +429,7 @@ def test_scheduled_run_retries_one_failed_pubmed_source_and_records_it(
         ]
 
     monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
-    payload = polling.run_production_daily()
+    payload = polling.run_production_daily(scheduled_retry=True)
     assert [call["reopen_attempt"] for call in calls] == [1, 2]
     assert calls[0]["only_source_id"] is None
     assert payload["status"] == "SUCCEEDED"
@@ -305,7 +439,7 @@ def test_scheduled_run_retries_one_failed_pubmed_source_and_records_it(
             "status": "FAILED",
             "error_class": "TimeoutError",
             "error_code": "FEED_TIMEOUT",
-            "attempt": 2,
+            "daily_attempt": 2,
         }
     ]
     assert LYME not in json.dumps(payload["pubmed"])
@@ -328,7 +462,7 @@ def test_scheduled_pubmed_retry_success_clears_the_failure(
         return []
 
     monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
-    payload = polling.run_production_daily()
+    payload = polling.run_production_daily(scheduled_retry=True)
     assert calls == [1, 2]
     assert "pubmed" not in payload
     assert payload["status"] == "SUCCEEDED"

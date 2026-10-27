@@ -101,6 +101,61 @@ def test_revision_content_fields_keep_golden_hashes() -> None:
         }
 
 
+def test_rss_fixture_documents_keep_main_hashes_without_matched_queries() -> None:
+    """RSS fixtures have no matched_queries, so the hash basis stays byte-identical."""
+    paths = sorted((ROOT / "tests/fixtures/intelligence").rglob("*-item.json"))
+    assert [path.name for path in paths] == [
+        "atom-item.json",
+        "email-item.json",
+        "rss-item.json",
+        "web-item.json",
+    ]
+    for path in paths:
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+        assert "matched_queries" not in json.dumps(fixture)
+        assert item_identities(fixture) == (
+            fixture["item_id"],
+            fixture["content_sha256"],
+            fixture["revision_id"],
+        )
+        content = revision_content(fixture)
+        assert "publisher_metadata" not in content or "matched_queries" not in content.get(
+            "publisher_metadata", {}
+        )
+
+
+def test_matched_queries_do_not_change_the_revision_hash() -> None:
+    native = {
+        "inventory": ["item/title"],
+        "item": {"title": "t"},
+        "item_attributes": {},
+        "publisher_dates": {},
+    }
+    publisher = {"description": "one", "categories": ["a"], "journal": "Lancet"}
+    base = {
+        "contract_version": "2.0.0",
+        "title": "t",
+        "excerpt": None,
+        "published_at": None,
+        "updated_at": None,
+        "event_at": None,
+        "publisher_metadata": publisher,
+        "native_metadata": native,
+    }
+    labeled = {
+        **base,
+        "publisher_metadata": {
+            **publisher,
+            "matched_queries": ["pubmed-lyme-borrelia", "pubmed-tick-borne"],
+        },
+    }
+    assert revision_content(base)["publisher_metadata"] == publisher
+    assert "matched_queries" not in revision_content(labeled)["publisher_metadata"]
+    assert identity_hash(revision_content(base)) == identity_hash(revision_content(labeled))
+    changed = {**base, "title": "changed"}
+    assert identity_hash(revision_content(base)) != identity_hash(revision_content(changed))
+
+
 def test_contract_2_hash_covers_publisher_metadata_whole() -> None:
     native = {
         "inventory": ["item/title", "feed/title"],

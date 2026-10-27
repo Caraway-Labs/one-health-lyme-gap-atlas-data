@@ -20,9 +20,9 @@ This reuses the existing DigitalOcean application and canonical ingestion runtim
 A source whose latest attempt for the UTC day is terminal FAILED can be run again that day. RSS and PubMed (Entrez) sources use the same rule. A SUCCEEDED or RUNNING attempt is not run again. A mismatched checksum or `code_version` fails closed. There is no separate per-incident approval. The new ledger row, the GitHub run URL, and an issue comment are the audit trail.
 
 - Hard cap: 3 attempts per source per UTC day. Attempt 4 and higher is refused before SQL (`INTELLIGENCE_DAILY_ATTEMPT_CAP`).
-- Manual one-shot workflow input `reopen_attempt` (2 or 3) requires `source_id` for any registered daily source, including `pubmed-tick-borne` and `pubmed-lyme-borrelia`. It becomes `run-intelligence-daily --reopen-attempt N --source <id>` and sets `INTELLIGENCE_DAILY_REOPEN=true` only on the temporary `intelligence-daily-manual-once` job spec. One source is the PubMed case. RSS accepts one to five repeatable `--source` values. Sources that are not selected finish as `SKIPPED_NOT_SELECTED` and do not fail the job. An empty `source_id` or the value `all` is rejected before the spec is built. Preflight and recovery modes cannot be combined with a re-run. Recovery passes the same `--source` and refuses a run whose `resource_key` does not match it.
-- The scheduled `intelligence-feed-daily` spec and `deploy_intelligence_daily.py` do not set `INTELLIGENCE_DAILY_REOPEN` or `--reopen-attempt`. After the first pass, that run retries each source it marked FAILED once, as attempt 2, after the other sources finish. The child sets the flag only around that claim. The same per-source bounds apply (900/960/1020 seconds; PubMed 5 requests and 180 seconds). A retry that is still FAILED stays FAILED. SUCCEEDED and RUNNING sources are not retried.
-- Both the CLI path and `claim_daily_run` fail closed (before any SQL) if attempt >= 2 and the env var is not `true`. The scheduled retry is the one path that sets the flag itself, and only for attempt 2.
+- Manual one-shot workflow input `reopen_attempt` must match `^[1-3]$`. Values 2 and 3 require `source_id` for any registered daily source, including `pubmed-tick-borne` and `pubmed-lyme-borrelia`. The command is `run-intelligence-daily --reopen-attempt N --source <id>`. `claim_daily_run` receives `reopen=True` for that attempt. The manual job does not set a reopen environment variable and does not pass `--scheduled-same-day-retry`. Its spec sets `timeout: 1h35m`, one full pass and no retry, instead of the 30 minute deployment default. One source is the PubMed case. RSS accepts one to five repeatable `--source` values. Sources that are not selected finish as `SKIPPED_NOT_SELECTED` and do not fail the job. An empty `source_id` or the value `all` is rejected before the spec is built. Preflight and recovery modes cannot be combined with a re-run. Recovery passes the same `--source` and refuses a run whose `resource_key` does not match it. The workflow refuses a manual dispatch from 17:00 through 18:15 America/Denver (`INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED`), which stays on the local clock across the November change.
+- The standing `intelligence-feed-daily` command is `run-intelligence-daily --scheduled-same-day-retry`. That flag is the only path that retries a source the same run marked FAILED, once, as attempt 2, after the other sources finish. The retry phase stops when one RSS parent wait plus one PubMed walk (1020 + 180 seconds) has elapsed; sources not started keep their first FAILED outcome. The same per-source bounds apply (900/960/1020 seconds; PubMed 5 requests and 180 seconds). A retry that is still FAILED stays FAILED. SUCCEEDED and RUNNING sources are not retried. A manual full run does not retry.
+- `claim_daily_run(..., reopen=True)` is required before any SQL when the run id is attempt 2 or 3. The process environment is not that gate. A missing `reopen` argument is `INTELLIGENCE_DAILY_REOPEN_REQUIRED`.
 - The attempt run id is `uuid5(...:{source}:{day}:attempt-N)`, an additional immutable ledger row. Attempt N is admitted only if attempt N-1 (the base id for N=2) exists for the same source and checksum, with `code_version=intelligence-daily-v1` and terminal `status=FAILED`, read inside the same transaction as the write-guard bump. RUNNING, SUCCEEDED, missing or mismatched priors are denied; an existing attempt-N row returns ALREADY_CLAIMED. Prior rows are only read.
 - Never delete or rewrite attempt rows.
 - Immutable source v2 packages activate only the existing three approved sources. Manual/paused states suppress daily execution. No new scientific approval is asserted.
@@ -156,3 +156,32 @@ reported. Responses/specifications are not logged or saved. Final readback must
 confirm the app specification and active deployment are unchanged. No Update,
 deployment, source acquisition, SQL, image push or credential placement occurs.
 Passing Propose still does not establish Update-specific source resolution.
+
+## Where to look when a daily run fails
+
+Grafana, not the droplet. The daily job and the manual once-per-day job copy
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` from a sibling
+job that already exports traces. No new secret is required. Logs use the same
+headers against `/v1/logs` on that host (derived by replacing `/v1/traces`, or
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` if set). Without those variables the job
+still runs and writes JSON lines to stdout.
+
+Import `ops/grafana/intelligence-daily-dashboard.json`. Filter
+`service_name=data-job` and `component=intelligence-daily`.
+
+- Tempo: one trace per invocation. Spans are `atlas-data.cli`,
+  `intelligence-daily.job`, `intelligence-daily.source`,
+  `intelligence-daily.stage` (ACQUIRE, NORMALIZE, LOAD, PUBMED, CLAIM), and a
+  span per Snowflake statement and outbound HTTP call. Attributes include
+  `source_id`, `run_id`, `attempt`, `stage`, and `step`.
+- Loki: the same events as JSON, including `snowflake.statement`,
+  `http.client`, `checkpoint.read` / `checkpoint.write`, `ledger.read` /
+  `ledger.write`, `lease.acquire` / `lease.renew` / `lease.release`,
+  `guard.enter` / `guard.exit`, `stage.heartbeat` every 30 seconds while a
+  stage is open, and `source.summary` / `run.summary`.
+- A hang is the last `stage.heartbeat` for that source. The dashboard's open
+  stage panel is the stage that has had no heartbeat for 120 seconds.
+- Statement logs carry a fixed label such as `ledger.guard.update`, duration,
+  row count, exception class, errno, and sqlstate. They do not carry SQL
+  parameters, row text, or payloads. HTTP logs carry host and path, not the
+  query string.

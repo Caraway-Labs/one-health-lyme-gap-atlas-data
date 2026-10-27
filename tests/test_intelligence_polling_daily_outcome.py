@@ -51,7 +51,7 @@ def _install(
         source_id = definition.source_id
         budget = runtime.PilotBudget(seconds=budget_seconds)
 
-        def claim_daily(*args: Any) -> Any:
+        def claim_daily(*args: Any, **_kwargs: Any) -> Any:
             return claim(source_id, budget, *args)
 
         def run_source(*args: Any, **kwargs: Any) -> Any:
@@ -124,7 +124,7 @@ def test_unknown_exception_code_omits_message_text(
         return SimpleNamespace(status=RunStatus.SUCCEEDED)
 
     _install(monkeypatch, claim, run)
-    result = polling.run_production_daily()
+    result = polling.run_production_daily(scheduled_retry=True)
     failed = next(row for row in result["sources"] if row["source_id"] == "cdc-mmwr")
     assert failed["status"] == "FAILED"
     assert failed["error_code"] == "UNCLASSIFIED_ValueError"
@@ -202,7 +202,9 @@ def test_completed_outcome_records_stage_timings_ms(
         clocks[source_id] = [0.0]
         budget = runtime.PilotBudget(clock=lambda: clocks[source_id][0], seconds=budget_seconds)
         orchestrator = SimpleNamespace(
-            store=SimpleNamespace(claim_daily_run=lambda *args: claim(source_id, budget, *args)),
+            store=SimpleNamespace(
+                claim_daily_run=lambda *args, **_kwargs: claim(source_id, budget, *args)
+            ),
             run=lambda *args, **kwargs: run(source_id, budget, *args, **kwargs),
             pilot_budget=budget,
         )
@@ -229,7 +231,7 @@ def test_completed_outcome_records_stage_timings_ms(
         for stage, milliseconds in expected.items():
             assert timings[stage] == milliseconds
     payloads = _payloads(_lines(capsys))
-    assert [row["source_id"] for row in payloads] == list(runtime.PROD_SOURCE_DEFINITIONS)
+    assert [row["source_id"] for row in payloads] == list(runtime.DAILY_SOURCE_RUN_ORDER)
     for payload in payloads:
         assert payload["status"] == "COMPLETED"
         for stage in expected:

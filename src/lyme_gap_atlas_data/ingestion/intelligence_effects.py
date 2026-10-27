@@ -165,6 +165,9 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
         )
         # wrote is false when every item was already captured. That is a completed
         # load. Run status and health stay with the orchestrator and revision history.
+        # topic_warnings counts items the topic hook skipped. Item counts stay the
+        # MERGE receipt.
+        topic_warnings = self.store.topic_report.get("warnings", 0)
         return {
             "record_count": len(records),
             "revisions_inserted": receipt.revisions_inserted,
@@ -174,6 +177,7 @@ class IntelligenceStageEffects(SnowflakeStageEffects):
             "items_new": receipt.items_new,
             "items_changed": receipt.items_changed,
             "items_unchanged": receipt.items_unchanged,
+            "topic_warnings": topic_warnings if isinstance(topic_warnings, int) else 0,
             "wrote": bool(receipt.captures_inserted),
             "mode": "atomic_intelligence",
         }

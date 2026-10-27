@@ -82,7 +82,7 @@ def composed_sources(monkeypatch, states=None, failed=None):
         source = json.loads((ROOT / f"config/intelligence/{sid}-source-v2.json").read_text())
         source["state"] = (states or {}).get(sid, "active")
 
-        def claim(run_id, source_id, sha):
+        def claim(run_id, source_id, sha, **_kwargs):
             assert sha == runtime.PROD_DAILY_SOURCE_SHA256[sid] and source_id == sid
             events.append(("claim", sid))
             if run_id in claimed:
@@ -104,18 +104,17 @@ def composed_sources(monkeypatch, states=None, failed=None):
     return events
 
 
-def test_daily_claim_precedes_io_and_a_failure_retries_once_without_blocking_others(monkeypatch):
+def test_daily_claim_precedes_io_and_failure_does_not_retry_or_block_other_sources(monkeypatch):
     daily_settings(monkeypatch)
     events = composed_sources(monkeypatch, failed="cdc-eid-expedited")
     first = polling.run_production_daily()
     second = polling.run_production_daily()
     assert first["status"] == "FAILED"
-    sources = list(runtime.PROD_SOURCE_DEFINITIONS)
-    assert [e for e in events if e[0] == "run"] == [("run", s) for s in sources] + [
-        ("run", "cdc-eid-expedited")
+    assert [e for e in events if e[0] == "run"] == [
+        ("run", s) for s in runtime.DAILY_SOURCE_RUN_ORDER
     ]
     assert all(row["outcome"] == "ALREADY_CLAIMED" for row in second["sources"])
-    assert len([e for e in events if e[0] == "run"]) == len(sources) + 1
+    assert len([e for e in events if e[0] == "run"]) == len(runtime.PROD_SOURCE_DEFINITIONS)
 
 
 @pytest.mark.parametrize("state", ["manual", "paused"])
@@ -149,7 +148,7 @@ def test_daily_canonical_pilot_uses_per_source_budget_seconds(monkeypatch):
 
         return (
             SimpleNamespace(
-                store=SimpleNamespace(claim_daily_run=lambda *args: True),
+                store=SimpleNamespace(claim_daily_run=lambda *args, **_kwargs: True),
                 run=run,
             ),
             SimpleNamespace(extra={"intelligence_registry": source}),

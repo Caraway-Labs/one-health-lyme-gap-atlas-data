@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ..intelligence_daily_telemetry import record_checkpoint
 from ..intelligence_raw_runtime import FeedRawRetention, buffer_namespace
 from ..intelligence_retention import CopyKind
 from .artifact_replay import ArtifactMember, resolve_member
@@ -204,14 +205,21 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         if self.stage_observer is not None:
             self.stage_observer(state.stages)
 
-    def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+    def claim_daily_run(
+        self,
+        run_id: str,
+        source_id: str,
+        source_sha256: str,
+        *,
+        reopen: bool = False,
+    ) -> bool:
         """Commit one daily admission before I/O using the existing write guard.
 
         A crash or failed acquisition consumes that attempt. A later attempt is
         a new row, admitted only when the previous attempt is terminal FAILED,
         the checksum and code version match, and the attempt is within the cap.
         """
-        from .intelligence_runtime import PROD_DAILY_SOURCE_SHA256
+        from .intelligence_runtime import prod_daily_config_sha256_allowed
 
         day = datetime.now(UTC).date()
         if daily_attempt_over_cap(source_id, day, run_id):
@@ -220,12 +228,16 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         if (
             self.feed_retention.environment != "PROD"
             or attempt is None
-            or PROD_DAILY_SOURCE_SHA256.get(source_id) != source_sha256
+            or not prod_daily_config_sha256_allowed(source_id, source_sha256)
         ):
             raise PermissionError("INTELLIGENCE_DAILY_CLAIM_SCOPE_REQUIRED")
-        if attempt >= 2 and os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true":
+        if attempt >= 2 and reopen is not True:
             raise PermissionError("INTELLIGENCE_DAILY_REOPEN_REQUIRED")
-        with self._connection_factory() as connection, connection.cursor() as cursor:
+        with (
+            record_checkpoint("write"),
+            self._connection_factory() as connection,
+            connection.cursor() as cursor,
+        ):
             connection.autocommit(False)
             try:
                 cursor.execute("BEGIN TRANSACTION")
@@ -286,7 +298,11 @@ class IntelligenceSnowflakeCheckpoints(SnowflakeCheckpointStore):
         Never inserts. A run that was never claimed, or already finished,
         keeps its row and its LOAD checkpoint unchanged.
         """
-        with self._connection_factory() as connection, connection.cursor() as cursor:
+        with (
+            record_checkpoint("write"),
+            self._connection_factory() as connection,
+            connection.cursor() as cursor,
+        ):
             connection.autocommit(False)
             try:
                 cursor.execute(

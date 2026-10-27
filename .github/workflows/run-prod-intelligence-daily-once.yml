@@ -59,7 +59,8 @@ jobs:
   run:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # The manual PRE_DEPLOY job timeout is 1h35m (one full pass, no retry).
+    timeout-minutes: 120
     environment: production
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -94,6 +95,13 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
+          # 17:00 through 18:15 America/Denver. Covers the 18:15 cron and the
+          # hour the old 18:00 MDT instant moves to after the November clock change.
+          denver_hm="$(TZ=America/Denver date +%H%M)"
+          if [[ "$denver_hm" -ge 1700 && "$denver_hm" -le 1815 ]]; then
+            echo "::error::INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"
+            exit 1
+          fi
           INTEL_DAILY_WORK="${INTEL_DAILY_WORK:-${RUNNER_TEMP}/intelligence-daily-once}"
           source scripts/ci/guard.sh
           guard_nonempty prod_app_id "$PROD_APP_ID" "PROD_APP_ID is empty. Set the PROD_APP_ID repository variable to the provisioned production app before dispatching."
@@ -140,8 +148,12 @@ jobs:
             SOURCE_ID=""
           fi
           # Patterns are literal. A "|" taken from a variable is one character, not alternation.
-          if [[ "${REOPEN_ATTEMPT:-1}" -gt 3 ]]; then
-            echo "::error::INTELLIGENCE_DAILY_ATTEMPT_CAP"
+          if [[ ! "${REOPEN_ATTEMPT:-1}" =~ ^[1-3]$ ]]; then
+            if [[ "${REOPEN_ATTEMPT:-1}" =~ ^[0-9]+$ ]] && [[ "${REOPEN_ATTEMPT:-1}" -gt 3 ]]; then
+              echo "::error::INTELLIGENCE_DAILY_ATTEMPT_CAP"
+            else
+              echo "::error::INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"
+            fi
             exit 1
           fi
           if [[ -n "$RECOVER_INGESTION_RUN_ID" ]]; then

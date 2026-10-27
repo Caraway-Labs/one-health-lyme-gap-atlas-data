@@ -312,6 +312,9 @@ def test_refresh_is_a_no_op_when_only_the_encrypted_email_differs(monkeypatch):
     )
     for job in spec["jobs"]:
         job["image"]["digest"] = DIGEST
+    # The standing job already carries the reviewed size and retry command.
+    spec["jobs"][-1]["instance_size_slug"] = module.DAILY_JOB_INSTANCE_SIZE_SLUG
+    spec["jobs"][-1]["run_command"] = module.SCHEDULED_RUN_COMMAND
     before = copy.deepcopy(spec)
     rendered = module.refresh_operational_digests(spec, DIGEST)
     assert rendered == before
@@ -593,6 +596,37 @@ def test_workflow_passes_ncbi_secrets_only_to_daily_deploy_steps():
     assert raw.count("secrets.NCBI_API_KEY") == 3
     daily = workflow["jobs"]["intelligence-daily"]
     assert not any("NCBI_API_KEY" in (step.get("run") or "") for step in daily["steps"])
+
+
+def test_activate_copies_sibling_otel_and_does_not_print_it(monkeypatch, capsys):
+    module = _module()
+    _clear_ncbi(monkeypatch)
+    monkeypatch.setenv("NCBI_EMAIL", EMAIL)
+    spec = _baseline(module)
+    registration = next(job for job in spec["jobs"] if job["name"] == "catalog-registration-01")
+    registration["envs"] = [
+        *registration["envs"],
+        {
+            "key": "OTEL_EXPORTER_OTLP_ENDPOINT",
+            "scope": "RUN_TIME",
+            "value": "https://otel.example.invalid/v1/traces",
+        },
+        {
+            "key": "OTEL_EXPORTER_OTLP_HEADERS",
+            "scope": "RUN_TIME",
+            "type": "SECRET",
+            "value": "DUMMY_OPAQUE_HEADER_SENTINEL",
+        },
+    ]
+    rendered = module.render(spec, DIGEST, "activate")
+    job = _phase_job(module, rendered, "activate")
+    assert _entry(job, "OTEL_EXPORTER_OTLP_ENDPOINT")["value"].endswith("/v1/traces")
+    assert _entry(job, "OTEL_EXPORTER_OTLP_HEADERS")["value"] == "DUMMY_OPAQUE_HEADER_SENTINEL"
+    captured = capsys.readouterr()
+    assert "DUMMY_OPAQUE_HEADER_SENTINEL" not in captured.out + captured.err
+    without = module.render(_baseline(module), DIGEST, "activate")
+    plain = _phase_job(module, without, "activate")
+    assert all(entry.get("key") not in module.OTEL_ENV_KEYS for entry in plain["envs"])
 
 
 def step_text(workflow, step_name):

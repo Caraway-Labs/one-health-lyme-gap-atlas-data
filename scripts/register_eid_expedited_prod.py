@@ -11,9 +11,8 @@ from typing import Any
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
-    PROD_DAILY_SOURCE_SHA256,
-    PROD_SOURCE_SHA256,
     pilot_watchdog,
+    reviewed_prod_source_sha256,
 )
 from lyme_gap_atlas_data.intelligence_items import identity_hash
 from lyme_gap_atlas_data.migrations import (
@@ -57,9 +56,12 @@ def guard_prod_registry_hash(source_id: str, version: int) -> None:
     reviewed_package also refuses that file. This guard names the hash failure
     before that broader package check runs.
     """
-    expected = (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(source_id)
+    try:
+        expected = reviewed_prod_source_sha256(source_id, version)
+    except PermissionError:
+        return
     path = registry_document_path(source_id, version)
-    if expected is None or not path.is_file():
+    if not path.is_file():
         return
     digest = identity_hash(json.loads(path.read_text(encoding="utf-8")))
     if digest != expected:
@@ -112,9 +114,7 @@ def main() -> None:
             version = int(os.environ.get("INTELLIGENCE_SOURCE_REGISTRY_VERSION", "1"))
             guard_prod_registry_hash(source_id, version)
             source, checksum = reviewed_package(source_id, version)
-            if checksum != (PROD_SOURCE_SHA256 if version == 1 else PROD_DAILY_SOURCE_SHA256).get(
-                source_id
-            ):
+            if checksum != reviewed_prod_source_sha256(source_id, version):
                 raise PermissionError("EID_PROD_SOURCE_HASH_CHANGED")
             with connect(SnowflakeSettings()) as connection:
                 verify_schema(connection, source_id, version)

@@ -151,6 +151,7 @@ def test_latest_registry_version_is_discovered_without_yaml_self_approval() -> N
     )
     assert loaded.definition_version == 7 and configured.definition_version == 1
     assert loaded.extra["intelligence_registry"] == source
+    assert orchestrator._effects_override.store.after_merge is runtime.record_topics_after_merge
     assert orchestrator.store.feed_retention is orchestrator._adapter_override.feed_retention
     assert orchestrator._effects_override.feed_retention is orchestrator.store.feed_retention
     assert not ledger.requests and not ledger.captures
@@ -217,7 +218,7 @@ def test_prod_eid_composition_requires_exact_storage_identity_and_receipt() -> N
     selected_receipt["native_policy"] = dict(selected_receipt["native_policy"])
     selected_receipt["native_policy"]["permitted_paths"] = [
         *selected_receipt["native_policy"]["permitted_paths"],
-        "item/description",
+        "item/enclosure/@url",
     ]
     with pytest.raises(PermissionError, match="NATIVE_POLICY_REQUIRED"):
         runtime.compose_pilot(

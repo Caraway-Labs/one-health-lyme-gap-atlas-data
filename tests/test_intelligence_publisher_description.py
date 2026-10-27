@@ -124,8 +124,12 @@ def test_active_receipts_still_withhold_descriptions():
     assert packet["receipts"]
     for entry in packet["receipts"]:
         permitted = set(entry["native_policy"]["permitted_paths"])
-        assert "item/description" not in permitted
+        if entry["registry_version"] < 3:
+            assert "item/description" not in permitted
         assert not any(path.endswith("summary") for path in permitted)
+        assert not any(
+            "enclosure" in path or "mrss" in path or "copyright" in path for path in permitted
+        )
 
 
 def _captured_source(sample: dict, raw: bytes) -> dict:

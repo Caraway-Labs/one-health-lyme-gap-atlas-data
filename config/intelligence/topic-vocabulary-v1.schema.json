@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.carawaylabs.com/intelligence/topic-vocabulary-v1.schema.json",
+  "title": "Intelligence topic vocabulary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["vocabulary_version", "topics"],
+  "properties": {
+    "vocabulary_version": {
+      "const": "v1"
+    },
+    "topics": {
+      "type": "array",
+      "minItems": 19,
+      "maxItems": 19,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "definition",
+          "synonyms",
+          "mesh_ui",
+          "publisher_categories"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "synonyms": {
+            "type": "array",
+            "maxItems": 40,
+            "items": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 200
+            }
+          },
+          "mesh_ui": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "pattern": "^D[0-9]{6,9}$"
+            }
+          },
+          "publisher_categories": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    }
+  }
+}

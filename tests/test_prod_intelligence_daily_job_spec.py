@@ -72,6 +72,29 @@ def _baseline() -> dict:
     return {"jobs": base_jobs}
 
 
+def test_manual_and_scheduled_jobs_copy_sibling_otel_settings() -> None:
+    baseline = _baseline()
+    sentinel = "DUMMY_OPAQUE_HEADER_SENTINEL"
+    endpoint = "https://otel.example.invalid/v1/traces"
+    registration = next(job for job in baseline["jobs"] if job["name"] == "catalog-registration-01")
+    registration["envs"] = [
+        {"key": "OTEL_EXPORTER_OTLP_ENDPOINT", "scope": "RUN_TIME", "value": endpoint},
+        {
+            "key": "OTEL_EXPORTER_OTLP_HEADERS",
+            "scope": "RUN_TIME",
+            "type": "SECRET",
+            "value": sentinel,
+        },
+    ]
+    spec = build_operation_spec(baseline, preflight_only=False)
+    for name in ("intelligence-feed-daily", _MODULE["MANUAL_JOB"]):
+        job = next(item for item in spec["jobs"] if item["name"] == name)
+        envs = {entry["key"]: entry for entry in job["envs"]}
+        assert envs["OTEL_EXPORTER_OTLP_ENDPOINT"]["value"] == endpoint
+        assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["value"] == sentinel
+        assert envs["OTEL_EXPORTER_OTLP_HEADERS"]["type"] == "SECRET"
+
+
 def test_builds_manual_predeploy_from_daily_template() -> None:
     baseline = _baseline()
     spec = build_operation_spec(baseline, preflight_only=False)
@@ -80,6 +103,8 @@ def test_builds_manual_predeploy_from_daily_template() -> None:
     manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
     assert manual["kind"] == "PRE_DEPLOY"
     assert manual["run_command"] == COMMAND
+    assert "--scheduled-same-day-retry" not in manual["run_command"]
+    assert manual["timeout"] == _MODULE["MANUAL_JOB_TIMEOUT"]
     assert "schedule" not in manual
 
 
@@ -96,7 +121,7 @@ def test_rejects_competing_predeploy() -> None:
         build_operation_spec(baseline, preflight_only=False)
 
 
-def test_reopen_attempt_appends_flag_and_env() -> None:
+def test_reopen_attempt_appends_flag_and_not_an_env() -> None:
     spec = build_operation_spec(
         _baseline(),
         preflight_only=False,
@@ -105,9 +130,9 @@ def test_reopen_attempt_appends_flag_and_env() -> None:
     )
     manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
     assert manual["run_command"] == COMMAND + " --reopen-attempt 2 --source cdc-mmwr"
-    assert any(
-        entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" and entry.get("value") == "true"
-        for entry in manual.get("envs", [])
+    assert "--scheduled-same-day-retry" not in manual["run_command"]
+    assert not any(
+        entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" for entry in manual.get("envs", [])
     )
 
 
@@ -115,6 +140,7 @@ def test_default_manual_spec_never_sets_reopen_env_or_flag() -> None:
     spec = build_operation_spec(_baseline(), preflight_only=False)
     for job in spec["jobs"]:
         assert "--reopen-attempt" not in job["run_command"]
+        assert "--scheduled-same-day-retry" not in str(job.get("run_command"))
         assert not any(e.get("key") == "INTELLIGENCE_DAILY_REOPEN" for e in job.get("envs", []))
 
 
@@ -160,6 +186,20 @@ def test_reopen_attempt_three_is_admitted_for_rss_and_pubmed() -> None:
         )
         manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
         assert manual["run_command"] == COMMAND + f" --reopen-attempt 3 --source {source_id}"
+
+
+def test_manual_full_run_drops_the_scheduled_retry_flag_and_sets_timeout() -> None:
+    baseline = _baseline()
+    scheduled = next(job for job in baseline["jobs"] if job["name"] == "intelligence-feed-daily")
+    scheduled["run_command"] = COMMAND + " --scheduled-same-day-retry"
+    spec = build_operation_spec(baseline, preflight_only=False)
+    manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
+    assert manual["run_command"] == COMMAND
+    assert manual["kind"] == "PRE_DEPLOY"
+    assert manual["timeout"] == "1h35m"
+    assert "--scheduled-same-day-retry" not in manual["run_command"]
+    untouched = next(job for job in spec["jobs"] if job["name"] == "intelligence-feed-daily")
+    assert untouched["run_command"] == COMMAND + " --scheduled-same-day-retry"
 
 
 def test_reopen_leaves_scheduled_daily_job_untouched() -> None:

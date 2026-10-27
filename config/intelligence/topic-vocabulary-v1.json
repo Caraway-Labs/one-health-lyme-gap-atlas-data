@@ -1,0 +1,254 @@
+{
+  "vocabulary_version": "v1",
+  "topics": [
+    {
+      "id": "lyme-disease",
+      "label": "Lyme disease",
+      "definition": "Borrelia burgdorferi sensu lato infection and the clinical disease called Lyme disease.",
+      "synonyms": [
+        "lyme disease",
+        "lyme",
+        "borrelia burgdorferi",
+        "borreliosis",
+        "erythema migrans"
+      ],
+      "mesh_ui": ["D008193"],
+      "publisher_categories": ["Lyme Disease", "Lyme disease"]
+    },
+    {
+      "id": "babesiosis",
+      "label": "Babesiosis",
+      "definition": "Babesia infection, including babesiosis.",
+      "synonyms": ["babesiosis", "babesia", "babesia microti"],
+      "mesh_ui": [],
+      "publisher_categories": ["Babesiosis"]
+    },
+    {
+      "id": "anaplasmosis",
+      "label": "Anaplasmosis",
+      "definition": "Anaplasma infection, including human granulocytic anaplasmosis.",
+      "synonyms": ["anaplasmosis", "anaplasma", "anaplasma phagocytophilum"],
+      "mesh_ui": [],
+      "publisher_categories": ["Anaplasmosis"]
+    },
+    {
+      "id": "ehrlichiosis",
+      "label": "Ehrlichiosis",
+      "definition": "Ehrlichia infection, including human monocytic ehrlichiosis.",
+      "synonyms": ["ehrlichiosis", "ehrlichia", "ehrlichia chaffeensis"],
+      "mesh_ui": [],
+      "publisher_categories": ["Ehrlichiosis"]
+    },
+    {
+      "id": "powassan",
+      "label": "Powassan",
+      "definition": "Powassan virus infection and deer tick virus.",
+      "synonyms": ["powassan", "deer tick virus"],
+      "mesh_ui": [],
+      "publisher_categories": ["Powassan"]
+    },
+    {
+      "id": "alpha-gal",
+      "label": "Alpha-gal",
+      "definition": "Alpha-gal syndrome and galactose-alpha-1,3-galactose allergy.",
+      "synonyms": [
+        "alpha-gal syndrome",
+        "alpha-gal",
+        "alpha gal",
+        "galactose-alpha-1,3-galactose"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Alpha-gal syndrome", "Alpha-gal"]
+    },
+    {
+      "id": "spotted-fever-rickettsioses",
+      "label": "Spotted fever rickettsioses",
+      "definition": "Spotted fever group Rickettsia infections, including Rocky Mountain spotted fever.",
+      "synonyms": [
+        "rocky mountain spotted fever",
+        "rickettsia rickettsii",
+        "spotted fever",
+        "rickettsiosis"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Rocky Mountain spotted fever", "Spotted fever"]
+    },
+    {
+      "id": "tick-borne-encephalitis",
+      "label": "Tick-borne encephalitis",
+      "definition": "Tick-borne encephalitis virus infection.",
+      "synonyms": ["tick-borne encephalitis", "tick borne encephalitis", "tbe virus", "tbe"],
+      "mesh_ui": [],
+      "publisher_categories": ["Tick-borne encephalitis"]
+    },
+    {
+      "id": "cchf-sfts",
+      "label": "CCHF and SFTS",
+      "definition": "Crimean-Congo hemorrhagic fever and severe fever with thrombocytopenia syndrome.",
+      "synonyms": [
+        "crimean-congo",
+        "crimean congo",
+        "cchf",
+        "severe fever with thrombocytopenia",
+        "sfts"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Crimean-Congo hemorrhagic fever", "SFTS"]
+    },
+    {
+      "id": "ticks-and-vectors",
+      "label": "Ticks and vectors",
+      "definition": "Ticks and the tick genera that transmit pathogens.",
+      "synonyms": [
+        "blacklegged tick",
+        "ixodes",
+        "amblyomma",
+        "dermacentor",
+        "haemaphysalis",
+        "rhipicephalus",
+        "ticks",
+        "tick"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Ticks", "Tick-borne diseases"]
+    },
+    {
+      "id": "zoonoses-one-health",
+      "label": "Zoonoses and One Health",
+      "definition": "Infections shared by people and animals, and One Health reports of those infections.",
+      "synonyms": [
+        "one health",
+        "zoonoses",
+        "zoonosis",
+        "zoonotic",
+        "hantavirus",
+        "rabies",
+        "plague",
+        "ebola",
+        "anthrax"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["One Health", "Zoonoses"]
+    },
+    {
+      "id": "arboviruses",
+      "label": "Arboviruses",
+      "definition": "Arthropod-borne viruses, including dengue, Zika, West Nile, and chikungunya.",
+      "synonyms": [
+        "arboviruses",
+        "arbovirus",
+        "arboviral",
+        "dengue",
+        "zika",
+        "west nile",
+        "chikungunya",
+        "yellow fever",
+        "mosquito"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Arboviruses", "Dengue"]
+    },
+    {
+      "id": "foodborne-enteric",
+      "label": "Foodborne and enteric",
+      "definition": "Foodborne and enteric infections, including Salmonella, Campylobacter, and hepatitis A.",
+      "synonyms": [
+        "foodborne",
+        "escherichia coli",
+        "e. coli",
+        "salmonella",
+        "campylobacteriosis",
+        "campylobacter",
+        "cyclosporiasis",
+        "cyclospora",
+        "listeria",
+        "norovirus",
+        "hepatitis a",
+        "shigella",
+        "vibrio"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Foodborne", "Enteric"]
+    },
+    {
+      "id": "respiratory",
+      "label": "Respiratory",
+      "definition": "Respiratory infections, including influenza, COVID-19, and pneumonic disease.",
+      "synonyms": [
+        "respiratory",
+        "influenza",
+        "sars-cov-2",
+        "covid-19",
+        "covid",
+        "pneumonia",
+        "pneumonic",
+        "rsv",
+        "tuberculosis"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Respiratory"]
+    },
+    {
+      "id": "vaccines",
+      "label": "Vaccines",
+      "definition": "Vaccines, vaccination, and immunization.",
+      "synonyms": [
+        "vaccination",
+        "vaccinated",
+        "vaccines",
+        "vaccine",
+        "immunization",
+        "immunisation"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Vaccines", "Vaccination"]
+    },
+    {
+      "id": "antimicrobial-resistance",
+      "label": "Antimicrobial resistance",
+      "definition": "Antimicrobial and antibiotic resistance, including MRSA and carbapenem resistance.",
+      "synonyms": [
+        "antimicrobial resistance",
+        "antibiotic resistance",
+        "drug-resistant",
+        "multidrug-resistant",
+        "carbapenem",
+        "mrsa"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Antimicrobial resistance"]
+    },
+    {
+      "id": "surveillance-data",
+      "label": "Surveillance data",
+      "definition": "Public-health surveillance products and routine statistical summaries such as QuickStats.",
+      "synonyms": ["surveillance", "quickstats"],
+      "mesh_ui": [],
+      "publisher_categories": ["Surveillance"]
+    },
+    {
+      "id": "diagnostics",
+      "label": "Diagnostics",
+      "definition": "Laboratory diagnostics, including PCR, serology, and molecular detection.",
+      "synonyms": [
+        "molecular detections",
+        "molecular detection",
+        "polymerase chain reaction",
+        "diagnostics",
+        "diagnostic",
+        "serology",
+        "pcr"
+      ],
+      "mesh_ui": [],
+      "publisher_categories": ["Diagnostics"]
+    },
+    {
+      "id": "other-public-health",
+      "label": "Other public health",
+      "definition": "Public-health item with no vocabulary v1 topic match.",
+      "synonyms": [],
+      "mesh_ui": [],
+      "publisher_categories": []
+    }
+  ]
+}

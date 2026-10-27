@@ -31,6 +31,9 @@ _ALLOWED_PENDING = (
     '[{"version":"V168","filename":"V168__api_diagnostics_history_views.sql","sha256":"18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6"}]',
     '[{"version":"V169","filename":"V169__paper_policy_approval.sql","sha256":"1a70bbcf348f3f2daeaa6fde6522d86e26aee558235a5a6ca04a22023c4ea136"}]',
     '[{"version":"V170","filename":"V170__intelligence_source_activations.sql","sha256":"bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f"}]',
+    '[{"version":"V171","filename":"V171__intelligence_item_topics.sql","sha256":"0bde46663f249afe562d6e9c202b7a5d52f3c2d83e72e112c727d82e01819185"}]',
+    '[{"version":"V173","filename":"V173__intelligence_feed_v2_description.sql","sha256":"d1f1e2cd54980e20a44141e63b263696fd77c88e881012c9befcab955afc8fcf"}]',
+    '[{"version":"V174","filename":"V174__intelligence_feed_v2_entrez_dedupe.sql","sha256":"056ef4d57cbde1fd851d0fe0e5af1b79264bf619274562c930a8998e0fd815d7"}]',
     '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"},{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]',
 )
 
@@ -178,6 +181,14 @@ esac
 _GH_STUB = """#!/bin/bash
 printf '%s\\n' 1
 """
+_DATE_STUB = """#!/bin/bash
+set -euo pipefail
+if [[ "${1:-}" == "+%H%M" ]]; then
+  printf '%s\\n' "${DENVER_HHMM:-1200}"
+  exit 0
+fi
+exec /bin/date "$@"
+"""
 _PYTHON_STUB = """#!/bin/bash
 set -euo pipefail
 printf '%s\\n' "$@" > "$PYTHON_ARGS_FILE"
@@ -218,6 +229,7 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
     _install_executable(bin_dir / "doctl", _DOCTL_STUB)
     _install_executable(bin_dir / "gh", _GH_STUB)
     _install_executable(bin_dir / "python", _PYTHON_STUB)
+    _install_executable(bin_dir / "date", _DATE_STUB)
     # Attempt 2 on the PubMed recover case: the attempt-1 elif must not hide a leak.
     cases = (
         ("none", "none", "1", "", True),
@@ -249,6 +261,7 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
             "REOPEN_ATTEMPT": attempt,
             "RECOVER_INGESTION_RUN_ID": recover,
             "PYTHON_ARGS_FILE": str(args_file),
+            "DENVER_HHMM": "1200",
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -301,3 +314,58 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
             assert "--recover-ingestion-run-id" not in args
         else:
             raise AssertionError(name)
+
+
+def test_reopen_attempt_pattern_and_manual_window_execute(tmp_path: Path) -> None:
+    """The workflow step itself rejects a non 1-3 attempt and the Denver overlap."""
+    script = _daily_build_script()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_executable(bin_dir / "doctl", _DOCTL_STUB)
+    _install_executable(bin_dir / "gh", _GH_STUB)
+    _install_executable(bin_dir / "python", _PYTHON_STUB)
+    _install_executable(bin_dir / "date", _DATE_STUB)
+    cases = (
+        ("zero", "0", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("padded", "01", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("decimal", "2.0", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("window-start", "1", "1700", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("window-cron", "1", "1815", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("before-window", "1", "1659", ""),
+        ("after-window", "1", "1816", ""),
+    )
+    for name, attempt, hhmm, token in cases:
+        work = tmp_path / name
+        work.mkdir()
+        env = {
+            "PATH": f"{bin_dir}{os.pathsep}/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "INTEL_DAILY_WORK": str(work),
+            "PROD_APP_ID": "prod-app",
+            "DEV_APP_ID": "dev-app",
+            "REVIEWED_COMMIT": _REVIEWED_COMMIT,
+            "IMAGE_DIGEST": _IMAGE_DIGEST,
+            "GITHUB_REPOSITORY": "example/atlas",
+            "PREFLIGHT_ONLY": "false",
+            "SOURCE_ID": "none",
+            "REOPEN_ATTEMPT": attempt,
+            "RECOVER_INGESTION_RUN_ID": "",
+            "PYTHON_ARGS_FILE": str(work / "python-args"),
+            "DENVER_HHMM": hhmm,
+        }
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        if token:
+            assert result.returncode != 0, name
+            assert token in output, output
+            assert not (work / "ready").exists(), name
+        else:
+            assert result.returncode == 0, f"{name}: {output}"
+            assert "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED" not in output

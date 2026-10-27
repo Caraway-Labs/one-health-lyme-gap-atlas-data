@@ -85,7 +85,8 @@ SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
            'date_states', OBJECT_CONSTRUCT_KEEP_NULL(
                'published_at', c.item_document:field_states:published_at,
                'updated_at', c.item_document:field_states:updated_at
-           )
+           ),
+           'description', c.item_document:publisher_metadata:description
        ) AS publisher_metadata,
        OBJECT_CONSTRUCT() AS derived_metadata,
        s.registry_document:organization::VARCHAR AS organization,

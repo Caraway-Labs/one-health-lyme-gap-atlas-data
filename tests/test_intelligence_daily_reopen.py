@@ -120,7 +120,9 @@ def test_reopen_allowed_only_after_prior_attempt_failed(monkeypatch) -> None:
     monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
     base, two = daily_run_id(SID, TODAY), daily_run_id(SID, TODAY, reopen_attempt=2)
     events: list[Any] = []
-    assert _store({base: _prior("FAILED")}, events).claim_daily_run(two, SID, SHA) is True
+    assert (
+        _store({base: _prior("FAILED")}, events).claim_daily_run(two, SID, SHA, reopen=True) is True
+    )
     assert "INSERT" in events and events[-1] == "COMMIT"
 
 
@@ -143,16 +145,16 @@ def test_reopen_denied_unless_prior_is_terminal_failed_for_same_source(
     ledger = {} if ledger_prior is None else {base: ledger_prior}
     events: list[Any] = []
     with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
-        _store(ledger, events).claim_daily_run(two, SID, SHA)
+        _store(ledger, events).claim_daily_run(two, SID, SHA, reopen=True)
     assert "INSERT" not in events and "COMMIT" not in events
     assert events[-1] == "ROLLBACK"
     assert ledger == ({} if ledger_prior is None else {base: ledger_prior})  # never rewritten
 
 
-def test_reopen_denied_without_manual_job_env_before_any_sql(monkeypatch) -> None:
-    monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
+def test_reopen_denied_without_reopen_argument_before_any_sql(monkeypatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
     store = _store({}, [])
-    store._connection_factory = lambda: pytest.fail("no SQL before the env guard")
+    store._connection_factory = lambda: pytest.fail("no SQL before the reopen guard")
     with pytest.raises(PermissionError, match="REOPEN_REQUIRED"):
         store.claim_daily_run(daily_run_id(SID, TODAY, reopen_attempt=2), SID, SHA)
 
@@ -162,7 +164,7 @@ def test_existing_attempt_row_is_not_claimed_twice(monkeypatch) -> None:
     base, two = daily_run_id(SID, TODAY), daily_run_id(SID, TODAY, reopen_attempt=2)
     events: list[Any] = []
     ledger = {base: _prior("FAILED"), two: _prior("RUNNING")}
-    assert _store(ledger, events).claim_daily_run(two, SID, SHA) is False
+    assert _store(ledger, events).claim_daily_run(two, SID, SHA, reopen=True) is False
     assert "INSERT" not in events
 
 
@@ -196,12 +198,15 @@ def _settings(monkeypatch) -> None:
     monkeypatch.setattr("lyme_gap_atlas_data.settings.PipelineSettings", lambda: value)
 
 
-def test_cli_reopen_flag_requires_manual_job_env(monkeypatch) -> None:
+def test_reopen_attempt_does_not_read_a_process_env(monkeypatch) -> None:
     _settings(monkeypatch)
     monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
-    monkeypatch.setattr(runtime, "canonical_pilot", lambda *a, **k: pytest.fail("no compose"))
-    with pytest.raises(PermissionError, match="REOPEN_REQUIRED"):
-        polling.run_production_daily(reopen_attempt=2, source_ids=("cdc-mmwr",))
+    seen: list[str] = []
+    _compose_recording(monkeypatch, seen)
+    result = polling.run_production_daily(reopen_attempt=2, source_ids=("cdc-mmwr",))
+    assert result["status"] == "SUCCEEDED"
+    assert seen == [daily_run_id("cdc-mmwr", TODAY, reopen_attempt=2)]
+    assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
 
 
 def _compose_recording(monkeypatch, run_ids: list[str], failing: Any = None):
@@ -216,7 +221,7 @@ def _compose_recording(monkeypatch, run_ids: list[str], failing: Any = None):
             return SimpleNamespace(status=RunStatus.SUCCEEDED)
 
         orchestrator = SimpleNamespace(
-            store=SimpleNamespace(claim_daily_run=lambda *args: True),
+            store=SimpleNamespace(claim_daily_run=lambda *args, **_kwargs: True),
             run=run,
             pilot_budget=runtime.PilotBudget(seconds=budget_seconds),
         )
@@ -236,7 +241,7 @@ def test_reopen_attempt_uses_suffixed_run_id_with_env(monkeypatch) -> None:
     )
     assert result["reopen_attempt"] == 2 and result["status"] == "SUCCEEDED"
     assert seen == [
-        daily_run_id(source, TODAY, reopen_attempt=2) for source in runtime.PROD_SOURCE_DEFINITIONS
+        daily_run_id(source, TODAY, reopen_attempt=2) for source in runtime.DAILY_SOURCE_RUN_ORDER
     ]
 
 
@@ -246,7 +251,7 @@ def test_default_invocation_uses_base_run_id_and_ignores_reopen_env(monkeypatch)
     seen: list[str] = []
     _compose_recording(monkeypatch, seen)
     polling.run_production_daily()
-    assert seen == [daily_run_id(source, TODAY) for source in runtime.PROD_SOURCE_DEFINITIONS]
+    assert seen == [daily_run_id(source, TODAY) for source in runtime.DAILY_SOURCE_RUN_ORDER]
 
 
 def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch) -> None:
@@ -258,13 +263,10 @@ def test_deadline_terminalizes_run_failed_and_reports_stage_timings(monkeypatch)
     result = polling.run_production_daily()
     assert [row["outcome"] for row in result["sources"]] == [
         "FAILED" if source_id == "cdc-eid-ahead-of-print" else "SUCCEEDED"
-        for source_id in runtime.PROD_SOURCE_DEFINITIONS
+        for source_id in runtime.DAILY_SOURCE_RUN_ORDER
     ]
     assert result["status"] == "FAILED"
-    assert terminalized == [
-        daily_run_id("cdc-eid-ahead-of-print", TODAY),
-        daily_run_id("cdc-eid-ahead-of-print", TODAY, reopen_attempt=2),
-    ]
+    assert terminalized == [daily_run_id("cdc-eid-ahead-of-print", TODAY)]
     assert all("stage_timings" in row for row in result["sources"])
 
 
@@ -291,7 +293,8 @@ def test_budget_records_redacted_stage_timing_including_unfinished() -> None:
 def test_scheduled_spec_has_no_reopen_and_workflow_exposes_reopen_input() -> None:
     deploy = (ROOT / "scripts/deploy_intelligence_daily.py").read_text()
     assert "INTELLIGENCE_DAILY_REOPEN" not in deploy
-    assert "reopen-attempt" not in deploy
+    assert "--reopen-attempt" not in deploy
+    assert "--scheduled-same-day-retry" in deploy
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/run-prod-intelligence-daily-once.yml").read_text()
     )
@@ -355,7 +358,7 @@ def test_reopen_one_source_claims_only_that_source_and_skips_the_rest(
     def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
         source_id = definition.source_id
 
-        def claim(run_id: str, claimed_source: str, sha: str) -> bool:
+        def claim(run_id: str, claimed_source: str, sha: str, **_kwargs: Any) -> bool:
             assert claimed_source == source_id
             assert sha == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
             assert run_id == daily_run_id(source_id, TODAY, reopen_attempt=2)
@@ -410,7 +413,7 @@ def test_same_reopen_second_time_fails_on_existing_claim_and_writes_nothing(
     def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
         source_id = definition.source_id
 
-        def claim(run_id: str, _source_id: str, _sha: str) -> bool:
+        def claim(run_id: str, _source_id: str, _sha: str, **_kwargs: Any) -> bool:
             if run_id in seen:
                 return False
             seen.append(run_id)
@@ -477,12 +480,19 @@ def test_pubmed_failed_prior_can_be_claimed_and_success_or_running_cannot(monkey
     base = daily_run_id(sid, TODAY)
     two = daily_run_id(sid, TODAY, reopen_attempt=2)
     events: list[Any] = []
-    assert _store({base: ("FAILED", sid, CODE, sha)}, events).claim_daily_run(two, sid, sha) is True
+    assert (
+        _store({base: ("FAILED", sid, CODE, sha)}, events).claim_daily_run(
+            two, sid, sha, reopen=True
+        )
+        is True
+    )
     assert "INSERT" in events
     for status in ("SUCCEEDED", "RUNNING"):
         denied: list[Any] = []
         with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
-            _store({base: (status, sid, CODE, sha)}, denied).claim_daily_run(two, sid, sha)
+            _store({base: (status, sid, CODE, sha)}, denied).claim_daily_run(
+                two, sid, sha, reopen=True
+            )
         assert "INSERT" not in denied
         assert denied[-1] == "ROLLBACK"
 
@@ -495,13 +505,14 @@ def test_scheduled_run_retries_only_the_failed_rss_source_once(monkeypatch) -> N
     def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
         source_id = definition.source_id
 
-        def claim(run_id: str, claimed_source: str, sha: str) -> bool:
+        def claim(run_id: str, claimed_source: str, sha: str, **kwargs: Any) -> bool:
             assert claimed_source == source_id
             assert sha == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
+            assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
             if run_id == daily_run_id(source_id, TODAY, reopen_attempt=2):
-                assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") == "true"
+                assert kwargs.get("reopen") is True
             else:
-                assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+                assert kwargs.get("reopen") is not True
             return True
 
         def run(_definition: Any, *, tier: Any, run_id: str) -> Any:
@@ -520,7 +531,7 @@ def test_scheduled_run_retries_only_the_failed_rss_source_once(monkeypatch) -> N
         )
 
     monkeypatch.setattr(runtime, "canonical_pilot", compose)
-    result = polling.run_production_daily()
+    result = polling.run_production_daily(scheduled_retry=True)
     assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
     by_source: dict[str, list[str]] = {}
     for source_id, run_id in calls:
@@ -535,8 +546,66 @@ def test_scheduled_run_retries_only_the_failed_rss_source_once(monkeypatch) -> N
         assert by_source[source_id] == [daily_run_id(source_id, TODAY)]
     by_id = {row["source_id"]: row for row in result["sources"]}
     assert by_id["cdc-mmwr"]["outcome"] == "SUCCEEDED"
-    assert by_id["cdc-mmwr"]["attempt"] == 2
+    assert by_id["cdc-mmwr"]["daily_attempt"] == 2
     assert result["status"] == "SUCCEEDED"
+
+
+def test_manual_full_run_does_not_retry_a_failed_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    _settings(monkeypatch)
+    calls: list[tuple[str, int, bool]] = []
+
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day
+        calls.append((source_id, reopen_attempt, scheduled_retry))
+        outcome = "FAILED" if source_id == "cdc-mmwr" else "SUCCEEDED"
+        return {"source_id": source_id, "outcome": outcome}
+
+    monkeypatch.setattr(polling, "execute_daily_source", fake)
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *_args, **_kwargs: [])
+    result = polling.run_production_daily()
+    assert [call[1] for call in calls] == [1] * len(runtime.DAILY_SOURCE_RUN_ORDER)
+    assert all(call[2] is False for call in calls)
+    assert result["status"] == "FAILED"
+
+
+def test_scheduled_retry_budget_stops_before_a_second_failed_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
+    calls: list[tuple[str, int]] = []
+
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day
+        calls.append((source_id, reopen_attempt))
+        if scheduled_retry:
+            clock["now"] += polling.SCHEDULED_RETRY_BUDGET_SECONDS
+        if source_id in {"cdc-mmwr", "cdc-outbreaks"} and reopen_attempt == 1:
+            return {"source_id": source_id, "outcome": "FAILED"}
+        return {"source_id": source_id, "outcome": "SUCCEEDED"}
+
+    monkeypatch.setattr(polling, "execute_daily_source", fake)
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *_args, **_kwargs: [])
+    polling.run_production_daily(scheduled_retry=True)
+    retries = [source_id for source_id, attempt in calls if attempt == 2]
+    assert retries == ["cdc-mmwr"]
 
 
 def test_cli_rejects_a_fourth_attempt_before_a_run(monkeypatch: pytest.MonkeyPatch) -> None:
