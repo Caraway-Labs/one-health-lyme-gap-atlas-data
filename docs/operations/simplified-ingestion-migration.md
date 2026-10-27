@@ -72,3 +72,4 @@ and exception disposition.
 
 - Tick workbook sheet/header/byte bounds remain in SourceDefinition + normalize hooks
 - CDC quality rule IDs remain source-declared, not orchestrator-branched
+- Census County Adjacency 2025 is pipe-delimited and its county names contain commas. `HTTP_CSV` takes an optional `delimiter` (default remains comma) plus `reject_extra_fields`. Blank neighbor rows are legal islands, not errors. The pinned sha256 is fail-closed.

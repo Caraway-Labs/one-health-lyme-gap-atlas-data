@@ -21,6 +21,7 @@ from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
 from lyme_gap_atlas_data.sql_sessions import connect
 
+from .. import county_adjacency
 from ..artifacts import create_artifact
 from ..redaction import redact_mapping
 from ..settings import PipelineSettings
@@ -123,13 +124,18 @@ class NoopStageEffects:
     def quality(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
-        results = evaluate_quality_rules(definition, records)
+        results = _with_downloaded_adjacency_pin(
+            definition, state, evaluate_quality_rules(definition, records)
+        )
         return self._quality_result(results)
 
     def quality_partitioned(
         self, definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
     ) -> dict[str, Any]:
-        return self._quality_result(evaluate_quality_rules_streaming(definition, records))
+        results = _with_downloaded_adjacency_pin(
+            definition, state, evaluate_quality_rules_streaming(definition, records)
+        )
+        return self._quality_result(results)
 
     def _quality_result(self, results: list[dict[str, Any]]) -> dict[str, Any]:
         failed = [result for result in results if result["status"] == "FAILED"]
@@ -375,6 +381,8 @@ class SnowflakeStageEffects:
     ) -> dict[str, Any]:
         rows = _lineage_rows(definition, state, records)
         _require_retained_aggregate_receipt(definition, state)
+        prepared = _prepare_county_adjacency(definition, state, records)
+        receipt = None
         with self._connection_factory() as connection:
             connection.autocommit(False)
             with connection.cursor() as cursor:
@@ -391,8 +399,21 @@ class SnowflakeStageEffects:
                         artifact.artifact_sha256,
                         normalization.transformation_version if normalization else None,
                     )
+                if prepared is not None:
+                    try:
+                        receipt = county_adjacency.apply_prepared_load(
+                            cursor,
+                            prepared,
+                            environment=self.settings.topx_env.upper(),
+                        )
+                    except county_adjacency.CountyAdjacencyError as error:
+                        connection.rollback()
+                        raise QualityFailure(error.code, {"code": error.code}) from error
+                    except Exception:
+                        connection.rollback()
+                        raise
             connection.commit()
-        return {
+        result = {
             "destination": definition.destination,
             "record_count": len(rows),
             "rows_inserted": len(rows),
@@ -400,6 +421,17 @@ class SnowflakeStageEffects:
             "physical_relation": "RAW.GOVERNED_SOURCE_RECORDS",
             "wrote": True,
         }
+        if receipt is not None:
+            result["county_adjacency"] = {
+                "inserted": receipt.inserted,
+                "updated": receipt.updated,
+                "deleted": receipt.deleted,
+                "pair_count": receipt.pair_count,
+                "edge_count": receipt.edge_count,
+                "point_count": receipt.point_count,
+                "islands": list(receipt.islands),
+            }
+        return result
 
     def load_partition_batch(
         self,
@@ -503,13 +535,18 @@ class SnowflakeStageEffects:
     def quality(
         self, definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
-        results = evaluate_quality_rules(definition, records)
+        results = _with_downloaded_adjacency_pin(
+            definition, state, evaluate_quality_rules(definition, records)
+        )
         return self._quality_result(state, results)
 
     def quality_partitioned(
         self, definition: SourceDefinition, state: RunState, records: Iterable[dict[str, Any]]
     ) -> dict[str, Any]:
-        return self._quality_result(state, evaluate_quality_rules_streaming(definition, records))
+        results = _with_downloaded_adjacency_pin(
+            definition, state, evaluate_quality_rules_streaming(definition, records)
+        )
+        return self._quality_result(state, results)
 
     def _quality_result(self, state: RunState, results: list[dict[str, Any]]) -> dict[str, Any]:
         with self._connection_factory() as connection:
@@ -628,10 +665,83 @@ class SnowflakeStageEffects:
         return self._spaces_client
 
 
+def _prepare_county_adjacency(
+    definition: SourceDefinition, state: RunState, records: list[dict[str, Any]]
+) -> county_adjacency.PreparedLoad | None:
+    if definition.resource_key != county_adjacency.RESOURCE_KEY:
+        return None
+    checkpoint = state.checkpoint(Stage.ACQUIRE)
+    sha = checkpoint.artifact_sha256 if checkpoint is not None else None
+    try:
+        return county_adjacency.prepare_load(
+            records,
+            artifact_sha256=sha,
+            ingestion_run_id=state.ingestion_run_id,
+            retrieved_at=_adjacency_retrieved_at(state),
+        )
+    except county_adjacency.CountyAdjacencyError as error:
+        raise QualityFailure(error.code, {"code": error.code}) from error
+
+
+def _adjacency_retrieved_at(state: RunState) -> datetime:
+    checkpoint = state.checkpoint(Stage.ACQUIRE)
+    raw = checkpoint.started_at if checkpoint is not None else None
+    if isinstance(raw, str) and raw:
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError as error:
+            raise QualityFailure("RETRIEVED_AT", {"code": "RETRIEVED_AT"}) from error
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise QualityFailure("RETRIEVED_AT", {"code": "RETRIEVED_AT"})
+        return parsed
+    return datetime.now(UTC)
+
+
+def _with_downloaded_adjacency_pin(
+    definition: SourceDefinition, state: RunState, results: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Fail closed when the acquired bytes are not the pinned Census file."""
+    if definition.resource_key != county_adjacency.RESOURCE_KEY or state.dry_run:
+        return results
+    checkpoint = state.checkpoint(Stage.ACQUIRE)
+    sha = checkpoint.artifact_sha256 if checkpoint is not None else None
+    if sha == county_adjacency.PINNED_SHA256:
+        return results
+    updated: list[dict[str, Any]] = []
+    seen = False
+    for result in results:
+        if result["rule_id"] != "census_adjacency_checksum":
+            updated.append(result)
+            continue
+        seen = True
+        updated.append(
+            {
+                **result,
+                "status": "FAILED",
+                "expected": {"artifact_sha256": county_adjacency.PINNED_SHA256},
+                "observed": {"code": "SHA256_MISMATCH"},
+            }
+        )
+    if not seen:
+        updated.insert(
+            0,
+            {
+                "rule_id": "census_adjacency_checksum",
+                "severity": "BLOCKING",
+                "status": "FAILED",
+                "expected": {"artifact_sha256": county_adjacency.PINNED_SHA256},
+                "observed": {"code": "SHA256_MISMATCH"},
+            },
+        )
+    return updated
+
+
 def evaluate_quality_rules(
     definition: SourceDefinition, records: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Evaluate the small rule vocabulary used by the committed definitions."""
+    if definition.resource_key == county_adjacency.RESOURCE_KEY:
+        return county_adjacency.quality_results(definition, records)
     results: list[dict[str, Any]] = []
     source_rows: list[dict[str, Any]] = []
     for row in records:
@@ -721,6 +831,8 @@ def evaluate_quality_rules_streaming(
     definition: SourceDefinition, records: Iterable[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Evaluate the declared vocabulary in one pass without retaining rows."""
+    if definition.resource_key == county_adjacency.RESOURCE_KEY:
+        return county_adjacency.quality_results(definition, records)
     total = 0
     source_count = 0
     missing_geography = 0

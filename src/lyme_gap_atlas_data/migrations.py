@@ -94,11 +94,20 @@ INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION = {
     "filename": "V175__intelligence_abstract_suppressions_feed_v2.sql",
     "sha256": "3dcdff4a16127e31778e47e787b38b3275a265770cf17b29280cb1f2c4f2dada",
 }
+# V177 is the next free number on 2026-10-27. main ends at V175. V172 is
+# reserved by #728 and V176 by #858; neither file is in this tree. V177 does
+# not wait for V176. It applies in DEV and PROD and is not held back.
+COUNTY_ADJACENCY_MIGRATION = {
+    "version": "V177",
+    "filename": "V177__county_adjacency_governed.sql",
+    "sha256": "7bb13da306dd03ae44772092718e5da8f4fd93a798e0709638a7ff2464a9a25f",
+}
 # V170, V173, V174, and V175 replace the feed view in both databases. V171
 # creates the topic tables in both databases. The protected path is required
 # on DEV and PROD. The routine migration path cannot apply these versions.
 # V171 requires recorded V170 and may apply after V174. There is no ordering
 # check between V171 and V174. V175 requires recorded V174. V176 stays reserved.
+# V177 is checked against COUNTY_ADJACENCY_MIGRATION and is not in that chain.
 BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V171", "V173", "V174", "V175"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
@@ -1191,6 +1200,10 @@ def apply_migrations(
         "V174" not in applied
     ):
         raise PermissionError("V175 requires recorded V174 before abstract fields on the feed")
+    if any(item.version == "V177" and item.version not in applied for item in plan):
+        actual = next(item for item in plan if item.version == "V177")
+        if _migration_metadata(actual) != COUNTY_ADJACENCY_MIGRATION:
+            raise PermissionError("V177 requires the reviewed county adjacency migration pin")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
