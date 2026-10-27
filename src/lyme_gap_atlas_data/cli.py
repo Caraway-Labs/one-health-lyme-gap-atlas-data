@@ -47,6 +47,11 @@ from .ingestion import (
     load_source_definition,
     starter_definition_yaml,
 )
+from .ingestion.intelligence_pubmed_backfill import (
+    OUTCOME_LOG_PREFIX,
+    public_outcome,
+    run_operator_pubmed_backfill,
+)
 from .intelligence_daily_telemetry import (
     DAILY_TRACE_COMMANDS,
     configure_daily_log_export,
@@ -1103,6 +1108,29 @@ def run_intelligence_daily_command(
     typer.echo(json.dumps(result))
     if result["status"] == "FAILED":
         raise typer.Exit(code=1)
+
+
+@pipeline_app.command("run-intelligence-pubmed-backfill")
+def run_intelligence_pubmed_backfill_command(
+    backfill_plan_id: str = typer.Option(..., "--backfill-plan-id"),
+    slice_id: str = typer.Option(..., "--slice-id"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Run one reviewed PubMed backfill slice. ``--dry-run`` makes no provider call and no write."""
+    try:
+        result = run_operator_pubmed_backfill(
+            plan_id=backfill_plan_id,
+            slice_id=slice_id,
+            settings=PipelineSettings(),
+            dry_run=dry_run,
+        )
+    except PermissionError as error:
+        code = str(error)
+        if code.startswith("INTELLIGENCE_PUBMED_BACKFILL_"):
+            typer.echo(code)
+            raise typer.Exit(code=2) from error
+        raise
+    typer.echo(OUTCOME_LOG_PREFIX + json.dumps(public_outcome(result), sort_keys=True))
 
 
 @pipeline_app.command("recover-intelligence-daily-stuck-run")

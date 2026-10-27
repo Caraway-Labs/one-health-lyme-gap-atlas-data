@@ -1,0 +1,267 @@
+name: Run one PROD PubMed backfill slice
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Exact immutable pipeline image active in DEV and PROD
+        required: true
+        type: string
+      reviewed_commit:
+        description: Exact reviewed main commit whose pipeline image is deployed
+        required: true
+        type: string
+      backfill_plan_id:
+        description: Reviewed plan id under config/intelligence/backfill
+        required: true
+        type: string
+      slice_id:
+        description: Slice id inside that plan
+        required: true
+        type: string
+      reason:
+        description: Why this slice is dispatched (required, 200 characters maximum)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+
+# Shared with every other PROD app-spec mutator. A backfill cannot overlap a
+# promotion or the manual daily-once workflow.
+concurrency:
+  group: prod-app-topology
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse blackout or a running daily workflow
+        shell: bash
+        env:
+          BACKFILL_PLAN_ID: ${{ inputs.backfill_plan_id }}
+          SLICE_ID: ${{ inputs.slice_id }}
+          DISPATCH_REASON: ${{ inputs.reason }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          count_file="${RUNNER_TEMP}/pubmed-backfill-daily-count"
+          set +e
+          gh run list \
+            --workflow run-prod-intelligence-daily-once.yml \
+            --status in_progress \
+            --limit 20 \
+            --json databaseId \
+            --jq 'length' >"$count_file"
+          list_status=$?
+          set -e
+          gate_args=(
+            --mode gate
+            --backfill-plan-id "$BACKFILL_PLAN_ID"
+            --slice-id "$SLICE_ID"
+            --reason "$DISPATCH_REASON"
+          )
+          if [[ "$list_status" -ne 0 ]]; then
+            python scripts/prod_intelligence_pubmed_backfill.py \
+              "${gate_args[@]}" --daily-status-unknown
+          else
+            count="$(tr -cd '0-9' <"$count_file")"
+            if [[ -z "$count" ]]; then
+              count=0
+            fi
+            python scripts/prod_intelligence_pubmed_backfill.py \
+              "${gate_args[@]}" --daily-running-count "$count"
+          fi
+
+  run:
+    needs: gate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DEV_APP_ID: b33dbae7-e243-4e27-b3ca-1018f5897f87
+      PROD_APP_ID: ${{ vars.PROD_APP_ID }}
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      BACKFILL_PLAN_ID: ${{ inputs.backfill_plan_id }}
+      SLICE_ID: ${{ inputs.slice_id }}
+      DISPATCH_REASON: ${{ inputs.reason }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse blackout or a running daily workflow
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          count_file="${RUNNER_TEMP}/pubmed-backfill-daily-count"
+          set +e
+          gh run list \
+            --workflow run-prod-intelligence-daily-once.yml \
+            --status in_progress \
+            --limit 20 \
+            --json databaseId \
+            --jq 'length' >"$count_file"
+          list_status=$?
+          set -e
+          gate_args=(
+            --mode gate
+            --backfill-plan-id "$BACKFILL_PLAN_ID"
+            --slice-id "$SLICE_ID"
+            --reason "$DISPATCH_REASON"
+          )
+          if [[ "$list_status" -ne 0 ]]; then
+            python scripts/prod_intelligence_pubmed_backfill.py \
+              "${gate_args[@]}" --daily-status-unknown
+          else
+            count="$(tr -cd '0-9' <"$count_file")"
+            if [[ -z "$count" ]]; then
+              count=0
+            fi
+            python scripts/prod_intelligence_pubmed_backfill.py \
+              "${gate_args[@]}" --daily-running-count "$count"
+          fi
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          version: "1.160.1"
+      - name: Capture baseline and build one-shot spec
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          WORK="${RUNNER_TEMP}/pubmed-backfill"
+          mkdir -p "$WORK"
+          chmod 700 "$WORK"
+          source scripts/ci/guard.sh
+          guard_nonempty prod_app_id "$PROD_APP_ID" "PROD_APP_ID is empty. Set the PROD_APP_ID repository variable before dispatching."
+          [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit."
+          source_digest="$(doctl registry repository list-manifests pipeline --output json \
+            | jq -r --arg tag "sha-${REVIEWED_COMMIT}" '.[] | select(.tags | index($tag)) | .digest')"
+          guard_eq registry_source_digest "$IMAGE_DIGEST" "$source_digest" "The registry manifest tagged sha-GITHUB_SHA does not match IMAGE_DIGEST."
+          baseline_spec="$WORK/baseline.json"
+          operation_spec="$WORK/operation.json"
+          doctl apps spec get "$PROD_APP_ID" --format json > "$baseline_spec"
+          chmod 600 "$baseline_spec"
+          daily_job_digest="$(jq -r '.jobs[] | select(.name == "intelligence-feed-daily") | .image.digest' "$baseline_spec")"
+          guard_eq intelligence_feed_daily_digest "$IMAGE_DIGEST" "$daily_job_digest" "The PROD intelligence-feed-daily image digest does not match IMAGE_DIGEST."
+          python scripts/prod_intelligence_pubmed_backfill.py \
+            --mode build \
+            --baseline "$baseline_spec" \
+            --output "$operation_spec" \
+            --backfill-plan-id "$BACKFILL_PLAN_ID" \
+            --slice-id "$SLICE_ID"
+          chmod 600 "$operation_spec"
+          : > "$WORK/ready"
+      - name: Apply one-shot PubMed backfill job
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          WORK="${RUNNER_TEMP}/pubmed-backfill"
+          if [[ ! -f "$WORK/ready" ]]; then
+            exit 0
+          fi
+          printf '1\n' > "$WORK/operation_status"
+          : > "$WORK/deployment_id"
+          chmod 600 "$WORK/operation_status" "$WORK/deployment_id"
+          update_output="$WORK/update-output.txt"
+          : > "$update_output"
+          chmod 600 "$update_output"
+          operation_status=1
+          set +e
+          doctl apps update "$PROD_APP_ID" --spec "$WORK/operation.json" --wait \
+            --format ID,ActiveDeployment.ID --no-header >"$update_output" 2>&1
+          operation_status=$?
+          set -e
+          printf '%s\n' "$operation_status" > "$WORK/operation_status"
+          deployment_id="$(
+            python scripts/prod_intelligence_daily_job_spec.py \
+              --mode deployment-id --deployment-output "$update_output" || true
+          )"
+          if [[ ! "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            deployment_id=""
+          fi
+          printf '%s\n' "$deployment_id" > "$WORK/deployment_id"
+          rm -f "$update_output" "$WORK/operation.json"
+          printf 'operation_status=%s\n' "$operation_status"
+          if [[ -n "$deployment_id" ]]; then
+            printf 'deployment_id=%s\n' "$deployment_id"
+          else
+            printf 'deployment_id=unavailable\n'
+          fi
+          exit 0
+      - name: Report backfill outcome
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          WORK="${RUNNER_TEMP}/pubmed-backfill"
+          if [[ ! -f "$WORK/ready" ]]; then
+            exit 0
+          fi
+          deployment_id=""
+          if [[ -f "$WORK/deployment_id" ]]; then
+            deployment_id="$(tr -d '[:space:]' < "$WORK/deployment_id")"
+          fi
+          if [[ ! "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            deployment_id=""
+          fi
+          log_file="$WORK/job.log"
+          : >"$log_file"
+          chmod 600 "$log_file"
+          if [[ -n "$deployment_id" ]]; then
+            timeout 120 doctl apps logs "$PROD_APP_ID" intelligence-pubmed-backfill \
+              --deployment "$deployment_id" --type run --tail 200 \
+              >"$log_file" 2>"$WORK/job.log.err" || true
+          fi
+          python scripts/prod_intelligence_pubmed_backfill.py \
+            --mode render-outcome --logs "$log_file"
+          rm -f "$log_file" "$WORK/job.log.err"
+      - name: Restore baseline topology
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          WORK="${RUNNER_TEMP}/pubmed-backfill"
+          if [[ ! -f "$WORK/ready" ]]; then
+            exit 0
+          fi
+          restore_status=1
+          set +e
+          doctl apps update "$PROD_APP_ID" --spec "$WORK/baseline.json" --wait \
+            --format ID,ActiveDeployment.ID --no-header >"$WORK/restore-output.txt" 2>&1
+          restore_status=$?
+          set -e
+          rm -f "$WORK/restore-output.txt"
+          printf 'restore_cli_status=%s\n' "$restore_status"
+          restored_spec="$WORK/restored.json"
+          doctl apps spec get "$PROD_APP_ID" --format json >"$restored_spec"
+          chmod 600 "$restored_spec"
+          python scripts/prod_intelligence_daily_job_spec.py --mode compare-specs \
+            --baseline "$WORK/baseline.json" \
+            --restored "$restored_spec"
+          operation_status=1
+          if [[ -f "$WORK/operation_status" ]]; then
+            operation_status="$(tr -cd '0-9' < "$WORK/operation_status")"
+          fi
+          if [[ -z "$operation_status" ]]; then
+            operation_status=1
+          fi
+          rm -f "$WORK/baseline.json" "$WORK/restored.json" "$WORK/ready" "$WORK/deployment_id" "$WORK/operation_status"
+          exit "$operation_status"

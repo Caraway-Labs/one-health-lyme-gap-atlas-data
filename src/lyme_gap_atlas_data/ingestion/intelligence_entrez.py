@@ -648,6 +648,10 @@ class _EntrezSession:
         clock: Callable[[], float],
         sleep: Callable[[float], None],
         request_cap: int,
+        batch_size: int = BATCH_SIZE,
+        max_response_bytes: int = MAX_RESPONSE_BYTES,
+        timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+        min_interval_seconds: float = MIN_INTERVAL_SECONDS,
     ) -> None:
         self._sender = sender
         self._settings = settings
@@ -655,10 +659,22 @@ class _EntrezSession:
         self._clock = clock
         self._sleep = sleep
         self._request_cap = request_cap
+        self._batch_size = batch_size
+        self._max_response_bytes = max_response_bytes
+        self._timeout_seconds = timeout_seconds
+        self._min_interval_seconds = min_interval_seconds
         self._last: float | None = None
         self.bodies: list[bytes] = []
 
-    def esearch(self, term: str, start: date, end: date) -> tuple[list[str], int]:
+    def esearch(
+        self,
+        term: str,
+        start: date,
+        end: date,
+        *,
+        retmax: int | None = None,
+        max_ids: int | None = None,
+    ) -> tuple[list[str], int]:
         note_pubmed_step("ESEARCH")
         body = self._get(
             ESEARCH_URL,
@@ -669,18 +685,18 @@ class _EntrezSession:
                 "datetype": "edat",
                 "mindate": ncbi_day(start),
                 "maxdate": ncbi_day(end),
-                "retmax": str(MAX_ITEMS),
+                "retmax": str(MAX_ITEMS if retmax is None else retmax),
                 "usehistory": "n",
                 "retmode": "json",
                 "sort": "most recent",
             },
         )
         note_pubmed_step("PARSE")
-        return _parse_esearch(body)
+        return _parse_esearch(body, max_ids=MAX_ITEMS if max_ids is None else max_ids)
 
     def efetch(self, pmids: list[str]) -> bytes:
         note_pubmed_step("EFETCH")
-        if not pmids or len(pmids) > BATCH_SIZE:
+        if not pmids or len(pmids) > self._batch_size:
             raise AcquisitionError("FEED_PAYLOAD_INVALID", code="FEED_PAYLOAD_INVALID")
         return self._get(
             EFETCH_URL,
@@ -703,10 +719,10 @@ class _EntrezSession:
         note_step_deadline()
         now = self._clock()
         if self._last is not None:
-            wait = MIN_INTERVAL_SECONDS - (now - self._last)
+            wait = self._min_interval_seconds - (now - self._last)
             if wait > 0:
                 self._sleep(wait)
-                if self._clock() - self._last + 1e-9 < MIN_INTERVAL_SECONDS:
+                if self._clock() - self._last + 1e-9 < self._min_interval_seconds:
                     raise AcquisitionError(
                         "INTELLIGENCE_PUBMED_INTERVAL_REQUIRED",
                         code="INTELLIGENCE_PUBMED_INTERVAL_REQUIRED",
@@ -721,7 +737,7 @@ class _EntrezSession:
         remaining = self._budget.reserve()
         with http_observation(url) as observed:
             try:
-                response = self._sender(url, params, min(REQUEST_TIMEOUT_SECONDS, remaining))
+                response = self._sender(url, params, min(self._timeout_seconds, remaining))
             except AcquisitionError:
                 raise
             except Exception as error:
@@ -733,7 +749,7 @@ class _EntrezSession:
             observed["bytes"] = len(response.body)
             if response.status != 200:
                 raise _http_status_error(response.status)
-            if len(response.body) > MAX_RESPONSE_BYTES:
+            if len(response.body) > self._max_response_bytes:
                 raise AcquisitionError("FEED_TOO_LARGE", code="FEED_TOO_LARGE")
             self.bodies.append(response.body)
             return response.body
@@ -910,7 +926,7 @@ def _payload_error(code: str) -> AcquisitionError:
     return AcquisitionError(code, code=code)
 
 
-def _parse_esearch(body: bytes) -> tuple[list[str], int]:
+def _parse_esearch(body: bytes, *, max_ids: int = MAX_ITEMS) -> tuple[list[str], int]:
     try:
         result = json.loads(body)["esearchresult"]
         if "ERROR" in result:
@@ -919,7 +935,7 @@ def _parse_esearch(body: bytes) -> tuple[list[str], int]:
         raw_ids = result["idlist"]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         raise _payload_error(ESEARCH_PAYLOAD_INVALID) from None
-    too_many = not isinstance(raw_ids, list) or len(raw_ids) > MAX_ITEMS or count < len(raw_ids)
+    too_many = not isinstance(raw_ids, list) or len(raw_ids) > max_ids or count < len(raw_ids)
     if count < 0 or too_many:
         raise _payload_error(ESEARCH_PAYLOAD_INVALID)
     pmids: list[str] = []
