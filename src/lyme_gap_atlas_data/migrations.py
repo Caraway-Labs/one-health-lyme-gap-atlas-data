@@ -69,7 +69,7 @@ PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION = {
 INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
     "version": "V170",
     "filename": "V170__intelligence_source_activations.sql",
-    "sha256": "ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d",
+    "sha256": "bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f",
 }
 INTELLIGENCE_FEED_DESCRIPTION_MIGRATION = {
     "version": "V173",
@@ -999,16 +999,23 @@ def apply_migrations(
             january_point_query_only,
         )
     )
+    # DEV review (routine, or one exact protected intelligence prerequisite
+    # batch) matches every other pending migration. The held-back versions stay
+    # in the ledger gap, are reported by the caller, and are skipped below. A
+    # protected flag without an exact-and-alone batch keeps the full comparison.
+    # PROD keeps the full exact-set comparison.
+    dev_held_back_excluded = (
+        database == DEV_DATABASE
+        and not scoped_operation
+        and expected_pending is not None
+        and (
+            not protected_intelligence_prerequisite
+            or is_intelligence_prerequisite_batch(expected_pending)
+        )
+    )
     if expected_pending is not None:
         actual_pending = [_migration_metadata(item) for item in plan if item.version not in applied]
-        # DEV routine review matches every other pending migration. The held-back
-        # versions stay in the ledger gap, are reported by the caller, and are
-        # skipped below. PROD keeps the full exact-set comparison.
-        if (
-            database == DEV_DATABASE
-            and not scoped_operation
-            and not protected_intelligence_prerequisite
-        ):
+        if dev_held_back_excluded:
             if any(
                 item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in expected_pending
             ):
@@ -1180,13 +1187,7 @@ def apply_migrations(
             continue
         if january_climate_only and migration.version not in {"V151", "V152"}:
             continue
-        if (
-            database == DEV_DATABASE
-            and not scoped_operation
-            and not protected_intelligence_prerequisite
-            and expected_pending is not None
-            and migration.version in HELD_BACK_DEV_MIGRATION_VERSIONS
-        ):
+        if dev_held_back_excluded and migration.version in HELD_BACK_DEV_MIGRATION_VERSIONS:
             continue
         with connect(
             _migration_settings(settings, migration, database), include_database=False

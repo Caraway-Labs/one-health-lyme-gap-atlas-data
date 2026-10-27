@@ -1,0 +1,95 @@
+{
+  "title": "Intelligence daily job",
+  "uid": "atlas-intelligence-daily",
+  "tags": ["atlas", "intelligence-daily"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "Last run per source",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"data-job\", component=\"intelligence-daily\"} | json | event=\"source.summary\""
+        }
+      ],
+      "options": {"showTime": true, "sortOrder": "Descending", "wrapLogMessage": true}
+    },
+    {
+      "id": 2,
+      "type": "logs",
+      "title": "Stage timing",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"data-job\", component=\"intelligence-daily\"} | json | event=~\"stage\\\\.(open|close)\""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Failures by code",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (failure_code) (count_over_time({service_name=\"data-job\", component=\"intelligence-daily\"} | json | event=\"source.summary\" | status=\"FAILED\" [24h]))"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Open stage without a heartbeat for 120s",
+      "description": "A stage is open when stage.open is the newest stage event and no stage.heartbeat for that source_id and stage arrived in the last 120 seconds. The parent process emits the heartbeat, so a stuck child still shows the last open stage.",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"data-job\", component=\"intelligence-daily\"} | json | event=~\"stage\\\\.(open|heartbeat|close)\""
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "traces",
+      "title": "Daily traces",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "tempo", "uid": "${DS_TEMPO}"},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "expr": "{ resource.service.name = \"data-job\" && name = \"intelligence-daily.stage\" }"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_LOKI",
+        "type": "datasource",
+        "query": "loki",
+        "label": "Loki"
+      },
+      {
+        "name": "DS_TEMPO",
+        "type": "datasource",
+        "query": "tempo",
+        "label": "Tempo"
+      }
+    ]
+  }
+}

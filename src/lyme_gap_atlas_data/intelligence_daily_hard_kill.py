@@ -27,6 +27,7 @@ from .ingestion.intelligence_runtime import (
     prod_daily_config_sha256_allowed,
 )
 from .ingestion.types import FailureCategory, Stage
+from .intelligence_daily_telemetry import observed, spawn_observed, spawn_observed_timer
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -212,7 +213,7 @@ def terminalize_hard_killed_run(ingestion_run_id: str, stage: str) -> dict[str, 
     if run_id is None:
         raise ValueError("INTELLIGENCE_DAILY_HARD_KILL_RUN_ID_REQUIRED")
     snowflake = SnowflakeSettings()
-    with connect(snowflake) as connection, connection.cursor() as cursor:
+    with observed(), connect(snowflake) as connection, connection.cursor() as cursor:
         cursor.execute(
             "ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS=%s, "
             "STATEMENT_QUEUED_TIMEOUT_IN_SECONDS=%s, ABORT_DETACHED_QUERY=TRUE",
@@ -306,12 +307,7 @@ def _ledger_with_timeout(run_id: str, stage: str, timeout: float) -> str:
         finally:
             finished.set()
 
-    worker = threading.Thread(
-        target=attempt,
-        name="intelligence-daily-hard-kill-ledger",
-        daemon=True,
-    )
-    worker.start()
+    spawn_observed(attempt, name="intelligence-daily-hard-kill-ledger")
     if not finished.wait(timeout):
         return "timed_out"
     return outcome["value"]
@@ -378,9 +374,7 @@ def daily_hard_kill_watchdog(
             writer=writer,
         )
 
-    timer = threading.Timer(seconds, fire)
-    timer.daemon = True
-    timer.start()
+    timer = spawn_observed_timer(seconds, fire)
     try:
         yield
     finally:
