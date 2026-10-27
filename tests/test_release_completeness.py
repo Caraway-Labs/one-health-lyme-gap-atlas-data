@@ -85,6 +85,32 @@ def test_self_declared_degradation_is_not_an_approval() -> None:
         gate.validate_manifest(document)
 
 
+def test_history_artifact_keeps_human_measures_and_the_2022_gap() -> None:
+    from lyme_gap_atlas_data.cdc_county_year_history import METHODOLOGY_NOTE
+
+    document = manifest()
+    history = {
+        "id": "cdc_historical",
+        "disposition": "regenerated",
+        "owner": "Data",
+        "consumer": "ML and API",
+        "contract": "cdc-lyme-county-year-history-v1",
+        "scope": "report years 2008-2021",
+        "lineage": "CONFORMED.CONFORMED_CDC_LYME_QTBI_XD4I",
+        "approval_reference": "owner decision 2026-10-25",
+        "expected_rows": 10,
+        "preserves_measures": sorted(gate.PRESENTATION_MEASURES["human"]),
+        "gap_note": METHODOLOGY_NOTE,
+        "previous_release_id": "governed-current",
+    }
+    document["artifacts"].append(history)
+    artifacts = gate.validate_manifest(document)
+    assert artifacts["cdc_historical"]["previous_release_id"] == "governed-current"
+    history["gap_note"] = "no gap"
+    with pytest.raises(gate.ReleaseCompletenessBlocked, match="2022 gap"):
+        gate.validate_manifest(document)
+
+
 def test_duplicate_artifact_cannot_mask_missing_model() -> None:
     document = manifest()
     document["artifacts"].append(deepcopy(document["artifacts"][0]))

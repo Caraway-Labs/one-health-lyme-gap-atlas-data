@@ -54,6 +54,22 @@ class AlphaParityError(ValueError):
     """Raised when an input cannot prove the full county-level comparison."""
 
 
+def existing_county_fields_unchanged(
+    previous: Sequence[Mapping[str, Any]],
+    candidate: Sequence[Mapping[str, Any]],
+) -> None:
+    """Prove a history release did not change any existing county field."""
+
+    def project(rows: Sequence[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+        return [
+            tuple(row.get(field) for field in _FIELDS)
+            for row in sorted(rows, key=lambda item: str(item.get("fips")))
+        ]
+
+    if project(previous) != project(candidate):
+        raise AlphaParityError("Existing county release fields changed")
+
+
 def fetch_current_semantic_rows(
     connection: str,
     release_id: str,
