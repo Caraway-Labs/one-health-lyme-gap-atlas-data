@@ -39,3 +39,7 @@ This PR introduces code and documentation only. It does not load or publish DEV/
 ## Links to affected contracts and tests
 
 `docs/contracts/county-identity-geometry/county-analysis-geometry-v1.md`; `docs/contracts/county-identity-geometry/county-identity-geometry-v1.md`; `src/lyme_gap_atlas_data/county_analysis_geometry.py`; `tests/test_county_analysis_geometry.py`; #188 semantic/lineage contracts.
+
+## Amendment: county adjacency list (issue #872)
+
+Date: 2026-10-27. The 2025 TIGER county identity remains the join key for a separate Census County Adjacency File, 2025 vintage, sha256 `8233d2aed342f62eb02bae9f9002ad1d8fc6bd82d739185eba8bad832bf8fc87`. The governed product is an undirected FIPS pair list with a shared-boundary length and an edge-or-point contact type. It stores no geography. Water boundaries and point contacts follow the Census definition. The project reference stays the frozen 3,144 counties; Puerto Rico and island areas stay out of the governed pairs. The three neighborless Hawaii counties are islands in the quality output, not fabricated pairs. Connecticut planning regions and the Alaska Valdez-Cordova split follow this same 2025 identity. A later adjacency vintage is a new reviewed release. The contract is `docs/contracts/county-identity-geometry/county-adjacency-v1.md`. This amendment grants no source approval, grant, or PROD load.

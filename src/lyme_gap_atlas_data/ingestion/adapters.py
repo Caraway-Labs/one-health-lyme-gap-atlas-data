@@ -868,7 +868,10 @@ def _csv_rows(body: bytes, definition: SourceDefinition) -> list[dict[str, Any]]
         raise AcquisitionError(
             "CSV response could not be decoded", code="RESPONSE_ENCODING"
         ) from error
-    reader = csv.DictReader(io.StringIO(text))
+    delimiter = definition.extra.get("delimiter", ",")
+    if not isinstance(delimiter, str) or len(delimiter) != 1 or delimiter in {"\n", "\r"}:
+        raise AcquisitionError("CSV delimiter is not a single character", code="DELIMITER")
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     names = [str(name).strip() for name in (reader.fieldnames or [])]
     if not names or len(names) != len(set(names)) or any(not name for name in names):
         raise AcquisitionError("CSV header is not unique and non-empty", code="HEADER_INVALID")
@@ -879,6 +882,8 @@ def _csv_rows(body: bytes, definition: SourceDefinition) -> list[dict[str, Any]]
         )
     rows: list[dict[str, Any]] = []
     for row in reader:
+        if definition.extra.get("reject_extra_fields") and None in row:
+            raise AcquisitionError("CSV row has more fields than the header", code="ROW_WIDTH")
         cleaned = {str(key).strip(): value for key, value in row.items() if key is not None}
         if any(value not in (None, "") for value in cleaned.values()):
             rows.append(cleaned)

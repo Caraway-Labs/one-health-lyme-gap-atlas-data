@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
+from ..county_adjacency import validate_definition as validate_county_adjacency
 from .types import (
     DEFAULT_HTTP_STRUCTURED_STAGES,
     DEFAULT_HTTP_XLSX_STAGES,
@@ -268,6 +269,21 @@ def validate_source_definition(definition: SourceDefinition) -> ValidationResult
                 message="structured HTTP sources must declare required_columns",
                 category=FailureCategory.SCHEMA,
             )
+        )
+    if definition.adapter_kind is AdapterKind.HTTP_CSV:
+        delimiter = definition.extra.get("delimiter", ",")
+        if not isinstance(delimiter, str) or len(delimiter) != 1 or delimiter in {"\n", "\r"}:
+            issues.append(
+                ValidationIssue(
+                    code="DELIMITER",
+                    message="HTTP_CSV delimiter must be one character and defaults to comma",
+                    category=FailureCategory.CONFIGURATION,
+                )
+            )
+    if definition.resource_key == "census_county_adjacency_2025":
+        issues.extend(
+            ValidationIssue(code, message, FailureCategory.CONFIGURATION)
+            for code, message in validate_county_adjacency(definition)
         )
     if definition.adapter_kind is AdapterKind.NEON_RELEASE_PACKAGE:
         if definition.auth_mode is not AuthMode.NEON_API_TOKEN_ENV:
