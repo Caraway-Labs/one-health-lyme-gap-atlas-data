@@ -10,11 +10,22 @@ from urllib.parse import urlsplit
 
 from lyme_gap_atlas_shared.settings import SnowflakeSettings
 
+from lyme_gap_atlas_data.ingestion.intelligence_entrez import (
+    ENTREZ_PERMITTED_PATHS,
+    ESEARCH_URL,
+    MAX_RESPONSE_BYTES,
+    PUBLISHED_PATH,
+    SOURCE_ORDER,
+)
 from lyme_gap_atlas_data.ingestion.intelligence_runtime import (
     ENDPOINTS,
+    PROD_DAILY_SOURCE_SHA256,
     PROD_NATIVE_PATH_SUPERSET,
     PROD_SOURCE_DECISIONS,
     PROD_SOURCE_SHA256,
+    PUBMED_ARTIFACT_POLICY,
+    PUBMED_DECISION,
+    PUBMED_SOURCE_IDS,
     pilot_watchdog,
     reviewed_prod_decision_ref,
     reviewed_prod_source_sha256,
@@ -41,9 +52,81 @@ DECISION_REF = "DATA-132-135-EID-ADMISSION-2026-10-09"
 ARTIFACT_POLICY = "CDC_EID_RESTRICTED_RAW_30D_V1"
 
 
+def _reviewed_pubmed_package(source_id: str, registry_version: int) -> tuple[dict[str, Any], str]:
+    """Version 1 Entrez document. PubMed has no RSS v2 file and no YAML definition."""
+    if source_id not in SOURCE_ORDER or registry_version != 1:
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    path = ROOT / f"config/intelligence/{source_id}-source-v1.json"
+    source = json.loads(path.read_text(encoding="utf-8"))
+    receipts = json.loads(
+        (ROOT / "config/intelligence/pubmed-policy-receipts.json").read_text(encoding="utf-8")
+    )["receipts"]
+    validate_record("source", source)
+    checksum = identity_hash(source)
+    selected = [row for row in receipts if row.get("source_id") == source_id]
+    if len(selected) != 1:
+        raise PermissionError("EID_EXACT_RECEIPT_REQUIRED")
+    receipt = selected[0]
+    native = NativeMetadataPolicy(
+        **{
+            **receipt["native_policy"],
+            **{
+                key: frozenset(receipt["native_policy"][key])
+                for key in ("inventory", "permitted_paths", "required_paths")
+            },
+        }
+    )
+    native.validate(source)
+    pinned = PROD_DAILY_SOURCE_SHA256[source_id]
+    if (
+        source["source_id"] != source_id
+        or checksum != pinned
+        or checksum != PROD_SOURCE_SHA256[source_id]
+        or source["registry_version"] != 1
+        or source["transport"] != "entrez"
+        or source["family"] != "pubmed"
+        or source["trust_classification"] != "research_index"
+        or source["fetch_location"] != ESEARCH_URL
+        or source["approved_hosts"] != [urlsplit(ESEARCH_URL).hostname]
+        or source["state"] != "active"
+        or source["cadence"]["poll_seconds"] != 86400
+        or source["limits"]
+        != {
+            "maximum_bytes": MAX_RESPONSE_BYTES,
+            "timeout_seconds": 30,
+            "maximum_items": 200,
+            "maximum_redirects": 0,
+            "maximum_attempts": 1,
+        }
+        or any(source[key]["status"] != "approved" for key in ("approval", "trust_review"))
+        or source["approval"]["decision_ref"] != PUBMED_DECISION
+        or source["trust_review"]["decision_ref"] != PROD_SOURCE_DECISIONS[source_id]
+        or source["access_use"]["public_excerpt_permitted"]
+        or source["access_use"]["excerpt_max_chars"] != 0
+        or source["access_use"]["content_retention_policy_ref"]
+        != source_id + "-metadata-raw-30d-v1"
+        or receipt["decision_ref"] != PUBMED_DECISION
+        or receipt["registry_version"] != 1
+        or receipt["source_sha256"] != checksum
+        or receipt["native_policy"]["source_sha256"] != checksum
+        or receipt["raw_policy_ref"] != "intelligence-raw-30d-v1"
+        or receipt["retention_policy_ref"] != source["access_use"]["content_retention_policy_ref"]
+        or receipt["artifact_policy"] != PUBMED_ARTIFACT_POLICY
+        or native.policy_ref != source_id + "-native-metadata-v1"
+        or native.permitted_paths != ENTREZ_PERMITTED_PATHS
+        or native.published_path != PUBLISHED_PATH
+        or native.published_format != "iso8601"
+        or source_id in ENDPOINTS
+    ):
+        raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
+    return source, checksum
+
+
 def reviewed_package(
     source_id: str = SOURCE_ID, registry_version: int = 1
 ) -> tuple[dict[str, Any], str]:
+    if source_id in PUBMED_SOURCE_IDS:
+        return _reviewed_pubmed_package(source_id, registry_version)
     if source_id not in PROD_SOURCE_SHA256 or registry_version not in {1, 2, 3}:
         raise PermissionError("EID_REVIEWED_PACKAGE_MISMATCH")
     path = (

@@ -411,7 +411,8 @@
         "rss",
         "atom",
         "email",
-        "web"
+        "web",
+        "entrez"
       ]
     },
     "transport_identity_sha256": {
@@ -693,6 +694,178 @@
                   "text": {
                     "type": "string",
                     "minLength": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "matched_queries": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "pubmed-tick-borne",
+              "pubmed-lyme-borrelia"
+            ]
+          }
+        },
+        "mesh": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "ui"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "^[^<>\\u0000-\\u001f]*$"
+              },
+              "ui": {
+                "type": "string",
+                "pattern": "^[A-Z][0-9]{6}$"
+              }
+            }
+          }
+        },
+        "publication_types": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^<>\\u0000-\\u001f]*$"
+          }
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "pattern": "^[^<>\\u0000-\\u001f]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[^<>\\u0000-\\u001f]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entry_date": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "state",
+            "copyright_line",
+            "attribution",
+            "policy_url"
+          ],
+          "properties": {
+            "text": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 6000,
+                  "pattern": "^[^<>\\u0000-\\u001f]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "state": {
+              "enum": [
+                "present",
+                "not_provided",
+                "suppressed",
+                "withheld"
+              ]
+            },
+            "copyright_line": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000,
+                  "pattern": "^[^\\u0000-\\u001f]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "attribution": {
+              "const": "Courtesy of the U.S. National Library of Medicine"
+            },
+            "policy_url": {
+              "const": "https://www.ncbi.nlm.nih.gov/home/about/policies/"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "present"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "not_provided",
+                      "suppressed",
+                      "withheld"
+                    ]
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "text": {
+                    "type": "null"
                   }
                 }
               }

@@ -408,7 +408,8 @@
         "rss",
         "atom",
         "email",
-        "web"
+        "web",
+        "entrez"
       ]
     },
     "transport_identity_sha256": {

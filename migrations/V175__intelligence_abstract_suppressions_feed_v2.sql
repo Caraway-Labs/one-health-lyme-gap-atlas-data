@@ -1,13 +1,18 @@
 -- DATA #844: FEED_V2 passes captured abstracts through and flags suppressions.
+-- The view body is the V174 view. PubMed stays one row per item_id (newest
+-- capture, then capture_id DESC). RSS keeps the V174 partition. FEED_SORT_AT
+-- stays the 27th column. ABSTRACT_SUPPRESSED is appended after it.
 -- GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS records a PMID or a journal title.
 -- Publisher scope matches publisher_metadata.journal, not the source organization.
 -- Both lookups apply only when source_family is pubmed. A PMID match also
 -- requires source_item_id to be 1 to 10 digits with no leading zero.
 -- A match replaces that item's abstract with text null, state suppressed, and
 -- copyright_line null. Any other captured abstract is projected unchanged.
+-- OBJECT_CONSTRUCT_KEEP_NULL keeps a missing abstract as SQL NULL.
 -- Grouped lookups keep one feed row when both a PMID and a journal match.
 -- The row stays in the feed. Runtime and reader roles can select the table.
 -- They cannot insert, update, or delete it.
+-- COPY GRANTS keeps the view grants that already exist.
 USE DATABASE {{ DATABASE }};
 
 CREATE TABLE IF NOT EXISTS GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS (
@@ -37,6 +42,34 @@ GRANT SELECT ON TABLE GOVERNANCE.INTELLIGENCE_ABSTRACT_SUPPRESSIONS
     TO ROLE OH_LYME_{{ ENV }}_READ;
 
 CREATE OR REPLACE VIEW PRESENTATION.INTELLIGENCE_FEED_V2 COPY GRANTS AS
+SELECT item_id, revision_id, source_id, registry_version, transport,
+       deduplication_key,
+       content_sha256,
+       transport_identity_sha256,
+       canonical_url,
+       title,
+       published_at,
+       updated_at,
+       event_at,
+       fetched_at,
+       excerpt,
+       field_states,
+       geographies,
+       topics,
+       provenance,
+       limitations,
+       contract_version,
+       content_is_untrusted,
+       publisher_metadata,
+       derived_metadata,
+       organization,
+       reviewed_trust_classification,
+       IFF(published_at IS NULL
+           OR TRY_TO_TIMESTAMP_TZ(published_at) > first_loaded_at,
+           first_loaded_at,
+           TRY_TO_TIMESTAMP_TZ(published_at))::TIMESTAMP_TZ AS FEED_SORT_AT,
+       abstract_suppressed AS ABSTRACT_SUPPRESSED
+FROM (
 SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
        c.item_id AS deduplication_key,
        c.item_document:content_sha256::VARCHAR AS content_sha256,
@@ -61,10 +94,6 @@ SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
        c.item_document:limitations AS limitations,
        c.item_document:contract_version::VARCHAR AS contract_version,
        c.item_document:content_is_untrusted::BOOLEAN AS content_is_untrusted,
-       (
-           pmid_suppression.pmid IS NOT NULL
-           OR publisher_suppression.publisher IS NOT NULL
-       ) AS abstract_suppressed,
        OBJECT_CONSTRUCT_KEEP_NULL(
            'publisher', c.item_document:publisher_metadata:publisher,
            'source_family', c.item_document:publisher_metadata:source_family,
@@ -88,16 +117,23 @@ SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
                ),
                c.item_document:publisher_metadata:abstract
            ),
-           'mesh', c.item_document:publisher_metadata:mesh,
-           'publication_types', c.item_document:publisher_metadata:publication_types,
-           'matched_queries', c.item_document:publisher_metadata:matched_queries,
            'abstract_suppressed',
                pmid_suppression.pmid IS NOT NULL
-               OR publisher_suppression.publisher IS NOT NULL
+               OR publisher_suppression.publisher IS NOT NULL,
+           'mesh', c.item_document:publisher_metadata:mesh,
+           'publication_types', c.item_document:publisher_metadata:publication_types,
+           'matched_queries', c.item_document:publisher_metadata:matched_queries
        ) AS publisher_metadata,
        OBJECT_CONSTRUCT() AS derived_metadata,
        s.registry_document:organization::VARCHAR AS organization,
-       s.registry_document:trust_classification::VARCHAR AS reviewed_trust_classification
+       s.registry_document:trust_classification::VARCHAR AS reviewed_trust_classification,
+       (MIN(c.retrieved_at) OVER (
+           PARTITION BY c.item_id, IFF(c.transport = 'entrez', NULL, c.source_id)
+       ))::TIMESTAMP_TZ AS first_loaded_at,
+       (
+           pmid_suppression.pmid IS NOT NULL
+           OR publisher_suppression.publisher IS NOT NULL
+       ) AS abstract_suppressed
 FROM GOVERNANCE.INTELLIGENCE_ITEM_CAPTURES c
 JOIN CONFORMED.INTELLIGENCE_ITEM_REVISIONS r
   ON r.item_id = c.item_id AND r.revision_id = c.revision_id
@@ -132,6 +168,12 @@ WHERE c.item_document:contract_version::VARCHAR = '2.0.0'
   AND s.registry_document:trust_review:status::VARCHAR = 'approved'
   AND s.registry_document:state::VARCHAR IN ('active', 'manual')
 QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY c.item_id, c.revision_id, c.source_id, c.transport
-    ORDER BY c.retrieved_at DESC, c.capture_id
-) = 1;
+    PARTITION BY c.item_id,
+                 IFF(c.transport = 'entrez', NULL, c.revision_id),
+                 IFF(c.transport = 'entrez', NULL, c.source_id),
+                 c.transport
+    ORDER BY c.retrieved_at DESC,
+             IFF(c.transport = 'entrez', c.capture_id, NULL) DESC,
+             c.capture_id
+) = 1
+) ranked;

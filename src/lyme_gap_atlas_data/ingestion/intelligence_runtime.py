@@ -7,6 +7,7 @@ grant. Reviewed receipts are pinned to a real registry checksum.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -26,10 +27,19 @@ from ..intelligence_activations import (
     load_registry_documents,
     source_is_active,
 )
+from ..intelligence_daily_telemetry import instrumented_execute
 from ..intelligence_items import identity_hash
 from ..intelligence_metadata import NativeMetadataPolicy
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from ..intelligence_retention import PROD_METADATA_FEED_IDS
+from ..intelligence_topics import (
+    VOCABULARY_VERSION_V1,
+    TopicRow,
+    load_vocabulary,
+    merge_topic_rows,
+    topic_rows_for_items,
+    topics_table_exists,
+)
 from ..settings import PipelineSettings
 from ..sql_sessions import connect
 from .adapters import AcquireResult, NormalizeResult
@@ -37,7 +47,79 @@ from .intelligence_checkpoints import IntelligenceSnowflakeCheckpoints
 from .intelligence_effects import IntelligenceStageEffects
 from .intelligence_feed import FeedResponse, IntelligenceFeedAdapter, _request, _resolve
 from .orchestrator import IngestionOrchestrator
+from .step_deadline import active_step_deadline, note_step_deadline
 from .types import AdapterKind, SourceDefinition
+
+logger = logging.getLogger(__name__)
+TOPICS_FLAG = "ATLAS_INTELLIGENCE_TOPICS"
+
+
+def record_topics_after_merge(
+    cursor: Any,
+    items: list[dict[str, Any]],
+    *,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Assign vocabulary topics after the item MERGE.
+
+    The hook does nothing when the topic table is absent and the explicit flag
+    is off, so a daily run can promote before the table migration. An oversized
+    field, a badly typed field, or a bad vocabulary leaves that item without
+    topics and counts a warning. The hook does not raise.
+    """
+    flag = enabled if enabled is not None else os.environ.get(TOPICS_FLAG, "").lower() == "on"
+    if not items:
+        return {"status": "inert", "reason": "no_items", "rows": 0, "warnings": 0}
+    try:
+        table_present = topics_table_exists(cursor)
+    except Exception:
+        logger.warning("intelligence_topics step=table_probe_failed warnings=1")
+        return {"status": "skipped", "reason": "topics_probe_failed", "rows": 0, "warnings": 1}
+    if not table_present and not flag:
+        return {"status": "inert", "reason": "topics_table_absent", "rows": 0, "warnings": 0}
+    try:
+        vocabulary = load_vocabulary(VOCABULARY_VERSION_V1)
+    except Exception:
+        logger.warning("intelligence_topics step=vocabulary_invalid warnings=%s", len(items))
+        return {
+            "status": "skipped",
+            "reason": "topics_vocabulary_invalid",
+            "rows": 0,
+            "warnings": len(items),
+        }
+    rows: list[TopicRow] = []
+    warnings = 0
+    for item in items:
+        try:
+            rows.extend(topic_rows_for_items([item], vocabulary))
+        except Exception:
+            warnings += 1
+    if warnings:
+        logger.warning("intelligence_topics step=item_skipped warnings=%s", warnings)
+    if not rows:
+        return {
+            "status": "skipped",
+            "reason": "topics_not_recorded",
+            "rows": 0,
+            "warnings": warnings,
+        }
+    try:
+        recorded = merge_topic_rows(cursor, rows)
+    except Exception:
+        logger.warning("intelligence_topics step=merge_failed warnings=%s", warnings + 1)
+        return {
+            "status": "skipped",
+            "reason": "topics_merge_failed",
+            "rows": 0,
+            "warnings": warnings + 1,
+        }
+    return {
+        "status": "recorded",
+        "reason": "topics_recorded",
+        "rows": recorded,
+        "warnings": warnings,
+    }
+
 
 ENDPOINTS = {
     "cdc-eid-expedited": "https://wwwnc.cdc.gov/eid/rss/expedited.xml",
@@ -47,6 +129,12 @@ ENDPOINTS = {
     "cdc-vital-signs": "https://tools.cdc.gov/api/v2/resources/media/275866.rss",
     "nih-news-releases": "https://www.nih.gov/news-releases/feed.xml",
 }
+# Entrez searches. They are not RSS endpoints and never enter the RSS composer.
+PUBMED_SOURCE_IDS = frozenset({"pubmed-lyme-borrelia", "pubmed-tick-borne"})
+PUBMED_DRAFT_SOURCE_IDS = PUBMED_SOURCE_IDS
+PUBMED_DECISION = "matthew-feed-selection-2026-10-03"
+PUBMED_ARTIFACT_POLICY = "PUBMED_METADATA_RAW_30D_V1"
+PUBMED_ESEARCH_ENDPOINT = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 RECEIPTS = Path("config/intelligence/pilot-policy-receipts.json")
 DAILY_RECEIPTS = Path("config/intelligence/daily-policy-receipts.json")
 DAILY_DECISION = "DATA-132-DAILY-CDC-2026-10-21"
@@ -58,12 +146,20 @@ DEADLINE_GRACE_SECONDS = 30
 # used when a budget expiry records FAILED. The daily runner's hard-kill path
 # records FAILED on a fresh connection before exiting (intelligence_daily_hard_kill).
 DAILY_SOURCE_WATCHDOG_SECONDS = DAILY_SOURCE_BUDGET_SECONDS + 2 * DEADLINE_GRACE_SECONDS
+# Parent-side stall limit. A frozen child cannot run its own timer or heartbeat,
+# so the parent kills it after this long without a progress pulse. Healthy
+# sources pulse about once a second and still have the 900s budget.
+DAILY_SOURCE_INACTIVITY_SECONDS = 120
 PROD_DAILY_SOURCE_SHA256 = {
     "cdc-eid-expedited": "570a796df7086b520136e5deab5917957561314e2f5fe96659bb3c9534124423",
     "cdc-eid-ahead-of-print": "12e3003da3e8782b379e321eb61fccecb36a9269c3017c10132bb96c848c39c3",
     "cdc-outbreaks": "d8bdcc90b16c98fe2b3661a9316ac78071bd355cbb46ee5d0299c15ca4f53b8f",
     "nih-news-releases": "1542aa4d8f85a650ac216e574907ec19f65e1d17a26dd8c8b607bfdcd17faaa1",
     "cdc-mmwr": "9ee7ceca898a4419241d9706c7cbf0a795287c794cdeb74b0892a4f90ccda0e9",
+    # PubMed documents are registry version 1 and daily-only. The same digest is
+    # pinned here so the Entrez walk admits them. They are not RSS definitions.
+    "pubmed-tick-borne": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244",
+    "pubmed-lyme-borrelia": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6",
 }
 PROD_V3_DECISION = "DATA-816-D3R-2026-10-25"
 # Reviewed receipt paths must stay inside this set. Description, category and guid
@@ -95,6 +191,9 @@ PROD_SOURCE_SHA256 = {
     "cdc-outbreaks": "54793f2c4856602bf8901d09972a44d2a7479056e71eac75ddc88db060646172",
     "nih-news-releases": "38d7364d5ce7b730d16e07197d0bb1cf88403eae59defc66de05e3a3df825bea",
     "cdc-mmwr": "875b0bc1b33f2c89ff4596532ccd8504dc6ce60086f8bba9146183da2b2d59a6",
+    # Same digest as the daily pin. reviewed_package gates membership on this map.
+    "pubmed-tick-borne": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244",
+    "pubmed-lyme-borrelia": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6",
 }
 PROD_SOURCE_DECISIONS = {
     "cdc-eid-expedited": "DATA-132-135-EID-ADMISSION-2026-10-09",
@@ -102,6 +201,8 @@ PROD_SOURCE_DECISIONS = {
     "cdc-outbreaks": "matthew-feed-selection-2026-10-03",
     "nih-news-releases": "matthew-feed-selection-2026-10-03",
     "cdc-mmwr": "matthew-feed-selection-2026-10-03",
+    "pubmed-tick-borne": PUBMED_DECISION,
+    "pubmed-lyme-borrelia": PUBMED_DECISION,
 }
 PROD_SOURCE_DEFINITIONS = {
     "cdc-eid-expedited": "config/sources/intelligence_cdc_eid_expedited.yml",
@@ -110,6 +211,15 @@ PROD_SOURCE_DEFINITIONS = {
     "nih-news-releases": "config/sources/intelligence_nih_news_releases.yml",
     "cdc-mmwr": "config/sources/intelligence_cdc_mmwr.yml",
 }
+# cdc-mmwr is the large feed (~250 items). Run it before the smaller feeds so
+# their processes do not overlap its peak. The set matches PROD_SOURCE_DEFINITIONS.
+DAILY_SOURCE_RUN_ORDER = (
+    "cdc-mmwr",
+    "cdc-eid-expedited",
+    "cdc-eid-ahead-of-print",
+    "cdc-outbreaks",
+    "nih-news-releases",
+)
 # Operator stages for one daily source. Checkpoint names stay on the orchestrator;
 # these are the boundaries a daily outcome is allowed to name.
 DAILY_OPERATOR_STAGES = (
@@ -175,6 +285,7 @@ def pilot_watchdog(*, seconds: int = 300) -> Iterator[None]:
     warehouse or session is cancelled. The feed default is five minutes; the
     exact prerequisite batch uses fifty seconds.
     """
+    # os._exit ends the process, so there is no observation context to carry.
     timer = threading.Timer(seconds, os._exit, args=(124,))
     timer.daemon = True
     timer.start()
@@ -229,11 +340,20 @@ class PilotBudget:
     Operators track the approved six-request/$5 aggregate across invocations.
     """
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic, *, seconds: int = 300) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        seconds: int = 300,
+        request_limit: int = 1,
+    ) -> None:
         if seconds < 1:
             raise ValueError("Pilot budget seconds must be positive")
+        if request_limit < 1:
+            raise ValueError("Pilot budget request limit must be positive")
         self.clock = clock
         self.seconds = seconds
+        self.request_limit = request_limit
         self.deadline = clock() + seconds
         self.requests = 0
         self.queries = 0
@@ -312,7 +432,7 @@ class PilotBudget:
         timeout: float,
     ) -> FeedResponse:
         remaining = self.remaining()
-        if self.requests >= 1:
+        if self.requests >= self.request_limit:
             raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
         self.requests += 1
         response = sender(
@@ -327,6 +447,14 @@ class PilotBudget:
             # No redirects, retries, conditional bodies, or partial acceptance.
             raise PermissionError("INTELLIGENCE_PILOT_RESPONSE_REQUIRED")
         return response
+
+    def reserve(self) -> float:
+        """Count one owned request without receiving its URL or parameters."""
+        remaining = self.remaining()
+        if self.requests >= self.request_limit:
+            raise PermissionError("INTELLIGENCE_PILOT_REQUEST_LIMIT")
+        self.requests += 1
+        return remaining
 
 
 class DailyStageClock:
@@ -379,7 +507,11 @@ class _Cursor:
         return self.raw.__exit__(*args)
 
     def execute(self, statement: str, *args: Any, **kwargs: Any) -> Any:
+        note_step_deadline()
         remaining = self.budget.remaining()
+        deadline = active_step_deadline()
+        if deadline is not None:
+            remaining = min(remaining, deadline.remaining())
         if self.budget.queries >= 2500:
             raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
         self.budget.queries += 1
@@ -393,7 +525,14 @@ class _Cursor:
         )
         # Connector cancellation is for this owned query, never the warehouse.
         kwargs["timeout"] = min(kwargs.get("timeout", 30), 30, math.ceil(remaining))
-        result = self.raw.execute(statement, *args, **kwargs)
+        try:
+            if getattr(self.raw, "daily_observed", False):
+                result = self.raw.execute(statement, *args, **kwargs)
+            else:
+                result = instrumented_execute(self.raw, statement, args, kwargs)
+        finally:
+            # The connector disarms SIGALRM before returning, including on retry.
+            note_step_deadline()
         self.budget.remaining()
         return result
 
@@ -406,6 +545,7 @@ class _Connection:
         return getattr(self.raw, name)
 
     def cursor(self, *args: Any, **kwargs: Any) -> _Cursor:
+        note_step_deadline()
         self.budget.remaining()
         return _Cursor(self.raw.cursor(*args, **kwargs), self.budget)
 
@@ -419,11 +559,15 @@ class _Connection:
         return self._transaction("autocommit", value)
 
     def _transaction(self, operation: str, *args: Any) -> Any:
+        note_step_deadline()
         self.budget.remaining()
         if self.budget.queries >= 2500:
             raise PermissionError("INTELLIGENCE_PILOT_QUERY_LIMIT")
         self.budget.queries += 1
-        result = getattr(self.raw, operation)(*args)
+        try:
+            result = getattr(self.raw, operation)(*args)
+        finally:
+            note_step_deadline()
         self.budget.remaining()
         return result
 
@@ -487,6 +631,8 @@ def compose_pilot(
         allowed_versions = {1}
     if registry_version not in allowed_versions:
         raise PermissionError("INTELLIGENCE_PILOT_REVIEWED_SOURCE_REQUIRED")
+    if definition.source_id in PUBMED_DRAFT_SOURCE_IDS:
+        raise PermissionError("INTELLIGENCE_PUBMED_DRAFT_UNREGISTERED")
     if environment == "PROD":
         endpoint = urlsplit(settings.spaces_endpoint)
         if (
@@ -626,6 +772,7 @@ def compose_pilot(
         policy_lookup=lambda selected_source: receipt["raw_policy_ref"],
     )
     effects.feed_retention = retention
+    effects.store.after_merge = record_topics_after_merge
     adapter = PilotFeedAdapter(
         registry_lookup=effects.store.lookup_source,
         retention_allowed=lambda ref: ref == policy_ref,

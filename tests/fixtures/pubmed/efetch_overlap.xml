@@ -1,0 +1,87 @@
+<?xml version="1.0" ?>
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID>23456789</PMID>
+      <Article>
+        <Journal>
+          <Title>Ticks and Tick-borne Diseases</Title>
+          <JournalIssue>
+            <PubDate><Year>2026</Year><Month>Oct</Month><Day>20</Day></PubDate>
+          </JournalIssue>
+        </Journal>
+        <ArticleTitle>Tick-borne surveillance note</ArticleTitle>
+        <Abstract>
+          <AbstractText>&lt;script&gt;x&lt;/script&gt;Results</AbstractText>
+        </Abstract>
+        <AuthorList>
+          <Author><LastName>Ng</LastName><ForeName>Kai</ForeName></Author>
+        </AuthorList>
+        <Language>eng</Language>
+        <PublicationTypeList>
+          <PublicationType>Journal Article</PublicationType>
+        </PublicationTypeList>
+      </Article>
+      <KeywordList>
+        <Keyword>anaplasmosis</Keyword>
+      </KeywordList>
+    </MedlineCitation>
+    <PubmedData>
+      <History>
+        <PubMedPubDate PubStatus="entrez">
+          <Year>2026</Year><Month>10</Month><Day>23</Day>
+        </PubMedPubDate>
+      </History>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">23456789</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID>12345678</PMID>
+      <Article>
+        <Journal>
+          <Title>The Lancet Infectious Diseases</Title>
+          <JournalIssue>
+            <PubDate><Year>2026</Year><Month>10</Month><Day>20</Day></PubDate>
+          </JournalIssue>
+        </Journal>
+        <ArticleTitle>Lyme disease review</ArticleTitle>
+        <Abstract>
+          <AbstractText Label="RESULTS">Borrelia burgdorferi remains endemic.</AbstractText>
+          <CopyrightInformation>© 2026 Elsevier B.V. All rights reserved.</CopyrightInformation>
+        </Abstract>
+        <AuthorList>
+          <Author><LastName>Smith</LastName><ForeName>Ann</ForeName></Author>
+          <Author><CollectiveName>CDC Working Group</CollectiveName></Author>
+        </AuthorList>
+        <Language>eng</Language>
+        <PublicationTypeList>
+          <PublicationType>Journal Article</PublicationType>
+          <PublicationType>Review</PublicationType>
+        </PublicationTypeList>
+      </Article>
+      <KeywordList>
+        <Keyword>Borrelia</Keyword>
+        <Keyword>tick-borne</Keyword>
+      </KeywordList>
+      <MeshHeadingList>
+        <MeshHeading>
+          <DescriptorName UI="D008193" MajorTopicYN="Y">Lyme Disease</DescriptorName>
+        </MeshHeading>
+      </MeshHeadingList>
+    </MedlineCitation>
+    <PubmedData>
+      <History>
+        <PubMedPubDate PubStatus="entrez">
+          <Year>2026</Year><Month>10</Month><Day>24</Day>
+        </PubMedPubDate>
+      </History>
+      <ArticleIdList>
+        <ArticleId IdType="doi">10.1000/fixture.lyme</ArticleId>
+        <ArticleId IdType="pubmed">12345678</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+</PubmedArticleSet>

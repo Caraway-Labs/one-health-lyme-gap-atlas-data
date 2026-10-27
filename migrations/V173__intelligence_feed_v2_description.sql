@@ -1,5 +1,6 @@
 -- DATA #818: FEED_V2 publisher_metadata includes the stored description object.
 -- OBJECT_CONSTRUCT_KEEP_NULL keeps a missing description as SQL NULL.
+-- The same construct keeps a missing abstract or abstract_suppressed as SQL NULL.
 -- The row remains in the feed. Further publisher_metadata keys are additional
 -- arguments on this same construct.
 USE DATABASE {{ DATABASE }};
@@ -41,7 +42,9 @@ SELECT c.item_id, c.revision_id, c.source_id, c.registry_version, c.transport,
                'published_at', c.item_document:field_states:published_at,
                'updated_at', c.item_document:field_states:updated_at
            ),
-           'description', c.item_document:publisher_metadata:description
+           'description', c.item_document:publisher_metadata:description,
+           'abstract', c.item_document:publisher_metadata:abstract,
+           'abstract_suppressed', c.item_document:publisher_metadata:abstract_suppressed
        ) AS publisher_metadata,
        OBJECT_CONSTRUCT() AS derived_metadata,
        s.registry_document:organization::VARCHAR AS organization,

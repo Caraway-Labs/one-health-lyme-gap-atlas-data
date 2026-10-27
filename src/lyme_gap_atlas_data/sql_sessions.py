@@ -10,6 +10,11 @@ from lyme_gap_atlas_shared.snowflake import connect as shared_connect
 from lyme_gap_atlas_shared.snowflake import connection_parameters
 from snowflake.connector import connect as connector_connect
 
+from lyme_gap_atlas_data.intelligence_daily_telemetry import (
+    ObservedConnection,
+    observation_active,
+)
+
 
 def connect(settings: SnowflakeSettings, *, include_database: bool = True) -> Any:
     """Apply opt-in limits before returning an existing authenticated connection."""
@@ -18,6 +23,8 @@ def connect(settings: SnowflakeSettings, *, include_database: bool = True) -> An
             **january_connection_parameters(settings, include_database=include_database)
         )
         require_january_warehouse(connection)
+        if observation_active():
+            return ObservedConnection(connection)
         return connection
     raw_timeout = os.environ.get("ATLAS_SQL_STATEMENT_TIMEOUT_SECONDS")
     timeout = int(raw_timeout) if raw_timeout else None
@@ -35,6 +42,8 @@ def connect(settings: SnowflakeSettings, *, include_database: bool = True) -> An
         except Exception:
             connection.close()
             raise
+    if observation_active():
+        return ObservedConnection(connection)
     return connection
 
 

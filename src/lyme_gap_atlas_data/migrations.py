@@ -69,22 +69,37 @@ PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION = {
 INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION = {
     "version": "V170",
     "filename": "V170__intelligence_source_activations.sql",
-    "sha256": "ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d",
+    "sha256": "bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f",
+}
+INTELLIGENCE_ITEM_TOPICS_MIGRATION = {
+    "version": "V171",
+    "filename": "V171__intelligence_item_topics.sql",
+    "sha256": "0bde46663f249afe562d6e9c202b7a5d52f3c2d83e72e112c727d82e01819185",
 }
 INTELLIGENCE_FEED_DESCRIPTION_MIGRATION = {
     "version": "V173",
     "filename": "V173__intelligence_feed_v2_description.sql",
-    "sha256": "fd0ab5e5351ebe453cd4cf941ffaa1326634baa1495450113e231deeff7b8156",
+    "sha256": "d1f1e2cd54980e20a44141e63b263696fd77c88e881012c9befcab955afc8fcf",
+}
+# V174 is the next free number after the V173 file, the V171 topics migration,
+# and the open V172, V175, and V176 reservations. It replaces the feed view in
+# both databases. V171 does not replace that view.
+INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION = {
+    "version": "V174",
+    "filename": "V174__intelligence_feed_v2_entrez_dedupe.sql",
+    "sha256": "056ef4d57cbde1fd851d0fe0e5af1b79264bf619274562c930a8998e0fd815d7",
 }
 INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION = {
     "version": "V175",
     "filename": "V175__intelligence_abstract_suppressions_feed_v2.sql",
-    "sha256": "5eb3b00effa0eae89c48ca0bd4c3ff7d2497929257cb077ee103b760c606f2e5",
+    "sha256": "3dcdff4a16127e31778e47e787b38b3275a265770cf17b29280cb1f2c4f2dada",
 }
-# V170, V173, and V175 replace the feed view in both databases. The protected
-# path is required on DEV and PROD; the historical feed-view migrations stay
-# PROD-only.
-BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V173", "V175"})
+# V170, V173, V174, and V175 replace the feed view in both databases. V171
+# creates the topic tables in both databases. The protected path is required
+# on DEV and PROD. The routine migration path cannot apply these versions.
+# V171 requires recorded V170 and may apply after V174. There is no ordering
+# check between V171 and V174. V175 requires recorded V174. V176 stays reserved.
+BOTH_ENVIRONMENT_INTELLIGENCE_MIGRATIONS = frozenset({"V170", "V171", "V173", "V174", "V175"})
 PROTECTED_INTELLIGENCE_MIGRATIONS = (
     INTELLIGENCE_PREREQUISITE_MIGRATION,
     INTELLIGENCE_CLEANUP_MIGRATION,
@@ -96,7 +111,9 @@ PROTECTED_INTELLIGENCE_MIGRATIONS = (
     PROD_NIH_NEWS_DAILY_ACTIVATION_MIGRATION,
     PROD_CDC_MMWR_DAILY_ACTIVATION_MIGRATION,
     INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
+    INTELLIGENCE_ITEM_TOPICS_MIGRATION,
     INTELLIGENCE_FEED_DESCRIPTION_MIGRATION,
+    INTELLIGENCE_FEED_ENTREZ_DEDUPE_MIGRATION,
     INTELLIGENCE_ABSTRACT_SUPPRESSION_MIGRATION,
 )
 DEV_ONLY_MIGRATION_VERSIONS = {
@@ -1006,16 +1023,23 @@ def apply_migrations(
             january_point_query_only,
         )
     )
+    # DEV review (routine, or one exact protected intelligence prerequisite
+    # batch) matches every other pending migration. The held-back versions stay
+    # in the ledger gap, are reported by the caller, and are skipped below. A
+    # protected flag without an exact-and-alone batch keeps the full comparison.
+    # PROD keeps the full exact-set comparison.
+    dev_held_back_excluded = (
+        database == DEV_DATABASE
+        and not scoped_operation
+        and expected_pending is not None
+        and (
+            not protected_intelligence_prerequisite
+            or is_intelligence_prerequisite_batch(expected_pending)
+        )
+    )
     if expected_pending is not None:
         actual_pending = [_migration_metadata(item) for item in plan if item.version not in applied]
-        # DEV routine review matches every other pending migration. The held-back
-        # versions stay in the ledger gap, are reported by the caller, and are
-        # skipped below. PROD keeps the full exact-set comparison.
-        if (
-            database == DEV_DATABASE
-            and not scoped_operation
-            and not protected_intelligence_prerequisite
-        ):
+        if dev_held_back_excluded:
             if any(
                 item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in expected_pending
             ):
@@ -1149,16 +1173,24 @@ def apply_migrations(
         or (database == PROD_DATABASE and "V167" not in applied)
     ):
         raise PermissionError("V170 requires the recorded feed view before source activations")
+    if any(item.version == "V171" and item.version not in applied for item in plan) and (
+        "V170" not in applied
+    ):
+        raise PermissionError("V171 requires recorded V170 before intelligence item topics")
     if any(item.version == "V173" and item.version not in applied for item in plan) and (
         "V170" not in applied
     ):
         raise PermissionError(
             "V173 requires recorded V170 before the publisher description projection"
         )
-    if any(item.version == "V175" and item.version not in applied for item in plan) and (
+    if any(item.version == "V174" and item.version not in applied for item in plan) and (
         "V173" not in applied
     ):
-        raise PermissionError("V175 requires recorded V173 before abstract fields on the feed")
+        raise PermissionError("V174 requires recorded V173 before the entrez feed dedupe")
+    if any(item.version == "V175" and item.version not in applied for item in plan) and (
+        "V174" not in applied
+    ):
+        raise PermissionError("V175 requires recorded V174 before abstract fields on the feed")
     executed: list[str] = []
     for migration in plan:
         prior_checksum = applied.get(migration.version)
@@ -1191,13 +1223,7 @@ def apply_migrations(
             continue
         if january_climate_only and migration.version not in {"V151", "V152"}:
             continue
-        if (
-            database == DEV_DATABASE
-            and not scoped_operation
-            and not protected_intelligence_prerequisite
-            and expected_pending is not None
-            and migration.version in HELD_BACK_DEV_MIGRATION_VERSIONS
-        ):
+        if dev_held_back_excluded and migration.version in HELD_BACK_DEV_MIGRATION_VERSIONS:
             continue
         with connect(
             _migration_settings(settings, migration, database), include_database=False

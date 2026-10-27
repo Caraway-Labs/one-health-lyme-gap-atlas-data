@@ -107,17 +107,19 @@ def _capture(
     publisher: dict[str, Any],
     *,
     item_id: str | None = None,
+    revision_id: str = "revision",
     registry_version: int = 1,
     retrieved_at: str = "2026-10-25T00:00:00Z",
     capture_id: str = "current",
+    transport: str = "api",
     contract_version: str = "2.0.0",
 ) -> dict[str, Any]:
     return {
         "item_id": item_id or f"{source_id}-item",
-        "revision_id": "revision",
+        "revision_id": revision_id,
         "source_id": source_id,
         "registry_version": registry_version,
-        "transport": "api",
+        "transport": transport,
         "retrieved_at": retrieved_at,
         "capture_id": capture_id,
         "item_document": {
@@ -167,17 +169,36 @@ def _admit(
             candidates.append(capture)
     winners: dict[tuple[Any, ...], dict[str, Any]] = {}
     for capture in candidates:
-        key = (
-            capture["item_id"],
-            capture["revision_id"],
-            capture["source_id"],
-            capture["transport"],
-        )
+        key = _partition_key(capture)
         current = winners.get(key)
-        rank = (capture["retrieved_at"], capture["capture_id"])
-        if current is None or rank > (current["retrieved_at"], current["capture_id"]):
+        if current is None or _outranks(capture, current):
             winners[key] = capture
     return list(winners.values())
+
+
+def _partition_key(capture: dict[str, Any]) -> tuple[Any, ...]:
+    """V174 QUALIFY partition. Entrez collapses to one row per item_id."""
+    if capture["transport"] == "entrez":
+        return (capture["item_id"], None, None, capture["transport"])
+    return (
+        capture["item_id"],
+        capture["revision_id"],
+        capture["source_id"],
+        capture["transport"],
+    )
+
+
+def _outranks(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """True when left wins the V174 order: retrieved_at DESC, entrez capture_id DESC."""
+    if left["retrieved_at"] != right["retrieved_at"]:
+        return left["retrieved_at"] > right["retrieved_at"]
+    left_entrez = left["capture_id"] if left["transport"] == "entrez" else None
+    right_entrez = right["capture_id"] if right["transport"] == "entrez" else None
+    if left_entrez != right_entrez:
+        if left_entrez is None or right_entrez is None:
+            return left_entrez is None
+        return left_entrez > right_entrez
+    return left["capture_id"] < right["capture_id"]
 
 
 def _activations(versions: list[dict[str, Any]], *, blocked: set[str] | None = None) -> list[dict]:
@@ -514,6 +535,93 @@ def test_non_pmid_source_item_id_is_not_suppressed_as_a_pmid() -> None:
     assert feed[0]["publisher_metadata"]["abstract"] == captured
 
 
+def test_v175_keeps_v174_entrez_dedupe_and_rss_partition() -> None:
+    captured = {"text": "Newest abstract.", "state": "present", "copyright_line": COPYRIGHT}
+    older = {"text": "Older abstract.", "state": "present", "copyright_line": COPYRIGHT}
+    captures = [
+        _capture(
+            "pubmed-tick-borne",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, older, journal="The Lancet"),
+            item_id="pmid-shared",
+            revision_id="rev-old",
+            retrieved_at="2026-10-20T04:28:00Z",
+            capture_id="a",
+            transport="entrez",
+        ),
+        _capture(
+            "pubmed-lyme-borrelia",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal="The Lancet"),
+            item_id="pmid-shared",
+            revision_id="rev-new",
+            retrieved_at="2026-10-20T04:37:00Z",
+            capture_id="b",
+            transport="entrez",
+        ),
+        _capture(
+            "pubmed-lyme-borrelia",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, older, journal="The Lancet"),
+            item_id="pmid-tie",
+            revision_id="rev-low",
+            retrieved_at="2026-10-20T04:37:00Z",
+            capture_id="m",
+            transport="entrez",
+        ),
+        _capture(
+            "pubmed-tick-borne",
+            _publisher("pubmed", "12345678", PUBMED_ORGANIZATION, captured, journal="The Lancet"),
+            item_id="pmid-tie",
+            revision_id="rev-high",
+            retrieved_at="2026-10-20T04:37:00Z",
+            capture_id="z",
+            transport="entrez",
+        ),
+        _capture(
+            "cdc-mmwr",
+            _publisher("cdc_mmwr", "mmwr-guid", "Centers for Disease Control and Prevention"),
+            item_id="rss-shared",
+            revision_id="rev-mmwr",
+            transport="rss",
+        ),
+        _capture(
+            "cdc-eid-ahead-of-print",
+            _publisher("cdc_eid", "eid-guid", "Centers for Disease Control and Prevention"),
+            item_id="rss-shared",
+            revision_id="rev-eid",
+            transport="rss",
+        ),
+    ]
+    feed = _feed(captures, [])
+    by_item = {}
+    for row in feed:
+        by_item.setdefault(row["item_id"], []).append(row)
+    assert len(by_item["pmid-shared"]) == 1
+    assert by_item["pmid-shared"][0]["source_id"] == "pubmed-lyme-borrelia"
+    assert by_item["pmid-shared"][0]["publisher_metadata"]["abstract"]["text"] == "Newest abstract."
+    assert len(by_item["pmid-tie"]) == 1
+    assert by_item["pmid-tie"][0]["source_id"] == "pubmed-tick-borne"
+    assert by_item["pmid-tie"][0]["publisher_metadata"]["abstract"]["text"] == "Newest abstract."
+    assert {row["source_id"] for row in by_item["rss-shared"]} == {
+        "cdc-mmwr",
+        "cdc-eid-ahead-of-print",
+    }
+    view = V175.read_text(encoding="utf-8")
+    outer = view.split("FROM (", 1)[0]
+    columns = [
+        line.strip().rstrip(",").split(" AS ")[-1]
+        for line in outer.split("SELECT", 1)[1].splitlines()
+        if line.strip()
+    ]
+    assert columns[-2:] == ["FEED_SORT_AT", "ABSTRACT_SUPPRESSED"]
+    assert "FEED_SORT_AT" in view
+    assert view.index("AS FEED_SORT_AT") < view.index("AS ABSTRACT_SUPPRESSED")
+    v173 = (ROOT / "migrations" / "V173__intelligence_feed_v2_description.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "c.item_document:publisher_metadata:abstract" in v173
+    assert "c.item_document:publisher_metadata:abstract_suppressed" in v173
+    assert "OBJECT_CONSTRUCT_KEEP_NULL" in v173
+
+
 def test_blocked_activation_stays_out_of_the_feed() -> None:
     captures = [
         _capture(
@@ -547,7 +655,10 @@ def test_v175_is_one_protected_step_for_both_databases() -> None:
     assert pinned in migration_plan(PROD_DATABASE)
     assert is_intelligence_prerequisite_batch([pinned])
     versions = [item.version for item in load_migrations()]
-    assert versions.index("V170") < versions.index("V173") < versions.index("V175")
+    assert versions.index("V170") < versions.index("V173") < versions.index("V174")
+    assert versions.index("V174") < versions.index("V175")
+    assert "V171" in versions
+    assert "V176" not in versions
     allow_list = json.dumps([pinned], separators=(",", ":"))
     workflow = (ROOT / ".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
     guard = (ROOT / "tests/test_ci_guard.py").read_text(encoding="utf-8")
@@ -631,29 +742,30 @@ def _apply(
 
 
 @pytest.mark.parametrize("database", [DEV_DATABASE, PROD_DATABASE])
-def test_v175_requires_recorded_v173_and_the_protected_path(
+def test_v175_requires_recorded_v174_and_the_protected_path(
     monkeypatch: pytest.MonkeyPatch, database: str
 ) -> None:
     loaded = load_migrations()
     v173 = next(item for item in loaded if item.version == "V173")
+    v174 = next(item for item in loaded if item.version == "V174")
     v175 = next(item for item in loaded if item.version == "V175")
-    with pytest.raises(PermissionError, match="V175 requires recorded V173"):
-        _apply(monkeypatch, database, [v175], [], protected=True)
+    with pytest.raises(PermissionError, match="V175 requires recorded V174"):
+        _apply(monkeypatch, database, [v175], [("V173", v173.sha256)], protected=True)
 
     with pytest.raises(PermissionError, match="protected intelligence prerequisite"):
         _apply(
             monkeypatch,
             database,
-            [v173, v175],
-            [("V173", v173.sha256)],
+            [v174, v175],
+            [("V174", v174.sha256)],
             protected=False,
         )
 
     connection, executed_versions = _apply(
         monkeypatch,
         database,
-        [v173, v175],
-        [("V173", v173.sha256)],
+        [v174, v175],
+        [("V174", v174.sha256)],
         protected=True,
     )
     assert executed_versions == ["V175"]

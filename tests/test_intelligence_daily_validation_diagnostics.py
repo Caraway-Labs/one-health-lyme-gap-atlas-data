@@ -272,7 +272,9 @@ def test_color_escapes_cannot_split_a_known_secret_around_redaction():
     assert PROSE in result["redacted_messages"][0]
 
 
-def test_failed_update_still_calls_once_and_never_activates():
+def test_failed_update_still_calls_once_and_never_activates(monkeypatch):
+    monkeypatch.setenv("NCBI_EMAIL", "test@example.invalid")
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
     rendered = {"jobs": [{"envs": [{"key": "SECRET", "type": "SECRET", "value": SECRET}]}]}
     result = SimpleNamespace(
         returncode=1,

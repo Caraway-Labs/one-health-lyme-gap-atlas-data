@@ -10,6 +10,7 @@ from .ingestion.intelligence_runtime import (
     PROD_SOURCE_DEFINITIONS,
     prod_daily_config_sha256_allowed,
 )
+from .intelligence_daily_telemetry import observed
 from .settings import PipelineSettings
 from .sql_sessions import connect
 
@@ -35,7 +36,7 @@ def terminalize_stuck_daily_run(ingestion_run_id: str, *, source_id: str) -> dic
     if ingestion_run_id.strip() != ingestion_run_id or len(ingestion_run_id) != 36:
         raise ValueError("INTELLIGENCE_DAILY_RECOVERY_RUN_ID_REQUIRED")
     snowflake = SnowflakeSettings()
-    with connect(snowflake) as connection, connection.cursor() as cursor:
+    with observed(), connect(snowflake) as connection, connection.cursor() as cursor:
         cursor.execute(
             "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_WAREHOUSE()"
         )

@@ -14,6 +14,8 @@ on:
           - cdc-outbreaks
           - nih-news-releases
           - cdc-mmwr
+          - pubmed-tick-borne
+          - pubmed-lyme-borrelia
       reviewed_commit:
         description: Exact green main commit approved for PROD source registration
         required: true
@@ -26,6 +28,7 @@ on:
         options:
           - "1"
           - "2"
+          - "3"
       expected_pending_json:
         description: Must be the empty migration set
         required: true
@@ -88,7 +91,7 @@ jobs:
           guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
           guard_eq expected_pending_json '[]' "$EXPECTED_PENDING_JSON" "Registering an EID source requires expected_pending_json=[]. Redispatch with the reviewed empty array."
           guard_true accounting_confirmed "$ACCOUNTING_CONFIRMED" "accounting_confirmed must be true for this single registry write. Redispatch with accounting_confirmed=true after confirming the bounded write."
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked --extra pipeline

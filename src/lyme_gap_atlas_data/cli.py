@@ -47,6 +47,12 @@ from .ingestion import (
     load_source_definition,
     starter_definition_yaml,
 )
+from .intelligence_daily_telemetry import (
+    DAILY_TRACE_COMMANDS,
+    configure_daily_log_export,
+    shutdown_daily_logs,
+)
+from .intelligence_topics import backfill_topics
 from .literature_preflight import literature_preflight
 from .literature_status import literature_status
 from .literature_tracing import LITERATURE_COMMANDS, configure_literature_tracing, trace_fields
@@ -93,6 +99,7 @@ from .semantic_release import (
     rollback_semantic_release,
 )
 from .settings import PipelineSettings
+from .sql_sessions import connect
 from .streamlit_deploy import deploy_approval_console, deploy_data_explorer
 from .tick_surveillance import collect_tick_surveillance_evidence, ingest_restricted_tick
 
@@ -185,7 +192,7 @@ class ObservedTyper(typer.Typer):
         command = _command_path(arguments)
         tracing_ready = True
         try:
-            if command in LITERATURE_COMMANDS:
+            if command in LITERATURE_COMMANDS or command in DAILY_TRACE_COMMANDS:
                 configure_literature_tracing(SERVICE_NAME)
             else:
                 configure_tracing(SERVICE_NAME)
@@ -195,6 +202,9 @@ class ObservedTyper(typer.Typer):
             # message because it can contain credentials.
             tracing_ready = False
             logging.getLogger(__name__).warning("atlas-data.tracing_unavailable")
+        if command in DAILY_TRACE_COMMANDS:
+            with suppress(Exception):
+                configure_daily_log_export()
         tracer = (
             trace.get_tracer(SERVICE_NAME)
             if tracing_ready
@@ -227,16 +237,20 @@ class ObservedTyper(typer.Typer):
                     span.set_attribute("atlas.duration_ms", int((monotonic() - started) * 1000))
         finally:
             _flush_and_shutdown_tracing()
+            if command in DAILY_TRACE_COMMANDS:
+                shutdown_daily_logs()
 
 
 app = ObservedTyper(no_args_is_help=True)
 pipeline_app = typer.Typer(no_args_is_help=True)
 source_app = typer.Typer(no_args_is_help=True)
 runs_app = typer.Typer(no_args_is_help=True)
+topics_app = typer.Typer(no_args_is_help=True)
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(source_app, name="source")
 app.add_typer(runs_app, name="runs")
 app.add_typer(metadata_app, name="metadata")
+app.add_typer(topics_app, name="topics")
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUN_STORE = Path(".atlas-ingestion-runs")
@@ -724,12 +738,11 @@ def apply_reviewed_dev_migrations_command(
         actual = pending_migration_plan(settings, database)
         actionable, held_back = split_held_back_dev_migrations(actual)
         typer.echo(json.dumps({"pending_migrations": actual, "held_back_migrations": held_back}))
-        if feed_batch:
-            require_reviewed_pending_set(actual, reviewed)
-        else:
-            if any(item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in reviewed):
-                raise PermissionError("Held-back DEV migrations require their own protected paths")
-            require_reviewed_pending_set(actionable, reviewed)
+        # Routine and exact protected feed batches both leave held-back versions
+        # pending; the feed batch itself is already exact and alone.
+        if any(item["version"] in HELD_BACK_DEV_MIGRATION_VERSIONS for item in reviewed):
+            raise PermissionError("Held-back DEV migrations require their own protected paths")
+        require_reviewed_pending_set(actionable, reviewed)
         reconciled = reconcile_legacy_dev_migrations(settings, database, commit)
         applied = apply_migrations(
             settings,
@@ -1589,3 +1602,14 @@ def cdc_consumer_readback_command(
         typer.echo(str(error))
         raise typer.Exit(1) from None
     typer.echo(json.dumps(result, sort_keys=True))
+
+
+@topics_app.command("backfill")
+def topics_backfill(
+    vocabulary_version: str = typer.Option("v1", "--vocabulary-version"),
+) -> None:
+    """Merge vocabulary topic rows for stored intelligence revisions."""
+    with connect(_settings()) as connection, connection.cursor() as cursor:
+        summary = backfill_topics(cursor, vocabulary_version=vocabulary_version)
+        connection.commit()
+    typer.echo(json.dumps({"vocabulary_version": vocabulary_version, **summary}, sort_keys=True))
