@@ -82,7 +82,7 @@ def composed_sources(monkeypatch, states=None, failed=None):
         source = json.loads((ROOT / f"config/intelligence/{sid}-source-v2.json").read_text())
         source["state"] = (states or {}).get(sid, "active")
 
-        def claim(run_id, source_id, sha):
+        def claim(run_id, source_id, sha, **_kwargs):
             assert sha == runtime.PROD_DAILY_SOURCE_SHA256[sid] and source_id == sid
             events.append(("claim", sid))
             if run_id in claimed:
@@ -148,7 +148,7 @@ def test_daily_canonical_pilot_uses_per_source_budget_seconds(monkeypatch):
 
         return (
             SimpleNamespace(
-                store=SimpleNamespace(claim_daily_run=lambda *args: True),
+                store=SimpleNamespace(claim_daily_run=lambda *args, **_kwargs: True),
                 run=run,
             ),
             SimpleNamespace(extra={"intelligence_registry": source}),

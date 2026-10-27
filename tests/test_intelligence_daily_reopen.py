@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 import yaml
@@ -24,6 +27,10 @@ from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import (
     reopen_attempt_for_run_id,
 )
 from lyme_gap_atlas_data.ingestion.types import RunStatus
+from lyme_gap_atlas_data.intelligence_daily_job_timeout import (
+    DAILY_JOB_TIMEOUT,
+    duration_seconds,
+)
 from lyme_gap_atlas_data.settings import PipelineSettings
 
 ROOT = Path(__file__).parents[1]
@@ -51,6 +58,8 @@ def test_run_ids_are_stable_distinct_and_chain_to_prior_attempt() -> None:
     assert reopen_attempt_for_run_id(SID, TODAY, "x" * 36) is None
     with pytest.raises(ValueError):
         daily_run_id(SID, TODAY, reopen_attempt=0)
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        daily_run_id(SID, TODAY, reopen_attempt=4)
 
 
 class _Cursor:
@@ -116,7 +125,9 @@ def test_reopen_allowed_only_after_prior_attempt_failed(monkeypatch) -> None:
     monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
     base, two = daily_run_id(SID, TODAY), daily_run_id(SID, TODAY, reopen_attempt=2)
     events: list[Any] = []
-    assert _store({base: _prior("FAILED")}, events).claim_daily_run(two, SID, SHA) is True
+    assert (
+        _store({base: _prior("FAILED")}, events).claim_daily_run(two, SID, SHA, reopen=True) is True
+    )
     assert "INSERT" in events and events[-1] == "COMMIT"
 
 
@@ -139,16 +150,16 @@ def test_reopen_denied_unless_prior_is_terminal_failed_for_same_source(
     ledger = {} if ledger_prior is None else {base: ledger_prior}
     events: list[Any] = []
     with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
-        _store(ledger, events).claim_daily_run(two, SID, SHA)
+        _store(ledger, events).claim_daily_run(two, SID, SHA, reopen=True)
     assert "INSERT" not in events and "COMMIT" not in events
     assert events[-1] == "ROLLBACK"
     assert ledger == ({} if ledger_prior is None else {base: ledger_prior})  # never rewritten
 
 
-def test_reopen_denied_without_manual_job_env_before_any_sql(monkeypatch) -> None:
-    monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
+def test_reopen_denied_without_reopen_argument_before_any_sql(monkeypatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
     store = _store({}, [])
-    store._connection_factory = lambda: pytest.fail("no SQL before the env guard")
+    store._connection_factory = lambda: pytest.fail("no SQL before the reopen guard")
     with pytest.raises(PermissionError, match="REOPEN_REQUIRED"):
         store.claim_daily_run(daily_run_id(SID, TODAY, reopen_attempt=2), SID, SHA)
 
@@ -158,7 +169,7 @@ def test_existing_attempt_row_is_not_claimed_twice(monkeypatch) -> None:
     base, two = daily_run_id(SID, TODAY), daily_run_id(SID, TODAY, reopen_attempt=2)
     events: list[Any] = []
     ledger = {base: _prior("FAILED"), two: _prior("RUNNING")}
-    assert _store(ledger, events).claim_daily_run(two, SID, SHA) is False
+    assert _store(ledger, events).claim_daily_run(two, SID, SHA, reopen=True) is False
     assert "INSERT" not in events
 
 
@@ -192,12 +203,15 @@ def _settings(monkeypatch) -> None:
     monkeypatch.setattr("lyme_gap_atlas_data.settings.PipelineSettings", lambda: value)
 
 
-def test_cli_reopen_flag_requires_manual_job_env(monkeypatch) -> None:
+def test_reopen_attempt_does_not_read_a_process_env(monkeypatch) -> None:
     _settings(monkeypatch)
     monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
-    monkeypatch.setattr(runtime, "canonical_pilot", lambda *a, **k: pytest.fail("no compose"))
-    with pytest.raises(PermissionError, match="REOPEN_REQUIRED"):
-        polling.run_production_daily(reopen_attempt=2, source_ids=("cdc-mmwr",))
+    seen: list[str] = []
+    _compose_recording(monkeypatch, seen)
+    result = polling.run_production_daily(reopen_attempt=2, source_ids=("cdc-mmwr",))
+    assert result["status"] == "SUCCEEDED"
+    assert seen == [daily_run_id("cdc-mmwr", TODAY, reopen_attempt=2)]
+    assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
 
 
 def _compose_recording(monkeypatch, run_ids: list[str], failing: Any = None):
@@ -212,7 +226,7 @@ def _compose_recording(monkeypatch, run_ids: list[str], failing: Any = None):
             return SimpleNamespace(status=RunStatus.SUCCEEDED)
 
         orchestrator = SimpleNamespace(
-            store=SimpleNamespace(claim_daily_run=lambda *args: True),
+            store=SimpleNamespace(claim_daily_run=lambda *args, **_kwargs: True),
             run=run,
             pilot_budget=runtime.PilotBudget(seconds=budget_seconds),
         )
@@ -284,7 +298,8 @@ def test_budget_records_redacted_stage_timing_including_unfinished() -> None:
 def test_scheduled_spec_has_no_reopen_and_workflow_exposes_reopen_input() -> None:
     deploy = (ROOT / "scripts/deploy_intelligence_daily.py").read_text()
     assert "INTELLIGENCE_DAILY_REOPEN" not in deploy
-    assert "reopen-attempt" not in deploy
+    assert "--reopen-attempt" not in deploy
+    assert "--scheduled-same-day-retry" in deploy
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/run-prod-intelligence-daily-once.yml").read_text()
     )
@@ -348,7 +363,7 @@ def test_reopen_one_source_claims_only_that_source_and_skips_the_rest(
     def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
         source_id = definition.source_id
 
-        def claim(run_id: str, claimed_source: str, sha: str) -> bool:
+        def claim(run_id: str, claimed_source: str, sha: str, **_kwargs: Any) -> bool:
             assert claimed_source == source_id
             assert sha == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
             assert run_id == daily_run_id(source_id, TODAY, reopen_attempt=2)
@@ -403,7 +418,7 @@ def test_same_reopen_second_time_fails_on_existing_claim_and_writes_nothing(
     def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
         source_id = definition.source_id
 
-        def claim(run_id: str, _source_id: str, _sha: str) -> bool:
+        def claim(run_id: str, _source_id: str, _sha: str, **_kwargs: Any) -> bool:
             if run_id in seen:
                 return False
             seen.append(run_id)
@@ -442,3 +457,352 @@ def test_same_reopen_second_time_fails_on_existing_claim_and_writes_nothing(
     others = [row for row in payload["sources"] if row["source_id"] != "cdc-mmwr"]
     assert others
     assert all(row["outcome"] == "SKIPPED_NOT_SELECTED" for row in others)
+
+
+def test_attempt_above_the_cap_is_refused_before_sql_or_settings(monkeypatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    store = _store({}, [])
+    store._connection_factory = lambda: pytest.fail("no SQL")
+    over = str(
+        uuid5(NAMESPACE_URL, f"atlas:intelligence:daily:{SID}:{TODAY.isoformat()}:attempt-4")
+    )
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        store.claim_daily_run(over, SID, SHA)
+    monkeypatch.setattr(
+        "lyme_gap_atlas_data.settings.PipelineSettings",
+        lambda: pytest.fail("settings"),
+    )
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        polling.run_production_daily(reopen_attempt=4, source_ids=("cdc-mmwr",))
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        polling.daily_source_selection(("pubmed-lyme-borrelia",), reopen_attempt=4)
+
+
+def test_pubmed_failed_prior_can_be_claimed_and_success_or_running_cannot(monkeypatch) -> None:
+    monkeypatch.setenv("INTELLIGENCE_DAILY_REOPEN", "true")
+    sid = "pubmed-tick-borne"
+    sha = runtime.PROD_DAILY_SOURCE_SHA256[sid]
+    base = daily_run_id(sid, TODAY)
+    two = daily_run_id(sid, TODAY, reopen_attempt=2)
+    events: list[Any] = []
+    assert (
+        _store({base: ("FAILED", sid, CODE, sha)}, events).claim_daily_run(
+            two, sid, sha, reopen=True
+        )
+        is True
+    )
+    assert "INSERT" in events
+    for status in ("SUCCEEDED", "RUNNING"):
+        denied: list[Any] = []
+        with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
+            _store({base: (status, sid, CODE, sha)}, denied).claim_daily_run(
+                two, sid, sha, reopen=True
+            )
+        assert "INSERT" not in denied
+        assert denied[-1] == "ROLLBACK"
+
+
+def test_scheduled_run_retries_only_the_failed_rss_source_once(monkeypatch) -> None:
+    _settings(monkeypatch)
+    monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
+    calls: list[tuple[str, str]] = []
+
+    def compose(definition: Any, *, budget_seconds: int = 300) -> tuple[Any, Any]:
+        source_id = definition.source_id
+
+        def claim(run_id: str, claimed_source: str, sha: str, **kwargs: Any) -> bool:
+            assert claimed_source == source_id
+            assert sha == runtime.PROD_DAILY_SOURCE_SHA256[source_id]
+            assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+            if run_id == daily_run_id(source_id, TODAY, reopen_attempt=2):
+                assert kwargs.get("reopen") is True
+            else:
+                assert kwargs.get("reopen") is not True
+            return True
+
+        def run(_definition: Any, *, tier: Any, run_id: str) -> Any:
+            calls.append((source_id, run_id))
+            if source_id == "cdc-mmwr" and run_id == daily_run_id(source_id, TODAY):
+                return SimpleNamespace(status=RunStatus.FAILED)
+            return SimpleNamespace(status=RunStatus.SUCCEEDED)
+
+        return (
+            SimpleNamespace(
+                store=SimpleNamespace(claim_daily_run=claim),
+                run=run,
+                pilot_budget=runtime.PilotBudget(seconds=budget_seconds),
+            ),
+            SimpleNamespace(extra={"intelligence_registry": _registry(source_id)}),
+        )
+
+    monkeypatch.setattr(runtime, "canonical_pilot", compose)
+    result = polling.run_production_daily(scheduled_retry=True)
+    assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+    by_source: dict[str, list[str]] = {}
+    for source_id, run_id in calls:
+        by_source.setdefault(source_id, []).append(run_id)
+    assert by_source["cdc-mmwr"] == [
+        daily_run_id("cdc-mmwr", TODAY),
+        daily_run_id("cdc-mmwr", TODAY, reopen_attempt=2),
+    ]
+    for source_id in runtime.PROD_SOURCE_DEFINITIONS:
+        if source_id == "cdc-mmwr":
+            continue
+        assert by_source[source_id] == [daily_run_id(source_id, TODAY)]
+    by_id = {row["source_id"]: row for row in result["sources"]}
+    assert by_id["cdc-mmwr"]["outcome"] == "SUCCEEDED"
+    assert by_id["cdc-mmwr"]["daily_attempt"] == 2
+    assert result["status"] == "SUCCEEDED"
+
+
+def test_manual_full_run_does_not_retry_a_failed_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    _settings(monkeypatch)
+    calls: list[tuple[str, int, bool]] = []
+
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day
+        calls.append((source_id, reopen_attempt, scheduled_retry))
+        outcome = "FAILED" if source_id == "cdc-mmwr" else "SUCCEEDED"
+        return {"source_id": source_id, "outcome": outcome}
+
+    monkeypatch.setattr(polling, "execute_daily_source", fake)
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *_args, **_kwargs: [])
+    result = polling.run_production_daily()
+    assert [call[1] for call in calls] == [1] * len(runtime.DAILY_SOURCE_RUN_ORDER)
+    assert all(call[2] is False for call in calls)
+    assert result["status"] == "FAILED"
+
+
+def _failed_then_success_source(
+    calls: list[tuple[str, int]],
+    clock: dict[str, float],
+    *,
+    failed_ids: set[str],
+    advance_on_retry: float = 0.0,
+) -> Callable[..., dict[str, Any]]:
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day
+        calls.append((source_id, reopen_attempt))
+        if scheduled_retry and advance_on_retry:
+            clock["now"] += advance_on_retry
+        if source_id in failed_ids and reopen_attempt == 1:
+            return {"source_id": source_id, "outcome": "FAILED"}
+        return {"source_id": source_id, "outcome": "SUCCEEDED"}
+
+    return fake
+
+
+def test_scheduled_retry_refused_when_elapsed_plus_cap_exceeds_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "2000")
+    clock = {"now": 0.0}
+    monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
+    calls: list[tuple[str, int]] = []
+
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day, scheduled_retry
+        calls.append((source_id, reopen_attempt))
+        clock["now"] = 920.0
+        if source_id == "cdc-mmwr" and reopen_attempt == 1:
+            return {"source_id": source_id, "outcome": "FAILED"}
+        return {"source_id": source_id, "outcome": "SUCCEEDED"}
+
+    monkeypatch.setattr(polling, "execute_daily_source", fake)
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *_args, **_kwargs: [])
+    limit = 2000 - polling.DAILY_JOB_DEADLINE_MARGIN_SECONDS
+    assert limit <= 920.0 + polling.RSS_RETRY_CAP_SECONDS
+    result = polling.run_production_daily(scheduled_retry=True)
+    assert [attempt for _source_id, attempt in calls] == [1] * len(runtime.DAILY_SOURCE_RUN_ORDER)
+    assert result["status"] == "FAILED"
+    assert {row["source_id"] for row in result["sources"]} == set(runtime.DAILY_SOURCE_RUN_ORDER)
+
+
+def test_scheduled_retry_runs_when_the_cap_fits_under_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "2000")
+    clock = {"now": 0.0}
+    monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
+    calls: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        polling,
+        "execute_daily_source",
+        _failed_then_success_source(calls, clock, failed_ids={"cdc-mmwr"}),
+    )
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *_args, **_kwargs: [])
+    limit = 2000 - polling.DAILY_JOB_DEADLINE_MARGIN_SECONDS
+    assert limit > polling.RSS_RETRY_CAP_SECONDS
+    result = polling.run_production_daily(scheduled_retry=True)
+    retries = [source_id for source_id, attempt in calls if attempt == 2]
+    assert retries == ["cdc-mmwr"]
+    by_id = {row["source_id"]: row for row in result["sources"]}
+    assert by_id["cdc-mmwr"]["outcome"] == "SUCCEEDED"
+    assert by_id["cdc-mmwr"]["daily_attempt"] == 2
+
+
+def test_first_pass_is_not_cut_short_when_the_deadline_is_already_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "30")
+    clock = {"now": 0.0}
+    monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
+    calls: list[tuple[str, int]] = []
+
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day, scheduled_retry
+        calls.append((source_id, reopen_attempt))
+        clock["now"] = 100_000.0
+        return {"source_id": source_id, "outcome": "FAILED"}
+
+    monkeypatch.setattr(polling, "execute_daily_source", fake)
+    pubmed_calls: list[int] = []
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        pubmed_calls.append(kwargs["reopen_attempt"])
+        return [
+            {"source_id": "pubmed-tick-borne", "status": "FAILED", "error_code": "FEED_TIMEOUT"}
+        ]
+
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    result = polling.run_production_daily(scheduled_retry=True)
+    assert [attempt for _source_id, attempt in calls] == [1] * len(runtime.DAILY_SOURCE_RUN_ORDER)
+    assert pubmed_calls == [1]
+    assert [row["source_id"] for row in result["sources"]] == list(runtime.DAILY_SOURCE_RUN_ORDER)
+    assert result["pubmed"][0]["error_code"] == "FEED_TIMEOUT"
+    assert "daily_attempt" not in result["pubmed"][0]
+
+
+def test_scheduled_retry_budget_stops_before_a_second_failed_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "2000")
+    clock = {"now": 0.0}
+    monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
+    calls: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        polling,
+        "execute_daily_source",
+        _failed_then_success_source(
+            calls,
+            clock,
+            failed_ids={"cdc-mmwr", "cdc-outbreaks"},
+            advance_on_retry=float(polling.RSS_RETRY_CAP_SECONDS),
+        ),
+    )
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *_args, **_kwargs: [])
+    polling.run_production_daily(scheduled_retry=True)
+    retries = [source_id for source_id, attempt in calls if attempt == 2]
+    assert retries == ["cdc-mmwr"]
+
+
+def test_job_deadline_is_one_named_value_with_an_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(polling.DAILY_JOB_DEADLINE_ENV, raising=False)
+    assert duration_seconds(DAILY_JOB_TIMEOUT) == 5400
+    assert DAILY_JOB_TIMEOUT == "1h30m"
+    assert polling.daily_job_deadline_seconds() == polling.DAILY_JOB_DEADLINE_SECONDS == 5400
+    assert polling.DAILY_JOB_DEADLINE_MARGIN_SECONDS == 60
+    assert polling.RSS_RETRY_CAP_SECONDS == 1020
+    assert polling.PUBMED_RETRY_CAP_SECONDS == 215
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "6610")
+    assert polling.daily_job_deadline_seconds() == 6610
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "not-a-number")
+    assert polling.daily_job_deadline_seconds() == 5400
+
+
+def test_pubmed_retry_fits_when_the_rss_cap_does_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    _settings(monkeypatch)
+    monkeypatch.setenv(polling.DAILY_JOB_DEADLINE_ENV, "2000")
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(polling, "_retry_clock", lambda: clock["now"])
+    calls: list[tuple[str, int]] = []
+
+    def fake(
+        source_id: str,
+        _path: str,
+        *,
+        preflight_only: bool,
+        reopen_attempt: int,
+        day: str,
+        scheduled_retry: bool = False,
+    ) -> dict[str, Any]:
+        del preflight_only, day, scheduled_retry
+        calls.append((source_id, reopen_attempt))
+        clock["now"] = 920.0
+        if source_id == "cdc-mmwr" and reopen_attempt == 1:
+            return {"source_id": source_id, "outcome": "FAILED"}
+        return {"source_id": source_id, "outcome": "SUCCEEDED"}
+
+    pubmed_attempts: list[int] = []
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        pubmed_attempts.append(kwargs["reopen_attempt"])
+        if kwargs["reopen_attempt"] == 1:
+            return [
+                {
+                    "source_id": "pubmed-tick-borne",
+                    "status": "FAILED",
+                    "error_code": "FEED_TIMEOUT",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(polling, "execute_daily_source", fake)
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    limit = 2000 - polling.DAILY_JOB_DEADLINE_MARGIN_SECONDS
+    assert limit <= 920.0 + polling.RSS_RETRY_CAP_SECONDS
+    assert limit > 920.0 + polling.PUBMED_RETRY_CAP_SECONDS
+    result = polling.run_production_daily(scheduled_retry=True)
+    assert [attempt for _source_id, attempt in calls] == [1] * len(runtime.DAILY_SOURCE_RUN_ORDER)
+    assert pubmed_attempts == [1, 2]
+    assert "pubmed" not in result
+
+
+def test_cli_rejects_a_fourth_attempt_before_a_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(polling, "run_production_daily", lambda **_kwargs: pytest.fail("ran"))
+    result = CliRunner().invoke(
+        app,
+        ["pipeline", "run-intelligence-daily", "--reopen-attempt", "4", "--source", "cdc-mmwr"],
+    )
+    assert result.exit_code != 0
+    assert "ran" not in result.stdout

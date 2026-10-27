@@ -115,6 +115,25 @@ def test_already_claimed_reopen_names_the_existing_claim_code() -> None:
     assert _MODULE["failure_codes"](1, rows) == ["ALREADY_CLAIMED"]
 
 
+def test_same_day_retry_success_replaces_the_failed_attempt() -> None:
+    text = "\n".join(
+        (
+            _outcome_line(),
+            _outcome_line(
+                status="COMPLETED",
+                outcome="SUCCEEDED",
+                error_code=None,
+                failed_stage=None,
+                attempt=2,
+            ),
+        )
+    )
+    rows = _MODULE["parse_daily_outcomes"](text)
+    assert [row["status"] for row in rows] == ["COMPLETED"]
+    assert rows[0]["error_code"] is None
+    assert _MODULE["run_failed"](0, rows) is False
+
+
 def test_later_outcome_for_the_same_source_replaces_the_earlier_one() -> None:
     text = "\n".join(
         (

@@ -22,6 +22,11 @@ import deploy_intelligence_daily as daily
 EXPECTED_JOBS = daily.BASE | {daily.NAME}
 MANUAL_JOB = "intelligence-daily-manual-once"
 COMMAND = daily.COMMAND
+ACCEPTED_SCHEDULED_COMMANDS = frozenset({COMMAND, daily.SCHEDULED_RUN_COMMAND})
+# One full pass and no same-day retry: five RSS parent waits plus one PubMed
+# walk. Explicit so the manual PRE_DEPLOY job does not inherit the 30 minute
+# deployment default. 5 * 1020s + 180s = 5280s; 1h35m leaves a short margin.
+MANUAL_JOB_TIMEOUT = "1h35m"
 RECOVER_PREFIX = (
     "/app/.venv/bin/atlas-data pipeline recover-intelligence-daily-stuck-run --ingestion-run-id "
 )
@@ -59,6 +64,8 @@ _STATUS_FOR_OUTCOME = {
     "SKIPPED_NOT_SELECTED": "SKIPPED_NOT_SELECTED",
 }
 MAX_SELECTED_SOURCES = 5
+# Keep aligned with intelligence_daily_run_ids.MAX_DAILY_ATTEMPTS.
+MAX_REOPEN_ATTEMPT = 3
 _SOURCE_TOKEN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ALLOWLISTED_ERROR_CODE = re.compile(
     r"^(?:INTELLIGENCE_[A-Z0-9_]{3,80}|FEED_[A-Z0-9_]{1,80}|MALFORMED_FEED|"
@@ -116,11 +123,13 @@ def build_operation_spec(
     digest = template.get("image", {}).get("digest", "")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
         raise PermissionError("INTELLIGENCE_DAILY_IMAGE_REQUIRED")
-    if template.get("run_command") != COMMAND:
+    if template.get("run_command") not in ACCEPTED_SCHEDULED_COMMANDS:
         raise PermissionError("INTELLIGENCE_DAILY_COMMAND_REQUIRED")
     if recover_ingestion_run_id and preflight_only:
         raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_MODE_EXCLUSIVE")
-    if not 1 <= reopen_attempt <= 31:
+    if reopen_attempt > MAX_REOPEN_ATTEMPT:
+        raise PermissionError("INTELLIGENCE_DAILY_ATTEMPT_CAP")
+    if reopen_attempt < 1:
         raise PermissionError("INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID")
     if recover_ingestion_run_id and reopen_attempt >= 2:
         raise PermissionError("INTELLIGENCE_DAILY_RECOVERY_MODE_EXCLUSIVE")
@@ -153,9 +162,13 @@ def build_operation_spec(
         kind="PRE_DEPLOY",
         run_command=run_command,
         instance_count=1,
+        timeout=MANUAL_JOB_TIMEOUT,
     )
+    manual.pop("schedule", None)
+    # The image currently in PROD admits attempt >= 2 only when this variable
+    # is set. The new image uses claim_daily_run(reopen=True) and ignores it.
     if reopen_attempt >= 2:
-        envs = list(manual.get("envs", []))
+        envs = [entry for entry in manual.get("envs", []) if isinstance(entry, dict)]
         if not any(entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" for entry in envs):
             envs.append(
                 {
@@ -166,7 +179,8 @@ def build_operation_spec(
                 }
             )
         manual["envs"] = envs
-    manual.pop("schedule", None)
+    if daily.SCHEDULED_RETRY_FLAG in run_command:
+        raise PermissionError("INTELLIGENCE_DAILY_SCHEDULED_RETRY_INVALID")
     result = copy.deepcopy(baseline)
     result["jobs"] = [job for job in result["jobs"] if job.get("name") != MANUAL_JOB] + [manual]
     for job in result["jobs"]:

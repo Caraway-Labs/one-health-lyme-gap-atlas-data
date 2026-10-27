@@ -9,6 +9,8 @@ from runpy import run_path
 
 import pytest
 
+from lyme_gap_atlas_data.ingestion.intelligence_daily_run_ids import MAX_DAILY_ATTEMPTS
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 _MODULE = run_path(str(ROOT / "scripts" / "prod_intelligence_daily_job_spec.py"))
@@ -101,6 +103,8 @@ def test_builds_manual_predeploy_from_daily_template() -> None:
     manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
     assert manual["kind"] == "PRE_DEPLOY"
     assert manual["run_command"] == COMMAND
+    assert "--scheduled-same-day-retry" not in manual["run_command"]
+    assert manual["timeout"] == _MODULE["MANUAL_JOB_TIMEOUT"]
     assert "schedule" not in manual
 
 
@@ -117,7 +121,7 @@ def test_rejects_competing_predeploy() -> None:
         build_operation_spec(baseline, preflight_only=False)
 
 
-def test_reopen_attempt_appends_flag_and_env() -> None:
+def test_reopen_attempt_sets_the_flag_and_the_legacy_env() -> None:
     spec = build_operation_spec(
         _baseline(),
         preflight_only=False,
@@ -126,16 +130,25 @@ def test_reopen_attempt_appends_flag_and_env() -> None:
     )
     manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
     assert manual["run_command"] == COMMAND + " --reopen-attempt 2 --source cdc-mmwr"
-    assert any(
-        entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" and entry.get("value") == "true"
-        for entry in manual.get("envs", [])
-    )
+    assert "--scheduled-same-day-retry" not in manual["run_command"]
+    reopen = [
+        entry for entry in manual.get("envs", []) if entry.get("key") == "INTELLIGENCE_DAILY_REOPEN"
+    ]
+    assert reopen == [
+        {
+            "key": "INTELLIGENCE_DAILY_REOPEN",
+            "scope": "RUN_TIME",
+            "type": "GENERAL",
+            "value": "true",
+        }
+    ]
 
 
 def test_default_manual_spec_never_sets_reopen_env_or_flag() -> None:
     spec = build_operation_spec(_baseline(), preflight_only=False)
     for job in spec["jobs"]:
         assert "--reopen-attempt" not in job["run_command"]
+        assert "--scheduled-same-day-retry" not in str(job.get("run_command"))
         assert not any(e.get("key") == "INTELLIGENCE_DAILY_REOPEN" for e in job.get("envs", []))
 
 
@@ -145,12 +158,60 @@ def test_default_manual_spec_never_sets_reopen_env_or_flag() -> None:
         {"preflight_only": True, "reopen_attempt": 2},
         {"preflight_only": False, "reopen_attempt": 2, "recover_ingestion_run_id": "x"},
         {"preflight_only": False, "reopen_attempt": 0},
-        {"preflight_only": False, "reopen_attempt": 32},
     ],
 )
 def test_reopen_is_exclusive_and_bounded(kwargs) -> None:
     with pytest.raises(PermissionError, match="REOPEN|RECOVERY"):
         build_operation_spec(_baseline(), **kwargs)
+
+
+@pytest.mark.parametrize("attempt", [4, 32])
+def test_reopen_attempt_above_the_daily_cap_is_rejected(attempt: int) -> None:
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=attempt,
+            source_ids=("cdc-mmwr",),
+        )
+    with pytest.raises(PermissionError, match="ATTEMPT_CAP"):
+        build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=attempt,
+            source_ids=("pubmed-lyme-borrelia",),
+        )
+
+
+def test_reopen_attempt_three_is_admitted_for_rss_and_pubmed() -> None:
+    assert _MODULE["MAX_REOPEN_ATTEMPT"] == MAX_DAILY_ATTEMPTS == 3
+    for source_id in ("cdc-mmwr", "pubmed-tick-borne"):
+        spec = build_operation_spec(
+            _baseline(),
+            preflight_only=False,
+            reopen_attempt=3,
+            source_ids=(source_id,),
+        )
+        manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
+        assert manual["run_command"] == COMMAND + f" --reopen-attempt 3 --source {source_id}"
+        assert any(
+            entry.get("key") == "INTELLIGENCE_DAILY_REOPEN" and entry.get("value") == "true"
+            for entry in manual.get("envs", [])
+        )
+
+
+def test_manual_full_run_drops_the_scheduled_retry_flag_and_sets_timeout() -> None:
+    baseline = _baseline()
+    scheduled = next(job for job in baseline["jobs"] if job["name"] == "intelligence-feed-daily")
+    scheduled["run_command"] = COMMAND + " --scheduled-same-day-retry"
+    spec = build_operation_spec(baseline, preflight_only=False)
+    manual = next(job for job in spec["jobs"] if job["name"] == _MODULE["MANUAL_JOB"])
+    assert manual["run_command"] == COMMAND
+    assert manual["kind"] == "PRE_DEPLOY"
+    assert manual["timeout"] == "1h35m"
+    assert "--scheduled-same-day-retry" not in manual["run_command"]
+    untouched = next(job for job in spec["jobs"] if job["name"] == "intelligence-feed-daily")
+    assert untouched["run_command"] == COMMAND + " --scheduled-same-day-retry"
 
 
 def test_reopen_leaves_scheduled_daily_job_untouched() -> None:

@@ -173,6 +173,7 @@ def test_daily_only_promote_writes_the_timeout_and_proves_readback(
         job["image"]["digest"] = DIGEST
         if job["name"] == module.NAME:
             job["instance_size_slug"] = module.DAILY_JOB_INSTANCE_SIZE_SLUG
+            job["run_command"] = module.SCHEDULED_RUN_COMMAND
             job["timeout"] = "1h30m"
 
     # NCBI placement may add the process email. Compare timeout and untouched fields

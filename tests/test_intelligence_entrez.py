@@ -912,7 +912,9 @@ def test_daily_job_calls_the_entrez_walk_only_when_registered(
     claims: list[tuple[str, str]] = []
 
     class Ledger:
-        def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+        def claim_daily_run(
+            self, run_id: str, source_id: str, source_sha256: str, **_kwargs: Any
+        ) -> bool:
             claims.append((run_id, source_id))
             return True
 
@@ -1255,7 +1257,9 @@ class _ClaimLedger:
         self.claims: list[tuple[str, str]] = []
         self.saved: list[Any] = []
 
-    def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+    def claim_daily_run(
+        self, run_id: str, source_id: str, source_sha256: str, **_kwargs: Any
+    ) -> bool:
         self.claims.append((run_id, source_id))
         return True
 
@@ -1267,14 +1271,12 @@ def _patch_registered_pubmed(monkeypatch: pytest.MonkeyPatch, ledger: _ClaimLedg
     monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
     monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _prod_daily_settings)
     monkeypatch.setattr(polling, "execute_daily_source", _succeeded_source)
-    monkeypatch.setattr(
-        polling,
-        "registered_entrez_sources",
-        lambda _pinned: [
-            {"source_id": "pubmed-tick-borne"},
-            {"source_id": "pubmed-lyme-borrelia"},
-        ],
-    )
+
+    def _registered(_pinned: object, only_source_id: str | None = None) -> list[dict[str, str]]:
+        chosen = SOURCE_ORDER if only_source_id is None else (only_source_id,)
+        return [{"source_id": source_id} for source_id in chosen if source_id in SOURCE_ORDER]
+
+    monkeypatch.setattr(polling, "registered_entrez_sources", _registered)
     monkeypatch.setattr(
         polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, "budget")
     )
@@ -1421,7 +1423,9 @@ def test_registered_capture_satisfies_write_references(
             super().__init__()
             self.claimed: dict[str, str] = {}
 
-        def claim_daily_run(self, run_id: str, source_id: str, source_sha256: str) -> bool:
+        def claim_daily_run(
+            self, run_id: str, source_id: str, source_sha256: str, **_kwargs: Any
+        ) -> bool:
             if run_id in self.claimed:
                 return False
             self.claimed[run_id] = source_id

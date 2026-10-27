@@ -183,6 +183,14 @@ esac
 _GH_STUB = """#!/bin/bash
 printf '%s\\n' 1
 """
+_DATE_STUB = """#!/bin/bash
+set -euo pipefail
+if [[ "${1:-}" == "+%H%M" ]]; then
+  printf '%s\\n' "${DENVER_HHMM:-1200}"
+  exit 0
+fi
+exec /bin/date "$@"
+"""
 _PYTHON_STUB = """#!/bin/bash
 set -euo pipefail
 printf '%s\\n' "$@" > "$PYTHON_ARGS_FILE"
@@ -223,6 +231,7 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
     _install_executable(bin_dir / "doctl", _DOCTL_STUB)
     _install_executable(bin_dir / "gh", _GH_STUB)
     _install_executable(bin_dir / "python", _PYTHON_STUB)
+    _install_executable(bin_dir / "date", _DATE_STUB)
     # Attempt 2 on the PubMed recover case: the attempt-1 elif must not hide a leak.
     cases = (
         ("none", "none", "1", "", True),
@@ -231,6 +240,10 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
         ("pubmed-first-attempt", "pubmed-tick-borne", "1", "", False),
         ("rss-recover", "cdc-mmwr", "1", "recover-run", True),
         ("pubmed-recover", "pubmed-tick-borne", "2", "recover-run", False),
+        ("rss-attempt-3", "cdc-mmwr", "3", "", True),
+        ("pubmed-attempt-3", "pubmed-lyme-borrelia", "3", "", True),
+        ("cap-rss", "cdc-mmwr", "4", "", False),
+        ("cap-pubmed", "pubmed-tick-borne", "4", "", False),
     )
     for name, source_id, attempt, recover, accepted in cases:
         work = tmp_path / name
@@ -250,6 +263,7 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
             "REOPEN_ATTEMPT": attempt,
             "RECOVER_INGESTION_RUN_ID": recover,
             "PYTHON_ARGS_FILE": str(args_file),
+            "DENVER_HHMM": "1200",
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -263,11 +277,16 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
         if accepted:
             assert result.returncode == 0, f"{name}: {output}"
             assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" not in output
+            assert "INTELLIGENCE_DAILY_ATTEMPT_CAP" not in output
             args = args_file.read_text(encoding="utf-8").splitlines()
             assert (work / "ready").is_file(), name
         else:
             assert result.returncode != 0, name
-            assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" in output, output
+            if name.startswith("cap-"):
+                assert "INTELLIGENCE_DAILY_ATTEMPT_CAP" in output, output
+                assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" not in output
+            else:
+                assert "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID" in output, output
             assert not args_file.exists(), name
             assert not (work / "ready").exists(), name
             continue
@@ -287,5 +306,74 @@ def test_daily_source_selection_step_executes_literal_case_patterns(tmp_path: Pa
             assert args[args.index("--recover-ingestion-run-id") + 1] == "recover-run"
             assert args[args.index("--source") + 1] == "cdc-mmwr"
             assert "--reopen-attempt" not in args
+        elif name == "rss-attempt-3":
+            assert args[args.index("--reopen-attempt") + 1] == "3"
+            assert args[args.index("--source") + 1] == "cdc-mmwr"
+            assert "--recover-ingestion-run-id" not in args
+        elif name == "pubmed-attempt-3":
+            assert args[args.index("--reopen-attempt") + 1] == "3"
+            assert args[args.index("--source") + 1] == "pubmed-lyme-borrelia"
+            assert "--recover-ingestion-run-id" not in args
         else:
             raise AssertionError(name)
+
+
+def test_reopen_attempt_pattern_and_manual_window_execute(tmp_path: Path) -> None:
+    """The workflow step itself rejects a non 1-3 attempt and the Denver overlap."""
+    script = _daily_build_script()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_executable(bin_dir / "doctl", _DOCTL_STUB)
+    _install_executable(bin_dir / "gh", _GH_STUB)
+    _install_executable(bin_dir / "python", _PYTHON_STUB)
+    _install_executable(bin_dir / "date", _DATE_STUB)
+    cases = (
+        ("zero", "0", "none", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("padded", "01", "none", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("decimal", "2.0", "none", "1200", "INTELLIGENCE_DAILY_REOPEN_ATTEMPT_INVALID"),
+        ("full-before", "1", "none", "1639", ""),
+        ("full-start", "1", "none", "1640", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("full-old-edge", "1", "none", "1659", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("full-cron", "1", "none", "1815", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("full-after", "1", "none", "1816", ""),
+        ("reopen-during-full-only", "2", "cdc-mmwr", "1640", ""),
+        ("reopen-before", "2", "cdc-mmwr", "1659", ""),
+        ("reopen-start", "2", "cdc-mmwr", "1700", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("reopen-cron", "2", "cdc-mmwr", "1815", "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED"),
+        ("reopen-after", "2", "cdc-mmwr", "1816", ""),
+    )
+    for name, attempt, source_id, hhmm, token in cases:
+        work = tmp_path / name
+        work.mkdir()
+        env = {
+            "PATH": f"{bin_dir}{os.pathsep}/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "INTEL_DAILY_WORK": str(work),
+            "PROD_APP_ID": "prod-app",
+            "DEV_APP_ID": "dev-app",
+            "REVIEWED_COMMIT": _REVIEWED_COMMIT,
+            "IMAGE_DIGEST": _IMAGE_DIGEST,
+            "GITHUB_REPOSITORY": "example/atlas",
+            "PREFLIGHT_ONLY": "false",
+            "SOURCE_ID": source_id,
+            "REOPEN_ATTEMPT": attempt,
+            "RECOVER_INGESTION_RUN_ID": "",
+            "PYTHON_ARGS_FILE": str(work / "python-args"),
+            "DENVER_HHMM": hhmm,
+        }
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        if token:
+            assert result.returncode != 0, name
+            assert token in output, output
+            assert not (work / "ready").exists(), name
+        else:
+            assert result.returncode == 0, f"{name}: {output}"
+            assert "INTELLIGENCE_DAILY_MANUAL_WINDOW_CLOSED" not in output

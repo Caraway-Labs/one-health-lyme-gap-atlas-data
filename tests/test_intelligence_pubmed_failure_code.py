@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import ssl
 from typing import Any
@@ -40,7 +41,7 @@ class _Ledger:
         self.saved: list[Any] = []
         self.claims: list[str] = []
 
-    def claim_daily_run(self, _run_id: str, source_id: str, _sha: str) -> bool:
+    def claim_daily_run(self, _run_id: str, source_id: str, _sha: str, **_kwargs: Any) -> bool:
         self.claims.append(source_id)
         return True
 
@@ -62,11 +63,13 @@ def _patch_walk(monkeypatch: pytest.MonkeyPatch, ledger: _Ledger, error: BaseExc
     monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
     monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
     monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
-    monkeypatch.setattr(
-        polling,
-        "registered_entrez_sources",
-        lambda *_args, **_kwargs: [{"source_id": source_id} for source_id in SOURCE_ORDER],
-    )
+
+    def _registered(*_args: Any, **kwargs: Any) -> list[dict[str, str]]:
+        only = kwargs.get("only_source_id")
+        chosen = SOURCE_ORDER if only is None else (only,)
+        return [{"source_id": source_id} for source_id in chosen if source_id in SOURCE_ORDER]
+
+    monkeypatch.setattr(polling, "registered_entrez_sources", _registered)
     monkeypatch.setattr(polling, "open_entrez_daily_io", lambda _settings: ("store", ledger, None))
 
     def boom(**_kwargs: Any) -> None:
@@ -266,6 +269,51 @@ def test_connector_exceptions_become_redacted_codes() -> None:
         _assert_redacted(str(wrapped))
 
 
+def test_pubmed_failure_log_keeps_detail_and_uses_daily_attempt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    polling._log_pubmed_failure(
+        TICK,
+        "ProgrammingError",
+        error_code="PUBMED_DAILY_FAILED",
+        daily_attempt=2,
+        detail={
+            "errno": 625,
+            "exception_class": "ProgrammingError",
+            "sqlstate": "57014",
+            "step": "CAPTURE",
+        },
+    )
+    polling._log_pubmed_retry_success(TICK, {"FETCH": 12})
+    polling._log_pubmed_retry_success(LYME, {})
+    lines = [
+        json.loads(line.removeprefix(polling.DAILY_OUTCOME_LOG_PREFIX))
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(polling.DAILY_OUTCOME_LOG_PREFIX)
+    ]
+    failure, measured, unknown = lines
+    assert failure["daily_attempt"] == 2
+    assert "attempt" not in failure
+    assert failure["errno"] == 625
+    assert failure["step"] == "CAPTURE"
+    assert set(failure) <= {
+        "daily_attempt",
+        "errno",
+        "error_class",
+        "error_code",
+        "exception_class",
+        "source_id",
+        "sqlstate",
+        "status",
+        "step",
+    }
+    assert measured["stage_timings_ms"] == {"FETCH": 12}
+    assert measured["daily_attempt"] == 2
+    assert "attempt" not in measured
+    assert "stage_timings_ms" not in unknown
+    assert unknown["daily_attempt"] == 2
+
+
 def test_pubmed_reopen_accepts_one_search_only_from_attempt_two() -> None:
     assert polling.daily_source_selection((TICK,), reopen_attempt=2) == frozenset({TICK})
     assert polling.daily_source_selection((LYME,), reopen_attempt=3) == frozenset({LYME})
@@ -335,7 +383,7 @@ def test_pubmed_reopen_rejects_a_prior_attempt_that_is_not_failed(
     )
 
     class _Reject:
-        def claim_daily_run(self, *_args: Any) -> bool:
+        def claim_daily_run(self, *_args: Any, **_kwargs: Any) -> bool:
             raise PermissionError("INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED")
 
         def save(self, _state: Any) -> None:
@@ -346,6 +394,135 @@ def test_pubmed_reopen_rejects_a_prior_attempt_that_is_not_failed(
     )
     with pytest.raises(PermissionError, match="REOPEN_PRIOR_TERMINAL_FAILED"):
         polling.run_production_daily(reopen_attempt=2, source_ids=(TICK,))
+
+
+def test_scheduled_run_retries_one_failed_pubmed_source_and_records_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INTELLIGENCE_DAILY_REOPEN", raising=False)
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+    calls: list[dict[str, Any]] = []
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        if kwargs["reopen_attempt"] == 1:
+            return [
+                {
+                    "source_id": TICK,
+                    "status": "FAILED",
+                    "error_class": "TimeoutError",
+                    "error_code": "FEED_TIMEOUT",
+                }
+            ]
+        assert kwargs["scheduled_retry"] is True
+        assert kwargs["only_source_id"] == TICK
+        assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+        return [
+            {
+                "source_id": TICK,
+                "status": "FAILED",
+                "error_class": "TimeoutError",
+                "error_code": "FEED_TIMEOUT",
+            }
+        ]
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(scheduled_retry=True)
+    assert [call["reopen_attempt"] for call in calls] == [1, 2]
+    assert calls[0]["only_source_id"] is None
+    assert payload["status"] == "SUCCEEDED"
+    assert payload["pubmed"] == [
+        {
+            "source_id": TICK,
+            "status": "FAILED",
+            "error_class": "TimeoutError",
+            "error_code": "FEED_TIMEOUT",
+            "daily_attempt": 2,
+        }
+    ]
+    assert LYME not in json.dumps(payload["pubmed"])
+    assert os.environ.get("INTELLIGENCE_DAILY_REOPEN") != "true"
+
+
+def test_scheduled_pubmed_retry_success_clears_the_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+    calls: list[int] = []
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs["reopen_attempt"])
+        if kwargs["reopen_attempt"] == 1:
+            return [{"source_id": LYME, "status": "FAILED", "error_class": "TimeoutError"}]
+        assert kwargs["only_source_id"] == LYME
+        return []
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(scheduled_retry=True)
+    assert calls == [1, 2]
+    assert "pubmed" not in payload
+    assert payload["status"] == "SUCCEEDED"
+
+
+def test_pubmed_retry_permission_error_keeps_the_first_pass(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "operator note user@example.test"
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["reopen_attempt"] == 1:
+            return [
+                {
+                    "source_id": TICK,
+                    "status": "FAILED",
+                    "error_class": "TimeoutError",
+                    "error_code": "FEED_TIMEOUT",
+                }
+            ]
+        raise PermissionError(secret)
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(scheduled_retry=True)
+    logged = capsys.readouterr().out
+    assert payload["status"] == "SUCCEEDED"
+    assert payload["pubmed"] == [
+        {
+            "source_id": TICK,
+            "status": "FAILED",
+            "error_class": "TimeoutError",
+            "error_code": "FEED_TIMEOUT",
+        }
+    ]
+    assert polling.SCHEDULED_RETRY_SKIPPED in logged
+    assert secret not in logged
+    assert "PermissionError" not in logged
+
+
+def test_pubmed_retry_prior_not_failed_is_recorded_not_skipped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(polling, "PUBMED_WALK_ISOLATE", False)
+    monkeypatch.setattr(polling.pipeline_settings, "PipelineSettings", _settings)
+    monkeypatch.setattr(polling, "execute_daily_source", _succeeded)
+
+    def walk(*_args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["reopen_attempt"] == 1:
+            return [{"source_id": TICK, "status": "FAILED", "error_class": "TimeoutError"}]
+        raise PermissionError("INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED")
+
+    monkeypatch.setattr(polling, "_walk_registered_entrez_daily", walk)
+    payload = polling.run_production_daily(scheduled_retry=True)
+    logged = capsys.readouterr().out
+    assert payload["status"] == "SUCCEEDED"
+    assert payload["pubmed"][0]["error_code"] == "INTELLIGENCE_DAILY_REOPEN_PRIOR_TERMINAL_FAILED"
+    assert polling.SCHEDULED_RETRY_SKIPPED not in logged
 
 
 def test_rss_reopen_still_skips_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1064,6 +1064,8 @@ _DAILY_SELECTOR_USAGE_CODES = frozenset(
     {
         "INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED",
         "INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID",
+        "INTELLIGENCE_DAILY_ATTEMPT_CAP",
+        "INTELLIGENCE_DAILY_SCHEDULED_RETRY_INVALID",
     }
 )
 
@@ -1071,14 +1073,17 @@ _DAILY_SELECTOR_USAGE_CODES = frozenset(
 @pipeline_app.command("run-intelligence-daily")
 def run_intelligence_daily_command(
     preflight_only: bool = typer.Option(False, "--preflight-only"),
-    reopen_attempt: int = typer.Option(1, "--reopen-attempt", min=1),
+    reopen_attempt: int = typer.Option(1, "--reopen-attempt", min=1, max=3),
     source: Annotated[list[str] | None, typer.Option("--source")] = None,
+    scheduled_retry: bool = typer.Option(False, "--scheduled-same-day-retry"),
 ) -> None:
-    """Run the fixed daily RSS set on the existing production job platform.
+    """Run the fixed daily set on the existing production job platform.
 
     ``--source`` is repeatable, must be an approved daily source, and is
-    required when ``--reopen-attempt`` is 2 or higher. Unselected sources are
-    skipped and do not fail the run.
+    required when ``--reopen-attempt`` is 2 or 3. Unselected sources are
+    skipped and do not fail the run. Attempt 4 and higher is refused.
+    ``--scheduled-same-day-retry`` is only for the standing daily job. It
+    retries each FAILED source once after the first pass.
     """
     from .intelligence_polling import run_production_daily
 
@@ -1087,6 +1092,7 @@ def run_intelligence_daily_command(
             preflight_only=preflight_only,
             reopen_attempt=reopen_attempt,
             source_ids=tuple(source or ()),
+            scheduled_retry=scheduled_retry,
         )
     except PermissionError as error:
         code = str(error)
