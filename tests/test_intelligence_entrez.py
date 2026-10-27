@@ -1305,7 +1305,7 @@ def test_pubmed_failure_leaves_the_rss_payload(
     assert {row["status"] for row in payload["pubmed"]} == {"FAILED"}
     assert {row["error_class"] for row in payload["pubmed"]} == {"PermissionError"}
     assert "pubmed-tick-borne" not in runtime.PROD_SOURCE_DEFINITIONS
-    assert len(ledger.saved) == 4
+    assert len(ledger.saved) == 2
     assert {state.status.value for state in ledger.saved} == {"FAILED"}
     assert {state.resource_key for state in ledger.saved} == set(SOURCE_ORDER)
     assert ledger.saved[0].ingestion_run_id != ledger.saved[1].ingestion_run_id
