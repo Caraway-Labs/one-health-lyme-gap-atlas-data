@@ -29,6 +29,7 @@ from lyme_gap_atlas_data.intelligence_topics import (
     MAX_ABSTRACT_CHARS,
     MAX_FIELD_CHARS,
     MAX_TOPICS,
+    TOPICS_FLAG,
     backfill_topics,
     load_vocabulary,
     map_topics,
@@ -135,7 +136,7 @@ def test_mesh_ui_and_publisher_category_are_exact() -> None:
 def test_fallback_null_matched_term_round_trips_through_the_merge_payload() -> None:
     cursor = _TopicCursor(table_exists=True)
     document = _item("Workshop agenda for editors")
-    result = runtime.record_topics_after_merge(cursor, [document], enabled=False)
+    result = runtime.record_topics_after_merge(cursor, [document], enabled=True)
     assert result["status"] == "recorded"
     assert result["rows"] == 1
     assert result["warnings"] == 0
@@ -222,23 +223,89 @@ def test_pubmed_coverage_gate_is_provisional_until_recorded_captures() -> None:
     assert "85 percent" in text
 
 
-def test_missing_topic_table_keeps_the_daily_hook_inert() -> None:
-    cursor = _TopicCursor(table_exists=False)
+@pytest.mark.parametrize("flag", [None, "", "off", "OFF", "On", "ON", "true"])
+def test_topics_hook_issues_no_sql_unless_the_flag_is_exactly_on(
+    monkeypatch: pytest.MonkeyPatch, flag: str | None
+) -> None:
+    if flag is None:
+        monkeypatch.delenv(TOPICS_FLAG, raising=False)
+    else:
+        monkeypatch.setenv(TOPICS_FLAG, flag)
+    cursor = _TopicCursor(table_exists=True)
     result = runtime.record_topics_after_merge(
         cursor,
         [_item("Needlesticks in hospital workers")],
-        enabled=False,
     )
-    assert result == {"status": "inert", "reason": "topics_table_absent", "rows": 0, "warnings": 0}
-    assert len(cursor.statements) == 1
-    assert "INTELLIGENCE_ITEM_TOPICS" in cursor.statements[0][0]
-    assert "MERGE" not in cursor.statements[0][0].upper()
+    assert result == {"status": "inert", "reason": "topics_disabled", "rows": 0, "warnings": 0}
+    assert cursor.statements == []
+
+
+def test_topics_flag_on_still_probes_and_records(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(TOPICS_FLAG, "on")
+    cursor = _TopicCursor(table_exists=True)
+    result = runtime.record_topics_after_merge(cursor, [_item("Babesiosis cases rise in New York")])
+    assert result["status"] == "recorded"
+    assert result["rows"] == 1
+    assert any("INFORMATION_SCHEMA" in sql for sql, _params in cursor.statements)
+    assert any(sql == _MERGE for sql, _params in cursor.statements)
+
+
+@pytest.mark.parametrize("flag", [None, "off"])
+def test_flag_off_does_not_open_a_topic_transaction(
+    monkeypatch: pytest.MonkeyPatch, flag: str | None
+) -> None:
+    if flag is None:
+        monkeypatch.delenv(TOPICS_FLAG, raising=False)
+    else:
+        monkeypatch.setenv(TOPICS_FLAG, flag)
+    database = Ledger()
+    effects = _effects(database)
+    called: list[bool] = []
+
+    def hook(cursor: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
+        del cursor, items
+        called.append(True)
+        return {"status": "recorded", "reason": "topics_recorded", "rows": 1, "warnings": 0}
+
+    effects.store.after_merge = hook
+    detail = effects.load(_definition(database), _state(), [item()])
+    assert called == []
+    assert database.events.count("begin") == 1
+    assert database.events.count("commit") == 1
+    assert detail["wrote"] is True
+    assert detail["topic_warnings"] == 0
+    assert effects.store.topic_report == {
+        "status": "inert",
+        "reason": "no_hook",
+        "rows": 0,
+        "warnings": 0,
+    }
+
+
+def test_flag_on_opens_the_topic_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(TOPICS_FLAG, "on")
+    database = Ledger()
+    effects = _effects(database)
+    called: list[bool] = []
+
+    def hook(cursor: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
+        del cursor, items
+        called.append(True)
+        return {"status": "recorded", "reason": "topics_recorded", "rows": 1, "warnings": 0}
+
+    effects.store.after_merge = hook
+    detail = effects.load(_definition(database), _state(), [item()])
+    assert called == [True]
+    assert database.events.count("begin") == 2
+    assert database.events.count("commit") == 2
+    assert detail["topic_warnings"] == 0
+    assert effects.store.topic_report["status"] == "recorded"
 
 
 def test_present_topic_table_merges_explainable_rows() -> None:
     cursor = _TopicCursor(table_exists=True)
     item_document = _item("Babesiosis cases rise in New York")
-    result = runtime.record_topics_after_merge(cursor, [item_document], enabled=False)
+    result = runtime.record_topics_after_merge(cursor, [item_document], enabled=True)
     assert result["status"] == "recorded"
     assert result["rows"] == 1
     assert result["warnings"] == 0
@@ -256,11 +323,14 @@ def test_present_topic_table_merges_explainable_rows() -> None:
     assert item_document["derived_metadata"] == {}
 
 
-def test_oversized_field_yields_no_topics_and_a_counted_warning() -> None:
+def test_oversized_field_yields_no_topics_and_a_counted_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(TOPICS_FLAG, "on")
     cursor = _TopicCursor(table_exists=True)
     oversized = _item("a" * 4097)
     kept = _item("Babesiosis cases rise in New York")
-    result = runtime.record_topics_after_merge(cursor, [oversized, kept], enabled=False)
+    result = runtime.record_topics_after_merge(cursor, [oversized, kept], enabled=True)
     assert result["warnings"] == 1
     assert result["rows"] == 1
     payload = json.loads(cursor.statements[-1][1][0])
@@ -276,7 +346,7 @@ def test_oversized_field_yields_no_topics_and_a_counted_warning() -> None:
         return runtime.record_topics_after_merge(
             _TopicCursor(table_exists=True),
             [oversized],
-            enabled=False,
+            enabled=True,
         )
 
     effects.store.after_merge = hook
@@ -294,7 +364,7 @@ def test_badly_typed_field_and_bad_vocabulary_count_warnings_without_topics(
     cursor = _TopicCursor(table_exists=True)
     typed = _item("Babesiosis cases rise in New York")
     typed["title"] = 12
-    typed_result = runtime.record_topics_after_merge(cursor, [typed], enabled=False)
+    typed_result = runtime.record_topics_after_merge(cursor, [typed], enabled=True)
     assert typed_result["rows"] == 0
     assert typed_result["warnings"] == 1
     assert not any("MERGE" in sql.upper() for sql, _params in cursor.statements)
@@ -307,7 +377,7 @@ def test_badly_typed_field_and_bad_vocabulary_count_warnings_without_topics(
     vocabulary_result = runtime.record_topics_after_merge(
         vocabulary_cursor,
         [_item("Babesiosis cases rise in New York")],
-        enabled=False,
+        enabled=True,
     )
     assert vocabulary_result == {
         "status": "skipped",
@@ -318,7 +388,10 @@ def test_badly_typed_field_and_bad_vocabulary_count_warnings_without_topics(
     assert not any("MERGE" in sql.upper() for sql, _params in vocabulary_cursor.statements)
 
 
-def test_raising_topic_hook_leaves_the_source_write_successful() -> None:
+def test_raising_topic_hook_leaves_the_source_write_successful(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(TOPICS_FLAG, "on")
     database = Ledger()
     effects = _effects(database)
     document = item()
@@ -343,7 +416,10 @@ def test_raising_topic_hook_leaves_the_source_write_successful() -> None:
     assert "commit" in database.events
 
 
-def test_failed_topic_merge_leaves_the_committed_item_write_unchanged() -> None:
+def test_failed_topic_merge_leaves_the_committed_item_write_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(TOPICS_FLAG, "on")
     """A topic MERGE failure is counted after the item commit and does not undo it."""
     database = Ledger()
     effects = _effects(database)
@@ -591,7 +667,7 @@ def test_daily_hook_records_topics_for_a_recorded_pubmed_item() -> None:
     assert "Borrelia burgdorferi" in abstract["text"]
     assert item["publisher_metadata"]["categories"] == ["Borrelia", "tick-borne"]
     cursor = _TopicCursor(table_exists=True)
-    result = runtime.record_topics_after_merge(cursor, [item], enabled=False)
+    result = runtime.record_topics_after_merge(cursor, [item], enabled=True)
     assert result["status"] == "recorded"
     assert result["warnings"] == 0
     payload = json.loads(cursor.statements[-1][1][0])

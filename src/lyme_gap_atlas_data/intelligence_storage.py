@@ -32,6 +32,7 @@ from .intelligence_items import (
     validate_record,
 )
 from .intelligence_metadata import VERSION, NativeMetadataPolicy, verify_native_item
+from .intelligence_topics import topics_hook_enabled
 from .settings import PipelineSettings
 
 
@@ -535,7 +536,8 @@ class IntelligenceStore:
                     "rows": 0,
                     "warnings": 0,
                 }
-                if self.after_merge is not None and validated:
+                # The extra topic transaction stays closed unless the flag is exactly on.
+                if self.after_merge is not None and validated and topics_hook_enabled():
                     self.topic_report = self._topics_after_commit(
                         connection, cursor, validated, run_id
                     )

@@ -38,6 +38,7 @@ from ..intelligence_topics import (
     load_vocabulary,
     merge_topic_rows,
     topic_rows_for_items,
+    topics_hook_enabled,
     topics_table_exists,
 )
 from ..settings import PipelineSettings
@@ -51,7 +52,6 @@ from .step_deadline import active_step_deadline, note_step_deadline
 from .types import AdapterKind, SourceDefinition
 
 logger = logging.getLogger(__name__)
-TOPICS_FLAG = "ATLAS_INTELLIGENCE_TOPICS"
 
 
 def record_topics_after_merge(
@@ -62,12 +62,15 @@ def record_topics_after_merge(
 ) -> dict[str, Any]:
     """Assign vocabulary topics after the item MERGE.
 
-    The hook does nothing when the topic table is absent and the explicit flag
-    is off, so a daily run can promote before the table migration. An oversized
-    field, a badly typed field, or a bad vocabulary leaves that item without
-    topics and counts a warning. The hook does not raise.
+    The hook runs only when ``ATLAS_INTELLIGENCE_TOPICS`` is exactly ``on``.
+    While it is off it does not probe the topic table, query
+    ``INFORMATION_SCHEMA``, or issue any other SQL. When the flag is on, an
+    oversized field, a badly typed field, or a bad vocabulary leaves that item
+    without topics and counts a warning. The hook does not raise.
     """
-    flag = enabled if enabled is not None else os.environ.get(TOPICS_FLAG, "").lower() == "on"
+    flag = topics_hook_enabled(enabled)
+    if not flag:
+        return {"status": "inert", "reason": "topics_disabled", "rows": 0, "warnings": 0}
     if not items:
         return {"status": "inert", "reason": "no_items", "rows": 0, "warnings": 0}
     try:
