@@ -9,10 +9,19 @@ import json
 import os
 import re
 import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote, quote_plus
 
-from lyme_gap_atlas_data.intelligence_daily_job_timeout import (
+# The promote and run-once workflows run this script with plain ``python`` and
+# do not install the package, so make the stdlib-only timeout module reachable
+# from the checkout. An installed package, when present, still wins.
+_SRC = str(Path(__file__).resolve().parents[1] / "src")
+if _SRC not in sys.path:
+    sys.path.append(_SRC)
+
+from lyme_gap_atlas_data.intelligence_daily_job_timeout import (  # noqa: E402
     DAILY_JOB_TIMEOUT,
     duration_seconds,
 )
