@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
+from .ingestion.intelligence_entrez import (
+    select_existing_entrez_captures,
+    verify_entrez_item,
+)
+from .intelligence_daily_telemetry import guard_scope, warn_open_transaction
 from .intelligence_items import (
     IDENTITY_VERSION,
     canonical_json,
@@ -65,6 +70,7 @@ SAFE_PERMISSIONS = {
     "INTELLIGENCE_INFERENCE_REVIEW_REQUIRED",
     "INTELLIGENCE_NATIVE_RIGHTS_REQUIRED",
     "INTELLIGENCE_NATIVE_MAPPING_INVALID",
+    "INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_UNBOUNDED",
 }
 
 
@@ -174,6 +180,8 @@ class IntelligenceStore:
     def _context(self, cursor: Any) -> None:
         cursor.execute("SELECT CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_TRANSACTION()")
         rows = cursor.fetchall()
+        if len(rows) == 1 and rows[0][2] is not None:
+            warn_open_transaction()
         expected = (
             f"OH_LYME_{self.settings.topx_env.upper()}_RUNTIME",
             self.settings.snowflake_database,
@@ -232,6 +240,13 @@ class IntelligenceStore:
             if row is None:
                 raise PermissionError("INTELLIGENCE_CURRENT_SOURCE_REQUIRED")
             return self._source(cursor, source_id, int(row[0]))
+
+    @_redacted("INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_FAILED")
+    def existing_entrez_captures(self, item_ids: tuple[str, ...]) -> list[tuple[str, str, str]]:
+        """One read-only SELECT for PubMed revisions already stored for these items."""
+        with self._session() as (_, cursor):
+            self._context(cursor)
+            return select_existing_entrez_captures(cursor, item_ids)
 
     @staticmethod
     def _validate(item: dict[str, Any], source: dict[str, Any], run_id: str) -> None:
@@ -319,6 +334,20 @@ class IntelligenceStore:
         if cursor.rowcount != 1:
             raise IntelligenceStorageError("INTELLIGENCE_WRITE_GUARD_INVALID")
 
+    @contextmanager
+    def capture_session(self) -> Iterator[Any]:
+        """Owned transaction for Entrez request and artifact inserts."""
+        with guard_scope(nested=False), self._session() as (connection, cursor):
+            self._context(cursor)
+            try:
+                self._begin(cursor)
+                yield cursor
+                connection.commit()
+            except BaseException:
+                with suppress(Exception):
+                    connection.rollback()
+                raise
+
     @_redacted("INTELLIGENCE_ACQUISITION_REGISTRATION_FAILED")
     def record_acquisition(
         self,
@@ -331,7 +360,7 @@ class IntelligenceStore:
         context: dict[str, Any],
     ) -> None:
         frozen = json.loads(canonical_json(context))
-        with self._session() as (connection, cursor):
+        with guard_scope(nested=False), self._session() as (connection, cursor):
             self._context(cursor)
             try:
                 self._begin(cursor)
@@ -373,7 +402,7 @@ class IntelligenceStore:
         frozen: list[dict[str, Any]] = json.loads(serialized)
         for item in frozen:
             validate_record("item", item)
-        with self._session() as (connection, cursor):
+        with guard_scope(nested=False), self._session() as (connection, cursor):
             self._context(cursor)
             try:
                 self._begin(cursor)
@@ -397,7 +426,10 @@ class IntelligenceStore:
                             raise PermissionError("INTELLIGENCE_NATIVE_RIGHTS_REQUIRED")
                         if native_policy is None:
                             native_policy = self.native_policy_lookup(source_id, registry_version)
-                        verify_native_item(item, native_policy, source)
+                        if source["transport"] == "entrez":
+                            verify_entrez_item(item, native_policy, source)
+                        else:
+                            verify_native_item(item, native_policy, source)
                     validated.append(item)
                 if validated:
                     provenance = validated[0]["provenance"]

@@ -76,21 +76,18 @@ class NativeMetadataPolicy:
             raise ValueError("INTELLIGENCE_NATIVE_POLICY_INVALID")
 
 
-def _envelope(
-    raw: bytes, source: dict[str, Any], base_url: str | None
-) -> tuple[ET.Element, list[ET.Element]]:
-    # Reuse the established byte, XML DTD/entity/depth/node/item/envelope guards.
-    from .ingestion.intelligence_feed import parse_feed
+def _stream_parent(
+    raw: bytes,
+    source: dict[str, Any],
+    base_url: str | None,
+    on_entry: Any,
+) -> ET.Element:
+    """Walk the feed once. ``on_entry`` sees one detached item, then it is cleared."""
+    # Local import: intelligence_feed already imports this module.
+    from .ingestion.intelligence_feed import feed_parent, walk_feed
 
-    parse_feed(raw, source, base_url=base_url)
-    root = ET.fromstring(raw)
-    parent = root.find("channel") if source["transport"] == "rss" else root
-    assert parent is not None
-    entries = parent.findall("item" if source["transport"] == "rss" else ATOM + "entry")
-    maximum_items = source["limits"]["maximum_items"]
-    if len(entries) > maximum_items:
-        entries = entries[:maximum_items]
-    return parent, entries
+    root = walk_feed(raw, source, on_entry, base_url=base_url)
+    return feed_parent(root, source)
 
 
 def _walk(node: ET.Element, path: str, output: dict[str, list[str | None]]) -> None:
@@ -122,8 +119,17 @@ def inventory_feed(
     raw: bytes, source: dict[str, Any], *, base_url: str | None = None
 ) -> dict[str, int]:
     """Value-free observed inventory; safe evidence for denied-text fields too."""
-    parent, entries = _envelope(raw, source, base_url)
-    return {path: len(values) for path, values in sorted(_fields(parent, entries).items())}
+    item_counts: dict[str, int] = {}
+
+    def on_entry(entry: ET.Element, _inherited: str) -> None:
+        for path, values in _fields(ET.Element("feed"), [entry]).items():
+            item_counts[path] = item_counts.get(path, 0) + len(values)
+
+    parent = _stream_parent(raw, source, base_url, on_entry)
+    counts = {path: len(values) for path, values in _fields(parent, []).items()}
+    for path, count in item_counts.items():
+        counts[path] = counts.get(path, 0) + count
+    return dict(sorted(counts.items()))
 
 
 def _value(value: str | None, path: str, policy: NativeMetadataPolicy) -> dict[str, Any]:
@@ -199,79 +205,113 @@ def parse_native_feed(
     *,
     base_url: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Map reviewed metadata without discarding namespaces or repeated fields."""
-    from .ingestion.intelligence_feed import parse_feed
+    """Map reviewed metadata without discarding namespaces or repeated fields.
+
+    Items are mapped one at a time. The feed header is kept; item elements are
+    released before the next item is parsed.
+    """
+    from .ingestion.intelligence_feed import entry_record
 
     policy.validate(source)
-    parent, entries = _envelope(raw, source, base_url)
-    inventory = _fields(parent, entries)
+    item_paths: set[str] = set()
+    saw_entry = False
+
+    def collect(entry: ET.Element, _inherited: str) -> None:
+        nonlocal saw_entry
+        saw_entry = True
+        item_paths.update(_fields(ET.Element("feed"), [entry]))
+
+    parent = _stream_parent(raw, source, base_url, collect)
+    inventory = set(_fields(parent, [])) | item_paths
     required = (
         policy.required_paths
-        if entries
+        if saw_entry
         else frozenset(path for path in policy.required_paths if path.startswith("feed/"))
     )
-    if not set(inventory) <= policy.inventory or not required <= set(inventory):
+    if not inventory <= policy.inventory or not required <= inventory:
         raise ValueError("INTELLIGENCE_NATIVE_SCHEMA_DRIFT")
-    legacy = parse_feed(raw, source, base_url=base_url)
-    mapped = []
-    for entry, base in zip(entries, legacy, strict=True):
-        fields = _fields(parent, [entry])
-        if not policy.required_paths <= set(fields):
-            raise ValueError("INTELLIGENCE_NATIVE_SCHEMA_DRIFT")
-        native: dict[str, Any] = {
-            "policy_ref": policy.policy_ref,
-            "policy_sha256": identity_hash(policy.document()),
-            "inventory": sorted(path for path in fields if path in policy.inventory),
-            "feed": [
-                _node(child, "feed/" + child.tag, policy)
-                for child in parent
-                if child.tag not in ENTRY_TAGS
-            ],
-            "feed_attributes": [
-                {"name": name, **_value(value, "feed/@" + name, policy)}
-                for name, value in sorted(parent.attrib.items())
-            ],
-            "item": [_node(child, "item/" + child.tag, policy) for child in entry],
-            "item_attributes": [
-                {"name": name, **_value(value, "item/@" + name, policy)}
-                for name, value in sorted(entry.attrib.items())
-            ],
-            "publisher_dates": {
-                "published_at": _date(
-                    _scalar(fields, policy.published_path),
-                    policy.published_format,
-                    policy.published_path,
-                    policy,
-                ),
-                "updated_at": _date(
-                    _scalar(fields, policy.updated_path),
-                    policy.updated_format,
-                    policy.updated_path,
-                    policy,
-                ),
-            },
-        }
-        if len(canonical_json(native).encode()) > 65536:
-            raise ValueError("INTELLIGENCE_NATIVE_METADATA_LIMIT")
-        canonical = _publisher_metadata(fields, source, policy, native)
-        # Legacy public fields must obey the same receipt as the private tree.
-        rss = source["transport"] == "rss"
-        for key, name in (("title", "title"), ("excerpt", "description" if rss else "summary")):
-            path = "item/" + (name if rss else ATOM + name)
-            if any(
-                p == path or p.startswith(path + "/")
-                for p in fields
-                if p not in policy.permitted_paths
-            ):
-                base[key] = None
-        if not _url_paths_permitted(fields, policy, rss):
-            base["url"] = None
-        base["topics"] = tuple(canonical["categories"])
-        for key in ("published_at", "updated_at"):
-            date = native["publisher_dates"][key]
-            base[key] = date["normalized"]
-        mapped.append({**base, "publisher_metadata": canonical, "native_metadata": native})
+    # Legacy field errors are raised before native mapping, matching the
+    # previous parse-then-map order, without retaining item elements.
+    legacy: list[dict[str, Any]] = []
+
+    def collect_legacy(entry: ET.Element, inherited: str) -> None:
+        legacy.append(entry_record(entry, source, inherited))
+
+    _stream_parent(raw, source, base_url, collect_legacy)
+    mapped: list[dict[str, Any]] = []
+    cursor = 0
+
+    def on_entry(entry: ET.Element, _inherited: str) -> None:
+        nonlocal cursor
+        base = legacy[cursor]
+        cursor += 1
+        mapped.append(_map_native_entry(parent, entry, base, source, policy))
+
+    _stream_parent(raw, source, base_url, on_entry)
     return mapped
+
+
+def _map_native_entry(
+    parent: ET.Element,
+    entry: ET.Element,
+    base: dict[str, Any],
+    source: dict[str, Any],
+    policy: NativeMetadataPolicy,
+) -> dict[str, Any]:
+    fields = _fields(parent, [entry])
+    if not policy.required_paths <= set(fields):
+        raise ValueError("INTELLIGENCE_NATIVE_SCHEMA_DRIFT")
+    native: dict[str, Any] = {
+        "policy_ref": policy.policy_ref,
+        "policy_sha256": identity_hash(policy.document()),
+        "inventory": sorted(path for path in fields if path in policy.inventory),
+        "feed": [
+            _node(child, "feed/" + child.tag, policy)
+            for child in parent
+            if child.tag not in ENTRY_TAGS
+        ],
+        "feed_attributes": [
+            {"name": name, **_value(value, "feed/@" + name, policy)}
+            for name, value in sorted(parent.attrib.items())
+        ],
+        "item": [_node(child, "item/" + child.tag, policy) for child in entry],
+        "item_attributes": [
+            {"name": name, **_value(value, "item/@" + name, policy)}
+            for name, value in sorted(entry.attrib.items())
+        ],
+        "publisher_dates": {
+            "published_at": _date(
+                _scalar(fields, policy.published_path),
+                policy.published_format,
+                policy.published_path,
+                policy,
+            ),
+            "updated_at": _date(
+                _scalar(fields, policy.updated_path),
+                policy.updated_format,
+                policy.updated_path,
+                policy,
+            ),
+        },
+    }
+    if len(canonical_json(native).encode()) > 65536:
+        raise ValueError("INTELLIGENCE_NATIVE_METADATA_LIMIT")
+    canonical = _publisher_metadata(fields, source, policy, native)
+    # Legacy public fields must obey the same receipt as the private tree.
+    rss = source["transport"] == "rss"
+    for key, name in (("title", "title"), ("excerpt", "description" if rss else "summary")):
+        path = "item/" + (name if rss else ATOM + name)
+        if any(
+            p == path or p.startswith(path + "/") for p in fields if p not in policy.permitted_paths
+        ):
+            base[key] = None
+    if not _url_paths_permitted(fields, policy, rss):
+        base["url"] = None
+    base["topics"] = tuple(canonical["categories"])
+    for key in ("published_at", "updated_at"):
+        date = native["publisher_dates"][key]
+        base[key] = date["normalized"]
+    return {**base, "publisher_metadata": canonical, "native_metadata": native}
 
 
 def _url_paths_permitted(

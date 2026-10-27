@@ -119,7 +119,7 @@ jobs:
           test -z "$REQUEST_RUN_ID"
           test -z "$REQUEST_SOURCE_VERSION_ID"
           test -z "$REQUEST_SOURCE_DECISION_ID"
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           test "$passed_checks" -gt 0
       - name: Set reviewed January connection limits
         if: ${{ inputs.source_definition == 'config/sources/noaa_nclimgrid_daily_202501_prod.yml' }}

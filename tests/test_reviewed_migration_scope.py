@@ -412,12 +412,16 @@ def test_other_pending_or_named_held_back_versions_stop_before_application(
     apply.assert_not_called()
 
 
-def test_intelligence_prerequisite_batch_still_includes_held_back_versions(
+HELD_BACK_FIXTURES = ("V155", "V157", "V158", "V159")
+
+
+def _invoke_feed_batch(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    reviewed = [migrations.INTELLIGENCE_PREREQUISITE_MIGRATION]
-    pending = [*reviewed, metadata("V155")]
-    monkeypatch.setattr(cli, "_settings", Mock())
+    pending: list[dict[str, str]],
+    reviewed: list[dict[str, str]],
+) -> tuple[object, Mock, Mock]:
+    settings = object()
+    monkeypatch.setattr(cli, "_settings", lambda: settings)
     monkeypatch.setattr(cli, "pending_migration_plan", lambda *_: pending)
     monkeypatch.setattr(
         "lyme_gap_atlas_data.ingestion.intelligence_runtime.verify_prerequisite_identity",
@@ -427,8 +431,9 @@ def test_intelligence_prerequisite_batch_still_includes_held_back_versions(
         "lyme_gap_atlas_data.ingestion.intelligence_runtime.prerequisite_batch_deadline",
         lambda: nullcontext(),
     )
-    apply = Mock()
-    monkeypatch.setattr(cli, "reconcile_legacy_dev_migrations", Mock())
+    reconcile = Mock(return_value=[])
+    apply = Mock(return_value=[item["version"] for item in reviewed])
+    monkeypatch.setattr(cli, "reconcile_legacy_dev_migrations", reconcile)
     monkeypatch.setattr(cli, "apply_migrations", apply)
     result = CliRunner().invoke(
         cli.app,
@@ -443,10 +448,142 @@ def test_intelligence_prerequisite_batch_still_includes_held_back_versions(
             "--confirm",
         ],
     )
+    return result, reconcile, apply
+
+
+@pytest.mark.parametrize(
+    "pinned",
+    [
+        migrations.INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION,
+        migrations.INTELLIGENCE_PREREQUISITE_MIGRATION,
+    ],
+)
+def test_intelligence_prerequisite_batch_leaves_held_back_versions_pending(
+    monkeypatch: pytest.MonkeyPatch, pinned: dict[str, str]
+) -> None:
+    held = [metadata(version) for version in HELD_BACK_FIXTURES]
+    reviewed = [pinned]
+    result, reconcile, apply = _invoke_feed_batch(monkeypatch, [*held, pinned], reviewed)
+    assert result.exit_code == 0, result.output
+    lines = [json.loads(line) for line in result.stdout.splitlines()]
+    assert lines[0] == {"pending_migrations": [*held, pinned], "held_back_migrations": held}
+    assert lines[1]["applied"] == [pinned["version"]]
+    assert lines[1]["held_back_migrations"] == held
+    reconcile.assert_called_once()
+    apply.assert_called_once()
+    assert apply.call_args.kwargs == {
+        "expected_pending": reviewed,
+        "protected_intelligence_prerequisite": True,
+    }
+
+
+def test_intelligence_prerequisite_batch_still_rejects_other_pending_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pinned = migrations.INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION
+    pending = [metadata("V155"), metadata("V168"), pinned]
+    result, reconcile, apply = _invoke_feed_batch(monkeypatch, pending, [pinned])
     assert result.exit_code != 0
     assert isinstance(result.exception, ValueError)
     assert "reviewed pending set" in str(result.exception)
+    reconcile.assert_not_called()
     apply.assert_not_called()
+
+
+@pytest.mark.parametrize("extra", ["V155", "V168"])
+def test_intelligence_prerequisite_batch_must_stay_exact_and_alone(
+    monkeypatch: pytest.MonkeyPatch, extra: str
+) -> None:
+    pinned = migrations.INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION
+    reviewed = [pinned, metadata(extra)]
+    result, reconcile, apply = _invoke_feed_batch(monkeypatch, [pinned, metadata(extra)], reviewed)
+    assert result.exit_code != 0
+    assert isinstance(result.exception, ValueError)
+    assert "exact and alone" in str(result.exception)
+    reconcile.assert_not_called()
+    apply.assert_not_called()
+
+
+def _install_dev_v170_plan(
+    monkeypatch: pytest.MonkeyPatch, extra: tuple[str, ...] = ()
+) -> tuple[Mock, migrations.Migration]:
+    v170 = next(item for item in migrations.load_migrations() if item.version == "V170")
+    plan = [_migration(version) for version in (*HELD_BACK_FIXTURES, *extra)] + [v170]
+    monkeypatch.setattr(migrations, "load_migrations", lambda: plan)
+    monkeypatch.setattr(migrations, "_reconciled_legacy_migrations", lambda *_: {})
+    monkeypatch.setattr(migrations, "_migration_settings", lambda settings, *_: settings)
+    cursor = Mock()
+    # V170 needs the recorded DEV feed view (V142), which is not in this plan.
+    cursor.fetchall.return_value = [("V142", "b" * 64)]
+    connection = Mock()
+    connection.cursor.side_effect = lambda: nullcontext(cursor)
+    monkeypatch.setattr(migrations, "connect", lambda *_, **__: nullcontext(connection))
+    return connection, v170
+
+
+def test_dev_protected_v170_applies_alone_and_never_runs_held_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection, v170 = _install_dev_v170_plan(monkeypatch)
+    assert migrations.apply_migrations(
+        Mock(),
+        migrations.DEV_DATABASE,
+        "c" * 40,
+        expected_pending=[migrations.INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION],
+        protected_intelligence_prerequisite=True,
+    ) == ["V170"]
+    assert connection.execute_string.call_count == 1
+    executed = connection.execute_string.call_args.args[0]
+    assert "INTELLIGENCE_SOURCE_ACTIVATIONS" in executed.upper()
+    for version in HELD_BACK_FIXTURES:
+        assert f"SELECT '{version}'" not in executed
+
+
+def test_dev_protected_v170_still_rejects_other_pending_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection, _ = _install_dev_v170_plan(monkeypatch, extra=("V168",))
+    with pytest.raises(ValueError, match="reviewed pending set"):
+        migrations.apply_migrations(
+            Mock(),
+            migrations.DEV_DATABASE,
+            "c" * 40,
+            expected_pending=[migrations.INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION],
+            protected_intelligence_prerequisite=True,
+        )
+    connection.execute_string.assert_not_called()
+
+
+def test_dev_protected_flag_without_exact_batch_keeps_full_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = [_migration(version) for version in (*HELD_BACK_FIXTURES, "V168")]
+    connection = _install_plan(monkeypatch, plan)
+    with pytest.raises(ValueError, match="reviewed pending set"):
+        migrations.apply_migrations(
+            Mock(),
+            migrations.DEV_DATABASE,
+            expected_pending=[migrations._migration_metadata(plan[-1])],
+            protected_intelligence_prerequisite=True,
+        )
+    connection.execute_string.assert_not_called()
+
+
+def test_prod_protected_v170_still_compares_held_back_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    v170 = next(item for item in migrations.load_migrations() if item.version == "V170")
+    plan = [_migration("V155"), v170]
+    connection = _install_plan(monkeypatch, plan)
+    with pytest.raises(ValueError, match="reviewed pending set"):
+        migrations.apply_migrations(
+            Mock(),
+            migrations.PROD_DATABASE,
+            "c" * 40,
+            expected_pending=[migrations.INTELLIGENCE_SOURCE_ACTIVATION_MIGRATION],
+            protected_intelligence_prerequisite=True,
+        )
+    connection.execute_string.assert_not_called()
 
 
 def test_workflow_uses_reviewed_input_without_expression_interpolation() -> None:

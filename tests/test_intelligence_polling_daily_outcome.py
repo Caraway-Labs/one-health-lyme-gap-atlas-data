@@ -17,6 +17,11 @@ from lyme_gap_atlas_data.settings import PipelineSettings
 ROOT = Path(__file__).parents[1]
 
 
+@pytest.fixture(autouse=True)
+def _rss_daily_does_not_open_pubmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(polling, "_isolate_pubmed_walk", lambda *args, **kwargs: [])
+
+
 def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
     value = PipelineSettings(
         topx_env="prod",
@@ -223,7 +228,7 @@ def test_completed_outcome_records_stage_timings_ms(
         for stage, milliseconds in expected.items():
             assert timings[stage] == milliseconds
     payloads = _payloads(_lines(capsys))
-    assert [row["source_id"] for row in payloads] == list(runtime.PROD_SOURCE_DEFINITIONS)
+    assert [row["source_id"] for row in payloads] == list(runtime.DAILY_SOURCE_RUN_ORDER)
     for payload in payloads:
         assert payload["status"] == "COMPLETED"
         for stage in expected:

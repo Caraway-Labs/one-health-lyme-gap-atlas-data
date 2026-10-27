@@ -27,10 +27,19 @@ on:
         default: 1
         type: number
       source_id:
-        description: Approved daily source id. Required when reopen_attempt is 2 or higher and when recovering a stuck run. Empty or all is rejected in those modes. A normal run ignores this and runs every approved source.
+        description: Approved daily source id. Required when reopen_attempt is 2 or higher and when recovering a stuck run. none and all are rejected in those modes. A normal run (none) ignores this and runs every approved source. PubMed ids are accepted only when reopen_attempt is 2 or higher.
         required: false
-        default: ""
-        type: string
+        default: none
+        type: choice
+        options:
+          - none
+          - cdc-eid-expedited
+          - cdc-eid-ahead-of-print
+          - cdc-outbreaks
+          - nih-news-releases
+          - cdc-mmwr
+          - pubmed-tick-borne
+          - pubmed-lyme-borrelia
       reason:
         description: Why this run is dispatched (required, 200 characters maximum)
         required: true
@@ -91,7 +100,7 @@ jobs:
           CODE_SHA="$REVIEWED_COMMIT"
           [[ "$CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
           source_digest="$(doctl registry repository list-manifests pipeline --output json \
             | jq -r --arg tag "sha-${CODE_SHA}" '.[] | select(.tags | index($tag)) | .digest')"
@@ -127,11 +136,19 @@ jobs:
           if [[ "$PREFLIGHT_ONLY" == "true" ]]; then
             build_args+=(--preflight-only)
           fi
+          if [[ "$SOURCE_ID" == "none" ]]; then
+            SOURCE_ID=""
+          fi
+          # Patterns are literal. A "|" taken from a variable is one character, not alternation.
           if [[ -n "$RECOVER_INGESTION_RUN_ID" ]]; then
             if [[ -z "${SOURCE_ID}" || "$SOURCE_ID" == "all" ]]; then
               echo "::error::INTELLIGENCE_DAILY_RECOVERY_SOURCE_REQUIRED"
               exit 1
             fi
+            case "$SOURCE_ID" in
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr) ;;
+              *) echo "::error::INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID"; exit 1 ;;
+            esac
             build_args+=(--recover-ingestion-run-id "$RECOVER_INGESTION_RUN_ID" --source "$SOURCE_ID")
           fi
           if [[ "${REOPEN_ATTEMPT:-1}" -ge 2 ]] 2>/dev/null; then
@@ -139,7 +156,15 @@ jobs:
               echo "::error::INTELLIGENCE_DAILY_REOPEN_SOURCE_REQUIRED"
               exit 1
             fi
+            case "$SOURCE_ID" in
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr) ;;
+              pubmed-tick-borne|pubmed-lyme-borrelia) ;;
+              *) echo "::error::INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID"; exit 1 ;;
+            esac
             build_args+=(--reopen-attempt "$REOPEN_ATTEMPT" --source "$SOURCE_ID")
+          elif [[ "$SOURCE_ID" == "pubmed-tick-borne" || "$SOURCE_ID" == "pubmed-lyme-borrelia" ]]; then
+            echo "::error::INTELLIGENCE_DAILY_SOURCE_SELECTION_INVALID"
+            exit 1
           fi
           python scripts/prod_intelligence_daily_job_spec.py "${build_args[@]}"
           chmod 600 "$operation_spec"

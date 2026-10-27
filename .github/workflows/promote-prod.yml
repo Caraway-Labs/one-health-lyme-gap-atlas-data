@@ -240,7 +240,9 @@ jobs:
               '[{"version":"V167","filename":"V167__prod_cdc_mmwr_daily_activation_view.sql","sha256":"cde1a5573525333f20bc847812bb3068493e81ec27b217b537dcf1a18d02c09f"}]' \
               '[{"version":"V168","filename":"V168__api_diagnostics_history_views.sql","sha256":"18fd6c1ec8b2b6bf483a2e76ce2be08074a31038d6131b7d2a23a8456676a3f6"}]' \
               '[{"version":"V169","filename":"V169__paper_policy_approval.sql","sha256":"1a70bbcf348f3f2daeaa6fde6522d86e26aee558235a5a6ca04a22023c4ea136"}]' \
-              '[{"version":"V170","filename":"V170__intelligence_source_activations.sql","sha256":"ada1e5cc76d389a2a18a930428277f84204301ec5afe63bf1c2b79c0fd7c271d"}]' \
+              '[{"version":"V170","filename":"V170__intelligence_source_activations.sql","sha256":"bbead62278450bf4b9f72074b9bf928c46ea789c1e7225b5b933814ff814246f"}]' \
+              '[{"version":"V173","filename":"V173__intelligence_feed_v2_description.sql","sha256":"d1f1e2cd54980e20a44141e63b263696fd77c88e881012c9befcab955afc8fcf"}]' \
+              '[{"version":"V174","filename":"V174__intelligence_feed_v2_entrez_dedupe.sql","sha256":"056ef4d57cbde1fd851d0fe0e5af1b79264bf619274562c930a8998e0fd815d7"}]' \
               '[{"version":"V150","filename":"V150__prod_intelligence_raw_cleanup_authority.sql","sha256":"883be2e32a84a461bcd20a46216b2a188a443c98ed8d913b443821208c99b4cb"},{"version":"V162","filename":"V162__prod_intelligence_proactive_cleanup.sql","sha256":"451eda0f76fe21fda15058b59d1868804f7c32a49f87b21d77dd5f3b45c4b557"}]'
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
@@ -445,7 +447,7 @@ jobs:
             guard_eq january_point_query_scopes false:false '${{ inputs.january_climate_only }}:${{ inputs.january_bulk_recovery_only }}' "january_point_query_only requires january_climate_only and january_bulk_recovery_only to be false."
           fi
           guard_eq scoped_migration_excludes_intelligence_prerequisite false '${{ inputs.protected_intelligence_prerequisite }}' "Scoped January or county-context promotion requires protected_intelligence_prerequisite=false."
-          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
           key_file="$RUNNER_TEMP/january-prod-migrations.p8"
           trap 'rm -f "$key_file"' EXIT
@@ -520,7 +522,7 @@ jobs:
           else
             guard_eq diagnostic_artifact retained-lineage-only "$DIAGNOSTIC_ARTIFACT" "Retained-lineage requires image_digest=retained-lineage-only."
           fi
-          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
@@ -585,7 +587,7 @@ jobs:
           guard_eq github_sha "$REVIEWED_COMMIT" "$GITHUB_SHA" "Dispatch from main at the reviewed commit, or update REVIEWED_COMMIT to the commit you reviewed."
           head_sha="$(git rev-parse HEAD)"
           guard_eq checked_out_commit "$REVIEWED_COMMIT" "$head_sha" "The checked-out commit does not match REVIEWED_COMMIT. Dispatch from main at the reviewed commit."
-          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+          passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
           guard_gt quality_checks 0 "$passed_checks" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --extra pipeline
@@ -651,7 +653,7 @@ jobs:
           placement=request.get('daily_credential_placement_approved') in (True,'true')
           assert placement != validate
           PY
-          quality_count="$(gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')"
+          quality_count="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name=="checks" and .conclusion=="success")] | length')"
           guard_gt quality_checks 0 "$quality_count" "No successful Quality run was found for this commit. Wait for Quality to pass on main before dispatching."
       - name: Verify exact immutable digest is active in DEV
         if: inputs.intelligence_daily_validate_only != true
@@ -675,12 +677,21 @@ jobs:
           fi
       - name: Refresh only the immutable digest across all operational PROD jobs
         if: inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active == 'true'
+        env:
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
         run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase refresh-digest --credential-placement-approved
       - name: Deploy explicitly approved credential-scoped preflight (no source acquisition)
         if: inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active != 'true'
+        env:
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
         run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase preflight --credential-placement-approved
       - name: Enable only the daily job after successful service preflight
         if: inputs.intelligence_daily_validate_only != true && steps.intelligence_daily_prod_state.outputs.active != 'true'
+        env:
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
         run: python scripts/deploy_intelligence_daily.py --image-digest "$IMAGE_DIGEST" --phase activate --credential-placement-approved
       - name: Validate credential-free image metadata only (no app update)
         if: inputs.intelligence_daily_validate_only == true

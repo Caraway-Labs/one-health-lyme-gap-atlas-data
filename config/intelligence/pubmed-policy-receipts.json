@@ -1,0 +1,106 @@
+{
+  "receipts": [
+    {
+      "source_id": "pubmed-tick-borne",
+      "decision_ref": "matthew-feed-selection-2026-10-03",
+      "registry_version": 1,
+      "source_sha256": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244",
+      "retention_policy_ref": "pubmed-tick-borne-metadata-raw-30d-v1",
+      "raw_policy_ref": "intelligence-raw-30d-v1",
+      "artifact_policy": "PUBMED_METADATA_RAW_30D_V1",
+      "native_policy": {
+        "policy_ref": "pubmed-tick-borne-native-metadata-v1",
+        "updated_path": null,
+        "updated_format": "iso8601",
+        "published_path": "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate",
+        "published_format": "iso8601",
+        "inventory": [
+          "PubmedArticle/MedlineCitation/Article/Abstract/AbstractText",
+          "PubmedArticle/MedlineCitation/Article/Abstract/CopyrightInformation",
+          "PubmedArticle/MedlineCitation/Article/ArticleTitle",
+          "PubmedArticle/MedlineCitation/Article/AuthorList/Author",
+          "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate",
+          "PubmedArticle/MedlineCitation/Article/Journal/Title",
+          "PubmedArticle/MedlineCitation/Article/Language",
+          "PubmedArticle/MedlineCitation/Article/PublicationTypeList/PublicationType",
+          "PubmedArticle/MedlineCitation/KeywordList/Keyword",
+          "PubmedArticle/MedlineCitation/MeshHeadingList/MeshHeading/DescriptorName",
+          "PubmedArticle/MedlineCitation/PMID",
+          "PubmedArticle/PubmedData/ArticleIdList/ArticleId",
+          "PubmedArticle/PubmedData/History/PubMedPubDate"
+        ],
+        "permitted_paths": [
+          "PubmedArticle/MedlineCitation/Article/Abstract/AbstractText",
+          "PubmedArticle/MedlineCitation/Article/Abstract/CopyrightInformation",
+          "PubmedArticle/MedlineCitation/Article/ArticleTitle",
+          "PubmedArticle/MedlineCitation/Article/AuthorList/Author",
+          "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate",
+          "PubmedArticle/MedlineCitation/Article/Journal/Title",
+          "PubmedArticle/MedlineCitation/Article/Language",
+          "PubmedArticle/MedlineCitation/Article/PublicationTypeList/PublicationType",
+          "PubmedArticle/MedlineCitation/KeywordList/Keyword",
+          "PubmedArticle/MedlineCitation/MeshHeadingList/MeshHeading/DescriptorName",
+          "PubmedArticle/MedlineCitation/PMID",
+          "PubmedArticle/PubmedData/ArticleIdList/ArticleId",
+          "PubmedArticle/PubmedData/History/PubMedPubDate"
+        ],
+        "required_paths": [
+          "PubmedArticle/MedlineCitation/PMID",
+          "PubmedArticle/MedlineCitation/Article/ArticleTitle"
+        ],
+        "source_sha256": "fdb52e28ef0f91ed6bd8bf7df449b8137a863f5b249c516e78c161d535201244"
+      }
+    },
+    {
+      "source_id": "pubmed-lyme-borrelia",
+      "decision_ref": "matthew-feed-selection-2026-10-03",
+      "registry_version": 1,
+      "source_sha256": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6",
+      "retention_policy_ref": "pubmed-lyme-borrelia-metadata-raw-30d-v1",
+      "raw_policy_ref": "intelligence-raw-30d-v1",
+      "artifact_policy": "PUBMED_METADATA_RAW_30D_V1",
+      "native_policy": {
+        "policy_ref": "pubmed-lyme-borrelia-native-metadata-v1",
+        "updated_path": null,
+        "updated_format": "iso8601",
+        "published_path": "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate",
+        "published_format": "iso8601",
+        "inventory": [
+          "PubmedArticle/MedlineCitation/Article/Abstract/AbstractText",
+          "PubmedArticle/MedlineCitation/Article/Abstract/CopyrightInformation",
+          "PubmedArticle/MedlineCitation/Article/ArticleTitle",
+          "PubmedArticle/MedlineCitation/Article/AuthorList/Author",
+          "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate",
+          "PubmedArticle/MedlineCitation/Article/Journal/Title",
+          "PubmedArticle/MedlineCitation/Article/Language",
+          "PubmedArticle/MedlineCitation/Article/PublicationTypeList/PublicationType",
+          "PubmedArticle/MedlineCitation/KeywordList/Keyword",
+          "PubmedArticle/MedlineCitation/MeshHeadingList/MeshHeading/DescriptorName",
+          "PubmedArticle/MedlineCitation/PMID",
+          "PubmedArticle/PubmedData/ArticleIdList/ArticleId",
+          "PubmedArticle/PubmedData/History/PubMedPubDate"
+        ],
+        "permitted_paths": [
+          "PubmedArticle/MedlineCitation/Article/Abstract/AbstractText",
+          "PubmedArticle/MedlineCitation/Article/Abstract/CopyrightInformation",
+          "PubmedArticle/MedlineCitation/Article/ArticleTitle",
+          "PubmedArticle/MedlineCitation/Article/AuthorList/Author",
+          "PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate",
+          "PubmedArticle/MedlineCitation/Article/Journal/Title",
+          "PubmedArticle/MedlineCitation/Article/Language",
+          "PubmedArticle/MedlineCitation/Article/PublicationTypeList/PublicationType",
+          "PubmedArticle/MedlineCitation/KeywordList/Keyword",
+          "PubmedArticle/MedlineCitation/MeshHeadingList/MeshHeading/DescriptorName",
+          "PubmedArticle/MedlineCitation/PMID",
+          "PubmedArticle/PubmedData/ArticleIdList/ArticleId",
+          "PubmedArticle/PubmedData/History/PubMedPubDate"
+        ],
+        "required_paths": [
+          "PubmedArticle/MedlineCitation/PMID",
+          "PubmedArticle/MedlineCitation/Article/ArticleTitle"
+        ],
+        "source_sha256": "24994263e2325becad567953b78d16bab9c023ccd5099d0d785fc87d285551a6"
+      }
+    }
+  ]
+}

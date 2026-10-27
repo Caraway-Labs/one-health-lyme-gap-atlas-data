@@ -21,9 +21,10 @@ from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[impor
 IDENTITY_VERSION = "intelligence-identity-v1"
 # Scalar fields, then the contract 2.0.0 objects, that enter content_sha256 and
 # revision_id. Add a stored field to this tuple only. Description and categories
-# (NewsFeed richer-data plan R2) land inside publisher_metadata, which this hash
-# already covers whole for contract 2.0.0. native_metadata is the filtered item
-# subset, not the raw feed tree.
+# (NewsFeed richer-data plan R2) land inside publisher_metadata. That object is
+# hashed for contract 2.0.0 except publisher_metadata.matched_queries, which only
+# names the PubMed searches that found the article. native_metadata is the
+# filtered item subset, not the raw feed tree.
 REVISION_CONTENT_FIELDS = (
     "title",
     "excerpt",
@@ -218,7 +219,14 @@ def revision_content(item: dict[str, Any]) -> dict[str, Any]:
             continue
         if field == "publisher_metadata":
             if contract_2:
-                content[field] = item[field]
+                publisher = item[field]
+                # Strip only this key, and only when it is present, so an RSS
+                # document with no matched_queries keeps a byte-identical hash.
+                if isinstance(publisher, dict) and "matched_queries" in publisher:
+                    publisher = {
+                        key: value for key, value in publisher.items() if key != "matched_queries"
+                    }
+                content[field] = publisher
             continue
         if field == "native_metadata":
             if contract_2:
@@ -251,7 +259,13 @@ def normalize_item(
     topics: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Project permitted publisher metadata without inventing dates or relevance."""
-    if source["transport"] != transport or transport not in {"rss", "atom", "email", "web"}:
+    if source["transport"] != transport or transport not in {
+        "rss",
+        "atom",
+        "email",
+        "web",
+        "entrez",
+    }:
         raise ValueError("TRANSPORT_SOURCE_MISMATCH")
     fields: dict[str, str | None] = {}
     states: dict[str, str] = {}

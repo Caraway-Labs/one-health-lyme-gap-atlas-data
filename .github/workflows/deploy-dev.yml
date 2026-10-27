@@ -54,6 +54,8 @@ on:
           - cdc-outbreaks
           - nih-news-releases
           - cdc-mmwr
+          - pubmed-tick-borne
+          - pubmed-lyme-borrelia
       intelligence_register_registry_version:
         description: Exact reviewed immutable source version for bounded DEV registration
         required: false
@@ -183,7 +185,7 @@ jobs:
             test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
             test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
             test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
-            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
             # Secrets stay process-local. The shared connector expects full PEM
             # encoded as base64; workflow secrets contain the encrypted PEM body.
@@ -258,11 +260,11 @@ jobs:
             test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
             test "$SNOWFLAKE_DATABASE" = ONE_HEALTH_LYME_GAP_ATLAS_DEV
             test "$SNOWFLAKE_WAREHOUSE" = OH_LYME_DEV_INGEST_XS_WH
-            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" \
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" \
               --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
             case "$INTELLIGENCE_REGISTER_SOURCE_ID" in
-              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr) ;;
+              cdc-eid-expedited|cdc-eid-ahead-of-print|cdc-outbreaks|nih-news-releases|cdc-mmwr|pubmed-tick-borne|pubmed-lyme-borrelia) ;;
               *) echo "Unsupported intelligence registration source" >&2; exit 1 ;;
             esac
             case "$INTELLIGENCE_REGISTER_REGISTRY_VERSION" in
@@ -345,7 +347,7 @@ jobs:
             [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
             test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
             test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
-            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
             test "$SNOWFLAKE_USER" = OH_LYME_DEV_MIGRATION_DEPLOY_SVC
             test "$SNOWFLAKE_ROLE" = OH_LYME_DEV_MIGRATION_DEPLOYER
@@ -478,7 +480,7 @@ jobs:
             [[ "$REVIEWED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
             test "$GITHUB_SHA" = "$REVIEWED_COMMIT"
             test "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT"
-            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
             # The script validates identity inside its bounded connection. Do not
             # run an unbounded CLI identity query before the process deadline.
@@ -512,7 +514,7 @@ jobs:
             test -z "$DIAGNOSE_QUERY_ID"
             test -z "$JANUARY_DIAGNOSTIC_BUDGET_EVIDENCE"
             test "$FEED_PREFLIGHT_ACCOUNTING_CONFIRMED" != "true"
-            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
+            passed_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVIEWED_COMMIT/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "checks" and .conclusion == "success")] | length')"
             test "$passed_checks" -gt 0
             SNOWFLAKE_AUTH_METHOD=key_pair \
             SNOWFLAKE_PRIVATE_KEY_B64="$(base64 --wrap=0 "$key_file")" \
