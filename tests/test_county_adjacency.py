@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -301,6 +302,11 @@ def test_v177_is_the_next_free_migration_for_both_databases() -> None:
     assert pinned["version"] not in HELD_BACK_DEV_MIGRATION_VERSIONS
     assert pinned in migration_plan(DEV_DATABASE)
     assert pinned in migration_plan(PROD_DATABASE)
+    allow_list = json.dumps([pinned], separators=(",", ":"))
+    workflow = (ROOT / ".github/workflows/promote-prod.yml").read_text(encoding="utf-8")
+    guard = (ROOT / "tests/test_ci_guard.py").read_text(encoding="utf-8")
+    assert workflow.count(allow_list) == 1
+    assert allow_list in guard
     sql = migration.source.upper()
     for banned in ("GEOGRAPHY", "GEOMETRY", "GEOJSON", "QUERY_TEXT", "ERROR_MESSAGE"):
         assert banned not in sql
