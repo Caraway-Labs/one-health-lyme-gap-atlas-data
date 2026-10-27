@@ -15,7 +15,10 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
-from .ingestion.intelligence_entrez import verify_entrez_item
+from .ingestion.intelligence_entrez import (
+    select_existing_entrez_captures,
+    verify_entrez_item,
+)
 from .intelligence_daily_telemetry import guard_scope, warn_open_transaction
 from .intelligence_items import (
     IDENTITY_VERSION,
@@ -67,6 +70,7 @@ SAFE_PERMISSIONS = {
     "INTELLIGENCE_INFERENCE_REVIEW_REQUIRED",
     "INTELLIGENCE_NATIVE_RIGHTS_REQUIRED",
     "INTELLIGENCE_NATIVE_MAPPING_INVALID",
+    "INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_UNBOUNDED",
 }
 
 
@@ -236,6 +240,13 @@ class IntelligenceStore:
             if row is None:
                 raise PermissionError("INTELLIGENCE_CURRENT_SOURCE_REQUIRED")
             return self._source(cursor, source_id, int(row[0]))
+
+    @_redacted("INTELLIGENCE_PUBMED_CAPTURE_LOOKUP_FAILED")
+    def existing_entrez_captures(self, item_ids: tuple[str, ...]) -> list[tuple[str, str, str]]:
+        """One read-only SELECT for PubMed revisions already stored for these items."""
+        with self._session() as (_, cursor):
+            self._context(cursor)
+            return select_existing_entrez_captures(cursor, item_ids)
 
     @staticmethod
     def _validate(item: dict[str, Any], source: dict[str, Any], run_id: str) -> None:
