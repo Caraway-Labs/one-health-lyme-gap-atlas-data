@@ -24,6 +24,12 @@ DAILY_SCHEDULE = {"cron": "15 18 * * *", "time_zone": "America/Denver"}
 # Only the standing daily job runs on 1 GB (approved 2026-10-26, #862).
 # Every other job keeps the size it already has in the platform spec.
 DAILY_JOB_INSTANCE_SIZE_SLUG = "apps-s-1vcpu-1gb"
+# jobs[].timeout is a duration string. DigitalOcean's AppJobSpec says an unset
+# timeout defaults to 30 minutes and documents the example `1h30m`. A normal
+# daily pass is about 40 minutes; a first pass where every source hits its
+# watchdog is about 89 minutes. A stuck run can hold its claim until this
+# deadline. Termination is left at the platform default.
+DAILY_JOB_TIMEOUT = "1h30m"
 BASE = {
     "catalog-discovery",
     "approved-source-ingestion",
@@ -139,6 +145,7 @@ def render(spec: dict[str, Any], digest: str, phase: str) -> dict[str, Any]:
     else:
         new["schedule"] = dict(DAILY_SCHEDULE)
         new["instance_size_slug"] = DAILY_JOB_INSTANCE_SIZE_SLUG
+        new["timeout"] = DAILY_JOB_TIMEOUT
     removed = {CHECK} if phase == "preflight" else {CHECK, NAME}
     result["jobs"] = [j for j in result["jobs"] if j["name"] not in removed] + [new]
     assert [j for j in result["jobs"] if j["name"] in BASE] == [
@@ -212,6 +219,15 @@ def sync_daily_job_size(spec: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def sync_daily_job_timeout(spec: dict[str, Any]) -> dict[str, Any]:
+    """Set the reviewed timeout on the active daily job only. Other jobs are untouched."""
+    result = copy.deepcopy(spec)
+    for job in result.get("jobs", []):
+        if job.get("name") == NAME:
+            job["timeout"] = DAILY_JOB_TIMEOUT
+    return result
+
+
 def other_job_sizes(spec: dict[str, Any]) -> dict[str, Any]:
     """Map every job except the daily job to its size, to prove they never change."""
     return {
@@ -224,6 +240,43 @@ def other_job_sizes(spec: dict[str, Any]) -> dict[str, Any]:
 def daily_job_size(spec: dict[str, Any]) -> Any:
     job = next((j for j in spec.get("jobs", []) if j.get("name") == NAME), None)
     return (job or {}).get("instance_size_slug")
+
+
+def other_job_timeouts(spec: dict[str, Any]) -> dict[str, Any]:
+    """Map every job except the daily job to its timeout, to prove they never change."""
+    return {
+        job.get("name"): job.get("timeout")
+        for job in spec.get("jobs", [])
+        if isinstance(job, dict) and job.get("name") != NAME
+    }
+
+
+_DURATION_PART = re.compile(r"(\d+)([hms])")
+_DURATION_SECONDS = {"h": 3600, "m": 60, "s": 1}
+
+
+def duration_seconds(value: Any) -> int | None:
+    """Parse a DigitalOcean duration such as 1h30m or 5400s into seconds.
+
+    DigitalOcean stores the submitted 1h30m as 5400s, so equal durations must compare equal.
+    Returns None for anything that is not a plain h/m/s duration.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    parts = _DURATION_PART.findall(value)
+    if not parts or "".join(f"{n}{u}" for n, u in parts) != value:
+        return None
+    return sum(int(n) * _DURATION_SECONDS[u] for n, u in parts)
+
+
+def daily_job_timeout_matches(spec: dict[str, Any]) -> bool:
+    actual = duration_seconds(daily_job_timeout(spec))
+    return actual is not None and actual == duration_seconds(DAILY_JOB_TIMEOUT)
+
+
+def daily_job_timeout(spec: dict[str, Any]) -> Any:
+    job = next((j for j in spec.get("jobs", []) if j.get("name") == NAME), None)
+    return (job or {}).get("timeout")
 
 
 def otel_entries(spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -463,11 +516,15 @@ def refresh_operational_digests(spec: dict[str, Any], digest: str) -> dict[str, 
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_ACTIVE_JOB")
     if any(job.get("name") == CHECK for job in spec.get("jobs", [])):
         raise PermissionError("INTELLIGENCE_DAILY_REFRESH_REQUIRES_NO_PREFLIGHT_JOB")
-    aligned = sync_daily_job_command(
-        sync_daily_job_size(sync_daily_job_schedule(with_baseline_digests(spec, digest)))
+    aligned = sync_daily_job_timeout(
+        sync_daily_job_command(
+            sync_daily_job_size(sync_daily_job_schedule(with_baseline_digests(spec, digest)))
+        )
     )
     if other_job_sizes(aligned) != other_job_sizes(spec):
         raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
+    if other_job_timeouts(aligned) != other_job_timeouts(spec):
+        raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_TIMEOUT_CHANGED")
     daily = next(job for job in aligned.get("jobs", []) if job.get("name") == NAME)
     _apply_ncbi_placement(daily, keep_existing_email=True)
     place_daily_otel(daily, aligned)
@@ -790,6 +847,7 @@ def main() -> None:
         raise PermissionError("INTELLIGENCE_DAILY_COMPETING_DEPLOYMENT")
     if args.phase == "refresh-digest":
         sizes_before = other_job_sizes(app["spec"])
+        timeouts_before = other_job_timeouts(app["spec"])
         spec = refresh_operational_digests(app["spec"], args.image_digest)
         if spec != app["spec"]:
             align = platform_update(spec, update_sources=False)
@@ -806,6 +864,10 @@ def main() -> None:
             raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_SIZE_MISMATCH")
         if other_job_sizes(app["spec"]) != sizes_before:
             raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_SIZE_CHANGED")
+        if not daily_job_timeout_matches(app["spec"]):
+            raise PermissionError("INTELLIGENCE_DAILY_POST_DEPLOY_TIMEOUT_MISMATCH")
+        if other_job_timeouts(app["spec"]) != timeouts_before:
+            raise PermissionError("INTELLIGENCE_DAILY_OTHER_JOB_TIMEOUT_CHANGED")
         print(
             json.dumps(
                 {
@@ -814,6 +876,7 @@ def main() -> None:
                     "deployment_id": app["active_deployment"]["id"],
                     "operational_jobs_aligned": True,
                     "daily_instance_size_slug": DAILY_JOB_INSTANCE_SIZE_SLUG,
+                    "daily_job_timeout": DAILY_JOB_TIMEOUT,
                     "credential_provisioning": False,
                     **ncbi_presence(app["spec"]),
                 }
