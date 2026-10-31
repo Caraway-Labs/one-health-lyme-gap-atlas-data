@@ -1115,7 +1115,8 @@
                 "parser": {
                   "enum": [
                     "rfc822",
-                    "iso8601"
+                    "iso8601",
+                    "nih_drupal_wallclock"
                   ]
                 }
               },

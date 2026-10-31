@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo, available_timezones
 
 from .intelligence_items import (
     TOKEN,
@@ -25,6 +27,11 @@ ATOM = "{http://www.w3.org/2005/Atom}"
 XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 MEDIA = "{http://search.yahoo.com/mrss/}"
 ENTRY_TAGS = frozenset({"item", ATOM + "entry"})
+NIH_PUBLISHED_TIMEZONE = "America/New_York"
+_NIH_WALLCLOCK = re.compile(
+    r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2})/(\d{2})/(\d{4}) - (\d{2}):(\d{2})$"
+)
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 @dataclass(frozen=True)
@@ -43,12 +50,13 @@ class NativeMetadataPolicy:
     permitted_paths: frozenset[str]
     published_path: str
     published_format: str
+    published_timezone: str | None = None
     updated_path: str | None = None
     updated_format: str = "iso8601"
     required_paths: frozenset[str] = frozenset()
 
     def document(self) -> dict[str, Any]:
-        return {
+        document = {
             "policy_ref": self.policy_ref,
             "source_sha256": self.source_sha256,
             "inventory": sorted(self.inventory),
@@ -59,6 +67,10 @@ class NativeMetadataPolicy:
             "updated_format": self.updated_format,
             "required_paths": sorted(self.required_paths),
         }
+        # Absent on RFC 822 and ISO 8601 so those receipt hashes stay stable.
+        if self.published_timezone is not None:
+            document["published_timezone"] = self.published_timezone
+        return document
 
     def validate(self, source: dict[str, Any]) -> None:
         if (
@@ -68,7 +80,7 @@ class NativeMetadataPolicy:
             or not self.inventory
             or not self.permitted_paths <= self.inventory
             or not self.required_paths <= self.inventory
-            or self.published_format not in {"rfc822", "iso8601"}
+            or not _published_settings_valid(self, source)
             or self.updated_format not in {"rfc822", "iso8601"}
             or self.published_path not in self.inventory
             or (self.updated_path is not None and self.updated_path not in self.inventory)
@@ -169,15 +181,95 @@ def _scalar(fields: dict[str, list[str | None]], path: str | None) -> str | None
     return values[0] if values else None
 
 
+def _iana_timezone(name: str | None) -> bool:
+    return isinstance(name, str) and name in available_timezones()
+
+
+def _published_settings_valid(policy: NativeMetadataPolicy, source: dict[str, Any]) -> bool:
+    """The NIH wall-clock dialect is source-scoped and carries its own zone."""
+    if policy.published_format == "nih_drupal_wallclock":
+        return (
+            source.get("source_id") == "nih-news-releases"
+            and policy.published_timezone == NIH_PUBLISHED_TIMEZONE
+            and _iana_timezone(policy.published_timezone)
+        )
+    if policy.published_format not in {"rfc822", "iso8601"}:
+        return False
+    return policy.published_timezone is None
+
+
+def prod_native_published_format_allowed(source_id: str, policy: NativeMetadataPolicy) -> bool:
+    """PROD still requires RFC 822, except the reviewed NIH Eastern dialect."""
+    if policy.published_format == "rfc822":
+        return policy.published_timezone is None
+    return (
+        source_id == "nih-news-releases"
+        and policy.published_format == "nih_drupal_wallclock"
+        and policy.published_timezone == NIH_PUBLISHED_TIMEZONE
+        and _iana_timezone(policy.published_timezone)
+    )
+
+
+def parse_nih_drupal_wallclock(value: str, timezone_name: str | None) -> str | None:
+    """Convert one NIH Drupal wall clock to canonical UTC, or None when it is not unique.
+
+    Whitespace is stripped before a full match. The weekday must be the weekday of
+    the calendar date. Ambiguous and non-existent local times are rejected by
+    requiring exactly one fold to round-trip through UTC.
+    """
+    if not isinstance(timezone_name, str) or timezone_name not in available_timezones():
+        return None
+    match = _NIH_WALLCLOCK.fullmatch(value.strip())
+    if match is None:
+        return None
+    weekday, month_text, day_text, year_text, hour_text, minute_text = match.groups()
+    try:
+        naive = datetime(
+            int(year_text), int(month_text), int(day_text), int(hour_text), int(minute_text)
+        )
+    except ValueError:
+        return None
+    if _WEEKDAYS[naive.weekday()] != weekday:
+        return None
+    zone = ZoneInfo(timezone_name)
+    resolved: datetime | None = None
+    for fold in (0, 1):
+        local = naive.replace(tzinfo=zone, fold=fold)
+        utc = local.astimezone(UTC)
+        back = utc.astimezone(zone)
+        if (
+            back.fold == fold
+            and back.year == naive.year
+            and back.month == naive.month
+            and back.day == naive.day
+            and back.hour == naive.hour
+            and back.minute == naive.minute
+            and back.second == naive.second
+        ):
+            if resolved is not None:
+                return None
+            resolved = utc
+    if resolved is None:
+        return None
+    return resolved.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _normalize_publisher_date(raw: str, dialect: str, policy: NativeMetadataPolicy) -> str | None:
+    if dialect == "nih_drupal_wallclock":
+        return parse_nih_drupal_wallclock(raw, policy.published_timezone)
+    # intelligence_feed imports this module at load time.
+    from .ingestion.intelligence_feed import _publisher_date
+
+    return _publisher_date(raw.strip(), rss=dialect == "rfc822")
+
+
 def _date(
     raw: str | None, dialect: str, path: str | None, policy: NativeMetadataPolicy
 ) -> dict[str, Any]:
-    from .ingestion.intelligence_feed import _publisher_date
-
     normalized = None
     state = "not_provided"
     if raw is not None and raw.strip():
-        candidate = _publisher_date(raw.strip(), rss=dialect == "rfc822")
+        candidate = _normalize_publisher_date(raw, dialect, policy)
         try:
             normalized = canonical_timestamp(candidate) if candidate else None
             state = "present" if normalized else "invalid"

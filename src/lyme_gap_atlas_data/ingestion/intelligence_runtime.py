@@ -29,7 +29,7 @@ from ..intelligence_activations import (
 )
 from ..intelligence_daily_telemetry import instrumented_execute
 from ..intelligence_items import identity_hash
-from ..intelligence_metadata import NativeMetadataPolicy
+from ..intelligence_metadata import NativeMetadataPolicy, prod_native_published_format_allowed
 from ..intelligence_raw_runtime import FeedRawRetention, SnowflakeRawLedger
 from ..intelligence_retention import PROD_METADATA_FEED_IDS
 from ..intelligence_topics import (
@@ -693,7 +693,7 @@ def compose_pilot(
         or not native.permitted_paths <= PROD_NATIVE_PATH_SUPERSET
         or native.updated_path is not None
         or native.published_path != "item/pubDate"
-        or native.published_format != "rfc822"
+        or not prod_native_published_format_allowed(definition.source_id, native)
     ):
         raise PermissionError("INTELLIGENCE_PROD_NATIVE_POLICY_REQUIRED")
     budget = budget or PilotBudget()
