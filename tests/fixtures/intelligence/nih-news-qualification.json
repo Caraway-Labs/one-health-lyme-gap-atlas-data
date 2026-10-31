@@ -1,0 +1,42 @@
+{
+  "evidence": {
+    "source_id": "nih-news-releases",
+    "endpoint": "https://www.nih.gov/news-releases/feed.xml",
+    "captured_at": "2026-10-11T06:20:00.307282Z",
+    "status": 200,
+    "content_type": "application/rss+xml; charset=utf-8",
+    "transport_bytes": 7670,
+    "transport_sha256": "a96c787bfc4b92b8cb583a98fc228847244639d2b6573d6a8ce4bf12e2658642",
+    "item_count": 10,
+    "sample_count": 2,
+    "mode": "canonical_metadata_fixture_only",
+    "raw_transport_retained": false,
+    "descriptions_retained": false,
+    "article_requests": 0,
+    "maximum_attempts": 1,
+    "maximum_redirects": 0,
+    "user_agent": "python-requests/2.34.2"
+  },
+  "samples": [
+    {
+      "publisher_fields": {
+        "title": "Deep learning model using ECGs during sleep studies can predict cardiovascular outcomes",
+        "link": "https://www.nih.gov/news-events/news-releases/deep-learning-model-using-ecgs-during-sleep-studies-can-predict-cardiovascular-outcomes",
+        "pubDate": "Fri, 10/09/2026 - 09:30\n",
+        "guid": "https://www.nih.gov/news-events/news-releases/deep-learning-model-using-ecgs-during-sleep-studies-can-predict-cardiovascular-outcomes"
+      },
+      "expected_published_at": null,
+      "expected_published_at_state": "invalid"
+    },
+    {
+      "publisher_fields": {
+        "title": "NIH announces record number of grants to support early career investigators, launches new recruitment initiative for intramural research ",
+        "link": "https://www.nih.gov/news-events/news-releases/nih-announces-record-number-grants-support-early-career-investigators-launches-new-recruitment-initiative-intramural-research",
+        "pubDate": "Thu, 10/08/2026 - 12:00\n",
+        "guid": "https://www.nih.gov/news-events/news-releases/nih-announces-record-number-grants-support-early-career-investigators-launches-new-recruitment-initiative-intramural-research"
+      },
+      "expected_published_at": null,
+      "expected_published_at_state": "invalid"
+    }
+  ]
+}
