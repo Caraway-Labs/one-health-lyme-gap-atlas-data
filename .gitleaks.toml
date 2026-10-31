@@ -42,6 +42,7 @@ paths = [
   '''^migrations/V086__prod_routine_public_semantic_source_admission\.sql$''',
   '''^migrations/V139__bounded_nlcd_source_admission\.sql$''',
   '''^migrations/V151__prod_january_climate_source_admission\.sql$''',
+  '''^migrations/V179__prod_county_adjacency_source_admission\.sql$''',
 ]
 regexTarget = "secret"
 regexes = ['''^cdc_lyme_qtbi_xd4i$''']
@@ -54,6 +55,7 @@ paths = [
   '''^src/lyme_gap_atlas_data/ingestion/source_definition\.py$''',
   '''^src/lyme_gap_atlas_data/source_evidence\.py$''',
   '''^src/lyme_gap_atlas_data/county_adjacency\.py$''',
+  '''^migrations/V179__prod_county_adjacency_source_admission\.sql$''',
 ]
 regexTarget = "secret"
 regexes = ['''^census_county_adjacency_2025$''']
@@ -202,3 +204,10 @@ regexTarget = "secret"
 regexes = [
   '''^eyJrIjoiMjljNzRkMTYtZWY4Ni00YzVlLTgyNDgtMjQ4NzFjOWVkNDY4IiwidCI6IjljZTcwODY5LTYwZGItNDRmZC1hYmU4LWQyNzY3MDc3ZmM4ZiJ9$''',
 ]
+
+[[allowlists]]
+description = "Public Census county adjacency dataset identifier in the reviewed admission migration, not an authentication secret"
+condition = "AND"
+paths = ['''^migrations/V179__prod_county_adjacency_source_admission\.sql$''']
+regexTarget = "secret"
+regexes = ['''^county-adjacency-2025$''']
